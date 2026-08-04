@@ -69,8 +69,8 @@ describe("Sandbox API security hardening", () => {
 
       expect(elapsedMs).toBeLessThan(500);
       expect(await result.stdout()).toBe("");
-      expect(await result.stderr()).toBe("");
-      expect([0, 124]).toContain(result.exitCode);
+      expect(await result.stderr()).toBe("bash: execution aborted\n");
+      expect(result.exitCode).toBe(124);
     });
 
     it("propagates AbortSignal in string+args runCommand form", async () => {
@@ -86,8 +86,8 @@ describe("Sandbox API security hardening", () => {
 
       expect(elapsedMs).toBeLessThan(500);
       expect(await result.stdout()).toBe("");
-      expect(await result.stderr()).toBe("");
-      expect([0, 124]).toContain(result.exitCode);
+      expect(await result.stderr()).toBe("bash: execution aborted\n");
+      expect(result.exitCode).toBe(124);
     });
 
     it("propagates AbortSignal in object runCommand form", async () => {
@@ -105,8 +105,8 @@ describe("Sandbox API security hardening", () => {
 
       expect(elapsedMs).toBeLessThan(500);
       expect(await result.stdout()).toBe("");
-      expect(await result.stderr()).toBe("");
-      expect([0, 124]).toContain(result.exitCode);
+      expect(await result.stderr()).toBe("bash: execution aborted\n");
+      expect(result.exitCode).toBe(124);
     });
   });
 });

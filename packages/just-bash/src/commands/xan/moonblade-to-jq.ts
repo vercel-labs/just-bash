@@ -5,9 +5,10 @@
  * to jq AST for evaluation by the shared query engine.
  */
 
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { AstNode } from "../query-engine/parser.js";
 import { nullPrototype } from "../query-engine/safe-object.js";
-import type { MoonbladeExpr } from "./moonblade-parser.js";
+import type { MoonbladeExpr, MoonbladeLimits } from "./moonblade-parser.js";
 
 /**
  * Helper to create pipe-based function call for single arg functions.
@@ -235,20 +236,18 @@ const FUNCTION_MAP: Record<string, string | ((args: AstNode[]) => AstNode)> = {
   coalesce: (args) => {
     if (args.length === 0) return { type: "Literal", value: null };
     if (args.length === 1) return args[0];
-    // Implement as: if (args[0] != null and args[0] != "") then args[0] else coalesce(rest)
-    const [first, ...rest] = args;
-    const condition = makeBinaryOp(
-      "and",
-      makeBinaryOp("!=", first, { type: "Literal", value: null }),
-      makeBinaryOp("!=", first, { type: "Literal", value: "" }),
-    );
-    return makeCond(
-      condition,
-      first,
-      rest.length === 1
-        ? rest[0]
-        : (FUNCTION_MAP.coalesce as (args: AstNode[]) => AstNode)(rest),
-    );
+    // Build right-to-left without recursive tail slicing.
+    let result = args[args.length - 1];
+    for (let i = args.length - 2; i >= 0; i--) {
+      const current = args[i];
+      const condition = makeBinaryOp(
+        "and",
+        makeBinaryOp("!=", current, { type: "Literal", value: null }),
+        makeBinaryOp("!=", current, { type: "Literal", value: "" }),
+      );
+      result = makeCond(condition, current, result);
+    }
+    return result;
   },
 
   // Index function for xan - access the _row_index field
@@ -323,7 +322,53 @@ function makePipeTostring(node: AstNode): AstNode {
 /**
  * Transform moonblade AST to jq AST
  */
-export function moonbladeToJq(expr: MoonbladeExpr, rowContext = true): AstNode {
+export function moonbladeToJq(
+  expr: MoonbladeExpr,
+  rowContext = true,
+  limits: MoonbladeLimits = {},
+): AstNode {
+  const budget = {
+    nodes: 0,
+    operations: 0,
+    maxNodes: limits.maxAstNodes ?? 100_000,
+    maxOperations: limits.maxOperations ?? 100_000,
+    maxDepth: limits.maxDepth ?? 100,
+  };
+  return convertMoonblade(expr, rowContext, budget, 0);
+}
+
+function convertMoonblade(
+  expr: MoonbladeExpr,
+  rowContext: boolean,
+  budget: {
+    nodes: number;
+    operations: number;
+    maxNodes: number;
+    maxOperations: number;
+    maxDepth: number;
+  },
+  depth: number,
+): AstNode {
+  if (depth >= budget.maxDepth) {
+    throw new ExecutionLimitError(
+      `xan: expression conversion depth limit exceeded (${budget.maxDepth})`,
+      "recursion",
+    );
+  }
+  if (++budget.nodes > budget.maxNodes) {
+    throw new ExecutionLimitError(
+      `xan: expression conversion AST limit exceeded (${budget.maxNodes})`,
+      "array_elements",
+    );
+  }
+  if (++budget.operations > budget.maxOperations) {
+    throw new ExecutionLimitError(
+      `xan: expression conversion operation limit exceeded (${budget.maxOperations})`,
+      "iterations",
+    );
+  }
+  const convert = (child: MoonbladeExpr): AstNode =>
+    convertMoonblade(child, rowContext, budget, depth + 1);
   switch (expr.type) {
     case "int":
     case "float":
@@ -359,7 +404,30 @@ export function moonbladeToJq(expr: MoonbladeExpr, rowContext = true): AstNode {
       return { type: "VarRef", name: expr.name };
 
     case "func": {
-      const args = expr.args.map((a) => moonbladeToJq(a.expr, rowContext));
+      if (expr.args.length > budget.maxNodes - budget.nodes) {
+        throw new ExecutionLimitError(
+          `xan: expression conversion AST limit exceeded (${budget.maxNodes})`,
+          "array_elements",
+        );
+      }
+      const args = expr.args.map((a) => convert(a.expr));
+      if (expr.name === "coalesce") {
+        const syntheticNodes = Math.max(0, args.length - 1) * 7;
+        if (syntheticNodes > budget.maxNodes - budget.nodes) {
+          throw new ExecutionLimitError(
+            `xan: expression conversion AST limit exceeded (${budget.maxNodes})`,
+            "array_elements",
+          );
+        }
+        budget.nodes += syntheticNodes;
+        budget.operations += args.length;
+        if (budget.operations > budget.maxOperations) {
+          throw new ExecutionLimitError(
+            `xan: expression conversion operation limit exceeded (${budget.maxOperations})`,
+            "iterations",
+          );
+        }
+      }
       // Use Object.hasOwn to prevent prototype pollution
       const handler = Object.hasOwn(FUNCTION_MAP, expr.name)
         ? FUNCTION_MAP[expr.name]
@@ -385,7 +453,7 @@ export function moonbladeToJq(expr: MoonbladeExpr, rowContext = true): AstNode {
         type: "Array",
         elements: expr.elements.reduce(
           (acc, el, i) => {
-            const node = moonbladeToJq(el, rowContext);
+            const node = convert(el);
             if (i === 0) return node;
             return { type: "Comma", left: acc, right: node };
           },
@@ -398,7 +466,7 @@ export function moonbladeToJq(expr: MoonbladeExpr, rowContext = true): AstNode {
         type: "Object",
         entries: expr.entries.map((e) => ({
           key: e.key,
-          value: moonbladeToJq(e.value, rowContext),
+          value: convert(e.value),
         })),
       };
 
@@ -410,14 +478,14 @@ export function moonbladeToJq(expr: MoonbladeExpr, rowContext = true): AstNode {
     case "slice":
       return {
         type: "Slice",
-        start: expr.start ? moonbladeToJq(expr.start, rowContext) : undefined,
-        end: expr.end ? moonbladeToJq(expr.end, rowContext) : undefined,
+        start: expr.start ? convert(expr.start) : undefined,
+        end: expr.end ? convert(expr.end) : undefined,
       };
 
     case "lambda":
       // Transform lambda to jq's "as" binding
       // For now, just transform the body
-      return moonbladeToJq(expr.body, rowContext);
+      return convert(expr.body);
 
     case "pipeline":
       // Multiple underscores - need special handling

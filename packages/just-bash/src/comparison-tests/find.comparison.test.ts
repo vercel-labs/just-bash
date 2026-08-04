@@ -238,4 +238,36 @@ describe("find command - Real Bash Comparison", () => {
       );
     });
   });
+
+  describe("action expression semantics", () => {
+    it("short-circuits actions in OR branches", async () => {
+      const env = await setupFiles(testDir, {
+        keep: "",
+        remove: "",
+        other: "",
+      });
+      await compareOutputs(
+        env,
+        testDir,
+        "find . -type f \\( -name keep -print -o -name remove -print \\) | sort",
+      );
+    });
+
+    it("reaches actions under NOT with native find semantics", async () => {
+      const env = await setupFiles(testDir, { file: "" });
+      await compareOutputs(env, testDir, "find . -type f ! -print");
+    });
+
+    it("matches nested descendants in path patterns", async () => {
+      const env = await setupFiles(testDir, {
+        "pulls/direct.json": "",
+        "pulls/nested/deep.json": "",
+      });
+      await compareOutputs(
+        env,
+        testDir,
+        "find . -type f -path '*/pulls/*.json' -print | sort",
+      );
+    });
+  });
 });

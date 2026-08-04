@@ -33,12 +33,27 @@ class BitWriter {
   private current = 0;
   private bitCount = 0;
 
+  constructor(private readonly maxOutputBytes = Number.MAX_SAFE_INTEGER) {
+    if (!Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 0) {
+      throw new Error("Invalid bzip2 output limit");
+    }
+  }
+
+  private pushByte(value: number): void {
+    if (this.buffer.length >= this.maxOutputBytes) {
+      throw new Error(
+        `bzip2 output exceeds limit (${this.maxOutputBytes} bytes)`,
+      );
+    }
+    this.buffer.push(value);
+  }
+
   writeBits(n: number, value: number): void {
     for (let i = n - 1; i >= 0; i--) {
       this.current = (this.current << 1) | ((value >>> i) & 1);
       this.bitCount++;
       if (this.bitCount === 8) {
-        this.buffer.push(this.current);
+        this.pushByte(this.current);
         this.current = 0;
         this.bitCount = 0;
       }
@@ -49,7 +64,7 @@ class BitWriter {
     this.current = (this.current << 1) | (value & 1);
     this.bitCount++;
     if (this.bitCount === 8) {
-      this.buffer.push(this.current);
+      this.pushByte(this.current);
       this.current = 0;
       this.bitCount = 0;
     }
@@ -57,7 +72,7 @@ class BitWriter {
 
   finish(): Uint8Array {
     if (this.bitCount > 0) {
-      this.buffer.push(this.current << (8 - this.bitCount));
+      this.pushByte(this.current << (8 - this.bitCount));
     }
     return new Uint8Array(this.buffer);
   }
@@ -701,12 +716,14 @@ const DEFAULT_MAX_COMPRESS_SIZE = 10 * 1024 * 1024;
  * @param data - Input data to compress
  * @param blockSizeLevel - Block size level 1-9 (x 100KB), default 9
  * @param maxSize - Maximum input size in bytes (default 10MB)
+ * @param maxOutputSize - Maximum compressed bytes, enforced while writing
  * @returns Compressed bzip2 data
  */
 export function bzip2Compress(
   data: Uint8Array,
   blockSizeLevel: number = 9,
   maxSize: number = DEFAULT_MAX_COMPRESS_SIZE,
+  maxOutputSize: number = Number.MAX_SAFE_INTEGER,
 ): Uint8Array {
   if (blockSizeLevel < 1 || blockSizeLevel > 9) {
     throw new Error("Block size level must be 1-9");
@@ -718,7 +735,7 @@ export function bzip2Compress(
   }
 
   const blockSize = blockSizeLevel * 100000;
-  const writer = new BitWriter();
+  const writer = new BitWriter(maxOutputSize);
 
   // Stream header
   writer.writeBits(8, 0x42); // 'B'

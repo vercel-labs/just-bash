@@ -63,6 +63,15 @@ describe("xan explode", () => {
 });
 
 describe("xan implode", () => {
+  it("does not merge distinct NUL-containing key tuples", async () => {
+    const bash = new Bash({
+      files: { "/data.csv": "a,b,tag\nx\u0000y,z,one\nx,y\u0000z,two\n" },
+    });
+    const result = await bash.exec("xan implode tag /data.csv");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.split("\n").filter(Boolean)).toHaveLength(3);
+  });
+
   it("combines consecutive rows with same key", async () => {
     const bash = new Bash({
       files: { "/data.csv": "id,tag\n1,a\n1,b\n1,c\n2,x\n2,y\n" },
@@ -102,6 +111,17 @@ describe("xan implode", () => {
 });
 
 describe("xan pivot", () => {
+  it("rejects pivot values that collide with group-column headers", async () => {
+    const bash = new Bash({
+      files: { "/data.csv": "region,key,value\nwest,region,1\n" },
+    });
+    const result = await bash.exec(
+      "xan pivot key 'sum(value)' -g region /data.csv",
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("duplicate output header 'region'");
+  });
+
   it("pivots data with count aggregation", async () => {
     const bash = new Bash({
       files: {

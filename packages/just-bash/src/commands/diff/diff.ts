@@ -4,7 +4,11 @@
 
 import * as Diff from "diff";
 import { decodeBytesToUtf8 } from "../../encoding.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
@@ -32,10 +36,13 @@ const argDefs = {
   ignoreCase: { short: "i", long: "ignore-case", type: "boolean" as const },
 };
 
-export const diffCommand: Command = {
+export const diffCommand: RuntimeCommand = {
   name: "diff",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) return showHelp(diffHelp);
 
     const parsed = parseArgs("diff", args, argDefs);

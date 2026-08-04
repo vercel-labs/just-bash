@@ -63,3 +63,20 @@ describe("rg -j/--threads compatibility flag", () => {
     expect(DEFAULT_MAX_DEPTH).toBeGreaterThan(0);
   });
 });
+
+describe("rg --max-depth validation", () => {
+  for (const value of ["nope", "-1", "1.5", "9007199254740992"]) {
+    it(`rejects ${value}`, () => {
+      const result = parseArgs(["--max-depth", value, "pattern"]);
+      expect("error" in result).toBe(true);
+      if ("error" in result) {
+        expect(result.error.stderr).toContain("invalid --max-depth value");
+      }
+    });
+  }
+
+  it("accepts zero as a finite nonnegative depth", () => {
+    const result = expectOk(parseArgs(["--max-depth=0", "pattern"]));
+    expect(result.options.maxDepth).toBe(0);
+  });
+});

@@ -5,6 +5,7 @@
  * These utilities prevent malicious JSON from accessing or modifying
  * the JavaScript prototype chain via keys like "__proto__", "constructor", etc.
  */
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 
 /**
  * Keys that could be used to access or pollute the prototype chain.
@@ -165,40 +166,115 @@ export function safeHasOwn(obj: object, key: string): boolean {
  * All keys (including __proto__, constructor) are preserved as own properties —
  * the defense is null-prototype, not key filtering.
  */
-export function sanitizeParsedData(value: unknown): unknown {
+export interface SanitizeParsedDataLimits {
+  maxDepth?: number;
+  maxElements?: number;
+  /** Optional shared counter for aggregate accounting across documents. */
+  elementBudget?: { used: number };
+}
+
+export function sanitizeParsedData(
+  value: unknown,
+  limits: SanitizeParsedDataLimits = {},
+): unknown {
+  const maxDepth = limits.maxDepth ?? 2000;
+  const maxElements = limits.maxElements ?? 1_000_000;
   const seen = new WeakMap<object, unknown>();
+  const elementBudget = limits.elementBudget ?? { used: 0 };
+  if (
+    !Number.isSafeInteger(elementBudget.used) ||
+    elementBudget.used < 0 ||
+    elementBudget.used > maxElements
+  ) {
+    throw new ExecutionLimitError(
+      `query input element limit exceeded (${maxElements})`,
+      "array_elements",
+    );
+  }
 
-  const sanitize = (current: unknown): unknown => {
+  const assertElement = (): void => {
+    if (++elementBudget.used > maxElements) {
+      throw new ExecutionLimitError(
+        `query input element limit exceeded (${maxElements})`,
+        "array_elements",
+      );
+    }
+  };
+
+  const createValue = (
+    current: unknown,
+    depth: number,
+    pending: Array<{
+      source: object;
+      target: unknown[] | Record<string, unknown>;
+      depth: number;
+    }>,
+  ): unknown => {
     if (current === null || typeof current !== "object") return current;
-
-    // Preserve Date objects (e.g. TOML datetimes) — they have no own keys
-    // and destroying them would break datetime roundtripping.
     if (current instanceof Date) return current;
 
     const cached = seen.get(current);
-    if (cached !== undefined) {
-      return cached;
+    if (cached !== undefined) return cached;
+    if (depth > maxDepth) {
+      throw new ExecutionLimitError(
+        `query depth limit exceeded (${maxDepth})`,
+        "recursion",
+      );
     }
 
-    if (Array.isArray(current)) {
-      const sanitizedArray: unknown[] = [];
-      seen.set(current, sanitizedArray);
-      for (const item of current) {
-        sanitizedArray.push(sanitize(item));
-      }
-      return sanitizedArray;
-    }
-
-    const result: Record<string, unknown> = Object.create(null);
-    seen.set(current, result);
-    // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
-    for (const key of Object.keys(current as Record<string, unknown>)) {
-      result[key] = sanitize((current as Record<string, unknown>)[key]);
-    }
-    return result;
+    const target: unknown[] | Record<string, unknown> = Array.isArray(current)
+      ? []
+      : Object.create(null);
+    seen.set(current, target);
+    pending.push({ source: current, target, depth });
+    return target;
   };
 
-  return sanitize(value);
+  const pending: Array<{
+    source: object;
+    target: unknown[] | Record<string, unknown>;
+    depth: number;
+  }> = [];
+  const root = createValue(value, 0, pending);
+
+  while (pending.length > 0) {
+    const entry = pending.pop();
+    if (!entry) break;
+    const { source, target, depth } = entry;
+    if (Array.isArray(source) && Array.isArray(target)) {
+      if (source.length > maxElements - elementBudget.used) {
+        throw new ExecutionLimitError(
+          `query input element limit exceeded (${maxElements})`,
+          "array_elements",
+        );
+      }
+      target.length = source.length;
+      for (let index = source.length - 1; index >= 0; index--) {
+        assertElement();
+        target[index] = createValue(source[index], depth + 1, pending);
+      }
+      continue;
+    }
+
+    const sourceRecord = source as Record<string, unknown>;
+    const targetRecord = target as Record<string, unknown>;
+    const keys = Object.keys(sourceRecord);
+    if (keys.length > maxElements - elementBudget.used) {
+      throw new ExecutionLimitError(
+        `query input element limit exceeded (${maxElements})`,
+        "array_elements",
+      );
+    }
+    // Assign in source order so JSON/object insertion order is preserved. The
+    // child frames may be processed LIFO without changing key order.
+    for (let index = 0; index < keys.length; index++) {
+      assertElement();
+      const key = keys[index];
+      targetRecord[key] = createValue(sourceRecord[key], depth + 1, pending);
+    }
+  }
+
+  return root;
 }
 
 /**

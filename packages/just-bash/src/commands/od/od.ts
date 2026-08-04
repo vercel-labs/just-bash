@@ -7,14 +7,21 @@
  * of FILE to standard output.
  */
 
+import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { latin1FromBytes, readBytesFrom } from "../../encoding.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 
 type OutputFormat = "octal" | "hex" | "char";
 
 async function odExecute(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   // Parse options
   let addressMode: "octal" | "none" = "octal";
@@ -47,21 +54,27 @@ async function odExecute(
     outputFormats.push("octal");
   }
 
-  // Get input - from file or stdin. od is byte-oriented: dump the raw byte
-  // buffer character-by-character, where each char is one byte.
-  let input: string = latin1FromBytes(ctx.stdin);
-
-  // Check for file argument
-  if (fileArgs.length > 0 && fileArgs[0] !== "-") {
-    const filePath = fileArgs[0].startsWith("/")
-      ? fileArgs[0]
-      : `${ctx.cwd}/${fileArgs[0]}`;
+  // Concatenate every operand in order. A `-` operand contributes stdin at
+  // that exact position; with no operands stdin is the sole input.
+  const input = new BoundedStringBuilder(ctx.limits.maxInputBytes, "od input");
+  const operands = fileArgs.length === 0 ? ["-"] : fileArgs;
+  for (const operand of operands) {
+    if (operand === "-") {
+      input.append(latin1FromBytes(ctx.stdin));
+      continue;
+    }
+    const filePath = operand.startsWith("/")
+      ? operand
+      : `${ctx.cwd}/${operand}`;
     try {
-      input = latin1FromBytes(await readBytesFrom(ctx.fs, filePath));
-    } catch {
+      const content = latin1FromBytes(await readBytesFrom(ctx.fs, filePath));
+      ctx.executionScope?.consumeInput(content.length, "od");
+      input.append(content);
+    } catch (error) {
+      rethrowFatalExecutionError(error);
       return {
         stdout: "",
-        stderr: `od: ${fileArgs[0]}: No such file or directory\n`,
+        stderr: `od: ${operand}: No such file or directory\n`,
         exitCode: 1,
       };
     }
@@ -106,32 +119,52 @@ async function odExecute(
     return ` ${code.toString(8).padStart(3, "0")}`;
   }
 
-  // Get bytes from input
-  const bytes: number[] = [];
-  for (const char of input) {
-    bytes.push(char.charCodeAt(0));
-  }
+  const inputBytes = input.build();
 
   // Determine bytes per line (use 16 for hex/char compatibility)
   const bytesPerLine = 16;
 
   // Build output lines
-  const lines: string[] = [];
+  const output = new BoundedStringBuilder(
+    Math.min(ctx.limits.maxOutputSize, ctx.limits.maxStringLength),
+    "od",
+  );
+  const formatCount = outputFormats.length;
+  if (
+    formatCount > 0 &&
+    inputBytes.length > Math.floor(ctx.limits.maxLoopIterations / formatCount)
+  ) {
+    throw new ExecutionLimitError(
+      `od: format work limit exceeded (${ctx.limits.maxLoopIterations})`,
+      "iterations",
+    );
+  }
+  ctx.executionScope?.consumeWork(
+    inputBytes.length * formatCount,
+    "od formatting",
+  );
 
-  for (let offset = 0; offset < bytes.length; offset += bytesPerLine) {
-    const chunkBytes = bytes.slice(offset, offset + bytesPerLine);
-
+  for (let offset = 0; offset < inputBytes.length; offset += bytesPerLine) {
     // For each output format, generate a line
     for (let formatIdx = 0; formatIdx < outputFormats.length; formatIdx++) {
       const format = outputFormats[formatIdx];
       let formatted: string[];
 
       if (format === "char") {
-        formatted = chunkBytes.map(formatCharByte);
+        formatted = Array.from(
+          inputBytes.slice(offset, offset + bytesPerLine),
+          (char) => formatCharByte(char.charCodeAt(0)),
+        );
       } else if (format === "hex") {
-        formatted = chunkBytes.map(formatHexByte);
+        formatted = Array.from(
+          inputBytes.slice(offset, offset + bytesPerLine),
+          (char) => formatHexByte(char.charCodeAt(0)),
+        );
       } else {
-        formatted = chunkBytes.map(formatOctalByte);
+        formatted = Array.from(
+          inputBytes.slice(offset, offset + bytesPerLine),
+          (char) => formatOctalByte(char.charCodeAt(0)),
+        );
       }
 
       // Add address prefix only for the first format of each offset
@@ -144,23 +177,23 @@ async function odExecute(
       }
 
       // No separator needed - each field already includes leading spaces
-      lines.push(prefix + formatted.join(""));
+      output.append(prefix + formatted.join("")).append("\n");
     }
   }
 
   // Add final address
-  if (addressMode !== "none" && bytes.length > 0) {
-    lines.push(bytes.length.toString(8).padStart(7, "0"));
+  if (addressMode !== "none" && inputBytes.length > 0) {
+    output.append(inputBytes.length.toString(8).padStart(7, "0")).append("\n");
   }
 
   return {
-    stdout: lines.length > 0 ? `${lines.join("\n")}\n` : "",
+    stdout: output.build(),
     stderr: "",
     exitCode: 0,
   };
 }
 
-export const od: Command = {
+export const od: RuntimeCommand = {
   name: "od",
   execute: odExecute,
 };

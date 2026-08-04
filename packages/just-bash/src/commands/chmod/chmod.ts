@@ -1,4 +1,11 @@
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { BoundedStringBuilder } from "../../bounded-builder.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
+import { FileTraversalBudget, traverseFileTree } from "../../fs/traversal.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const chmodHelp = {
@@ -12,10 +19,13 @@ const chmodHelp = {
   ],
 };
 
-export const chmodCommand: Command = {
+export const chmodCommand: RuntimeCommand = {
   name: "chmod",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(chmodHelp);
     }
@@ -84,7 +94,10 @@ export const chmodCommand: Command = {
       }
     }
 
-    let stdout = "";
+    const output = new BoundedStringBuilder(
+      Math.min(ctx.limits.maxOutputSize, ctx.limits.maxStringLength),
+      "chmod",
+    );
     let stderr = "";
     let anyError = false;
 
@@ -102,74 +115,77 @@ export const chmodCommand: Command = {
 
         await ctx.fs.chmod(filePath, modeValue);
         if (verbose) {
-          stdout += `mode of '${file}' changed to ${modeValue.toString(8).padStart(4, "0")}\n`;
+          output.append(
+            `mode of '${file}' changed to ${modeValue.toString(8).padStart(4, "0")}\n`,
+          );
         }
 
         if (recursive) {
           // Check if directory
           const stat = await ctx.fs.stat(filePath);
           if (stat.isDirectory) {
-            const recursiveOutput = await chmodRecursive(
+            await chmodRecursive(
               ctx,
               filePath,
               isNumericMode ? numericMode : undefined,
               isNumericMode ? undefined : modeArg,
               verbose,
+              output,
             );
-            stdout += recursiveOutput;
           }
         }
-      } catch {
+      } catch (error) {
+        rethrowFatalExecutionError(error);
         stderr += `chmod: cannot access '${file}': No such file or directory\n`;
         anyError = true;
       }
     }
 
-    return { stdout, stderr, exitCode: anyError ? 1 : 0 };
+    return { stdout: output.build(), stderr, exitCode: anyError ? 1 : 0 };
   },
 };
 
 async function chmodRecursive(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   dir: string,
   numericMode: number | undefined,
   symbolicMode: string | undefined,
   verbose: boolean,
-): Promise<string> {
-  let output = "";
-  const entries = await ctx.fs.readdir(dir);
-  for (const entry of entries) {
-    const fullPath = dir === "/" ? `/${entry}` : `${dir}/${entry}`;
-
-    // Calculate mode value
-    let modeValue: number;
-    if (numericMode !== undefined) {
-      modeValue = numericMode;
-    } else if (symbolicMode !== undefined) {
-      const stat = await ctx.fs.stat(fullPath);
-      modeValue = parseMode(symbolicMode, stat.mode);
-    } else {
-      // Should not happen, but fallback to 0644
-      modeValue = 0o644;
-    }
-
-    await ctx.fs.chmod(fullPath, modeValue);
-    if (verbose) {
-      output += `mode of '${fullPath}' changed to ${modeValue.toString(8).padStart(4, "0")}\n`;
-    }
-
-    const stat = await ctx.fs.stat(fullPath);
-    if (stat.isDirectory) {
-      output += await chmodRecursive(
-        ctx,
-        fullPath,
-        numericMode,
-        symbolicMode,
-        verbose,
-      );
-    }
-  }
-  return output;
+  output: BoundedStringBuilder,
+): Promise<void> {
+  const budget = new FileTraversalBudget({
+    limits: ctx.limits,
+    signal: ctx.signal,
+    executionScope: ctx.executionScope,
+    site: "chmod",
+  });
+  await traverseFileTree(
+    {
+      fs: ctx.fs,
+      root: dir,
+      symlinks: "never",
+      budget,
+      limits: ctx.limits,
+      signal: ctx.signal,
+      executionScope: ctx.executionScope,
+      site: "chmod",
+    },
+    async (entry) => {
+      if (entry.depth === 0 || entry.phase !== "enter") return;
+      const modeValue =
+        numericMode !== undefined
+          ? numericMode
+          : symbolicMode !== undefined
+            ? parseMode(symbolicMode, entry.stat.mode)
+            : 0o644;
+      await ctx.fs.chmod(entry.path, modeValue);
+      if (verbose) {
+        output.append(
+          `mode of '${entry.path}' changed to ${modeValue.toString(8).padStart(4, "0")}\n`,
+        );
+      }
+    },
+  );
 }
 
 /**
@@ -235,6 +251,9 @@ function parseMode(modeStr: string, currentMode = 0o644): number {
       } else if (op === "=") {
         // Clear the bits for this who, then set
         mode &= ~(0o7 << shift);
+        if (w === "u") mode &= ~0o4000;
+        if (w === "g") mode &= ~0o2000;
+        if (w === "o") mode &= ~0o1000;
         mode |= bits;
       }
     }
@@ -245,19 +264,16 @@ function parseMode(modeStr: string, currentMode = 0o644): number {
     } else if (op === "-") {
       mode &= ~specialBits;
     } else if (op === "=") {
-      // For =, clear and set the special bits if specified
+      // Associated special bits were cleared with each selected class above.
       if (perms.includes("s")) {
         if (who.includes("u")) {
-          mode &= ~0o4000;
           mode |= specialBits & 0o4000;
         }
         if (who.includes("g")) {
-          mode &= ~0o2000;
           mode |= specialBits & 0o2000;
         }
       }
       if (perms.includes("t")) {
-        mode &= ~0o1000;
         mode |= specialBits & 0o1000;
       }
     }

@@ -11,6 +11,8 @@
 import type { FunctionDefNode } from "./ast/types.js";
 // Eagerly import timers to capture references before defense-in-depth patches them
 import "./timers.js";
+import { combineAbortSignals } from "./abort-signals.js";
+import { utf8ByteLength } from "./commands/printf/escapes.js";
 import {
   type CommandName,
   createJavaScriptCommands,
@@ -24,6 +26,7 @@ import {
   isLazyCommand,
 } from "./custom-commands.js";
 import { encodeUtf8ToBytes, latin1FromBytes } from "./encoding.js";
+import { ExecutionScope } from "./execution-scope.js";
 import { InMemoryFs } from "./fs/in-memory-fs/in-memory-fs.js";
 import { initFilesystem } from "./fs/init.js";
 import type { IFileSystem, InitialFiles } from "./fs/interface.js";
@@ -40,6 +43,7 @@ import {
   ExitError,
   PosixFatalError,
 } from "./interpreter/errors.js";
+import { cloneArrays } from "./interpreter/helpers/array.js";
 import {
   buildBashopts,
   buildShellopts,
@@ -49,7 +53,11 @@ import {
   type InterpreterOptions,
   type InterpreterState,
 } from "./interpreter/index.js";
-import { type ExecutionLimits, resolveLimits } from "./limits.js";
+import {
+  type ExecutionLimitProfile,
+  type ExecutionLimits,
+  resolveLimits,
+} from "./limits.js";
 import {
   createSecureFetch,
   type NetworkConfig,
@@ -62,6 +70,7 @@ import {
   SecurityViolationError,
 } from "./security/defense-in-depth-box.js";
 import type { DefenseInDepthConfig } from "./security/types.js";
+import { assertSourceWithinLimit } from "./source-limit.js";
 import { serialize } from "./transform/serialize.js";
 import type {
   BashTransformResult,
@@ -75,7 +84,7 @@ import type {
   TraceCallback,
 } from "./types.js";
 
-export type { ExecutionLimits } from "./limits.js";
+export type { ExecutionLimitProfile, ExecutionLimits } from "./limits.js";
 
 /**
  * Logger interface for Bash execution logging.
@@ -121,6 +130,8 @@ export interface BashOptions {
    * See ExecutionLimits interface for available options.
    */
   executionLimits?: ExecutionLimits;
+  /** Named execution-limit preset. Defaults to compatibility-oriented `normal`. */
+  executionLimitProfile?: ExecutionLimitProfile;
   /**
    * @deprecated Use executionLimits.maxCallDepth instead
    */
@@ -211,8 +222,8 @@ export interface BashOptions {
    *
    * @example
    * ```ts
-   * // Simple enable
-   * const bash = new Bash({ defenseInDepth: true });
+   * // Capability-detect the strongest available protection.
+   * const bash = new Bash({ defenseInDepth: { enabled: "auto" } });
    *
    * // With custom configuration
    * const bash = new Bash({
@@ -223,6 +234,9 @@ export interface BashOptions {
    *   },
    * });
    * ```
+   * Node versions without context-aware ESM loader hooks retain the scoped
+   * best-effort controls and report the unavailable loader capability in
+   * DefenseInDepthStatus.
    */
   defenseInDepth?: DefenseInDepthConfig | boolean;
   /**
@@ -312,7 +326,29 @@ export class Bash {
   private state: InterpreterState;
 
   constructor(options: BashOptions = {}) {
-    const fs = options.fs ?? new InMemoryFs(options.files);
+    // Resolve limits before constructing the default filesystem so retained
+    // virtual storage follows the same host-selected policy as execution.
+    this.limits = resolveLimits(
+      {
+        ...options.executionLimits,
+        // Support deprecated individual options (they override executionLimits if set)
+        ...(options.maxCallDepth !== undefined && {
+          maxCallDepth: options.maxCallDepth,
+        }),
+        ...(options.maxCommandCount !== undefined && {
+          maxCommandCount: options.maxCommandCount,
+        }),
+        ...(options.maxLoopIterations !== undefined && {
+          maxLoopIterations: options.maxLoopIterations,
+        }),
+      },
+      options.executionLimitProfile,
+    );
+    const fs =
+      options.fs ??
+      new InMemoryFs(options.files, {
+        maxTotalBytes: this.limits.maxFileSystemBytes,
+      });
     this.fs = fs;
 
     this.useDefaultLayout = !options.cwd && !options.files;
@@ -333,21 +369,6 @@ export class Bash {
       ...Object.entries(options.env ?? {}),
     ]);
 
-    // Resolve limits: new executionLimits takes precedence, then deprecated individual options
-    this.limits = resolveLimits({
-      ...options.executionLimits,
-      // Support deprecated individual options (they override executionLimits if set)
-      ...(options.maxCallDepth !== undefined && {
-        maxCallDepth: options.maxCallDepth,
-      }),
-      ...(options.maxCommandCount !== undefined && {
-        maxCommandCount: options.maxCommandCount,
-      }),
-      ...(options.maxLoopIterations !== undefined && {
-        maxLoopIterations: options.maxLoopIterations,
-      }),
-    });
-
     // Create secure fetch: prefer explicit fetch, fall back to network config
     if (options.fetch) {
       this.secureFetch = options.fetch;
@@ -364,7 +385,8 @@ export class Bash {
     // Store logger if provided
     this.logger = options.logger;
 
-    // Defense-in-depth defaults to enabled
+    // Preserve the historical enabled default. Older supported Nodes use the
+    // strongest scoped controls they expose and report loader-hook capability.
     this.defenseInDepthConfig = options.defenseInDepth ?? true;
 
     // Store coverage writer if provided (for fuzzing instrumentation)
@@ -373,6 +395,7 @@ export class Bash {
     // Initialize interpreter state
     this.state = {
       env,
+      arrays: new Map(),
       cwd,
       previousDir: "/home/user",
       functions: new Map<string, FunctionDefNode>(),
@@ -459,13 +482,13 @@ export class Bash {
     }
 
     for (const cmd of createLazyCommands(options.commands)) {
-      this.registerCommand(cmd);
+      this.registerBundledCommand(cmd);
     }
 
     // Register network commands when fetch or network is configured
     if (options.fetch || options.network) {
       for (const cmd of createNetworkCommands()) {
-        this.registerCommand(cmd);
+        this.registerBundledCommand(cmd);
       }
     }
 
@@ -473,7 +496,7 @@ export class Bash {
     // Python introduces additional security surface (arbitrary code execution)
     if (options.python) {
       for (const cmd of createPythonCommands()) {
-        this.registerCommand(cmd);
+        this.registerBundledCommand(cmd);
       }
     }
 
@@ -486,7 +509,7 @@ export class Bash {
     // is provided (the hook is meaningless without js-exec).
     if (options.javascript || jsConfig.invokeTool) {
       for (const cmd of createJavaScriptCommands()) {
-        this.registerCommand(cmd);
+        this.registerBundledCommand(cmd);
       }
       if (jsConfig.bootstrap) {
         this.jsBootstrapCode = jsConfig.bootstrap;
@@ -500,19 +523,34 @@ export class Bash {
     if (options.customCommands) {
       for (const cmd of options.customCommands) {
         if (isLazyCommand(cmd)) {
-          this.registerCommand(createLazyCustomCommand(cmd));
+          const command = createLazyCustomCommand(cmd);
+          this.registerCommandInternal(command, true);
         } else {
-          this.registerCommand({
-            ...cmd,
-            trusted: cmd.trusted ?? true,
-          });
+          this.registerCommandInternal(cmd, true);
         }
       }
     }
   }
 
   registerCommand(command: Command): void {
-    this.commands.set(command.name, command);
+    this.registerCommandInternal(command, true);
+  }
+
+  private registerBundledCommand(command: Command): void {
+    this.registerCommandInternal(command, false);
+  }
+
+  private registerCommandInternal(
+    command: Command,
+    isExtension: boolean,
+    trusted = isExtension ? (command.trusted ?? true) : command.trusted,
+  ): void {
+    this.commands.set(command.name, {
+      name: command.name,
+      trusted,
+      internalIsExtension: isExtension,
+      execute: (args, context) => command.execute(args, context),
+    });
     // Create command stubs in /bin and /usr/bin for PATH-based resolution
     // Works for both InMemoryFs and OverlayFs (both have writeFileSync)
     // Commands are registered to both locations like real Linux systems
@@ -559,255 +597,342 @@ export class Bash {
     commandLine: string,
     options?: ExecOptions,
   ): Promise<BashExecResult> {
-    if (this.state.callDepth === 0) {
-      this.state.commandCount = 0;
+    const executionScope = new ExecutionScope(this.limits, options?.signal);
+    let result: BashExecResult;
+    try {
+      result = await this.execInScope(
+        commandLine,
+        options,
+        executionScope,
+        0,
+        options?.signal,
+        false, // stdinAlreadyAccounted
+        false, // defer result logging until cleanup finalizes the result
+      );
+    } catch (error) {
+      // Cleanup must not hide the original execution failure.
+      try {
+        await executionScope.close();
+      } catch {
+        // The execution error remains the more useful and compatible failure.
+      }
+      throw error;
     }
 
-    this.state.commandCount++;
-    if (this.state.commandCount > this.limits.maxCommandCount) {
-      return {
-        stdout: "",
-        stderr: `bash: maximum command count (${this.limits.maxCommandCount}) exceeded (possible infinite loop). Increase with executionLimits.maxCommandCount option.\n`,
-        exitCode: 1,
-        env: mapToRecordWithExtras(this.state.env, options?.env),
+    let finalResult = result;
+    try {
+      await executionScope.close();
+    } catch {
+      // Cleanup callbacks are extension code. Convert their failure into a
+      // shell result so Bash.exec() keeps its result-oriented error contract.
+      finalResult = {
+        ...result,
+        stderr: `${result.stderr}bash: execution cleanup failed\n`,
+        exitCode: 126,
       };
     }
+    return commandLine.trim() ? this.logResult(finalResult) : finalResult;
+  }
 
-    if (!commandLine.trim()) {
-      return {
-        stdout: "",
-        stderr: "",
-        exitCode: 0,
-        env: mapToRecordWithExtras(this.state.env, options?.env),
-      };
-    }
-
-    // Log command execution
-    this.logger?.info("exec", { command: commandLine });
-
-    // Each exec call gets an isolated state copy - like starting a new shell
-    // This ensures exec calls never interfere with each other
-    const effectiveCwd = options?.cwd ?? this.state.cwd;
-
-    // Determine PWD and cwd for the new shell context
-    // If PWD is in the provided env, use it (inherited from parent)
-    // If PWD is NOT in the provided env (was unset), use realpath to get physical path
-    // This matches bash behavior: when PWD is unset and a new shell starts,
-    // it initializes PWD (and cwd) using realpath (resolving symlinks)
-    let newPwd: string | undefined;
-    let newCwd = effectiveCwd;
-    if (options?.cwd) {
-      if (options.env && "PWD" in options.env) {
-        // PWD explicitly provided - use it
-        newPwd = options.env.PWD;
-      } else if (options?.env && !("PWD" in options.env)) {
-        // PWD not in provided env - use realpath to resolve symlinks
-        // This also updates cwd since the shell determines its position from scratch
-        try {
-          newPwd = await this.fs.realpath(effectiveCwd);
-          newCwd = newPwd; // Both PWD and cwd should be the physical path
-        } catch {
-          // Fallback to logical path if realpath fails
-          newPwd = effectiveCwd;
-        }
-      } else {
-        // No env provided - use logical cwd
-        newPwd = effectiveCwd;
-      }
-    }
-
-    // Create environment for this execution
-    const execEnv = options?.replaceEnv
-      ? new Map<string, string>()
-      : new Map(this.state.env);
-    // Merge in options.env
-    if (options?.env) {
-      for (const [key, value] of Object.entries(options.env)) {
-        execEnv.set(key, value);
-      }
-    }
-    // Update PWD when cwd option is provided
-    if (newPwd !== undefined) {
-      execEnv.set("PWD", newPwd);
-    }
-
-    const execState: InterpreterState = {
-      ...this.state,
-      env: execEnv,
-      cwd: newCwd,
-      previousDir: options?.env?.OLDPWD ?? this.state.previousDir,
-      // Deep copy mutable objects to prevent interference
-      functions: new Map(this.state.functions),
-      localScopes: [...this.state.localScopes],
-      options: { ...this.state.options },
-      // Share hashTable reference - it should persist across exec calls
-      hashTable: this.state.hashTable,
-      // Pass stdin through to commands (for bash -c with piped input).
-      // The pipeline contract is "stdin is a latin1-shaped byte buffer";
-      // text-shaped user input (the default) needs UTF-8 encoding here
-      // so byte consumers (`wc -c`, `base64`) inside the script see real
-      // UTF-8 bytes. Callers that already prepared a byte buffer (e.g.
-      // `Buffer.from(buf).toString("latin1")`) opt into raw passthrough
-      // via `stdinKind: "bytes"`.
-      groupStdin: encodeStdinForPipeline(options?.stdin, options?.stdinKind),
-      // Cooperative cancellation signal (used by timeout command)
-      signal: options?.signal,
-      // Extra arguments injected directly into first command's arg list
-      extraArgs: options?.args,
-    };
-
-    // Normalize indented multi-line scripts (unless rawScript is true)
-    // This allows writing indented bash scripts in template literals
-    // BUT we must preserve whitespace inside heredoc content
-    let normalized = commandLine;
-    if (!options?.rawScript) {
-      normalized = normalizeScript(commandLine);
-    }
-
-    // Activate defense-in-depth box if configured
-    // This wraps execution in AsyncLocalStorage context for context-aware blocking
-    const defenseBox = this.defenseInDepthConfig
-      ? DefenseInDepthBox.getInstance(this.defenseInDepthConfig)
-      : null;
-    const defenseHandle = defenseBox?.activate();
+  private async execInScope(
+    commandLine: string,
+    options: ExecOptions | undefined,
+    executionScope: ExecutionScope,
+    execDepth: number,
+    parentSignal: AbortSignal | undefined,
+    stdinAlreadyAccounted = false,
+    shouldLogResult = true,
+  ): Promise<BashExecResult> {
+    const finishResult = (result: BashExecResult): BashExecResult =>
+      shouldLogResult ? this.logResult(result) : result;
+    const combinedAbort = combineAbortSignals(parentSignal, options?.signal);
+    const effectiveOptions = options
+      ? { ...options, signal: combinedAbort.signal }
+      : { signal: combinedAbort.signal };
 
     try {
-      // Run execution inside defense-in-depth context if enabled
-      const executeScript = async (): Promise<BashExecResult> => {
-        let ast = parse(normalized, {
-          maxHeredocSize: this.limits.maxHeredocSize,
-        });
+      executionScope.assertExecDepth(execDepth);
 
-        // Apply transform plugins if any are registered.
-        // Keep metadata null-prototype even when plugins contribute dynamic keys.
-        let metadata: ReturnType<typeof mergeToNullPrototype> | undefined;
-        if (this.transformPlugins.length > 0) {
-          let meta: Record<string, unknown> = Object.create(null);
-          for (const plugin of this.transformPlugins) {
-            const pluginResult = plugin.transform({ ast, metadata: meta });
-            ast = pluginResult.ast;
-            if (pluginResult.metadata) {
-              meta = mergeToNullPrototype(meta, pluginResult.metadata);
-            }
-          }
-          metadata = meta;
-        }
+      // Reject oversized source before trim/normalization/parser copies it.
+      // Source, expanded string values, and stdin have distinct budgets so a
+      // host can constrain any one without unexpectedly disabling the others.
+      assertSourceWithinLimit(commandLine, this.limits.maxSourceBytes);
 
-        // Create interpreter with appropriate state
-        const interpreterOptions: InterpreterOptions = {
-          fs: this.fs,
-          commands: this.commands,
-          limits: this.limits,
-          exec: this.exec.bind(this),
-          fetch: this.secureFetch,
-          sleep: this.sleepFn,
-          trace: this.traceFn,
-          coverage: this.coverageWriter,
-          requireDefenseContext: defenseBox?.isEnabled() === true,
-          jsBootstrapCode: this.jsBootstrapCode,
-          invokeTool: this.invokeToolFn,
+      if (!commandLine.trim()) {
+        return {
+          stdout: "",
+          stderr: "",
+          exitCode: 0,
+          env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
         };
+      }
 
-        const interpreter = new Interpreter(interpreterOptions, execState);
-        const result = await interpreter.executeScript(ast);
-        // Interpreter always sets env, assert it for type safety
-        const execResult = result as BashExecResult;
-        if (metadata) {
-          execResult.metadata = metadata;
+      // Log command execution
+      this.logger?.info("exec", { command: commandLine });
+
+      // Each exec call gets an isolated state copy - like starting a new shell
+      // This ensures exec calls never interfere with each other
+      const effectiveCwd = effectiveOptions.cwd ?? this.state.cwd;
+
+      // Determine PWD and cwd for the new shell context
+      // If PWD is in the provided env, use it (inherited from parent)
+      // If PWD is NOT in the provided env (was unset), use realpath to get physical path
+      // This matches bash behavior: when PWD is unset and a new shell starts,
+      // it initializes PWD (and cwd) using realpath (resolving symlinks)
+      let newPwd: string | undefined;
+      let newCwd = effectiveCwd;
+      if (effectiveOptions.cwd) {
+        if (effectiveOptions.env && "PWD" in effectiveOptions.env) {
+          // PWD explicitly provided - use it
+          newPwd = effectiveOptions.env.PWD;
+        } else if (effectiveOptions.env && !("PWD" in effectiveOptions.env)) {
+          // PWD not in provided env - use realpath to resolve symlinks
+          // This also updates cwd since the shell determines its position from scratch
+          try {
+            newPwd = await this.fs.realpath(effectiveCwd);
+            newCwd = newPwd; // Both PWD and cwd should be the physical path
+          } catch {
+            // Fallback to logical path if realpath fails
+            newPwd = effectiveCwd;
+          }
+        } else {
+          // No env provided - use logical cwd
+          newPwd = effectiveCwd;
         }
-        return this.logResult(execResult);
+      }
+
+      // Create environment for this execution
+      const execEnv = effectiveOptions.replaceEnv
+        ? new Map<string, string>()
+        : new Map(this.state.env);
+      // Merge in options.env
+      if (effectiveOptions.env) {
+        for (const [key, value] of Object.entries(effectiveOptions.env)) {
+          execEnv.set(key, value);
+        }
+      }
+      // Update PWD when cwd option is provided
+      if (newPwd !== undefined) {
+        execEnv.set("PWD", newPwd);
+      }
+
+      const execState: InterpreterState = {
+        ...this.state,
+        env: execEnv,
+        arrays: effectiveOptions.replaceEnv
+          ? new Map()
+          : cloneArrays(this.state.arrays),
+        cwd: newCwd,
+        previousDir: effectiveOptions.env?.OLDPWD ?? this.state.previousDir,
+        // Deep copy mutable objects to prevent interference
+        functions: new Map(this.state.functions),
+        localScopes: [...this.state.localScopes],
+        options: { ...this.state.options },
+        // Share hashTable reference - it should persist across exec calls
+        hashTable: this.state.hashTable,
+        // Pass stdin through to commands (for bash -c with piped input).
+        // The pipeline contract is "stdin is a latin1-shaped byte buffer";
+        // text-shaped user input (the default) needs UTF-8 encoding here
+        // so byte consumers (`wc -c`, `base64`) inside the script see real
+        // UTF-8 bytes. Callers that already prepared a byte buffer (e.g.
+        // `Buffer.from(buf).toString("latin1")`) opt into raw passthrough
+        // via `stdinKind: "bytes"`.
+        groupStdin: encodeStdinForPipeline(
+          effectiveOptions.stdin,
+          effectiveOptions.stdinKind,
+          this.limits.maxInputBytes,
+          this.limits.maxStringLength,
+          executionScope,
+          stdinAlreadyAccounted,
+        ),
+        // Cooperative cancellation signal (used by timeout command)
+        signal: effectiveOptions.signal,
+        // Extra arguments injected directly into first command's arg list
+        extraArgs: effectiveOptions.args,
       };
 
-      // If defense-in-depth is enabled, run within the protected context
-      if (defenseHandle) {
-        return await defenseHandle.run(executeScript);
+      // Normalize indented multi-line scripts (unless rawScript is true)
+      // This allows writing indented bash scripts in template literals
+      // BUT we must preserve whitespace inside heredoc content
+      let normalized = commandLine;
+      if (!effectiveOptions.rawScript) {
+        normalized = normalizeScript(commandLine);
       }
-      return await executeScript();
+
+      // Activate defense-in-depth box if configured
+      // This wraps execution in AsyncLocalStorage context for context-aware blocking
+      const defenseBox = this.defenseInDepthConfig
+        ? DefenseInDepthBox.getInstance(this.defenseInDepthConfig)
+        : null;
+      const defenseHandle = defenseBox?.activate();
+
+      try {
+        // Run execution inside defense-in-depth context if enabled
+        const executeScript = async (): Promise<BashExecResult> => {
+          let ast = parse(normalized, {
+            maxHeredocSize: this.limits.maxHeredocSize,
+          });
+
+          // Apply transform plugins if any are registered.
+          // Keep metadata null-prototype even when plugins contribute dynamic keys.
+          let metadata: ReturnType<typeof mergeToNullPrototype> | undefined;
+          if (this.transformPlugins.length > 0) {
+            let meta: Record<string, unknown> = Object.create(null);
+            for (const plugin of this.transformPlugins) {
+              const pluginResult = plugin.transform({ ast, metadata: meta });
+              ast = pluginResult.ast;
+              if (pluginResult.metadata) {
+                meta = mergeToNullPrototype(meta, pluginResult.metadata);
+              }
+            }
+            metadata = meta;
+          }
+
+          // Create interpreter with appropriate state
+          const interpreterOptions: InterpreterOptions = {
+            fs: this.fs,
+            commands: this.commands,
+            limits: this.limits,
+            executionScope,
+            exec: (script, childOptions, childStdinAlreadyAccounted = false) =>
+              this.execInScope(
+                script,
+                childOptions,
+                executionScope,
+                execDepth + 1,
+                effectiveOptions.signal,
+                childStdinAlreadyAccounted,
+              ),
+            fetch: this.secureFetch,
+            sleep: this.sleepFn,
+            trace: this.traceFn,
+            coverage: this.coverageWriter,
+            requireDefenseContext: defenseBox?.isEnabled() === true,
+            jsBootstrapCode: this.jsBootstrapCode,
+            invokeTool: this.invokeToolFn,
+          };
+
+          const interpreter = new Interpreter(interpreterOptions, execState);
+          const result = await interpreter.executeScript(ast);
+          // Interpreter always sets env, assert it for type safety
+          const execResult = result as BashExecResult;
+          if (metadata) {
+            execResult.metadata = metadata;
+          }
+          return finishResult(execResult);
+        };
+
+        // If defense-in-depth is enabled, run within the protected context
+        if (defenseHandle) {
+          return await defenseHandle.run(executeScript);
+        }
+        return await executeScript();
+      } catch (error) {
+        // ExitError propagates from 'exit' builtin (including via eval/source)
+        if (error instanceof ExitError) {
+          return finishResult({
+            stdout: error.stdout,
+            stderr: error.stderr,
+            exitCode: error.exitCode,
+            env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+          });
+        }
+        // PosixFatalError propagates from special builtins in POSIX mode
+        if (error instanceof PosixFatalError) {
+          return finishResult({
+            stdout: error.stdout,
+            stderr: error.stderr,
+            exitCode: error.exitCode,
+            env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+          });
+        }
+        if (error instanceof ArithmeticError) {
+          return finishResult({
+            stdout: error.stdout,
+            stderr: error.stderr,
+            exitCode: 1,
+            env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+          });
+        }
+        // ExecutionAbortedError is thrown when an AbortSignal fires (timeout cancellation)
+        if (error instanceof ExecutionAbortedError) {
+          return finishResult({
+            stdout: error.stdout,
+            stderr: error.stderr,
+            exitCode: 124, // Same as timeout exit code
+            env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+          });
+        }
+        // ExecutionLimitError is thrown when our conservative limits are exceeded
+        // (command count, recursion depth, loop iterations)
+        if (error instanceof ExecutionLimitError) {
+          return finishResult({
+            stdout: error.stdout,
+            stderr: sanitizeErrorMessage(error.stderr),
+            exitCode: ExecutionLimitError.EXIT_CODE,
+            env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+          });
+        }
+        // SecurityViolationError is thrown when defense-in-depth detects a blocked operation
+        if (error instanceof SecurityViolationError) {
+          return finishResult({
+            stdout: "",
+            stderr: `bash: security violation: ${sanitizeErrorMessage(error.message)}\n`,
+            exitCode: 1,
+            env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+          });
+        }
+        if ((error as ParseException).name === "ParseException") {
+          return finishResult({
+            stdout: "",
+            stderr: `bash: syntax error: ${sanitizeErrorMessage((error as Error).message)}\n`,
+            exitCode: 2,
+            env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+          });
+        }
+        // LexerError is thrown for lexer-level issues like unterminated quotes
+        if (error instanceof LexerError) {
+          return finishResult({
+            stdout: "",
+            stderr: `bash: ${sanitizeErrorMessage(error.message)}\n`,
+            exitCode: 2,
+            env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+          });
+        }
+        // RangeError occurs when JavaScript call stack is exceeded (deep recursion)
+        if (error instanceof RangeError) {
+          return finishResult({
+            stdout: "",
+            stderr: `bash: ${sanitizeErrorMessage(error.message)}\n`,
+            exitCode: 1,
+            env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+          });
+        }
+        throw error;
+      } finally {
+        // Always deactivate defense-in-depth box when done
+        defenseHandle?.deactivate();
+      }
     } catch (error) {
-      // ExitError propagates from 'exit' builtin (including via eval/source)
-      if (error instanceof ExitError) {
-        return this.logResult({
-          stdout: error.stdout,
-          stderr: error.stderr,
-          exitCode: error.exitCode,
-          env: mapToRecordWithExtras(this.state.env, options?.env),
-        });
-      }
-      // PosixFatalError propagates from special builtins in POSIX mode
-      if (error instanceof PosixFatalError) {
-        return this.logResult({
-          stdout: error.stdout,
-          stderr: error.stderr,
-          exitCode: error.exitCode,
-          env: mapToRecordWithExtras(this.state.env, options?.env),
-        });
-      }
-      if (error instanceof ArithmeticError) {
-        return this.logResult({
-          stdout: error.stdout,
-          stderr: error.stderr,
-          exitCode: 1,
-          env: mapToRecordWithExtras(this.state.env, options?.env),
-        });
-      }
-      // ExecutionAbortedError is thrown when an AbortSignal fires (timeout cancellation)
       if (error instanceof ExecutionAbortedError) {
-        return this.logResult({
+        return finishResult({
           stdout: error.stdout,
           stderr: error.stderr,
-          exitCode: 124, // Same as timeout exit code
-          env: mapToRecordWithExtras(this.state.env, options?.env),
+          exitCode: 124,
+          env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
         });
       }
-      // ExecutionLimitError is thrown when our conservative limits are exceeded
-      // (command count, recursion depth, loop iterations)
       if (error instanceof ExecutionLimitError) {
-        return this.logResult({
+        return finishResult({
           stdout: error.stdout,
           stderr: sanitizeErrorMessage(error.stderr),
           exitCode: ExecutionLimitError.EXIT_CODE,
-          env: mapToRecordWithExtras(this.state.env, options?.env),
-        });
-      }
-      // SecurityViolationError is thrown when defense-in-depth detects a blocked operation
-      if (error instanceof SecurityViolationError) {
-        return this.logResult({
-          stdout: "",
-          stderr: `bash: security violation: ${sanitizeErrorMessage(error.message)}\n`,
-          exitCode: 1,
-          env: mapToRecordWithExtras(this.state.env, options?.env),
-        });
-      }
-      if ((error as ParseException).name === "ParseException") {
-        return this.logResult({
-          stdout: "",
-          stderr: `bash: syntax error: ${sanitizeErrorMessage((error as Error).message)}\n`,
-          exitCode: 2,
-          env: mapToRecordWithExtras(this.state.env, options?.env),
-        });
-      }
-      // LexerError is thrown for lexer-level issues like unterminated quotes
-      if (error instanceof LexerError) {
-        return this.logResult({
-          stdout: "",
-          stderr: `bash: ${sanitizeErrorMessage(error.message)}\n`,
-          exitCode: 2,
-          env: mapToRecordWithExtras(this.state.env, options?.env),
-        });
-      }
-      // RangeError occurs when JavaScript call stack is exceeded (deep recursion)
-      if (error instanceof RangeError) {
-        return this.logResult({
-          stdout: "",
-          stderr: `bash: ${sanitizeErrorMessage(error.message)}\n`,
-          exitCode: 1,
-          env: mapToRecordWithExtras(this.state.env, options?.env),
+          env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
         });
       }
       throw error;
     } finally {
-      // Always deactivate defense-in-depth box when done
-      defenseHandle?.deactivate();
+      combinedAbort.cleanup();
     }
   }
 
@@ -840,6 +965,7 @@ export class Bash {
   }
 
   transform(commandLine: string): BashTransformResult {
+    assertSourceWithinLimit(commandLine, this.limits.maxSourceBytes);
     const normalized = normalizeScript(commandLine);
     let ast = parse(normalized, {
       maxHeredocSize: this.limits.maxHeredocSize,
@@ -1042,8 +1168,20 @@ function decodeBinaryToUtf8(s: string): string {
 function encodeStdinForPipeline(
   stdin: string | undefined,
   kind: "text" | "bytes" | undefined,
+  maxInputBytes: number,
+  maxStringLength: number,
+  executionScope: ExecutionScope,
+  alreadyAccounted: boolean,
 ): string | undefined {
   if (stdin === undefined) return undefined;
+  const inputBytes = kind === "bytes" ? stdin.length : utf8ByteLength(stdin);
+  if (inputBytes > maxInputBytes || inputBytes > maxStringLength) {
+    throw new ExecutionLimitError(
+      `stdin size limit exceeded (${Math.min(maxInputBytes, maxStringLength)} bytes)`,
+      "string_length",
+    );
+  }
+  if (!alreadyAccounted) executionScope.consumeInput(inputBytes, "stdin");
   if (kind === "bytes") return stdin;
   return latin1FromBytes(encodeUtf8ToBytes(stdin));
 }

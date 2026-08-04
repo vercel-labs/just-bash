@@ -483,16 +483,15 @@ describe("security scenarios", () => {
       ).toBe(false);
     });
 
-    it("handles double-encoded characters correctly", () => {
+    it("rejects double-encoded dot traversal", () => {
       const allowedUrlPrefixes = ["https://example.com/safe/"];
       // %252e%252e = double-encoded ..
-      // The URL is taken as-is after URL parsing
       expect(
         isUrlAllowed(
           "https://example.com/safe/%252e%252e/unsafe",
           allowedUrlPrefixes,
         ),
-      ).toBe(true); // This stays under /safe/ path
+      ).toBe(false);
     });
   });
 

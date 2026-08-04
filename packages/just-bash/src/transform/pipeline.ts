@@ -1,5 +1,7 @@
 import { mergeToNullPrototype } from "../helpers/env.js";
+import { DEFAULT_MAX_SOURCE_BYTES } from "../limits.js";
 import { parse } from "../parser/parser.js";
+import { assertSourceWithinLimit } from "../source-limit.js";
 import { serialize } from "./serialize.js";
 import type { BashTransformResult, TransformPlugin } from "./types.js";
 
@@ -8,6 +10,14 @@ export class BashTransformPipeline<
 > {
   // biome-ignore lint/suspicious/noExplicitAny: required for type-erased plugin storage
   private plugins: TransformPlugin<any>[] = [];
+
+  constructor(
+    private readonly maxSourceBytes: number = DEFAULT_MAX_SOURCE_BYTES,
+  ) {
+    if (!Number.isSafeInteger(maxSourceBytes) || maxSourceBytes < 0) {
+      throw new Error("BashTransformPipeline: invalid maxSourceBytes");
+    }
+  }
 
   use<M extends object>(
     plugin: TransformPlugin<M>,
@@ -20,6 +30,7 @@ export class BashTransformPipeline<
   }
 
   transform(script: string): BashTransformResult<TMetadata> {
+    assertSourceWithinLimit(script, this.maxSourceBytes);
     let ast = parse(script);
     let metadata: Record<string, unknown> = Object.create(null);
     for (const plugin of this.plugins) {

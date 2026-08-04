@@ -87,9 +87,7 @@ describe("DNS rebinding integration (real DNS)", () => {
     expect(result.stderr).toBe("");
   });
 
-  it("ENOTFOUND domain passes DNS check (no rebinding risk)", async () => {
-    // When DNS can't resolve a domain, there's no rebinding risk.
-    // The request should proceed and fail at the fetch level naturally.
+  it("ENOTFOUND domain fails closed before fetch", async () => {
     const env = createBashEnvAdapter({
       network: {
         allowedUrlPrefixes: [
@@ -99,27 +97,35 @@ describe("DNS rebinding integration (real DNS)", () => {
       },
     });
 
-    // DNS returns ENOTFOUND → allowed through → reaches mock fetch → 404
+    const callsBefore = mockFetch.mock.calls.length;
     const result = await env.exec(
       'curl "https://this-domain-does-not-exist-xyz123.example/data"',
     );
-    expect(result.exitCode).toBe(0);
-    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(7);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "curl: (7) Network access denied: DNS resolution failed for private IP check: https://this-domain-does-not-exist-xyz123.example/data\n",
+    );
+    expect(mockFetch.mock.calls).toHaveLength(callsBefore);
   });
 
   it("denyPrivateRanges + allow-list works with real DNS", async () => {
     // Verify the combination of allow-list + denyPrivateRanges + real DNS
-    // doesn't break normal operation. Uses a domain that will ENOTFOUND
-    // (passes DNS check) and is in the allow-list.
+    // doesn't break normal operation for a public domain.
+    try {
+      await realLookupAll("example.com");
+    } catch {
+      return;
+    }
+
     const env = createBashEnvAdapter({
       network: {
-        allowedUrlPrefixes: ["https://api.example.com"],
+        allowedUrlPrefixes: ["https://example.com"],
         denyPrivateRanges: true,
       },
     });
 
-    // api.example.com likely ENOTFOUND → passes DNS check → allow-list OK
-    const result = await env.exec('curl "https://api.example.com/data"');
+    const result = await env.exec('curl "https://example.com/data"');
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
   });

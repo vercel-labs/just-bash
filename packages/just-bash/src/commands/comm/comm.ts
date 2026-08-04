@@ -8,7 +8,11 @@
  */
 
 import { decodeBytesToUtf8 } from "../../encoding.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const commHelp = {
@@ -23,10 +27,13 @@ const commHelp = {
   ],
 };
 
-export const commCommand: Command = {
+export const commCommand: RuntimeCommand = {
   name: "comm",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) return showHelp(commHelp);
 
     let suppress1 = false;

@@ -11,9 +11,13 @@
  */
 
 import type { ExecResult } from "../../types.js";
-import { markExported, unmarkExported } from "../helpers/readonly.js";
+import { quoteDeclareValue } from "../helpers/quoting.js";
+import {
+  checkReadonlyError,
+  markExported,
+  unmarkExported,
+} from "../helpers/readonly.js";
 import { OK, result, success } from "../helpers/result.js";
-import { expandTildesInValue } from "../helpers/tilde.js";
 import type { InterpreterContext } from "../types.js";
 
 export function handleExport(
@@ -44,9 +48,7 @@ export function handleExport(
     for (const name of sortedNames) {
       const value = ctx.state.env.get(name);
       if (value !== undefined) {
-        // Quote the value with double quotes, escaping backslashes and double quotes
-        const escapedValue = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-        stdout += `declare -x ${name}="${escapedValue}"\n`;
+        stdout += `declare -x ${name}=${quoteDeclareValue(value)}\n`;
       }
     }
     return success(stdout);
@@ -62,11 +64,20 @@ export function handleExport(
       if (arg.includes("=")) {
         const eqIdx = arg.indexOf("=");
         name = arg.slice(0, eqIdx);
-        value = expandTildesInValue(ctx, arg.slice(eqIdx + 1));
-        // Set the value
-        ctx.state.env.set(name, value);
+        value = arg.slice(eqIdx + 1);
       } else {
         name = arg;
+      }
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+        return result(
+          "",
+          `bash: export: \`${arg}': not a valid identifier\n`,
+          1,
+        );
+      }
+      if (value !== undefined) {
+        checkReadonlyError(ctx, name);
+        ctx.state.env.set(name, value);
       }
       // Remove export attribute without deleting the variable
       unmarkExported(ctx, name);
@@ -87,13 +98,13 @@ export function handleExport(
     const appendMatch = arg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\+=(.*)$/);
     if (appendMatch) {
       name = appendMatch[1];
-      value = expandTildesInValue(ctx, appendMatch[2]);
+      value = appendMatch[2];
       isAppend = true;
     } else if (arg.includes("=")) {
       // export NAME=value
       const eqIdx = arg.indexOf("=");
       name = arg.slice(0, eqIdx);
-      value = expandTildesInValue(ctx, arg.slice(eqIdx + 1));
+      value = arg.slice(eqIdx + 1);
     } else {
       // export NAME (without value)
       name = arg;
@@ -107,6 +118,7 @@ export function handleExport(
     }
 
     if (value !== undefined) {
+      checkReadonlyError(ctx, name);
       if (isAppend) {
         // Append to existing value (or set if not defined)
         const existing = ctx.state.env.get(name) ?? "";

@@ -119,12 +119,9 @@ describe("isPathWithinRoot", () => {
     expect(isPathWithinRoot("/", "/")).toBe(true);
   });
 
-  it("root=/ child check requires startsWith(//), so /anything is false", () => {
-    // This is a known edge case: isPathWithinRoot is a low-level primitive
-    // that checks `startsWith(root + "/")`. When root="/", the check becomes
-    // `startsWith("//")`, which is intentionally strict. Callers that mount
-    // at "/" handle this separately (OverlayFs uses getRelativeToMount).
-    expect(isPathWithinRoot("/anything", "/")).toBe(false);
+  it("recognizes children of the filesystem root", () => {
+    expect(isPathWithinRoot("/anything", "/")).toBe(true);
+    expect(isPathWithinRoot("/tmp/nested", "/")).toBe(true);
   });
 
   it("handles root with trailing component match", () => {

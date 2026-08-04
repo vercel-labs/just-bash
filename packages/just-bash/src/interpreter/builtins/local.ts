@@ -2,15 +2,23 @@
  * local - Declare local variables in functions builtin
  */
 
+import { boundedJoin } from "../../bounded-builder.js";
 import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { evaluateArithmetic } from "../arithmetic.js";
-import { getArrayIndices } from "../helpers/array.js";
+import {
+  assertArrayKeysFit,
+  clearArray,
+  cloneArray,
+  getArray,
+  getArrayIndices,
+  setArrayElement,
+  setArrayKind,
+} from "../helpers/array.js";
 import { markNameref } from "../helpers/nameref.js";
 import { checkReadonlyError } from "../helpers/readonly.js";
 import { failure, result } from "../helpers/result.js";
-import { expandTildesInValue } from "../helpers/tilde.js";
 import type { InterpreterContext } from "../types.js";
 import { parseArrayElements } from "./declare-array-parsing.js";
 import { markLocalVarDepth, pushLocalVarStack } from "./variable-assignment.js";
@@ -19,11 +27,28 @@ export async function handleLocal(
   ctx: InterpreterContext,
   args: string[],
 ): Promise<ExecResult> {
+  const arrayParseLimits = {
+    maxElements: ctx.limits.maxArrayElements,
+    maxStringBytes: ctx.limits.maxStringLength,
+  };
   if (ctx.state.localScopes.length === 0) {
     return failure("bash: local: can only be used in a function\n");
   }
 
   const currentScope = ctx.state.localScopes[ctx.state.localScopes.length - 1];
+  ctx.state.localArrayScopes ??= [];
+  while (ctx.state.localArrayScopes.length < ctx.state.localScopes.length) {
+    ctx.state.localArrayScopes.push(new Map());
+  }
+  const currentArrayScope = ctx.state.localArrayScopes.at(-1);
+  const saveArray = (name: string): void => {
+    if (!currentScope.has(name))
+      currentScope.set(name, ctx.state.env.get(name));
+    if (currentArrayScope && !currentArrayScope.has(name)) {
+      const array = getArray(ctx, name);
+      currentArrayScope.set(name, array ? cloneArray(array) : undefined);
+    }
+  };
   let stderr = "";
   let exitCode = 0;
   let declareNameref = false;
@@ -57,10 +82,7 @@ export async function handleLocal(
   if (processedArgs.length === 0) {
     let stdout = "";
     // Get the names of local variables in current scope
-    const localNames = Array.from(currentScope.keys())
-      .filter((key) => !key.includes("_") || !key.match(/_\d+$/)) // Filter out array element keys
-      .filter((key) => !key.includes("__length")) // Filter out length markers
-      .sort();
+    const localNames = Array.from(currentScope.keys()).sort();
 
     for (const name of localNames) {
       const value = ctx.state.env.get(name);
@@ -88,37 +110,22 @@ export async function handleLocal(
         continue;
       }
 
-      // Check if variable is readonly
       checkReadonlyError(ctx, name, "bash");
 
+      // Parse and enforce limits before changing the existing local cell.
+      const elements = parseArrayElements(content, arrayParseLimits);
+      ctx.executionScope.consumeWork(elements.length, "local array assignment");
+
       // Save previous value for scope restoration
-      if (!currentScope.has(name)) {
-        currentScope.set(name, ctx.state.env.get(name));
-        // Also save array elements
-        const prefix = `${name}_`;
-        for (const key of ctx.state.env.keys()) {
-          if (key.startsWith(prefix) && !key.includes("__")) {
-            if (!currentScope.has(key)) {
-              currentScope.set(key, ctx.state.env.get(key));
-            }
-          }
-        }
-      }
+      saveArray(name);
 
       // Clear existing array elements
-      const prefix = `${name}_`;
-      for (const key of ctx.state.env.keys()) {
-        if (key.startsWith(prefix) && !key.includes("__")) {
-          ctx.state.env.delete(key);
-        }
-      }
+      clearArray(ctx, name);
+      setArrayKind(ctx, name, "indexed");
 
-      // Parse array elements (respects quotes)
-      const elements = parseArrayElements(content);
       for (let i = 0; i < elements.length; i++) {
-        ctx.state.env.set(`${name}_${i}`, elements[i]);
+        setArrayElement(ctx, name, i, elements[i]);
       }
-      ctx.state.env.set(`${name}__length`, String(elements.length));
 
       // Track local variable depth for bash-specific unset scoping
       markLocalVarDepth(ctx, name);
@@ -142,25 +149,11 @@ export async function handleLocal(
       checkReadonlyError(ctx, name, "bash");
 
       // Save previous value for scope restoration
-      if (!currentScope.has(name)) {
-        currentScope.set(name, ctx.state.env.get(name));
-        // Also save array elements
-        const prefix = `${name}_`;
-        for (const key of ctx.state.env.keys()) {
-          if (key.startsWith(prefix) && !key.includes("__")) {
-            if (!currentScope.has(key)) {
-              currentScope.set(key, ctx.state.env.get(key));
-            }
-          }
-        }
-        const lengthKey = `${name}__length`;
-        if (ctx.state.env.has(lengthKey) && !currentScope.has(lengthKey)) {
-          currentScope.set(lengthKey, ctx.state.env.get(lengthKey));
-        }
-      }
+      saveArray(name);
 
       // Parse new elements
-      const newElements = parseArrayElements(content);
+      const newElements = parseArrayElements(content, arrayParseLimits);
+      ctx.executionScope.consumeWork(newElements.length, "local array append");
 
       // For indexed arrays, get current highest index and append
       const existingIndices = getArrayIndices(ctx, name);
@@ -170,7 +163,7 @@ export async function handleLocal(
       const scalarValue = ctx.state.env.get(name);
       if (existingIndices.length === 0 && scalarValue !== undefined) {
         // Variable exists as scalar - convert to array element 0
-        ctx.state.env.set(`${name}_0`, scalarValue);
+        setArrayElement(ctx, name, 0, scalarValue);
         ctx.state.env.delete(name);
         startIndex = 1;
       } else if (existingIndices.length > 0) {
@@ -178,17 +171,18 @@ export async function handleLocal(
         startIndex = Math.max(...existingIndices) + 1;
       }
 
+      assertArrayKeysFit(
+        ctx,
+        name,
+        Array.from({ length: newElements.length }, (_, i) => startIndex + i),
+      );
+
       // Append new elements
       for (let i = 0; i < newElements.length; i++) {
-        ctx.state.env.set(
-          `${name}_${startIndex + i}`,
-          expandTildesInValue(ctx, newElements[i]),
-        );
+        setArrayElement(ctx, name, startIndex + i, newElements[i]);
       }
 
       // Update length marker
-      const newLength = startIndex + newElements.length;
-      ctx.state.env.set(`${name}__length`, String(newLength));
 
       // Track local variable depth for bash-specific unset scoping
       markLocalVarDepth(ctx, name);
@@ -204,7 +198,7 @@ export async function handleLocal(
     const appendMatch = arg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\+=(.*)$/);
     if (appendMatch) {
       name = appendMatch[1];
-      const appendValue = expandTildesInValue(ctx, appendMatch[2]);
+      const appendValue = appendMatch[2];
 
       // Check if variable is readonly
       checkReadonlyError(ctx, name, "bash");
@@ -216,7 +210,15 @@ export async function handleLocal(
 
       // Append to existing value (or set if not defined)
       const existing = ctx.state.env.get(name) ?? "";
-      ctx.state.env.set(name, existing + appendValue);
+      ctx.state.env.set(
+        name,
+        boundedJoin(
+          [existing, appendValue],
+          "",
+          ctx.limits.maxStringLength,
+          "local append",
+        ),
+      );
 
       // Track local variable depth for bash-specific unset scoping
       markLocalVarDepth(ctx, name);
@@ -235,28 +237,13 @@ export async function handleLocal(
     if (indexMatch) {
       name = indexMatch[1];
       const indexExpr = indexMatch[2];
-      const indexValue = expandTildesInValue(ctx, indexMatch[3]);
+      const indexValue = indexMatch[3];
 
       // Check if variable is readonly
       checkReadonlyError(ctx, name, "bash");
 
       // Save previous array values for scope restoration
-      if (!currentScope.has(name)) {
-        currentScope.set(name, ctx.state.env.get(name));
-        // Also save array elements
-        const prefix = `${name}_`;
-        for (const key of ctx.state.env.keys()) {
-          if (key.startsWith(prefix) && !key.includes("__")) {
-            if (!currentScope.has(key)) {
-              currentScope.set(key, ctx.state.env.get(key));
-            }
-          }
-        }
-        const lengthKey = `${name}__length`;
-        if (ctx.state.env.has(lengthKey) && !currentScope.has(lengthKey)) {
-          currentScope.set(lengthKey, ctx.state.env.get(lengthKey));
-        }
-      }
+      saveArray(name);
 
       // Evaluate the index (can be arithmetic expression)
       let index: number;
@@ -271,16 +258,7 @@ export async function handleLocal(
       }
 
       // Set the array element
-      ctx.state.env.set(`${name}_${index}`, indexValue);
-
-      // Update array length if needed
-      const currentLength = parseInt(
-        ctx.state.env.get(`${name}__length`) ?? "0",
-        10,
-      );
-      if (index >= currentLength) {
-        ctx.state.env.set(`${name}__length`, String(index + 1));
-      }
+      setArrayElement(ctx, name, index, indexValue);
 
       // Track local variable depth for bash-specific unset scoping
       markLocalVarDepth(ctx, name);
@@ -295,7 +273,7 @@ export async function handleLocal(
     if (arg.includes("=")) {
       const eqIdx = arg.indexOf("=");
       name = arg.slice(0, eqIdx);
-      value = expandTildesInValue(ctx, arg.slice(eqIdx + 1));
+      value = arg.slice(eqIdx + 1);
     } else {
       name = arg;
     }
@@ -357,33 +335,15 @@ export async function handleLocal(
       currentScope.set(name, savedValue);
       // Also save array elements if -a flag is used
       if (declareArray) {
-        const prefix = `${name}_`;
-        for (const key of ctx.state.env.keys()) {
-          if (key.startsWith(prefix) && !key.includes("__")) {
-            if (!currentScope.has(key)) {
-              currentScope.set(key, ctx.state.env.get(key));
-            }
-          }
-        }
-        // Save length metadata too
-        const lengthKey = `${name}__length`;
-        if (ctx.state.env.has(lengthKey) && !currentScope.has(lengthKey)) {
-          currentScope.set(lengthKey, ctx.state.env.get(lengthKey));
-        }
+        saveArray(name);
       }
     }
 
     // If -a flag is used, create an empty local array
     if (declareArray && value === undefined) {
       // Clear existing array elements
-      const prefix = `${name}_`;
-      for (const key of ctx.state.env.keys()) {
-        if (key.startsWith(prefix) && !key.includes("__")) {
-          ctx.state.env.delete(key);
-        }
-      }
-      // Mark as empty array
-      ctx.state.env.set(`${name}__length`, "0");
+      clearArray(ctx, name);
+      setArrayKind(ctx, name, "indexed");
     } else if (value !== undefined) {
       // Check if variable is readonly
       checkReadonlyError(ctx, name, "bash");

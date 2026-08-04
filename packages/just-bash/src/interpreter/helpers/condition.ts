@@ -6,13 +6,14 @@
  */
 
 import type { StatementNode } from "../../ast/types.js";
+import { ExecutionOutputAccumulator } from "../../execution-output.js";
+import type { ExecResult } from "../../types.js";
 import type { InterpreterContext } from "../types.js";
 
-export interface ConditionResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-}
+export type ConditionResult = Pick<
+  ExecResult,
+  "stdout" | "stderr" | "exitCode" | "internalOutputAccounting"
+>;
 
 /**
  * Execute condition statements with inCondition flag set.
@@ -29,20 +30,24 @@ export async function executeCondition(
   const savedInCondition = ctx.state.inCondition;
   ctx.state.inCondition = true;
 
-  let stdout = "";
-  let stderr = "";
+  const output = new ExecutionOutputAccumulator(
+    ctx.executionScope,
+    "condition",
+  );
   let exitCode = 0;
 
   try {
     for (const stmt of statements) {
       const result = await ctx.executeStatement(stmt);
-      stdout += result.stdout;
-      stderr += result.stderr;
+      output.appendResult(result);
       exitCode = result.exitCode;
     }
+  } catch (error) {
+    output.prependTo(error);
+    throw error;
   } finally {
     ctx.state.inCondition = savedInCondition;
   }
 
-  return { stdout, stderr, exitCode };
+  return output.build(exitCode);
 }

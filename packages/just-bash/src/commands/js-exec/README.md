@@ -249,5 +249,5 @@ and/or `@executor-js/sdk` discovery (GraphQL, OpenAPI, MCP).
 ## Limits
 
 - **Memory**: 64 MB per execution
-- **Timeout**: 10 seconds by default, or 60 seconds when network is enabled (configurable via `maxJsTimeoutMs`)
+- **Timeout**: 10 seconds by default and never raised by enabling network access (configurable via `maxJsTimeoutMs`)
 - **Engine**: QuickJS (compiled to WebAssembly)

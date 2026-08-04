@@ -18,6 +18,7 @@ import type { ExecResult } from "../../types.js";
 import { evaluateArithmetic } from "../arithmetic.js";
 import { isArray } from "../expansion/variable.js";
 import { expandWord, getArrayElements } from "../expansion.js";
+import { deleteArray, deleteArrayElement } from "../helpers/array.js";
 import { isNameref, resolveNameref } from "../helpers/nameref.js";
 import { isReadonly } from "../helpers/readonly.js";
 import { result } from "../helpers/result.js";
@@ -261,11 +262,14 @@ export async function handleUnset(
         const arrayName = arrayMatchVar[1];
         const indexExpr = arrayMatchVar[2];
 
+        if (isReadonly(ctx, arrayName)) {
+          stderr += `bash: unset: ${arrayName}: cannot unset: readonly variable\n`;
+          exitCode = 1;
+          continue;
+        }
+
         if (indexExpr === "@" || indexExpr === "*") {
-          const elements = getArrayElements(ctx, arrayName);
-          for (const [idx] of elements) {
-            ctx.state.env.delete(`${arrayName}_${idx}`);
-          }
+          deleteArray(ctx, arrayName);
           ctx.state.env.delete(arrayName);
           continue;
         }
@@ -276,7 +280,7 @@ export async function handleUnset(
         if (isAssoc) {
           // For associative arrays, expand variables in the subscript
           const key = await expandAssocSubscript(ctx, indexExpr);
-          ctx.state.env.delete(`${arrayName}_${key}`);
+          deleteArrayElement(ctx, arrayName, key);
           continue;
         }
 
@@ -330,11 +334,11 @@ export async function handleUnset(
             continue;
           }
           const actualIndex = elements[actualPos][0];
-          ctx.state.env.delete(`${arrayName}_${actualIndex}`);
+          deleteArrayElement(ctx, arrayName, actualIndex);
           continue;
         }
 
-        ctx.state.env.delete(`${arrayName}_${index}`);
+        deleteArrayElement(ctx, arrayName, index);
         continue;
       }
 
@@ -360,6 +364,7 @@ export async function handleUnset(
         exitCode = 1;
         continue;
       }
+      deleteArray(ctx, targetName);
 
       // Bash-specific unset scoping: check if this is a dynamic-unset
       const localDepth = getLocalVarDepth(ctx, targetName);
@@ -413,12 +418,15 @@ export async function handleUnset(
       const arrayName = arrayMatch[1];
       const indexExpr = arrayMatch[2];
 
+      if (isReadonly(ctx, arrayName)) {
+        stderr += `bash: unset: ${arrayName}: cannot unset: readonly variable\n`;
+        exitCode = 1;
+        continue;
+      }
+
       // Handle [@] or [*] - unset entire array
       if (indexExpr === "@" || indexExpr === "*") {
-        const elements = getArrayElements(ctx, arrayName);
-        for (const [idx] of elements) {
-          ctx.state.env.delete(`${arrayName}_${idx}`);
-        }
+        deleteArray(ctx, arrayName);
         ctx.state.env.delete(arrayName);
         continue;
       }
@@ -429,7 +437,7 @@ export async function handleUnset(
       if (isAssoc) {
         // For associative arrays, expand variables in the subscript
         const key = await expandAssocSubscript(ctx, indexExpr);
-        ctx.state.env.delete(`${arrayName}_${key}`);
+        deleteArrayElement(ctx, arrayName, key);
         continue;
       }
 
@@ -485,12 +493,12 @@ export async function handleUnset(
         }
         // Get the actual index from the sorted elements
         const actualIndex = elements[actualPos][0];
-        ctx.state.env.delete(`${arrayName}_${actualIndex}`);
+        deleteArrayElement(ctx, arrayName, actualIndex);
         continue;
       }
 
       // Positive index - just delete directly
-      ctx.state.env.delete(`${arrayName}_${index}`);
+      deleteArrayElement(ctx, arrayName, index);
       continue;
     }
 
@@ -516,6 +524,7 @@ export async function handleUnset(
       exitCode = 1;
       continue;
     }
+    deleteArray(ctx, targetName);
 
     // Bash-specific unset scoping: check if this is a dynamic-unset
     const localDepth = getLocalVarDepth(ctx, targetName);

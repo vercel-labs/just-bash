@@ -13,6 +13,7 @@ import type {
 } from "../interface.js";
 import {
   DEFAULT_DIR_MODE,
+  isSameOrDescendantPath,
   joinPath,
   normalizePath,
   resolvePath,
@@ -471,6 +472,10 @@ export class MountableFs implements IFileSystem {
   }
 
   async cp(src: string, dest: string, options?: CpOptions): Promise<void> {
+    const srcStat = await this.stat(src);
+    if (srcStat.isDirectory && isSameOrDescendantPath(src, dest)) {
+      throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
+    }
     const srcRoute = this.routePath(src);
     const destRoute = this.routePath(dest);
 
@@ -489,6 +494,10 @@ export class MountableFs implements IFileSystem {
 
   async mv(src: string, dest: string): Promise<void> {
     const normalized = normalizePath(src);
+    const srcStat = await this.stat(src);
+    if (srcStat.isDirectory && isSameOrDescendantPath(src, dest)) {
+      throw new Error(`EINVAL: cannot move '${src}' into itself, '${dest}'`);
+    }
 
     // Cannot move mount points
     if (this.mounts.has(normalized)) {

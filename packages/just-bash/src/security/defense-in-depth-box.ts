@@ -18,22 +18,26 @@
  *
  * Dynamic import() mitigation (three layers):
  * 1. ESM loader hooks (module.register/registerHooks):
- *    - block data:/blob: URLs process-wide
+ *    - block data:/blob: URLs only in the untrusted async context
  *    - block Node.js builtin specifiers in untrusted sandbox context
  * 2. Module._resolveFilename blocked — catches file-based specifiers
  * 3. Filesystem restrictions — OverlayFs writes to memory only
  *
- * Residual gap: On runtimes with only module.register() (no registerHooks),
- * loader hooks run in a separate thread and cannot read AsyncLocalStorage
- * context. In that mode, context-aware Node builtin import blocking is not
- * available.
+ * Runtimes with only module.register() (no registerHooks) resolve auto mode as
+ * unsupported and reject explicitly enabled activation. Their separate loader
+ * thread cannot observe AsyncLocalStorage, so installing a partial or
+ * process-global fallback would either be misleading or break unrelated host
+ * imports.
  */
 
+import * as nodeAsyncHooks from "node:async_hooks";
+import * as nodeModule from "node:module";
 import { type BlockedGlobal, getBlockedGlobals } from "./blocked-globals.js";
 import type {
   DefenseInDepthConfig,
   DefenseInDepthHandle,
   DefenseInDepthStats,
+  DefenseInDepthStatus,
   SecurityViolation,
   SecurityViolationType,
 } from "./types.js";
@@ -67,20 +71,39 @@ type AsyncLocalStorageType<T> = {
   getStore(): T | undefined;
 };
 
+type NodeModuleClass = Record<string, unknown>;
+type NodeModuleApi = {
+  Module?: NodeModuleClass;
+  default?: NodeModuleClass;
+  builtinModules?: string[];
+  isBuiltin?: (specifier: string) => boolean;
+  registerHooks?: (hooks: {
+    resolve: (
+      specifier: string,
+      context: unknown,
+      nextResolve: (specifier: string, context: unknown) => { url: string },
+    ) => { url: string };
+  }) => void;
+  register?: (specifier: string) => void;
+};
+
 let AsyncLocalStorageClass: (new <T>() => AsyncLocalStorageType<T>) | null =
   null;
+let nodeModuleApi: NodeModuleApi | null = null;
+let nodeModuleClass: NodeModuleClass | null = null;
 
-// Only load AsyncLocalStorage in Node.js (not in browser builds).
-// Uses require() instead of a static import so that esbuild can
-// dead-code-eliminate this block in browser builds (static imports
-// cannot be tree-shaken even when unused).
+// Capture host builtins before any defense patches are active. Static imports
+// work in both ESM and CommonJS entrypoints on every supported Node version;
+// process.getBuiltinModule() is unavailable before Node 22 and require() is
+// unavailable in native ESM. The browser build aliases these imports to an
+// inert shim and dead-code-eliminates this branch via __BROWSER__.
 if (!IS_BROWSER) {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { AsyncLocalStorage } = require("node:async_hooks");
-    AsyncLocalStorageClass = AsyncLocalStorage as
+    AsyncLocalStorageClass = nodeAsyncHooks.AsyncLocalStorage as
       | (new <T>() => AsyncLocalStorageType<T>)
       | null;
+    nodeModuleApi = nodeModule as unknown as NodeModuleApi;
+    nodeModuleClass = nodeModuleApi.Module ?? nodeModuleApi.default ?? null;
   } catch {
     // Not available (edge runtimes, restricted environments)
   }
@@ -153,24 +176,79 @@ function runInContext(
 const DEFAULT_CONFIG: DefenseInDepthConfig = {
   enabled: true,
   auditMode: false,
+  processLifetimeIntrinsicHardening: false,
 };
+
+type ResolvedDefenseConfig = Omit<DefenseInDepthConfig, "enabled"> & {
+  enabled: boolean;
+  requested: "auto" | "enabled" | "disabled";
+};
+
+function hasContextualDynamicImportProtection(): boolean {
+  return !IS_BROWSER && typeof nodeModuleApi?.registerHooks === "function";
+}
 
 /**
  * Resolve user config with defaults.
  */
 function resolveConfig(
   config?: DefenseInDepthConfig | boolean,
-): DefenseInDepthConfig {
-  if (config === undefined) {
-    return { ...DEFAULT_CONFIG, enabled: false };
+): ResolvedDefenseConfig {
+  const supplied =
+    typeof config === "boolean" ? { enabled: config } : (config ?? {});
+  if (
+    supplied.enabled !== undefined &&
+    supplied.enabled !== true &&
+    supplied.enabled !== false &&
+    supplied.enabled !== "auto"
+  ) {
+    throw new RangeError(
+      'defenseInDepth.enabled must be true, false, or "auto"',
+    );
   }
-  if (typeof config === "boolean") {
-    return { ...DEFAULT_CONFIG, enabled: config };
-  }
-  return {
+  const merged = {
     ...DEFAULT_CONFIG,
-    ...config,
+    ...supplied,
   };
+  const requested =
+    merged.enabled === "auto"
+      ? "auto"
+      : merged.enabled
+        ? "enabled"
+        : "disabled";
+  const resolved: ResolvedDefenseConfig = {
+    ...merged,
+    enabled: requested !== "disabled",
+    requested,
+  };
+  if (resolved.excludeViolationTypes) {
+    resolved.excludeViolationTypes = [
+      ...new Set(resolved.excludeViolationTypes),
+    ].sort();
+  }
+  return resolved;
+}
+
+/** Compare every resolved option that influences singleton behavior. */
+function configsEqual(
+  left: ResolvedDefenseConfig,
+  right: ResolvedDefenseConfig,
+): boolean {
+  if (
+    left.enabled !== right.enabled ||
+    left.auditMode !== right.auditMode ||
+    left.processLifetimeIntrinsicHardening !==
+      right.processLifetimeIntrinsicHardening ||
+    left.onViolation !== right.onViolation
+  ) {
+    return false;
+  }
+  const leftExcluded = left.excludeViolationTypes ?? [];
+  const rightExcluded = right.excludeViolationTypes ?? [];
+  return (
+    leftExcluded.length === rightExcluded.length &&
+    leftExcluded.every((value, index) => value === rightExcluded[index])
+  );
 }
 
 /**
@@ -189,7 +267,7 @@ export class DefenseInDepthBox {
    */
   private static trustedExecutionDepth = new Map<string, number>();
 
-  private config: DefenseInDepthConfig;
+  private config: ResolvedDefenseConfig;
   private refCount = 0;
   private patchFailures: string[] = [];
   private activeExecutionIds = new Set<string>();
@@ -200,11 +278,21 @@ export class DefenseInDepthBox {
     prop: string;
     descriptor: PropertyDescriptor | undefined;
   }> = [];
+  /**
+   * Descriptors made temporarily read-only while the shared host realm is
+   * protected. Unlike process-lifetime hardening, every entry remains
+   * configurable and is restored exactly when the last handle deactivates.
+   */
+  private temporaryIntrinsicDescriptors: Array<{
+    target: object;
+    prop: PropertyKey;
+    descriptor: PropertyDescriptor;
+  }> = [];
   private violations: SecurityViolation[] = [];
   private activationTime = 0;
   private totalActiveTimeMs = 0;
 
-  private constructor(config: DefenseInDepthConfig) {
+  private constructor(config: ResolvedDefenseConfig) {
     this.config = config;
   }
 
@@ -223,18 +311,12 @@ export class DefenseInDepthBox {
     if (!DefenseInDepthBox.instance) {
       DefenseInDepthBox.instance = new DefenseInDepthBox(resolved);
     } else {
-      // Reject conflicting security-relevant config to prevent silent downgrades.
-      // Two configs conflict if they differ on enabled or auditMode.
       const active = DefenseInDepthBox.instance.config;
-      if (
-        resolved.enabled !== active.enabled ||
-        resolved.auditMode !== active.auditMode
-      ) {
+      if (!configsEqual(resolved, active)) {
         throw new Error(
-          `DefenseInDepthBox config conflict: requested {enabled: ${resolved.enabled}, auditMode: ${resolved.auditMode}} ` +
-            `but singleton already has {enabled: ${active.enabled}, auditMode: ${active.auditMode}}. ` +
-            `All Bash instances must use the same defense-in-depth security settings, ` +
-            `or call DefenseInDepthBox.resetInstance() between incompatible configurations.`,
+          "DefenseInDepthBox config conflict: all resolved defense options, " +
+            "including exclusions and the violation callback, must match across Bash instances. " +
+            "Call DefenseInDepthBox.resetInstance() between incompatible configurations.",
         );
       }
     }
@@ -314,19 +396,6 @@ export class DefenseInDepthBox {
   }
 
   /**
-   * Return an active execution ID to bind callback context.
-   * When multiple executions are active, this intentionally selects one
-   * active ID so callback execution stays fail-closed.
-   */
-  private getPreferredActiveExecutionId(): string | undefined {
-    if (this.activeExecutionIds.size === 0) return undefined;
-    for (const executionId of this.activeExecutionIds) {
-      return executionId;
-    }
-    return undefined;
-  }
-
-  /**
    * Bind a callback to the current defense AsyncLocalStorage context.
    *
    * Useful for infrastructure callbacks that may execute later via pre-captured
@@ -339,14 +408,14 @@ export class DefenseInDepthBox {
     fn: (...args: TArgs) => TResult,
   ): (...args: TArgs) => TResult {
     if (!executionContext) return fn;
-    const box = DefenseInDepthBox.instance;
     const current = executionContext.getStore();
+    // Never attribute unrelated host work to an arbitrary active execution.
+    // Callers that require sandbox continuity must bind while inside run().
     const executionId =
-      current?.sandboxActive === true
-        ? current.executionId
-        : box?.getPreferredActiveExecutionId();
+      current?.sandboxActive === true ? current.executionId : undefined;
     if (!executionId) return fn;
 
+    const box = DefenseInDepthBox.instance;
     const captured = box?.getCachedContext(executionId) ?? {
       sandboxActive: true as const,
       executionId,
@@ -376,16 +445,73 @@ export class DefenseInDepthBox {
    * Returns false if AsyncLocalStorage is unavailable or config.enabled is false.
    */
   isEnabled(): boolean {
-    return (
-      this.config.enabled === true && executionContext !== null && !IS_BROWSER
-    );
+    return this.getStatus().state === "enabled";
+  }
+
+  /** Return the resolved runtime capability without activating protection. */
+  getStatus(): DefenseInDepthStatus {
+    const contextualDynamicImportProtection =
+      hasContextualDynamicImportProtection();
+    if (this.config.requested === "disabled") {
+      return {
+        requested: "disabled",
+        state: "disabled",
+        level: "none",
+        contextualDynamicImportProtection,
+        processLifetimeIntrinsicHardening:
+          this.config.processLifetimeIntrinsicHardening === true,
+        intrinsicProtection: this.config.processLifetimeIntrinsicHardening
+          ? "process-lifetime"
+          : "scoped-best-effort",
+      };
+    }
+    if (!executionContext || IS_BROWSER) {
+      return {
+        requested: this.config.requested,
+        state: "unsupported",
+        level: "none",
+        contextualDynamicImportProtection: false,
+        processLifetimeIntrinsicHardening:
+          this.config.processLifetimeIntrinsicHardening === true,
+        intrinsicProtection: this.config.processLifetimeIntrinsicHardening
+          ? "process-lifetime"
+          : "scoped-best-effort",
+        reason:
+          "context-aware ESM loader hooks (node:module.registerHooks) are unavailable",
+      };
+    }
+    return {
+      requested: this.config.requested,
+      state: "enabled",
+      level: this.config.auditMode
+        ? "none"
+        : contextualDynamicImportProtection
+          ? "full"
+          : "best-effort",
+      contextualDynamicImportProtection,
+      processLifetimeIntrinsicHardening:
+        this.config.processLifetimeIntrinsicHardening === true,
+      intrinsicProtection: this.config.processLifetimeIntrinsicHardening
+        ? "process-lifetime"
+        : "scoped-best-effort",
+      reason: this.config.auditMode
+        ? "audit mode records violations but does not block them"
+        : contextualDynamicImportProtection
+          ? undefined
+          : "best-effort protection; context-aware ESM loader hooks are unavailable",
+    };
   }
 
   /**
    * Update configuration. Only affects future activations.
    */
   updateConfig(config: Partial<DefenseInDepthConfig>): void {
-    this.config = { ...this.config, ...config };
+    if (this.refCount > 0) {
+      throw new Error(
+        "DefenseInDepthBox configuration cannot change while protection is active",
+      );
+    }
+    this.config = resolveConfig({ ...this.config, ...config });
   }
 
   /**
@@ -406,7 +532,12 @@ export class DefenseInDepthBox {
   activate(): DefenseInDepthHandle {
     // In browser environments, defense-in-depth is disabled (no AsyncLocalStorage)
     // Also disabled when config.enabled is false
-    if (IS_BROWSER || !this.config.enabled || !executionContext) {
+    if (!IS_BROWSER && this.config.enabled && !executionContext) {
+      throw new Error(
+        "DefenseInDepthBox: enabled protection requires node:async_hooks and node:module",
+      );
+    }
+    if (IS_BROWSER || !this.config.enabled) {
       // Return a no-op handle
       const executionId = generateUUID();
       let deactivated = false;
@@ -430,7 +561,17 @@ export class DefenseInDepthBox {
 
     this.refCount++;
     if (this.refCount === 1) {
-      this.applyPatches();
+      try {
+        this.applyPatches();
+      } catch (error) {
+        // applyPatches performs local rollback for known failures. Keep the
+        // activation boundary transactional for unexpected exceptions too.
+        this.restorePatches();
+        this.activeExecutionIds.clear();
+        this.contextCache.clear();
+        this.refCount = 0;
+        throw error;
+      }
       this.activationTime = Date.now();
     }
 
@@ -621,6 +762,17 @@ export class DefenseInDepthBox {
     return true;
   }
 
+  /** Record audit events only for untrusted sandbox work. */
+  private shouldAudit(): boolean {
+    if (!this.config.auditMode || !executionContext) return false;
+    const store = executionContext.getStore();
+    return (
+      store?.sandboxActive === true &&
+      store.trusted !== true &&
+      !DefenseInDepthBox.isTrustedScopeActive(store.executionId)
+    );
+  }
+
   /**
    * Record a violation and optionally invoke the callback.
    */
@@ -679,10 +831,7 @@ export class DefenseInDepthBox {
           throw new SecurityViolationError(message, violation);
         }
         // Record violation in audit mode but allow the call
-        if (
-          box.config.auditMode &&
-          executionContext?.getStore()?.sandboxActive === true
-        ) {
+        if (box.shouldAudit()) {
           box.recordViolation(
             violationType,
             path,
@@ -698,10 +847,7 @@ export class DefenseInDepthBox {
           throw new SecurityViolationError(message, violation);
         }
         // Record violation in audit mode but allow the call
-        if (
-          box.config.auditMode &&
-          executionContext?.getStore()?.sandboxActive === true
-        ) {
+        if (box.shouldAudit()) {
           box.recordViolation(
             violationType,
             path,
@@ -746,10 +892,7 @@ export class DefenseInDepthBox {
           throw new SecurityViolationError(message, violation);
         }
         // Record violation in audit mode but allow access
-        if (
-          box.config.auditMode &&
-          executionContext?.getStore()?.sandboxActive === true
-        ) {
+        if (box.shouldAudit()) {
           const fullPath = `${path}.${String(prop)}`;
           box.recordViolation(
             violationType,
@@ -855,6 +998,44 @@ export class DefenseInDepthBox {
     }) as T;
   }
 
+  /** Preserve read access while denying mutation only in sandbox context. */
+  private createReadonlyObjectProxy<T extends object>(
+    original: T,
+    path: string,
+    violationType: SecurityViolationType,
+  ): T {
+    const box = this;
+    const deny = (operation: string): never => {
+      const message = `${path} ${operation} is blocked during script execution`;
+      const violation = box.recordViolation(violationType, path, message);
+      throw new SecurityViolationError(message, violation);
+    };
+
+    // @banned-pattern-ignore: intentional Proxy usage for reversible security blocking
+    return new Proxy(original, {
+      set(target, prop, value, receiver) {
+        if (box.shouldBlock()) deny("modification");
+        return Reflect.set(target, prop, value, receiver);
+      },
+      defineProperty(target, prop, descriptor) {
+        if (box.shouldBlock()) deny("defineProperty");
+        return Reflect.defineProperty(target, prop, descriptor);
+      },
+      deleteProperty(target, prop) {
+        if (box.shouldBlock()) deny("deletion");
+        return Reflect.deleteProperty(target, prop);
+      },
+      setPrototypeOf(target, prototype) {
+        if (box.shouldBlock()) deny("setPrototypeOf");
+        return Reflect.setPrototypeOf(target, prototype);
+      },
+      preventExtensions(target) {
+        if (box.shouldBlock()) deny("preventExtensions");
+        return Reflect.preventExtensions(target);
+      },
+    });
+  }
+
   /**
    * Apply security patches to dangerous globals.
    */
@@ -878,9 +1059,14 @@ export class DefenseInDepthBox {
       "process_stdout",
       "process_stderr",
     ]);
+    const permanentIntrinsicPatches: BlockedGlobal[] = [];
 
     for (const blocked of blockedGlobals) {
       if (skipInMainThread.has(blocked.violationType)) continue;
+      if (blocked.strategy === "freeze") {
+        permanentIntrinsicPatches.push(blocked);
+        continue;
+      }
       this.applyPatch(blocked);
     }
 
@@ -895,10 +1081,14 @@ export class DefenseInDepthBox {
     // callbacks cannot outlive handle deactivation.
     this.protectPromiseThen();
 
-    // Block dynamic import() of data:/blob: URLs via ESM loader hooks.
+    // Block dynamic import() of data:/blob: URLs when contextual ESM loader
+    // hooks are available. Older supported Nodes retain the remaining scoped
+    // protections without installing a process-global loader.
     // Must run BEFORE protectModuleLoad() because it uses require('node:module')
     // which goes through Module._load internally.
-    this.protectDynamicImport();
+    if (hasContextualDynamicImportProtection()) {
+      this.protectDynamicImport();
+    }
 
     // Protect Module._load and Module._resolveFilename BEFORE process.mainModule,
     // since these methods need to read process.mainModule to find the Module class.
@@ -910,10 +1100,6 @@ export class DefenseInDepthBox {
 
     // Protect process.execPath (string primitive, needs defineProperty)
     this.protectProcessExecPath();
-
-    // Lock well-known Symbol properties to prevent hijacking of
-    // Array.map/filter, for...of, type coercion, and instanceof.
-    this.lockWellKnownSymbols();
 
     // Block Proxy.revocable to prevent bypassing Proxy constructor blocking.
     // Runs after the main loop wraps globalThis.Proxy; property operations on
@@ -928,7 +1114,11 @@ export class DefenseInDepthBox {
 
     // Fail closed: if any critical patch failed, throw.
     // Critical patches are those that block the most dangerous escape vectors.
-    const criticalPaths = ["Function.prototype.constructor", "Module._load"];
+    const criticalPaths = [
+      "Function.prototype.constructor",
+      "Module._load",
+      "Module._resolveFilename",
+    ];
     const criticalFailures = this.patchFailures.filter((p) =>
       criticalPaths.includes(p),
     );
@@ -938,6 +1128,170 @@ export class DefenseInDepthBox {
       throw new Error(
         `DefenseInDepthBox: critical patches failed: ${criticalFailures.join(", ")}`,
       );
+    }
+
+    // The default path installs reversible read-only proxies. The explicit
+    // process-lifetime mode additionally freezes their underlying objects and
+    // locks well-known symbols, after every reversible critical patch has been
+    // installed and verified.
+    if (!this.config.processLifetimeIntrinsicHardening) {
+      // Capture and protect the underlying objects before their global
+      // bindings are replaced with proxies.
+      this.protectReversibleIntrinsics(permanentIntrinsicPatches);
+    }
+    for (const blocked of permanentIntrinsicPatches) {
+      this.applyPatch(
+        blocked,
+        this.config.processLifetimeIntrinsicHardening === true,
+      );
+    }
+    if (this.config.processLifetimeIntrinsicHardening) {
+      this.lockWellKnownSymbols();
+    }
+  }
+
+  /**
+   * Close the cached-reference assignment path without permanently freezing
+   * host globals. The global proxies protect references obtained after
+   * activation; these temporary descriptor changes protect references cached
+   * before activation. Configurability is deliberately retained so teardown
+   * can restore the host realm byte-for-byte.
+   */
+  private protectReversibleIntrinsics(blockedGlobals: BlockedGlobal[]): void {
+    const protectedTargets = new Set<object>();
+    const protect = (target: object, prop: PropertyKey): void => {
+      const descriptor = Object.getOwnPropertyDescriptor(target, prop);
+      if (
+        !descriptor ||
+        !("value" in descriptor) ||
+        descriptor.writable !== true ||
+        descriptor.configurable !== true
+      ) {
+        return;
+      }
+      this.temporaryIntrinsicDescriptors.push({ target, prop, descriptor });
+      Object.defineProperty(target, prop, { ...descriptor, writable: false });
+    };
+
+    for (const { target, prop } of blockedGlobals) {
+      const intrinsic = (target as Record<string, unknown>)[prop];
+      if (typeof intrinsic !== "object" || intrinsic === null) continue;
+      protectedTargets.add(intrinsic);
+      for (const key of Reflect.ownKeys(intrinsic)) protect(intrinsic, key);
+    }
+
+    const symbolProperties: Array<[object, symbol]> = [];
+    // biome-ignore lint/style/noRestrictedGlobals: security protection intentionally targets the intrinsic
+    for (const ctor of [Array, Map, Set, RegExp, Promise]) {
+      symbolProperties.push([ctor, Symbol.species]);
+    }
+    for (const proto of [
+      Array.prototype,
+      String.prototype,
+      Map.prototype,
+      Set.prototype,
+    ]) {
+      symbolProperties.push([proto, Symbol.iterator]);
+    }
+    symbolProperties.push(
+      [Symbol.prototype, Symbol.toPrimitive],
+      [Date.prototype, Symbol.toPrimitive],
+      [Function.prototype, Symbol.hasInstance],
+      [Array.prototype, Symbol.unscopables],
+    );
+    for (const sym of [
+      Symbol.match,
+      Symbol.matchAll,
+      Symbol.replace,
+      Symbol.search,
+      Symbol.split,
+    ]) {
+      // biome-ignore lint/style/noRestrictedGlobals: security protection intentionally targets the intrinsic
+      symbolProperties.push([RegExp.prototype, sym]);
+    }
+    for (const proto of [
+      Map.prototype,
+      Set.prototype,
+      Promise.prototype,
+      ArrayBuffer.prototype,
+    ]) {
+      symbolProperties.push([proto, Symbol.toStringTag]);
+    }
+    for (const [target, prop] of symbolProperties) {
+      protectedTargets.add(target);
+      protect(target, prop);
+    }
+
+    // Cached Object/Reflect references resolve methods from the original
+    // intrinsic, bypassing the global proxy. Wrap the mutation entry points
+    // while active, but continue to allow them for ordinary script-owned
+    // objects and for host work outside the sandbox context.
+    const wrapMutationMethod = (
+      owner: object,
+      prop: string,
+      operation: string,
+    ): void => {
+      const descriptor = Object.getOwnPropertyDescriptor(owner, prop);
+      if (
+        !descriptor ||
+        !("value" in descriptor) ||
+        typeof descriptor.value !== "function" ||
+        descriptor.configurable !== true
+      ) {
+        return;
+      }
+      const original = descriptor.value as (...args: unknown[]) => unknown;
+      const box = this;
+      const guarded = function (this: unknown, ...args: unknown[]): unknown {
+        const target = args[0];
+        if (
+          box.shouldBlock() &&
+          typeof target === "object" &&
+          target !== null &&
+          protectedTargets.has(target)
+        ) {
+          const path = `${operation}.${prop}`;
+          const message = `${path} is blocked for protected intrinsics during script execution`;
+          const violation = box.recordViolation(
+            "prototype_mutation",
+            path,
+            message,
+          );
+          throw new SecurityViolationError(message, violation);
+        }
+        return Reflect.apply(original, this, args);
+      };
+      this.temporaryIntrinsicDescriptors.push({
+        target: owner,
+        prop,
+        descriptor,
+      });
+      Object.defineProperty(owner, prop, {
+        ...descriptor,
+        value: guarded,
+        writable: false,
+      });
+    };
+
+    for (const prop of [
+      "assign",
+      "defineProperties",
+      "defineProperty",
+      "freeze",
+      "preventExtensions",
+      "seal",
+      "setPrototypeOf",
+    ]) {
+      wrapMutationMethod(Object, prop, "Object");
+    }
+    for (const prop of [
+      "defineProperty",
+      "deleteProperty",
+      "preventExtensions",
+      "set",
+      "setPrototypeOf",
+    ]) {
+      wrapMutationMethod(Reflect, prop, "Reflect");
     }
   }
 
@@ -1071,10 +1425,7 @@ export class DefenseInDepthBox {
             throw new SecurityViolationError(message, violation);
           }
           // Record in audit mode
-          if (
-            box.config.auditMode &&
-            executionContext?.getStore()?.sandboxActive === true
-          ) {
+          if (box.shouldAudit()) {
             box.recordViolation(
               "error_prepare_stack_trace",
               "Error.prepareStackTrace",
@@ -1246,10 +1597,7 @@ export class DefenseInDepthBox {
             throw new SecurityViolationError(message, violation);
           }
           // Record in audit mode
-          if (
-            box.config.auditMode &&
-            executionContext?.getStore()?.sandboxActive === true
-          ) {
+          if (box.shouldAudit()) {
             box.recordViolation(
               violationType,
               path,
@@ -1329,10 +1677,7 @@ export class DefenseInDepthBox {
               );
               throw new SecurityViolationError(message, violation);
             }
-            if (
-              box.config.auditMode &&
-              executionContext?.getStore()?.sandboxActive === true
-            ) {
+            if (box.shouldAudit()) {
               box.recordViolation(
                 "process_main_module",
                 "process.mainModule",
@@ -1408,10 +1753,7 @@ export class DefenseInDepthBox {
             );
             throw new SecurityViolationError(message, violation);
           }
-          if (
-            box.config.auditMode &&
-            executionContext?.getStore()?.sandboxActive === true
-          ) {
+          if (box.shouldAudit()) {
             box.recordViolation(
               "process_exec_path",
               "process.execPath",
@@ -1465,8 +1807,6 @@ export class DefenseInDepthBox {
         const desc = Object.getOwnPropertyDescriptor(obj, sym);
         if (desc?.configurable) {
           if ("value" in desc) {
-            // Data descriptors must also be non-writable, otherwise assignment
-            // can still replace the Symbol property value.
             Object.defineProperty(obj, sym, {
               ...desc,
               configurable: false,
@@ -1474,7 +1814,6 @@ export class DefenseInDepthBox {
             });
             return;
           }
-
           Object.defineProperty(obj, sym, { ...desc, configurable: false });
         }
       } catch {
@@ -1530,27 +1869,10 @@ export class DefenseInDepthBox {
       lock(proto, Symbol.toStringTag);
     }
 
-    // Freeze Error.stackTraceLimit to prevent stack trace depth manipulation.
-    // Uses configurable: true so it can be restored on deactivation (test
-    // frameworks like Vitest modify stackTraceLimit for error reporting).
-    try {
-      const stackDesc = Object.getOwnPropertyDescriptor(
-        Error,
-        "stackTraceLimit",
-      );
-      this.originalDescriptors.push({
-        target: Error,
-        prop: "stackTraceLimit",
-        descriptor: stackDesc,
-      });
-      Object.defineProperty(Error, "stackTraceLimit", {
-        value: Error.stackTraceLimit,
-        writable: false,
-        configurable: true,
-      });
-    } catch {
-      /* best-effort */
-    }
+    // Symbol locks are deliberately process-lifetime locks. Making them
+    // reversible would leave a configurable descriptor that can be replaced
+    // through Object.defineProperty/Reflect.defineProperty. Error stack depth
+    // is diagnostic only and is therefore not locked process-wide.
   }
 
   /**
@@ -1593,10 +1915,7 @@ export class DefenseInDepthBox {
             throw new SecurityViolationError(message, violation);
           }
           // Record in audit mode
-          if (
-            box.config.auditMode &&
-            executionContext?.getStore()?.sandboxActive === true
-          ) {
+          if (box.shouldAudit()) {
             box.recordViolation(
               "proxy",
               "Proxy.revocable",
@@ -1620,18 +1939,16 @@ export class DefenseInDepthBox {
   /**
    * Block dynamic import() escape vectors via ESM loader hooks.
    *
-   * Uses Node.js module.registerHooks() (23.5+, synchronous) or
-   * module.register() (20.6+, async hooks in separate thread) to install
-   * ESM loader hooks that reject dangerous specifiers.
+   * Uses Node.js module.registerHooks() (23.5+, synchronous) to install ESM
+   * loader hooks that reject dangerous specifiers.
    *
    * registerHooks() runs in-thread and can read AsyncLocalStorage. We use it
    * to block Node.js builtin specifiers (node:* and bare builtins) only in
    * untrusted sandbox context while still allowing trusted infrastructure
    * imports (runTrusted/runTrustedAsync).
    *
-   * register() hooks run in a separate loader thread and cannot read
-   * AsyncLocalStorage. In that fallback mode, only data:/blob: blocking is
-   * enforced here.
+   * module.register() is deliberately not used as a fallback: those hooks run
+   * in a separate loader thread and cannot read AsyncLocalStorage.
    *
    * This is process-wide and permanent (hooks cannot be unregistered).
    * Only applied once per process regardless of how many DefenseInDepthBox
@@ -1645,24 +1962,10 @@ export class DefenseInDepthBox {
     if (IS_BROWSER || DefenseInDepthBox.importHooksRegistered) return;
 
     try {
-      const box = this;
-
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const mod = require("node:module") as {
-        builtinModules?: string[];
-        isBuiltin?: (specifier: string) => boolean;
-        registerHooks?: (hooks: {
-          resolve: (
-            specifier: string,
-            context: unknown,
-            nextResolve: (
-              specifier: string,
-              context: unknown,
-            ) => { url: string },
-          ) => { url: string };
-        }) => void;
-        register?: (specifier: string) => void;
-      };
+      const mod = nodeModuleApi;
+      if (!mod) {
+        throw new Error("node:module is unavailable");
+      }
 
       // Normalize Node builtin module names once. Includes both root modules
       // (fs) and first path segments (fs from fs/promises).
@@ -1710,7 +2013,7 @@ export class DefenseInDepthBox {
         );
       };
 
-      const shouldRecordAuditViolation = (): boolean => {
+      const shouldRecordAuditViolation = (box: DefenseInDepthBox): boolean => {
         const store = executionContext?.getStore();
         return (
           box.config.auditMode === true &&
@@ -1720,17 +2023,26 @@ export class DefenseInDepthBox {
         );
       };
 
-      // Prefer registerHooks() (Node.js 23.5+) — synchronous, in-thread
+      // registerHooks() (Node.js 23.5+) is synchronous and in-thread.
       if (typeof mod.registerHooks === "function") {
         mod.registerHooks({
           resolve(specifier, context, nextResolve) {
+            const box = DefenseInDepthBox.instance;
+            if (!box) return nextResolve(specifier, context);
             if (
-              specifier.startsWith("data:") ||
-              specifier.startsWith("blob:")
+              (specifier.startsWith("data:") ||
+                specifier.startsWith("blob:")) &&
+              box.shouldBlock()
             ) {
-              throw new Error(
-                `dynamic import of ${specifier.startsWith("data:") ? "data:" : "blob:"} URLs is blocked by defense-in-depth`,
+              const path = `import(${specifier.startsWith("data:") ? "data:" : "blob:"})`;
+              // @banned-pattern-ignore: authorization uses the exact loader specifier and ALS capability, not a diagnostic
+              const message = `dynamic import of ${specifier.startsWith("data:") ? "data:" : "blob:"} URLs is blocked by defense-in-depth`;
+              const violation = box.recordViolation(
+                "dynamic_import_builtin",
+                path,
+                message,
               );
+              throw new SecurityViolationError(message, violation);
             }
             if (isNodeBuiltinSpecifier(specifier)) {
               const path = `import(${specifier})`;
@@ -1743,7 +2055,7 @@ export class DefenseInDepthBox {
                 );
                 throw new SecurityViolationError(message, violation);
               }
-              if (shouldRecordAuditViolation()) {
+              if (shouldRecordAuditViolation(box)) {
                 box.recordViolation(
                   "dynamic_import_builtin",
                   path,
@@ -1758,29 +2070,13 @@ export class DefenseInDepthBox {
         return;
       }
 
-      // Fall back to register() (Node.js 20.6+) — async, separate thread
-      if (typeof mod.register === "function") {
-        // NOTE: register() hooks run in a separate thread and cannot access
-        // AsyncLocalStorage context, so context-aware builtin import blocking
-        // is only possible via registerHooks().
-        // Inline the hooks as a data: URL module. This is loaded BEFORE
-        // the hooks become active, so it doesn't block its own loading.
-        const hookCode = [
-          "export async function resolve(specifier, context, nextResolve) {",
-          '  if (specifier.startsWith("data:") || specifier.startsWith("blob:")) {',
-          '    throw new Error("dynamic import of " + (specifier.startsWith("data:") ? "data:" : "blob:") + " URLs is blocked by defense-in-depth");',
-          "  }",
-          "  return nextResolve(specifier, context);",
-          "}",
-        ].join("\n");
-        mod.register(`data:text/javascript,${encodeURIComponent(hookCode)}`);
-        DefenseInDepthBox.importHooksRegistered = true;
-      }
+      throw new Error(
+        "context-aware ESM loader hooks (node:module.registerHooks) are unavailable",
+      );
     } catch (e) {
-      // module.register()/registerHooks() not available (older Node.js, edge runtimes)
-      console.debug(
-        "[DefenseInDepthBox] Could not register import() hooks:",
-        e instanceof Error ? e.message : e,
+      throw new Error(
+        `DefenseInDepthBox: could not register dynamic-import hooks: ${e instanceof Error ? e.message : String(e)}`,
+        { cause: e },
       );
     }
   }
@@ -1797,60 +2093,7 @@ export class DefenseInDepthBox {
    * We access the Module class and replace _load with a blocking proxy.
    */
   private protectModuleLoad(): void {
-    if (IS_BROWSER) return;
-
-    try {
-      // Access the Module class via Function.prototype (which exists before patching starts)
-      // Try multiple paths to find Module
-      let ModuleClass: Record<string, unknown> | null = null;
-
-      // Path 1: via process.mainModule (CJS contexts)
-      if (typeof process !== "undefined") {
-        const mainModule = (process as unknown as Record<string, unknown>)
-          .mainModule;
-        if (mainModule && typeof mainModule === "object") {
-          ModuleClass = (mainModule as unknown as Record<string, unknown>)
-            .constructor as unknown as Record<string, unknown>;
-        }
-      }
-
-      // Path 2: via require.main (CJS contexts)
-      if (
-        !ModuleClass &&
-        typeof require !== "undefined" &&
-        typeof require.main !== "undefined"
-      ) {
-        ModuleClass = (require.main as unknown as Record<string, unknown>)
-          .constructor as unknown as Record<string, unknown>;
-      }
-
-      if (!ModuleClass || typeof ModuleClass._load !== "function") {
-        return;
-      }
-
-      const original = ModuleClass._load as (...args: unknown[]) => unknown;
-      const descriptor = Object.getOwnPropertyDescriptor(ModuleClass, "_load");
-      this.originalDescriptors.push({
-        target: ModuleClass,
-        prop: "_load",
-        descriptor,
-      });
-
-      const path = "Module._load";
-      const proxy = this.createBlockingProxy(original, path, "module_load");
-
-      Object.defineProperty(ModuleClass, "_load", {
-        value: proxy,
-        writable: true,
-        configurable: true,
-      });
-    } catch (e) {
-      this.patchFailures.push("Module._load");
-      console.debug(
-        "[DefenseInDepthBox] Could not protect Module._load:",
-        e instanceof Error ? e.message : e,
-      );
-    }
+    this.protectModuleMethod("_load", "module_load");
   }
 
   /**
@@ -1864,73 +2107,59 @@ export class DefenseInDepthBox {
    * via ESM loader hooks.
    */
   private protectModuleResolveFilename(): void {
+    this.protectModuleMethod("_resolveFilename", "module_resolve_filename");
+  }
+
+  private protectModuleMethod(
+    prop: "_load" | "_resolveFilename",
+    violationType: "module_load" | "module_resolve_filename",
+  ): void {
     if (IS_BROWSER) return;
+    const path = `Module.${prop}`;
 
     try {
-      let ModuleClass: Record<string, unknown> | null = null;
-
-      // Path 1: via process.mainModule (CJS contexts)
-      if (typeof process !== "undefined") {
-        const mainModule = (process as unknown as Record<string, unknown>)
-          .mainModule;
-        if (mainModule && typeof mainModule === "object") {
-          ModuleClass = (mainModule as unknown as Record<string, unknown>)
-            .constructor as unknown as Record<string, unknown>;
-        }
+      const ModuleClass = nodeModuleClass;
+      const original = ModuleClass?.[prop];
+      if (!ModuleClass || typeof original !== "function") {
+        throw new Error("node:module Module class or method is unavailable");
       }
 
-      // Path 2: via require.main (CJS contexts)
-      if (
-        !ModuleClass &&
-        typeof require !== "undefined" &&
-        typeof require.main !== "undefined"
-      ) {
-        ModuleClass = (require.main as unknown as Record<string, unknown>)
-          .constructor as unknown as Record<string, unknown>;
+      const descriptor = Object.getOwnPropertyDescriptor(ModuleClass, prop);
+      if (!descriptor) {
+        throw new Error("method has no own property descriptor");
+      }
+      if (descriptor.configurable === false && descriptor.writable === false) {
+        throw new Error("method is non-configurable and non-writable");
       }
 
-      if (!ModuleClass || typeof ModuleClass._resolveFilename !== "function") {
-        return;
-      }
-
-      const original = ModuleClass._resolveFilename as (
-        ...args: unknown[]
-      ) => unknown;
-      const descriptor = Object.getOwnPropertyDescriptor(
-        ModuleClass,
-        "_resolveFilename",
+      const proxy = this.createBlockingProxy(
+        original as (...args: unknown[]) => unknown,
+        path,
+        violationType,
       );
       this.originalDescriptors.push({
         target: ModuleClass,
-        prop: "_resolveFilename",
+        prop,
         descriptor,
       });
-
-      const path = "Module._resolveFilename";
-      const proxy = this.createBlockingProxy(
-        original,
-        path,
-        "module_resolve_filename",
-      );
-
-      Object.defineProperty(ModuleClass, "_resolveFilename", {
+      Object.defineProperty(ModuleClass, prop, {
+        ...descriptor,
         value: proxy,
-        writable: true,
-        configurable: true,
       });
-    } catch (e) {
-      this.patchFailures.push("Module._resolveFilename");
-      console.debug(
-        "[DefenseInDepthBox] Could not protect Module._resolveFilename:",
-        e instanceof Error ? e.message : e,
-      );
+
+      const installed = Object.getOwnPropertyDescriptor(ModuleClass, prop);
+      if (ModuleClass[prop] !== proxy || installed?.value !== proxy) {
+        throw new Error("installed patch failed verification");
+      }
+    } catch {
+      this.patchFailures.push(path);
     }
   }
 
   /**
    * Apply a single patch to a blocked global.
    */
-  private applyPatch(blocked: BlockedGlobal): void {
+  private applyPatch(blocked: BlockedGlobal, freezeIntrinsic = false): void {
     const { target, prop, violationType, strategy } = blocked;
 
     try {
@@ -1944,9 +2173,20 @@ export class DefenseInDepthBox {
       this.originalDescriptors.push({ target, prop, descriptor });
 
       if (strategy === "freeze") {
-        // For freeze strategy, freeze the object and replace with frozen version
+        // The global proxy is descriptor-reversible. Freezing the underlying
+        // object is reserved for an explicitly opted-in process-lifetime mode.
         if (typeof original === "object" && original !== null) {
-          Object.freeze(original);
+          if (freezeIntrinsic) Object.freeze(original);
+          const path = this.getPathForTarget(target, prop);
+          const proxy = this.createReadonlyObjectProxy(
+            original,
+            path,
+            violationType,
+          );
+          Object.defineProperty(target, prop, {
+            ...descriptor,
+            value: proxy,
+          });
         }
       } else {
         // For throw strategy, create a blocking proxy
@@ -1987,6 +2227,20 @@ export class DefenseInDepthBox {
    * Restore all original values.
    */
   private restorePatches(): void {
+    for (let i = this.temporaryIntrinsicDescriptors.length - 1; i >= 0; i--) {
+      const { target, prop, descriptor } =
+        this.temporaryIntrinsicDescriptors[i];
+      try {
+        Object.defineProperty(target, prop, descriptor);
+      } catch (e) {
+        console.debug(
+          `[DefenseInDepthBox] Could not restore temporary intrinsic ${String(prop)}:`,
+          e instanceof Error ? e.message : e,
+        );
+      }
+    }
+    this.temporaryIntrinsicDescriptors = [];
+
     // Restore in reverse order to handle dependencies
     for (let i = this.originalDescriptors.length - 1; i >= 0; i--) {
       const { target, prop, descriptor } = this.originalDescriptors[i];

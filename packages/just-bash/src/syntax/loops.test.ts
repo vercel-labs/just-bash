@@ -133,7 +133,7 @@ describe("Bash Syntax - Loops", () => {
 
   describe("loop protection", () => {
     it("should detect infinite for loop and error", async () => {
-      const env = new Bash();
+      const env = new Bash({ executionLimitProfile: "hardened" });
       // Create a list that's too long
       const longList = Array(10001).fill("x").join(" ");
       const result = await env.exec(`for i in ${longList}; do echo $i; done`);
@@ -143,7 +143,7 @@ describe("Bash Syntax - Loops", () => {
     });
 
     it("should detect infinite while loop", async () => {
-      const env = new Bash();
+      const env = new Bash({ executionLimitProfile: "hardened" });
       const result = await env.exec("while true; do echo loop; done");
       // May hit either iteration limit or command count limit depending on loop body
       expect(result.stderr).toMatch(/too many (iterations|commands)/);
@@ -151,7 +151,7 @@ describe("Bash Syntax - Loops", () => {
     });
 
     it("should detect infinite until loop", async () => {
-      const env = new Bash();
+      const env = new Bash({ executionLimitProfile: "hardened" });
       const result = await env.exec("until false; do echo loop; done");
       // May hit either iteration limit or command count limit depending on loop body
       expect(result.stderr).toMatch(/too many (iterations|commands)/);

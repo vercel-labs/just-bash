@@ -5,7 +5,11 @@
  * and using the shared query engine. Inspired by xsv and xan tools.
  */
 
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 import {
   cmdAgg,
@@ -292,10 +296,13 @@ const subHelps: Record<
   },
 };
 
-export const xanCommand: Command = {
+export const xanCommand: RuntimeCommand = {
   name: "xan",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (args.length === 0 || hasHelpFlag(args)) {
       return showHelp(xanHelp);
     }

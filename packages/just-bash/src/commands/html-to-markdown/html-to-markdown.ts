@@ -5,8 +5,18 @@
  */
 
 import TurndownService from "turndown";
-import { decodeBytesToUtf8 } from "../../encoding.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import {
+  decodeBytesToUtf8,
+  latin1FromBytes,
+  utf8ByteLength,
+} from "../../encoding.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const htmlToMarkdownHelp = {
@@ -49,10 +59,13 @@ const htmlToMarkdownHelp = {
   ],
 };
 
-export const htmlToMarkdownCommand: Command = {
+export const htmlToMarkdownCommand: RuntimeCommand = {
   name: "html-to-markdown",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(htmlToMarkdownHelp);
     }
@@ -97,13 +110,37 @@ export const htmlToMarkdownCommand: Command = {
     // and tag boundaries are recognized correctly. File reads use utf8 by
     // default already.
     let input: string;
+    const maxInputBytes = Math.min(
+      ctx.limits.maxInputBytes,
+      ctx.limits.maxStringLength,
+    );
     if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
+      if (latin1FromBytes(ctx.stdin).length > maxInputBytes) {
+        throw new ExecutionLimitError(
+          `html-to-markdown: input size limit exceeded (${maxInputBytes} bytes)`,
+          "string_length",
+        );
+      }
       input = decodeBytesToUtf8(ctx.stdin);
     } else {
       try {
         const filePath = ctx.fs.resolvePath(ctx.cwd, files[0]);
+        const stat = await ctx.fs.stat(filePath);
+        if (stat.size > maxInputBytes) {
+          throw new ExecutionLimitError(
+            `html-to-markdown: input size limit exceeded (${maxInputBytes} bytes)`,
+            "string_length",
+          );
+        }
         input = await ctx.fs.readFile(filePath);
-      } catch {
+        if (utf8ByteLength(input) > maxInputBytes) {
+          throw new ExecutionLimitError(
+            `html-to-markdown: input size limit exceeded (${maxInputBytes} bytes)`,
+            "string_length",
+          );
+        }
+      } catch (error) {
+        rethrowFatalExecutionError(error);
         return {
           stdout: "",
           stderr: `html-to-markdown: ${files[0]}: No such file or directory\n`,
@@ -115,6 +152,60 @@ export const htmlToMarkdownCommand: Command = {
     if (!input.trim()) {
       return { stdout: "", stderr: "", exitCode: 0 };
     }
+
+    if (!["-", "+", "*"].includes(bullet)) {
+      return {
+        stdout: "",
+        stderr: "html-to-markdown: invalid bullet marker\n",
+        exitCode: 1,
+      };
+    }
+    if (codeFence !== "```" && codeFence !== "~~~") {
+      return {
+        stdout: "",
+        stderr: "html-to-markdown: invalid code fence\n",
+        exitCode: 1,
+      };
+    }
+
+    let tagCount = 0;
+    const maxOperations = ctx.limits.maxLoopIterations;
+    for (let index = 0; index < input.length; index++) {
+      if (input.charCodeAt(index) === 60 && ++tagCount > maxOperations) {
+        throw new ExecutionLimitError(
+          `html-to-markdown: complexity limit exceeded (${maxOperations} tags)`,
+          "iterations",
+        );
+      }
+    }
+    ctx.executionScope?.consumeWork(tagCount, "html-to-markdown tags");
+
+    const inputSize = utf8ByteLength(input);
+    const maxOutputBytes = Math.min(
+      ctx.limits.maxStringLength,
+      ctx.limits.maxOutputSize,
+    );
+    // Turndown is an opaque synchronous library. Reserve a conservative
+    // expansion envelope before calling it so neither its result nor the
+    // simultaneous input/result retention can cross configured ceilings.
+    const expansionFactor = 4;
+    if (inputSize > Math.floor((maxOutputBytes - 1) / expansionFactor)) {
+      throw new ExecutionLimitError(
+        `html-to-markdown: prospective output size limit exceeded (${maxOutputBytes} bytes)`,
+        "output_size",
+      );
+    }
+    const prospectiveOutputBytes = inputSize * expansionFactor + 1;
+    const inputLease = ctx.executionScope?.reserveBytes(
+      "html input",
+      inputSize,
+      "html-to-markdown",
+    );
+    const prospectiveOutputLease = ctx.executionScope?.reserveBytes(
+      "html prospective output",
+      prospectiveOutputBytes,
+      "html-to-markdown",
+    );
 
     try {
       const turndownService = new TurndownService({
@@ -129,6 +220,13 @@ export const htmlToMarkdownCommand: Command = {
       turndownService.remove(["script", "style", "footer"]);
 
       const markdown = turndownService.turndown(input).trim();
+      const outputBytes = utf8ByteLength(markdown) + 1;
+      if (outputBytes > maxOutputBytes) {
+        throw new ExecutionLimitError(
+          `html-to-markdown: output size limit exceeded (${maxOutputBytes} bytes)`,
+          "output_size",
+        );
+      }
       // html-to-markdown emits text; the pipeline handles encoding.
       return {
         stdout: `${markdown}\n`,
@@ -136,6 +234,7 @@ export const htmlToMarkdownCommand: Command = {
         exitCode: 0,
       };
     } catch (error) {
+      rethrowFatalExecutionError(error);
       return {
         stdout: "",
         stderr: `html-to-markdown: conversion error: ${
@@ -143,6 +242,9 @@ export const htmlToMarkdownCommand: Command = {
         }\n`,
         exitCode: 1,
       };
+    } finally {
+      prospectiveOutputLease?.release();
+      inputLease?.release();
     }
   },
 };

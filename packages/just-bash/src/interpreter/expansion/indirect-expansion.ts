@@ -21,6 +21,7 @@ import type {
 } from "../../ast/types.js";
 import { evaluateArithmetic } from "../arithmetic.js";
 import { ArithmeticError } from "../errors.js";
+import { setArrayElement } from "../helpers/array.js";
 import { getIfsSeparator } from "../helpers/ifs.js";
 import type { InterpreterContext } from "../types.js";
 import { getArrayElements, getVariable, isVariableSet } from "./variable.js";
@@ -341,8 +342,7 @@ async function handleIndirectArrayDefaultAlternative(
         true,
       );
       // Assign to the target array
-      ctx.state.env.set(`${arrayName}_0`, assignValue);
-      ctx.state.env.set(`${arrayName}__length`, "1");
+      setArrayElement(ctx, arrayName, 0, assignValue);
       return { values: [assignValue], quoted: true };
     }
     if (isStar) {

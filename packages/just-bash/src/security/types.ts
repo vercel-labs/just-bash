@@ -14,9 +14,20 @@
  */
 export interface DefenseInDepthConfig {
   /**
-   * Enable or disable the defense layer. Default: true
+   * Enable, disable, or capability-detect the defense layer.
+   *
+   * `true` (the default used by `Bash`) and `"auto"` both enable the strongest
+   * protection supported by the current runtime. Inspect `getStatus()` when a
+   * host requires the full contextual dynamic-import boundary.
    */
-  enabled?: boolean;
+  enabled?: boolean | "auto";
+
+  /**
+   * Permanently freeze selected host intrinsics and lock well-known Symbol
+   * descriptors. This cannot be undone by `deactivate()` and is therefore
+   * disabled by default. Only use in a dedicated, process-lifetime realm.
+   */
+  processLifetimeIntrinsicHardening?: boolean;
 
   /**
    * Audit mode: log violations but don't block them.
@@ -37,6 +48,26 @@ export interface DefenseInDepthConfig {
    * (e.g., WebAssembly for sql.js in sqlite3 worker).
    */
   excludeViolationTypes?: SecurityViolationType[];
+}
+
+export interface DefenseInDepthStatus {
+  requested: "auto" | "enabled" | "disabled";
+  state: "enabled" | "unsupported" | "disabled";
+  /**
+   * Overall effective enforcement strength without changing the legacy
+   * `state` contract. Audit mode always reports `"none"` because it records
+   * violations without blocking them.
+   */
+  level: "full" | "best-effort" | "none";
+  contextualDynamicImportProtection: boolean;
+  processLifetimeIntrinsicHardening: boolean;
+  /**
+   * Scoped gates are reversible but cannot revoke mutation functions or
+   * intrinsic references cached before activation. Complete protection
+   * requires the explicitly irreversible process-lifetime mode or isolation.
+   */
+  intrinsicProtection: "scoped-best-effort" | "process-lifetime";
+  reason?: string;
 }
 
 /**

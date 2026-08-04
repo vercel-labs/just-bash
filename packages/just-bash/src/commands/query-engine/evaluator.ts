@@ -5,10 +5,12 @@
  * Used by jq, yq, and other query-based commands.
  */
 
+import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { mapToRecord } from "../../helpers/env.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { assertDefenseContext } from "../../security/defense-context.js";
 import type { FeatureCoverageWriter } from "../../types.js";
+import { utf8ByteLength } from "../printf/escapes.js";
 import {
   evalArrayBuiltin,
   evalControlBuiltin,
@@ -69,6 +71,7 @@ class JqError extends Error {
 }
 
 const DEFAULT_MAX_JQ_ITERATIONS = 10000;
+const DEFAULT_MAX_STRING_LENGTH = 10 * 1024 * 1024;
 // Depth limit for nested structures - must be low enough to avoid V8 stack overflow
 // during JSON.stringify/parse which have their own recursion limits (~2000-10000 depending on V8 version)
 const DEFAULT_MAX_JQ_DEPTH = 2000;
@@ -108,12 +111,16 @@ const SIMPLE_MATH_FUNCTIONS = new Map<string, (x: number) => number>([
 export interface QueryExecutionLimits {
   maxIterations?: number;
   maxDepth?: number;
+  maxStringLength?: number;
+  maxOutputSize?: number;
+  maxArrayElements?: number;
 }
+
+export type ResolvedQueryExecutionLimits = Required<QueryExecutionLimits>;
 
 export interface EvalContext {
   vars: Map<string, QueryValue>;
-  limits: Required<Pick<QueryExecutionLimits, "maxIterations">> &
-    QueryExecutionLimits;
+  limits: ResolvedQueryExecutionLimits;
   env?: Map<string, string>;
   requireDefenseContext?: boolean;
   defenseContextChecked?: boolean;
@@ -128,6 +135,77 @@ export interface EvalContext {
   labels?: Set<string>;
   /** Feature coverage writer for fuzzing instrumentation */
   coverage?: FeatureCoverageWriter;
+  /** Shared across every recursive evaluation and builtin invocation. */
+  budget: QueryEvaluationBudget;
+}
+
+export interface QueryEvaluationBudget {
+  operations: number;
+  callDepth: number;
+}
+
+function queryLimitError(
+  message: string,
+  kind: "iterations" | "array_elements" | "recursion",
+): ExecutionLimitError {
+  return new ExecutionLimitError(message, kind);
+}
+
+export function chargeQueryWork(ctx: EvalContext, count = 1): void {
+  if (
+    !Number.isSafeInteger(count) ||
+    count < 0 ||
+    ctx.budget.operations > ctx.limits.maxIterations - count
+  ) {
+    throw queryLimitError(
+      `query evaluation: too many iterations (${ctx.limits.maxIterations})`,
+      "iterations",
+    );
+  }
+  ctx.budget.operations += count;
+}
+
+export function assertQueryResultCapacity(
+  ctx: EvalContext,
+  current: number,
+  additional = 1,
+): void {
+  const maxElements = ctx.limits.maxArrayElements;
+  if (
+    !Number.isSafeInteger(current) ||
+    !Number.isSafeInteger(additional) ||
+    current < 0 ||
+    additional < 0 ||
+    current > maxElements - additional
+  ) {
+    throw queryLimitError(
+      `query result element limit exceeded (${maxElements})`,
+      "array_elements",
+    );
+  }
+}
+
+function appendQueryResults(
+  ctx: EvalContext,
+  target: QueryValue[],
+  values: readonly QueryValue[],
+): void {
+  assertQueryResultCapacity(ctx, target.length, values.length);
+  for (const value of values) target.push(value);
+}
+
+function boundedFlatMap(
+  ctx: EvalContext,
+  values: readonly QueryValue[],
+  mapper: (value: QueryValue) => QueryValue[],
+): QueryValue[] {
+  const results: QueryValue[] = [];
+  for (const value of values) {
+    chargeQueryWork(ctx);
+    const mapped = mapper(value);
+    appendQueryResults(ctx, results, mapped);
+  }
+  return results;
 }
 
 function createContext(options?: EvaluateOptions): EvalContext {
@@ -137,11 +215,17 @@ function createContext(options?: EvaluateOptions): EvalContext {
       maxIterations:
         options?.limits?.maxIterations ?? DEFAULT_MAX_JQ_ITERATIONS,
       maxDepth: options?.limits?.maxDepth ?? DEFAULT_MAX_JQ_DEPTH,
+      maxStringLength:
+        options?.limits?.maxStringLength ?? DEFAULT_MAX_STRING_LENGTH,
+      maxOutputSize:
+        options?.limits?.maxOutputSize ?? DEFAULT_MAX_STRING_LENGTH,
+      maxArrayElements: options?.limits?.maxArrayElements ?? 100_000,
     },
     env: options?.env,
     coverage: options?.coverage,
     requireDefenseContext: options?.requireDefenseContext,
     defenseContextChecked: false,
+    budget: options?.budget ?? { operations: 0, callDepth: 0 },
   };
 }
 
@@ -163,6 +247,7 @@ function withVar(
     funcs: ctx.funcs,
     labels: ctx.labels,
     coverage: ctx.coverage,
+    budget: ctx.budget,
   };
 }
 
@@ -360,6 +445,8 @@ export interface EvaluateOptions {
   env?: Map<string, string>;
   coverage?: FeatureCoverageWriter;
   requireDefenseContext?: boolean;
+  /** Reuse across multiple input documents to enforce one command budget. */
+  budget?: QueryEvaluationBudget;
 }
 
 /**
@@ -375,7 +462,8 @@ function evaluateWithPartialResults(
   if (ast.type === "Comma") {
     const results: QueryValue[] = [];
     try {
-      results.push(...evaluate(value, ast.left, ctx));
+      const left = evaluate(value, ast.left, ctx);
+      appendQueryResults(ctx, results, left);
     } catch (e) {
       // Always re-throw execution limit errors - they must not be suppressed
       if (e instanceof ExecutionLimitError) throw e;
@@ -384,7 +472,8 @@ function evaluateWithPartialResults(
       throw new Error("evaluation failed");
     }
     try {
-      results.push(...evaluate(value, ast.right, ctx));
+      const right = evaluate(value, ast.right, ctx);
+      appendQueryResults(ctx, results, right);
     } catch (e) {
       // Always re-throw execution limit errors
       if (e instanceof ExecutionLimitError) throw e;
@@ -421,6 +510,33 @@ export function evaluate(
     ctx = { ...ctx, root: value, currentPath: [] };
   }
 
+  chargeQueryWork(ctx);
+  ctx.budget.callDepth++;
+  if (ctx.budget.callDepth > ctx.limits.maxDepth) {
+    ctx.budget.callDepth--;
+    throw queryLimitError(
+      `query depth limit exceeded (${ctx.limits.maxDepth})`,
+      "recursion",
+    );
+  }
+
+  try {
+    const results = evaluateNode(value, ast, ctx);
+    // Enforce the public evaluator contract as well as individual builders.
+    // Direct nodes such as `.[]` can otherwise return an attacker-owned array
+    // without passing through an internal append helper.
+    assertQueryResultCapacity(ctx, 0, results.length);
+    return results;
+  } finally {
+    ctx.budget.callDepth--;
+  }
+}
+
+function evaluateNode(
+  value: QueryValue,
+  ast: AstNode,
+  ctx: EvalContext,
+): QueryValue[] {
   ctx.coverage?.hit(`jq:node:${ast.type}`);
   switch (ast.type) {
     case "Identity":
@@ -428,7 +544,7 @@ export function evaluate(
 
     case "Field": {
       const bases = ast.base ? evaluate(value, ast.base, ctx) : [value];
-      return bases.flatMap((v) => {
+      return boundedFlatMap(ctx, bases, (v) => {
         const obj = asQueryRecord(v);
         if (obj) {
           // Defense against prototype pollution: only return own properties
@@ -452,9 +568,9 @@ export function evaluate(
 
     case "Index": {
       const bases = ast.base ? evaluate(value, ast.base, ctx) : [value];
-      return bases.flatMap((v) => {
+      return boundedFlatMap(ctx, bases, (v) => {
         const indices = evaluate(v, ast.index, ctx);
-        return indices.flatMap((idx) => {
+        return boundedFlatMap(ctx, indices, (idx) => {
           if (typeof idx === "number" && Array.isArray(v)) {
             // Handle NaN - return null for NaN index
             if (Number.isNaN(idx)) {
@@ -480,7 +596,7 @@ export function evaluate(
 
     case "Slice": {
       const bases = ast.base ? evaluate(value, ast.base, ctx) : [value];
-      return bases.flatMap((v) => {
+      return boundedFlatMap(ctx, bases, (v) => {
         // null can be sliced and returns null
         if (v === null) return [null];
         if (!Array.isArray(v) && typeof v !== "string") {
@@ -489,7 +605,8 @@ export function evaluate(
         const len = v.length;
         const starts = ast.start ? evaluate(value, ast.start, ctx) : [0];
         const ends = ast.end ? evaluate(value, ast.end, ctx) : [len];
-        return starts.flatMap((s) =>
+        assertQueryResultCapacity(ctx, 0, starts.length * ends.length);
+        return boundedFlatMap(ctx, starts, (s) =>
           ends.map((e) => {
             // jq uses floor for start and ceil for end (for fractional indices)
             // NaN in start position → 0, NaN in end position → length
@@ -515,7 +632,7 @@ export function evaluate(
 
     case "Iterate": {
       const bases = ast.base ? evaluate(value, ast.base, ctx) : [value];
-      return bases.flatMap((v) => {
+      return boundedFlatMap(ctx, bases, (v) => {
         if (Array.isArray(v)) return v;
         if (v && typeof v === "object") return Object.values(v);
         return [];
@@ -533,9 +650,11 @@ export function evaluate(
               ...ctx,
               currentPath: [...(ctx.currentPath ?? []), ...leftPath],
             };
-            pipeResults.push(...evaluate(v, ast.right, newCtx));
+            const next = evaluate(v, ast.right, newCtx);
+            appendQueryResults(ctx, pipeResults, next);
           } else {
-            pipeResults.push(...evaluate(v, ast.right, ctx));
+            const next = evaluate(v, ast.right, ctx);
+            appendQueryResults(ctx, pipeResults, next);
           }
         } catch (e) {
           if (e instanceof BreakError) {
@@ -549,6 +668,7 @@ export function evaluate(
     case "Comma": {
       const leftResults = evaluate(value, ast.left, ctx);
       const rightResults = evaluate(value, ast.right, ctx);
+      assertQueryResultCapacity(ctx, leftResults.length, rightResults.length);
       return [...leftResults, ...rightResults];
     }
 
@@ -573,6 +693,12 @@ export function evaluate(
 
         // @banned-pattern-ignore: array declaration, objects added via nullPrototypeCopy
         const newResults: Record<string, unknown>[] = [];
+        const safeKeyCount = keys.filter(
+          (key): key is string => typeof key === "string" && isSafeKey(key),
+        ).length;
+        const keyAlternatives = safeKeyCount + (keys.length - safeKeyCount);
+        const prospective = results.length * keyAlternatives * values.length;
+        assertQueryResultCapacity(ctx, 0, prospective);
         for (const obj of results) {
           for (const k of keys) {
             // jq requires object keys to be strings
@@ -599,7 +725,7 @@ export function evaluate(
           }
         }
         results.length = 0;
-        results.push(...newResults);
+        appendQueryResults(ctx, results, newResults);
       }
 
       return results;
@@ -632,7 +758,7 @@ export function evaluate(
 
     case "Cond": {
       const conds = evaluate(value, ast.cond, ctx);
-      return conds.flatMap((c) => {
+      return boundedFlatMap(ctx, conds, (c) => {
         if (isTruthy(c)) {
           return evaluate(value, ast.then, ctx);
         }
@@ -654,6 +780,7 @@ export function evaluate(
       try {
         return evaluate(value, ast.body, ctx);
       } catch (e) {
+        if (e instanceof ExecutionLimitError) throw e;
         if (ast.catch) {
           // jq: In catch handler, input is the error value (preserved if JqError)
           const errorVal =
@@ -673,7 +800,7 @@ export function evaluate(
 
     case "VarBind": {
       const values = evaluate(value, ast.value, ctx);
-      return values.flatMap((v) => {
+      return boundedFlatMap(ctx, values, (v) => {
         let newCtx: EvalContext | null = null;
 
         // Build list of patterns to try: primary pattern + alternatives
@@ -684,7 +811,9 @@ export function evaluate(
           patternsToTry.push({ type: "var", name: ast.name });
         }
         if (ast.alternatives) {
-          patternsToTry.push(...ast.alternatives);
+          for (const alternative of ast.alternatives) {
+            patternsToTry.push(alternative);
+          }
         }
 
         // Try each pattern until one matches
@@ -718,42 +847,81 @@ export function evaluate(
     case "Recurse": {
       const results: QueryValue[] = [];
       const seen = new WeakSet<object>();
-      const walk = (val: QueryValue) => {
+      const stack: Array<{ val: QueryValue; depth: number }> = [
+        { val: value, depth: 0 },
+      ];
+      while (stack.length > 0) {
+        const entry = stack.pop();
+        if (!entry) break;
+        const { val, depth } = entry;
+        chargeQueryWork(ctx);
+        if (depth > ctx.limits.maxDepth) {
+          throw queryLimitError(
+            `query depth limit exceeded (${ctx.limits.maxDepth})`,
+            "recursion",
+          );
+        }
         if (val && typeof val === "object") {
-          if (seen.has(val as object)) return;
+          if (seen.has(val as object)) continue;
           seen.add(val as object);
         }
+        assertQueryResultCapacity(ctx, results.length);
         results.push(val);
         if (Array.isArray(val)) {
-          for (const item of val) walk(item);
+          for (let index = val.length - 1; index >= 0; index--) {
+            stack.push({ val: val[index], depth: depth + 1 });
+          }
         } else if (val && typeof val === "object") {
-          // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
-          for (const key of Object.keys(val)) {
-            walk((val as Record<string, unknown>)[key]);
+          const keys = Object.keys(val);
+          for (let index = keys.length - 1; index >= 0; index--) {
+            stack.push({
+              // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
+              val: (val as Record<string, unknown>)[keys[index]],
+              depth: depth + 1,
+            });
           }
         }
-      };
-      walk(value);
+      }
       return results;
     }
 
     case "Optional": {
       try {
         return evaluate(value, ast.expr, ctx);
-      } catch {
+      } catch (error) {
+        if (error instanceof ExecutionLimitError) throw error;
         return [];
       }
     }
 
     case "StringInterp": {
-      const parts = ast.parts.map((part) => {
-        if (typeof part === "string") return part;
+      const output = new BoundedStringBuilder(
+        ctx.limits.maxStringLength,
+        "query string interpolation",
+        () =>
+          new ExecutionLimitError(
+            `string size limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+            "string_length",
+          ),
+      );
+      for (const part of ast.parts) {
+        if (typeof part === "string") {
+          output.append(part);
+          continue;
+        }
         const vals = evaluate(value, part, ctx);
-        return vals
-          .map((v) => (typeof v === "string" ? v : JSON.stringify(v)))
-          .join("");
-      });
-      return [parts.join("")];
+        for (const v of vals) {
+          chargeQueryWork(ctx);
+          if (getValueDepth(v, ctx.limits.maxDepth + 1) > ctx.limits.maxDepth) {
+            throw queryLimitError(
+              `query depth limit exceeded (${ctx.limits.maxDepth})`,
+              "recursion",
+            );
+          }
+          output.append(typeof v === "string" ? v : JSON.stringify(v));
+        }
+      }
+      return [output.build()];
     }
 
     case "UpdateOp": {
@@ -797,8 +965,9 @@ export function evaluate(
           state = evaluate(state, ast.update, newCtx)[0];
           if (ast.extract) {
             const extracted = evaluate(state, ast.extract, newCtx);
-            foreachResults.push(...extracted);
+            appendQueryResults(ctx, foreachResults, extracted);
           } else {
+            assertQueryResultCapacity(ctx, foreachResults.length);
             foreachResults.push(state);
           }
         } catch (e) {
@@ -882,8 +1051,10 @@ function applyUpdate(
           return current + newVal;
         if (typeof current === "string" && typeof newVal === "string")
           return current + newVal;
-        if (Array.isArray(current) && Array.isArray(newVal))
+        if (Array.isArray(current) && Array.isArray(newVal)) {
+          assertQueryResultCapacity(ctx, current.length, newVal.length);
           return [...current, ...newVal];
+        }
         if (
           current &&
           newVal &&
@@ -962,9 +1133,13 @@ function applyUpdate(
         const indices = evaluate(root, path.index, ctx);
         let idx = indices[0];
 
-        // Handle NaN index - throw error for assignment
+        // Non-finite indices cannot allocate, so they are ordinary catchable jq
+        // errors. Prospective allocation limits below remain fatal.
         if (typeof idx === "number" && Number.isNaN(idx)) {
           throw new Error("Cannot set array element at NaN index");
+        }
+        if (typeof idx === "number" && !Number.isFinite(idx)) {
+          throw new Error("array index must be finite");
         }
 
         // Truncate float index to integer for assignment
@@ -978,8 +1153,10 @@ function applyUpdate(
               const arr = [...baseVal];
               const i = idx < 0 ? arr.length + idx : idx;
               if (i >= 0) {
-                // Extend array if needed
-                while (arr.length <= i) arr.push(null);
+                assertQueryResultCapacity(ctx, 0, i + 1);
+                if (arr.length <= i) arr.length = i + 1;
+                for (let fill = baseVal.length; fill < i; fill++)
+                  arr[fill] = null;
                 arr[i] = transform(arr[i]);
               }
               return arr;
@@ -1006,7 +1183,7 @@ function applyUpdate(
         if (typeof idx === "number") {
           // jq: Array index too large
           const MAX_ARRAY_INDEX = 536870911;
-          if (idx > MAX_ARRAY_INDEX) {
+          if (!Number.isSafeInteger(idx) || idx > MAX_ARRAY_INDEX) {
             throw new Error("Array index too large");
           }
           // jq: Out of bounds negative array index when base is null/non-array
@@ -1017,16 +1194,17 @@ function applyUpdate(
             const arr = [...val];
             const i = idx < 0 ? arr.length + idx : idx;
             if (i >= 0) {
-              // Extend array if needed
-              while (arr.length <= i) arr.push(null);
+              assertQueryResultCapacity(ctx, 0, i + 1);
+              if (arr.length <= i) arr.length = i + 1;
+              for (let fill = val.length; fill < i; fill++) arr[fill] = null;
               arr[i] = transform(arr[i]);
             }
             return arr;
           }
           // Create array if val is null
           if (val === null || val === undefined) {
-            const arr: QueryValue[] = [];
-            while (arr.length <= idx) arr.push(null);
+            assertQueryResultCapacity(ctx, 0, idx + 1);
+            const arr: QueryValue[] = new Array(idx + 1).fill(null);
             arr[idx] = transform(null);
             return arr;
           }
@@ -1053,7 +1231,13 @@ function applyUpdate(
       case "Iterate": {
         const applyToContainer = (container: QueryValue): QueryValue => {
           if (Array.isArray(container)) {
-            return container.map((item) => transform(item));
+            assertQueryResultCapacity(ctx, 0, container.length);
+            const result: QueryValue[] = [];
+            for (const item of container) {
+              chargeQueryWork(ctx);
+              result.push(transform(item));
+            }
+            return result;
           }
           if (container && typeof container === "object") {
             // Use null-prototype to prevent prototype pollution
@@ -1361,19 +1545,19 @@ function evalBinaryOp(
   // Short-circuit for 'and' and 'or'
   if (op === "and") {
     const leftVals = evaluate(value, left, ctx);
-    return leftVals.flatMap((l) => {
+    return boundedFlatMap(ctx, leftVals, (l) => {
       if (!isTruthy(l)) return [false];
       const rightVals = evaluate(value, right, ctx);
-      return rightVals.map((r) => isTruthy(r));
+      return boundedFlatMap(ctx, rightVals, (r) => [isTruthy(r)]);
     });
   }
 
   if (op === "or") {
     const leftVals = evaluate(value, left, ctx);
-    return leftVals.flatMap((l) => {
+    return boundedFlatMap(ctx, leftVals, (l) => {
       if (isTruthy(l)) return [true];
       const rightVals = evaluate(value, right, ctx);
-      return rightVals.map((r) => isTruthy(r));
+      return boundedFlatMap(ctx, rightVals, (r) => [isTruthy(r)]);
     });
   }
 
@@ -1389,6 +1573,10 @@ function evalBinaryOp(
   const leftVals = evaluate(value, left, ctx);
   const rightVals = evaluate(value, right, ctx);
 
+  const resultCount = leftVals.length * rightVals.length;
+  assertQueryResultCapacity(ctx, 0, resultCount);
+  chargeQueryWork(ctx, resultCount);
+
   return leftVals.flatMap((l) =>
     rightVals.map((r) => {
       switch (op) {
@@ -1397,8 +1585,21 @@ function evalBinaryOp(
           if (l === null) return r;
           if (r === null) return l;
           if (typeof l === "number" && typeof r === "number") return l + r;
-          if (typeof l === "string" && typeof r === "string") return l + r;
-          if (Array.isArray(l) && Array.isArray(r)) return [...l, ...r];
+          if (typeof l === "string" && typeof r === "string") {
+            const maxStringLength = ctx.limits.maxStringLength;
+            const combinedBytes = utf8ByteLength(l) + utf8ByteLength(r);
+            if (combinedBytes > maxStringLength) {
+              throw new ExecutionLimitError(
+                `string size limit exceeded (${maxStringLength} bytes)`,
+                "string_length",
+              );
+            }
+            return l + r;
+          }
+          if (Array.isArray(l) && Array.isArray(r)) {
+            assertQueryResultCapacity(ctx, l.length, r.length);
+            return [...l, ...r];
+          }
           if (
             l &&
             r &&
@@ -1428,13 +1629,33 @@ function evalBinaryOp(
           return null;
         case "*":
           if (typeof l === "number" && typeof r === "number") return l * r;
-          if (typeof l === "string" && typeof r === "number")
-            return l.repeat(r);
+          if (typeof l === "string" && typeof r === "number") {
+            if (!Number.isFinite(r)) {
+              throw new Error(`invalid string repetition count: ${r}`);
+            }
+            const repeatCount = Math.trunc(r);
+            if (repeatCount < 0) return null;
+            const inputBytes = utf8ByteLength(l);
+            const maxStringLength = ctx.limits.maxStringLength;
+            if (
+              inputBytes > 0 &&
+              repeatCount > Math.floor(maxStringLength / inputBytes)
+            ) {
+              throw new ExecutionLimitError(
+                `string size limit exceeded (${maxStringLength} bytes)`,
+                "string_length",
+              );
+            }
+            return l.repeat(repeatCount);
+          }
           {
             const lObj = asQueryRecord(l);
             const rObj = asQueryRecord(r);
             if (lObj && rObj) {
-              return deepMerge(lObj, rObj);
+              return deepMerge(lObj, rObj, {
+                maxDepth: ctx.limits.maxDepth,
+                visit: () => chargeQueryWork(ctx),
+              });
             }
           }
           return null;
@@ -1855,6 +2076,23 @@ function collectPaths(
   currentPath: (string | number)[],
   paths: (string | number)[][],
 ): void {
+  chargeQueryWork(ctx);
+  if (currentPath.length > ctx.limits.maxDepth) {
+    throw queryLimitError(
+      `query depth limit exceeded (${ctx.limits.maxDepth})`,
+      "recursion",
+    );
+  }
+  const appendPath = (path: (string | number)[]): void => {
+    if (path.length > ctx.limits.maxDepth) {
+      throw queryLimitError(
+        `query depth limit exceeded (${ctx.limits.maxDepth})`,
+        "recursion",
+      );
+    }
+    assertQueryResultCapacity(ctx, paths.length);
+    paths.push(path);
+  };
   // Handle Comma - collect paths for both parts
   if (expr.type === "Comma") {
     const comma = expr as { type: "Comma"; left: AstNode; right: AstNode };
@@ -1866,7 +2104,7 @@ function collectPaths(
   // Try to extract a static path from the AST
   const staticPath = extractPathFromAst(expr);
   if (staticPath !== null) {
-    paths.push([...currentPath, ...staticPath]);
+    appendPath([...currentPath, ...staticPath]);
     return;
   }
 
@@ -1875,11 +2113,13 @@ function collectPaths(
   if (expr.type === "Iterate") {
     if (Array.isArray(value)) {
       for (let i = 0; i < value.length; i++) {
-        paths.push([...currentPath, i]);
+        chargeQueryWork(ctx);
+        appendPath([...currentPath, i]);
       }
     } else if (value && typeof value === "object") {
       for (const key of Object.keys(value)) {
-        paths.push([...currentPath, key]);
+        chargeQueryWork(ctx);
+        appendPath([...currentPath, key]);
       }
     }
     return;
@@ -1887,22 +2127,32 @@ function collectPaths(
 
   // Handle Recurse (..) - recursive descent, returns paths to all values
   if (expr.type === "Recurse") {
-    const walkPaths = (v: QueryValue, path: (string | number)[]) => {
-      paths.push([...currentPath, ...path]);
-      if (v && typeof v === "object") {
-        if (Array.isArray(v)) {
-          for (let i = 0; i < v.length; i++) {
-            walkPaths(v[i], [...path, i]);
-          }
-        } else {
-          // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
-          for (const key of Object.keys(v)) {
-            walkPaths((v as Record<string, unknown>)[key], [...path, key]);
-          }
+    const stack: Array<{ value: QueryValue; path: (string | number)[] }> = [
+      { value, path: [] },
+    ];
+    while (stack.length > 0) {
+      const entry = stack.pop();
+      if (!entry) break;
+      chargeQueryWork(ctx);
+      appendPath([...currentPath, ...entry.path]);
+      if (entry.value && typeof entry.value === "object") {
+        const entries = Array.isArray(entry.value)
+          ? entry.value.map((child, index) => [index, child] as const)
+          : Object.keys(entry.value).map(
+              (key) =>
+                [
+                  key,
+                  // @banned-pattern-ignore: Object.keys returns own properties only
+                  (entry.value as Record<string, unknown>)[key],
+                ] as const,
+            );
+        assertQueryResultCapacity(ctx, 0, stack.length + entries.length);
+        for (let i = entries.length - 1; i >= 0; i--) {
+          const [key, child] = entries[i];
+          stack.push({ value: child, path: [...entry.path, key] });
         }
       }
-    };
-    walkPaths(value, []);
+    }
     return;
   }
 
@@ -1921,6 +2171,6 @@ function collectPaths(
   // Fallback: if expression produces results, push current path
   const results = evaluate(value, expr, ctx);
   if (results.length > 0) {
-    paths.push(currentPath);
+    appendPath(currentPath);
   }
 }

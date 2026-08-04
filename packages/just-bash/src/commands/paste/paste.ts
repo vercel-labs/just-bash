@@ -1,5 +1,12 @@
-import { decodeBytesToUtf8 } from "../../encoding.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { BoundedStringBuilder } from "../../bounded-builder.js";
+import { decodeBytesToUtf8, utf8ByteLength } from "../../encoding.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
@@ -36,9 +43,12 @@ const argDefs = {
   serial: { short: "s", long: "serial", type: "boolean" as const },
 };
 
-export const pasteCommand: Command = {
+export const pasteCommand: RuntimeCommand = {
   name: "paste",
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(pasteHelp);
     }
@@ -49,6 +59,18 @@ export const pasteCommand: Command = {
     const delimiter = parsed.result.flags.delimiter;
     const serial = parsed.result.flags.serial;
     const files = parsed.result.positional;
+    if (files.length > ctx.limits.maxArrayElements) {
+      throw new ExecutionLimitError(
+        `paste: file operand limit exceeded (${ctx.limits.maxArrayElements})`,
+        "array_elements",
+      );
+    }
+    if (utf8ByteLength(delimiter) > ctx.limits.maxStringLength) {
+      throw new ExecutionLimitError(
+        `paste: delimiter size limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+        "string_length",
+      );
+    }
 
     // If no files specified, show usage error (matches BSD/macOS behavior)
     if (files.length === 0) {
@@ -75,6 +97,18 @@ export const pasteCommand: Command = {
     // Read all file contents
     // For stdin entries, we'll distribute lines across them
     const fileContents: (string[] | null)[] = [];
+    let retainedLines = 0;
+    let inputBytes = utf8ByteLength(stdinText);
+    const retain = (lines: string[]): void => {
+      if (lines.length > ctx.limits.maxArrayElements - retainedLines) {
+        throw new ExecutionLimitError(
+          `paste: line limit exceeded (${ctx.limits.maxArrayElements})`,
+          "array_elements",
+        );
+      }
+      retainedLines += lines.length;
+      ctx.executionScope?.consumeWork(lines.length, "paste lines");
+    };
     let stdinIndex = 0;
 
     for (const file of files) {
@@ -84,19 +118,31 @@ export const pasteCommand: Command = {
         for (let i = stdinIndex; i < stdinLines.length; i += stdinCount) {
           thisStdinLines.push(stdinLines[i]);
         }
+        retain(thisStdinLines);
         fileContents.push(thisStdinLines);
         stdinIndex++;
       } else {
         const filePath = ctx.fs.resolvePath(ctx.cwd, file);
         try {
           const content = await ctx.fs.readFile(filePath);
+          const contentBytes = utf8ByteLength(content);
+          if (contentBytes > ctx.limits.maxInputBytes - inputBytes) {
+            throw new ExecutionLimitError(
+              `paste: aggregate input size limit exceeded (${ctx.limits.maxInputBytes} bytes)`,
+              "string_length",
+            );
+          }
+          inputBytes += contentBytes;
+          ctx.executionScope?.consumeInput(contentBytes, "paste");
           const lines = content.split("\n");
           // Remove trailing empty line if content ends with newline
           if (lines.length > 0 && lines[lines.length - 1] === "") {
             lines.pop();
           }
+          retain(lines);
           fileContents.push(lines);
-        } catch {
+        } catch (error) {
+          rethrowFatalExecutionError(error);
           return {
             stdout: "",
             stderr: `paste: ${file}: No such file or directory\n`,
@@ -106,31 +152,37 @@ export const pasteCommand: Command = {
       }
     }
 
-    let output = "";
+    const output = new BoundedStringBuilder(
+      Math.min(ctx.limits.maxOutputSize, ctx.limits.maxStringLength),
+      "paste",
+    );
 
     if (serial) {
       // Serial mode: paste all lines of each file on one line
       for (const lines of fileContents) {
         if (lines) {
-          output += `${joinWithDelimiters(lines, delimiter)}\n`;
+          output.append(`${joinWithDelimiters(lines, delimiter)}\n`);
         }
       }
     } else {
       // Parallel mode: merge lines from all files
-      const maxLines = Math.max(...fileContents.map((f) => f?.length ?? 0));
+      let maxLines = 0;
+      for (const content of fileContents) {
+        maxLines = Math.max(maxLines, content?.length ?? 0);
+      }
 
       for (let lineIdx = 0; lineIdx < maxLines; lineIdx++) {
         const lineParts: string[] = [];
         for (const lines of fileContents) {
           lineParts.push(lines?.[lineIdx] ?? "");
         }
-        output += `${joinWithDelimiters(lineParts, delimiter)}\n`;
+        output.append(`${joinWithDelimiters(lineParts, delimiter)}\n`);
       }
     }
 
     // paste emits text; the pipeline handles encoding.
     return {
-      stdout: output,
+      stdout: output.build(),
       stderr: "",
       exitCode: 0,
     };
@@ -144,6 +196,7 @@ export const pasteCommand: Command = {
 function joinWithDelimiters(parts: string[], delimiters: string): string {
   if (parts.length === 0) return "";
   if (parts.length === 1) return parts[0];
+  if (delimiters.length === 0) return parts.join("");
 
   let result = parts[0];
   for (let i = 1; i < parts.length; i++) {

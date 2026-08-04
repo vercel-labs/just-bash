@@ -7,8 +7,19 @@
  * default size is 1000 lines, and default PREFIX is 'x'.
  */
 
-import { latin1FromBytes, readBytesFrom } from "../../encoding.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { latin1FromBytes, utf8ByteLength } from "../../encoding.js";
+import type { ResourceLease } from "../../execution-scope.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
+import {
+  type ResolvedFileIdentity,
+  resolveFileIdentity,
+} from "../../fs/traversal.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const splitHelp = {
@@ -36,6 +47,11 @@ const splitHelp = {
 
 /** Maximum number of output files to prevent resource exhaustion */
 const MAX_OUTPUT_FILES = 100_000;
+let splitTransactionId = 0;
+
+function toUint8Array(content: string): Uint8Array {
+  return Uint8Array.from(content, (char) => char.charCodeAt(0));
+}
 
 type SplitMode = "lines" | "bytes" | "chunks";
 
@@ -58,8 +74,8 @@ function parseSize(sizeStr: string): number | null {
     return null;
   }
 
-  const num = Number.parseInt(match[1], 10);
-  if (Number.isNaN(num) || num < 1) {
+  const num = Number(match[1]);
+  if (!Number.isSafeInteger(num) || num < 1) {
     return null;
   }
 
@@ -78,7 +94,14 @@ function parseSize(sizeStr: string): number | null {
     return null;
   }
 
+  if (num > Math.floor(Number.MAX_SAFE_INTEGER / multiplier)) return null;
   return num * multiplier;
+}
+
+function parsePositiveSafeInteger(value: string): number | null {
+  if (!/^[0-9]+$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null;
 }
 
 /**
@@ -97,100 +120,132 @@ function generateSuffix(
 
   // Alphabetic suffix
   const chars = "abcdefghijklmnopqrstuvwxyz";
-  let suffix = "";
+  const suffix = new Array<string>(length);
   let remaining = index;
 
-  for (let i = 0; i < length; i++) {
-    suffix = chars[remaining % 26] + suffix;
+  for (let i = length - 1; i >= 0; i--) {
+    suffix[i] = chars[remaining % 26];
     remaining = Math.floor(remaining / 26);
   }
 
-  return suffix;
+  return suffix.join("");
 }
 
 /**
  * Split content by lines.
  */
-function splitByLines(
-  content: string,
-  linesPerFile: number,
-): { content: string; hasContent: boolean }[] {
-  const lines = content.split("\n");
-  const hasTrailingNewline =
-    content.endsWith("\n") && lines[lines.length - 1] === "";
-  if (hasTrailingNewline) {
-    lines.pop();
+function splitByLines(content: Uint8Array, linesPerFile: number): Uint8Array[] {
+  const chunks: Uint8Array[] = [];
+  let start = 0;
+  let lines = 0;
+  for (let i = 0; i < content.length; i++) {
+    if (content[i] !== 0x0a) continue;
+    lines++;
+    if (lines === linesPerFile) {
+      chunks.push(content.subarray(start, i + 1));
+      start = i + 1;
+      lines = 0;
+    }
   }
-
-  const chunks: { content: string; hasContent: boolean }[] = [];
-
-  for (let i = 0; i < lines.length; i += linesPerFile) {
-    const chunkLines = lines.slice(i, i + linesPerFile);
-    const isLastChunk = i + linesPerFile >= lines.length;
-    // Add newline after each line, but for the last chunk only if original had trailing newline
-    const chunkContent =
-      isLastChunk && !hasTrailingNewline
-        ? chunkLines.join("\n")
-        : `${chunkLines.join("\n")}\n`;
-    chunks.push({ content: chunkContent, hasContent: true });
-  }
-
+  if (start < content.length) chunks.push(content.subarray(start));
   return chunks;
 }
 
 /**
  * Split content by bytes.
  */
-function splitByBytes(
-  content: string,
-  bytesPerFile: number,
-): { content: string; hasContent: boolean }[] {
-  const encoder = new TextEncoder();
-  const bytes = encoder.encode(content);
-  const decoder = new TextDecoder();
-  const chunks: { content: string; hasContent: boolean }[] = [];
-
-  for (let i = 0; i < bytes.length; i += bytesPerFile) {
-    const chunkBytes = bytes.slice(i, i + bytesPerFile);
-    chunks.push({
-      content: decoder.decode(chunkBytes),
-      hasContent: chunkBytes.length > 0,
-    });
-  }
-
+function splitByBytes(content: Uint8Array, bytesPerFile: number): Uint8Array[] {
+  const chunks: Uint8Array[] = [];
+  for (let i = 0; i < content.length; i += bytesPerFile)
+    chunks.push(content.subarray(i, i + bytesPerFile));
   return chunks;
 }
 
 /**
  * Split content into N equal chunks.
  */
-function splitIntoChunks(
-  content: string,
-  numChunks: number,
-): { content: string; hasContent: boolean }[] {
-  const encoder = new TextEncoder();
-  const bytes = encoder.encode(content);
-  const decoder = new TextDecoder();
-  const chunks: { content: string; hasContent: boolean }[] = [];
-
-  const bytesPerChunk = Math.ceil(bytes.length / numChunks);
+function splitIntoChunks(content: Uint8Array, numChunks: number): Uint8Array[] {
+  const chunks: Uint8Array[] = [];
+  const bytesPerChunk = Math.ceil(content.length / numChunks);
 
   for (let i = 0; i < numChunks; i++) {
     const start = i * bytesPerChunk;
-    const end = Math.min(start + bytesPerChunk, bytes.length);
-    const chunkBytes = bytes.slice(start, end);
-    chunks.push({
-      content: decoder.decode(chunkBytes),
-      hasContent: chunkBytes.length > 0,
-    });
+    const end = Math.min(start + bytesPerChunk, content.length);
+    if (start < end) chunks.push(content.subarray(start, end));
   }
-
   return chunks;
 }
 
-export const split: Command = {
+function suffixCapacity(numeric: boolean, length: number): number {
+  const capacity = numeric ? 10 ** length : 26 ** length;
+  return Number.isSafeInteger(capacity) ? capacity : Number.MAX_SAFE_INTEGER;
+}
+
+interface PlannedOutput {
+  readonly path: string;
+  readonly displayName: string;
+  readonly content: Uint8Array;
+  readonly initialIdentity: ResolvedFileIdentity;
+  stagePath: string;
+  backupPath?: string;
+  committed: boolean;
+}
+
+function identityKey(identity: ResolvedFileIdentity): string | undefined {
+  if (identity.existence === "unknown") return undefined;
+  if (identity.existence === "existing") return identity.stableIdentity;
+  return identity.canonicalPath === undefined
+    ? undefined
+    : `missing:${identity.canonicalPath}`;
+}
+
+function identityUnchanged(
+  initial: ResolvedFileIdentity,
+  current: ResolvedFileIdentity,
+): boolean {
+  if (initial.existence !== current.existence) return false;
+  if (initial.existence === "unknown" || current.existence === "unknown") {
+    return false;
+  }
+  if (initial.existence === "missing" && current.existence === "missing") {
+    return initial.canonicalPath === current.canonicalPath;
+  }
+  if (initial.existence === "existing" && current.existence === "existing") {
+    return (
+      initial.stableIdentity !== undefined &&
+      initial.stableIdentity === current.stableIdentity
+    );
+  }
+  return false;
+}
+
+async function uniqueSiblingPath(
+  ctx: RuntimeCommandContext,
+  outputPath: string,
+  purpose: "stage" | "backup",
+): Promise<string> {
+  const slash = outputPath.lastIndexOf("/");
+  const parent = slash <= 0 ? "/" : outputPath.slice(0, slash);
+  const basename = outputPath.slice(slash + 1);
+  for (let attempts = 0; attempts < 100; attempts++) {
+    const id = splitTransactionId++;
+    const candidate = ctx.fs.resolvePath(
+      parent,
+      `.${basename}.just-bash-split-${purpose}-${id}`,
+    );
+    const identity = await resolveFileIdentity(ctx.fs, candidate);
+    if (identity.existence === "missing") return candidate;
+    if (identity.existence === "unknown") break;
+  }
+  throw new Error("unable to allocate transaction path");
+}
+
+export const split: RuntimeCommand = {
   name: "split",
-  execute: async (args: string[], ctx: CommandContext): Promise<ExecResult> => {
+  execute: async (
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> => {
     if (hasHelpFlag(args)) {
       return showHelp(splitHelp);
     }
@@ -212,8 +267,8 @@ export const split: Command = {
       const arg = args[i];
 
       if (arg === "-l" && i + 1 < args.length) {
-        const lines = Number.parseInt(args[i + 1], 10);
-        if (Number.isNaN(lines) || lines < 1) {
+        const lines = parsePositiveSafeInteger(args[i + 1]);
+        if (lines === null) {
           return {
             exitCode: 1,
             stdout: "",
@@ -224,8 +279,8 @@ export const split: Command = {
         options.lines = lines;
         i += 2;
       } else if (arg.match(/^-l\d+$/)) {
-        const lines = Number.parseInt(arg.slice(2), 10);
-        if (Number.isNaN(lines) || lines < 1) {
+        const lines = parsePositiveSafeInteger(arg.slice(2));
+        if (lines === null) {
           return {
             exitCode: 1,
             stdout: "",
@@ -260,8 +315,8 @@ export const split: Command = {
         options.bytes = bytes;
         i++;
       } else if (arg === "-n" && i + 1 < args.length) {
-        const chunks = Number.parseInt(args[i + 1], 10);
-        if (Number.isNaN(chunks) || chunks < 1) {
+        const chunks = parsePositiveSafeInteger(args[i + 1]);
+        if (chunks === null) {
           return {
             exitCode: 1,
             stdout: "",
@@ -272,8 +327,8 @@ export const split: Command = {
         options.chunks = chunks;
         i += 2;
       } else if (arg.match(/^-n\d+$/)) {
-        const chunks = Number.parseInt(arg.slice(2), 10);
-        if (Number.isNaN(chunks) || chunks < 1) {
+        const chunks = parsePositiveSafeInteger(arg.slice(2));
+        if (chunks === null) {
           return {
             exitCode: 1,
             stdout: "",
@@ -284,8 +339,12 @@ export const split: Command = {
         options.chunks = chunks;
         i++;
       } else if (arg === "-a" && i + 1 < args.length) {
-        const len = Number.parseInt(args[i + 1], 10);
-        if (Number.isNaN(len) || len < 1) {
+        const len = parsePositiveSafeInteger(args[i + 1]);
+        if (
+          len === null ||
+          len >
+            Math.min(ctx.limits.maxStringLength, ctx.limits.maxArrayElements)
+        ) {
           return {
             exitCode: 1,
             stdout: "",
@@ -295,8 +354,12 @@ export const split: Command = {
         options.suffixLength = len;
         i += 2;
       } else if (arg.match(/^-a\d+$/)) {
-        const len = Number.parseInt(arg.slice(2), 10);
-        if (Number.isNaN(len) || len < 1) {
+        const len = parsePositiveSafeInteger(arg.slice(2));
+        if (
+          len === null ||
+          len >
+            Math.min(ctx.limits.maxStringLength, ctx.limits.maxArrayElements)
+        ) {
           return {
             exitCode: 1,
             stdout: "",
@@ -335,6 +398,30 @@ export const split: Command = {
     if (positionalArgs.length >= 2) {
       prefix = positionalArgs[1];
     }
+    if (positionalArgs.length > 2) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: `split: extra operand '${positionalArgs[2]}'\n`,
+      };
+    }
+    if (
+      utf8ByteLength(prefix) > ctx.limits.maxStringLength ||
+      utf8ByteLength(options.additionalSuffix) > ctx.limits.maxStringLength ||
+      options.suffixLength >
+        ctx.limits.maxStringLength -
+          Math.min(ctx.limits.maxStringLength, utf8ByteLength(prefix)) -
+          Math.min(
+            ctx.limits.maxStringLength,
+            utf8ByteLength(options.additionalSuffix),
+          )
+    ) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: "split: output filename exceeds configured string limit\n",
+      };
+    }
 
     // Read input content. split is byte-clean — it chunks the file by line
     // or byte count and never interprets content. Both stdin and named
@@ -343,15 +430,37 @@ export const split: Command = {
     // would decode multibyte codepoints, then the binary write would
     // truncate each one back to a single low byte — silent data loss for
     // non-ASCII files.
-    let content: string;
+    let content: Uint8Array;
+    let inputPath: string | null = null;
+    let contentLease: ResourceLease | undefined;
     if (inputFile === "-") {
-      content = latin1FromBytes(ctx.stdin) ?? "";
+      const inputLength = latin1FromBytes(ctx.stdin).length;
+      contentLease = ctx.executionScope?.reserveBytes(
+        "split transaction",
+        inputLength * 2,
+        "split",
+      );
+      content = toUint8Array(latin1FromBytes(ctx.stdin));
     } else {
-      const filePath = ctx.fs.resolvePath(ctx.cwd, inputFile);
+      inputPath = ctx.fs.resolvePath(ctx.cwd, inputFile);
       try {
-        const fileBytes = await readBytesFrom(ctx.fs, filePath);
-        content = latin1FromBytes(fileBytes);
-      } catch {
+        const stat = await ctx.fs.stat(inputPath);
+        contentLease = ctx.executionScope?.reserveBytes(
+          "split transaction",
+          stat.size * 2,
+          "split",
+        );
+        content = await ctx.fs.readFileBuffer(inputPath);
+        if (content.byteLength > stat.size) {
+          throw new ExecutionLimitError(
+            "split: input grew while being read",
+            "string_length",
+          );
+        }
+        ctx.executionScope?.consumeInput(content.byteLength, "split");
+      } catch (error) {
+        contentLease?.release();
+        rethrowFatalExecutionError(error);
         return {
           exitCode: 1,
           stdout: "",
@@ -360,65 +469,229 @@ export const split: Command = {
       }
     }
 
-    // Handle empty input
-    if (content === "") {
+    try {
+      // Handle empty input
+      if (content.length === 0) {
+        return {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+        };
+      }
+
+      if (options.mode === "chunks" && options.chunks > MAX_OUTPUT_FILES) {
+        return {
+          exitCode: 1,
+          stdout: "",
+          stderr: `split: too many output files (${options.chunks}), limit is ${MAX_OUTPUT_FILES}\n`,
+        };
+      }
+
+      // Split content
+      let chunks: Uint8Array[];
+      switch (options.mode) {
+        case "lines":
+          chunks = splitByLines(content, options.lines);
+          break;
+        case "bytes":
+          chunks = splitByBytes(content, options.bytes);
+          break;
+        case "chunks":
+          chunks = splitIntoChunks(content, options.chunks);
+          break;
+        default: {
+          const _exhaustive: never = options.mode;
+          return _exhaustive;
+        }
+      }
+
+      // Guard against excessive file creation
+      if (chunks.length > MAX_OUTPUT_FILES) {
+        return {
+          exitCode: 1,
+          stdout: "",
+          stderr: `split: too many output files (${chunks.length}), limit is ${MAX_OUTPUT_FILES}\n`,
+        };
+      }
+
+      const capacity = suffixCapacity(
+        options.useNumericSuffix,
+        options.suffixLength,
+      );
+      if (chunks.length > capacity) {
+        return {
+          exitCode: 1,
+          stdout: "",
+          stderr: `split: output file suffixes exhausted at ${capacity} files\n`,
+        };
+      }
+      ctx.executionScope?.consumeWork(
+        chunks.length * options.suffixLength,
+        "split suffix generation",
+      );
+
+      // Plan and validate every output before the first destructive write.
+      const outputs: PlannedOutput[] = [];
+      const identities = new Set<string>();
+      const inputIdentity = inputPath
+        ? await resolveFileIdentity(ctx.fs, inputPath)
+        : null;
+      if (inputIdentity?.existence === "unknown") {
+        return {
+          exitCode: 1,
+          stdout: "",
+          stderr: "split: cannot safely identify input file\n",
+        };
+      }
+      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+        const suffix = generateSuffix(
+          chunkIndex,
+          options.useNumericSuffix,
+          options.suffixLength,
+        );
+        const filename = `${prefix}${suffix}${options.additionalSuffix}`;
+        const path = ctx.fs.resolvePath(ctx.cwd, filename);
+        const identity = await resolveFileIdentity(ctx.fs, path);
+        const key = identityKey(identity);
+        if (identity.existence === "unknown" || key === undefined) {
+          return {
+            exitCode: 1,
+            stdout: "",
+            stderr: `split: cannot safely identify output file '${filename}'\n`,
+          };
+        }
+        if (key !== undefined && identities.has(key)) {
+          return {
+            exitCode: 1,
+            stdout: "",
+            stderr: `split: duplicate output file '${filename}'\n`,
+          };
+        }
+        if (
+          inputIdentity !== null &&
+          ((inputIdentity.existence === "existing" &&
+            identity.existence === "existing" &&
+            inputIdentity.stableIdentity !== undefined &&
+            inputIdentity.stableIdentity === identity.stableIdentity) ||
+            (inputIdentity.canonicalPath !== undefined &&
+              inputIdentity.canonicalPath === identity.canonicalPath))
+        ) {
+          return {
+            exitCode: 1,
+            stdout: "",
+            stderr: `split: output file '${filename}' would overwrite input\n`,
+          };
+        }
+        if (key !== undefined) identities.add(key);
+        outputs.push({
+          path,
+          displayName: filename,
+          content: chunks[chunkIndex],
+          initialIdentity: identity,
+          stagePath: "",
+          committed: false,
+        });
+      }
+
+      // Build every chunk under a new sibling name. Visible output names are
+      // changed only during commit, and existing entries are renamed to backups
+      // rather than opened/truncated. This keeps a hard-linked input inode safe.
+      try {
+        for (const output of outputs) {
+          output.stagePath = await uniqueSiblingPath(ctx, output.path, "stage");
+          await ctx.fs.writeFile(output.stagePath, output.content);
+        }
+
+        // Revalidate the source and complete destination set immediately before
+        // the first visible mutation. A newly-created alias fails closed.
+        if (
+          inputPath !== null &&
+          inputIdentity !== null &&
+          !identityUnchanged(
+            inputIdentity,
+            await resolveFileIdentity(ctx.fs, inputPath),
+          )
+        ) {
+          throw new Error("input identity changed during split");
+        }
+        for (const output of outputs) {
+          const current = await resolveFileIdentity(ctx.fs, output.path);
+          if (!identityUnchanged(output.initialIdentity, current)) {
+            throw new Error("output identity changed during split");
+          }
+          if (
+            inputIdentity?.existence === "existing" &&
+            current.existence === "existing" &&
+            inputIdentity.stableIdentity === current.stableIdentity
+          ) {
+            throw new Error("output aliases input");
+          }
+        }
+
+        for (const output of outputs) {
+          // Repeat per-output just before its destructive rename to narrow the
+          // validation/commit race on custom and host-backed filesystems.
+          if (
+            !identityUnchanged(
+              output.initialIdentity,
+              await resolveFileIdentity(ctx.fs, output.path),
+            )
+          ) {
+            throw new Error("output identity changed during split");
+          }
+          if (output.initialIdentity.existence === "existing") {
+            output.backupPath = await uniqueSiblingPath(
+              ctx,
+              output.path,
+              "backup",
+            );
+            await ctx.fs.mv(output.path, output.backupPath);
+          }
+          await ctx.fs.mv(output.stagePath, output.path);
+          output.committed = true;
+        }
+        for (const output of outputs) {
+          if (output.backupPath) {
+            // The visible batch is fully committed. Backup cleanup is best
+            // effort: a cleanup failure must not enter rollback after an older
+            // backup has already been deleted.
+            await ctx.fs
+              .rm(output.backupPath, { force: true, recursive: true })
+              .catch(() => {});
+            output.backupPath = undefined;
+          }
+        }
+      } catch {
+        for (const output of [...outputs].reverse()) {
+          if (output.committed) {
+            await ctx.fs
+              .rm(output.path, { force: true, recursive: true })
+              .catch(() => {});
+          }
+          if (output.backupPath) {
+            await ctx.fs.mv(output.backupPath, output.path).catch(() => {});
+          }
+          if (output.stagePath) {
+            await ctx.fs
+              .rm(output.stagePath, { force: true, recursive: true })
+              .catch(() => {});
+          }
+        }
+        return {
+          exitCode: 1,
+          stdout: "",
+          stderr: "split: failed to write output\n",
+        };
+      }
+
       return {
         exitCode: 0,
         stdout: "",
         stderr: "",
       };
+    } finally {
+      contentLease?.release();
     }
-
-    // Split content
-    let chunks: { content: string; hasContent: boolean }[];
-    switch (options.mode) {
-      case "lines":
-        chunks = splitByLines(content, options.lines);
-        break;
-      case "bytes":
-        chunks = splitByBytes(content, options.bytes);
-        break;
-      case "chunks":
-        chunks = splitIntoChunks(content, options.chunks);
-        break;
-      default: {
-        const _exhaustive: never = options.mode;
-        return _exhaustive;
-      }
-    }
-
-    // Guard against excessive file creation
-    if (chunks.length > MAX_OUTPUT_FILES) {
-      return {
-        exitCode: 1,
-        stdout: "",
-        stderr: `split: too many output files (${chunks.length}), limit is ${MAX_OUTPUT_FILES}\n`,
-      };
-    }
-
-    // Write output files
-    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-      const chunk = chunks[chunkIndex];
-      if (!chunk.hasContent) continue;
-
-      const suffix = generateSuffix(
-        chunkIndex,
-        options.useNumericSuffix,
-        options.suffixLength,
-      );
-      const filename = `${prefix}${suffix}${options.additionalSuffix}`;
-      const filePath = ctx.fs.resolvePath(ctx.cwd, filename);
-
-      // chunk.content is the latin1 byte view of stdin — write as binary
-      // so writeFile doesn't re-encode every >0x7F char as a UTF-8 sequence.
-      await ctx.fs.writeFile(filePath, chunk.content, "binary");
-    }
-
-    return {
-      exitCode: 0,
-      stdout: "",
-      stderr: "",
-    };
   },
 };
 

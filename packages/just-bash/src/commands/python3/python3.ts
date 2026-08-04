@@ -10,7 +10,6 @@
  * This command is Node.js only (uses worker_threads).
  */
 
-import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import { decodeBytesToUtf8 } from "../../encoding.js";
@@ -24,17 +23,16 @@ import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 
 import { bindDefenseContextCallback } from "../../security/defense-context.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
-import { _clearTimeout, _setTimeout } from "../../timers.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 import { BridgeHandler } from "../worker-bridge/bridge-handler.js";
 import { createSharedBuffer } from "../worker-bridge/protocol.js";
+import { WorkerRequestController } from "../worker-request-controller.js";
 import type { WorkerInput, WorkerOutput } from "./worker.js";
-
-/** Default Python execution timeout in milliseconds */
-const DEFAULT_PYTHON_TIMEOUT_MS = 10000;
-/** Default Python execution timeout when network is enabled */
-const DEFAULT_PYTHON_NETWORK_TIMEOUT_MS = 60000;
 
 const python3Help = {
   name: "python3",
@@ -160,16 +158,21 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
 
 // Queue for serializing Python executions (one at a time)
 type QueuedExecution = {
+  /** Unforgeable ownership marker for this queue slot. */
+  executionId: symbol;
   input: WorkerInput;
-  resolve: (result: WorkerOutput) => void;
-  workerRef?: { current: Worker | null };
+  settle: (result: WorkerOutput) => void;
   requireDefenseContext?: boolean;
-  /** Set to true when the request times out before execution starts */
-  canceled?: boolean;
+  state: "queued" | "running" | "terminating" | "settled";
+  worker: Worker | null;
+  controller: WorkerRequestController;
+  stopBridge: () => void;
+  cancel: (result: WorkerOutput) => void;
 };
 type QueueState = {
   executionQueue: QueuedExecution[];
-  isExecuting: boolean;
+  activeExecution: QueuedExecution | null;
+  poisonedError: string | null;
 };
 let executionQueues = new WeakMap<IFileSystem, QueueState>();
 
@@ -178,7 +181,8 @@ function getQueueState(fs: IFileSystem): QueueState {
   if (!state) {
     state = {
       executionQueue: [],
-      isExecuting: false,
+      activeExecution: null,
+      poisonedError: null,
     };
     executionQueues.set(fs, state);
   }
@@ -191,10 +195,6 @@ export function _resetExecutionQueue(): void {
 }
 
 const workerPath = fileURLToPath(new URL("./worker.js", import.meta.url));
-
-function generateWorkerProtocolToken(): string {
-  return randomBytes(16).toString("hex");
-}
 
 function normalizeWorkerMessage(
   msg: unknown,
@@ -255,14 +255,26 @@ function normalizeWorkerMessage(
 }
 
 function processNextExecution(queueState: QueueState): void {
-  if (queueState.isExecuting || queueState.executionQueue.length === 0) {
+  if (queueState.poisonedError !== null) {
+    for (const queued of queueState.executionQueue.splice(0)) {
+      if (queued.state !== "queued") continue;
+      queued.state = "settled";
+      queued.stopBridge();
+      queued.settle({ success: false, error: queueState.poisonedError });
+    }
+    return;
+  }
+  if (
+    queueState.activeExecution !== null ||
+    queueState.executionQueue.length === 0
+  ) {
     return;
   }
 
-  // Skip canceled entries (timed out before execution started)
+  // Settled entries timed out while queued and must never be dispatched.
   while (
     queueState.executionQueue.length > 0 &&
-    queueState.executionQueue[0].canceled
+    queueState.executionQueue[0]?.state !== "queued"
   ) {
     queueState.executionQueue.shift();
   }
@@ -274,7 +286,8 @@ function processNextExecution(queueState: QueueState): void {
   if (!next) {
     return;
   }
-  queueState.isExecuting = true;
+  next.state = "running";
+  queueState.activeExecution = next;
 
   // Create a fresh worker for each execution.
   // CPython Emscripten uses EXIT_RUNTIME, so the module can only run once.
@@ -283,30 +296,99 @@ function processNextExecution(queueState: QueueState): void {
   let worker: Worker;
   try {
     worker = DefenseInDepthBox.runTrusted(
+      // @banned-pattern-ignore: constructor is immediately owned by next.controller lifecycle
       () => new Worker(workerPath, { workerData: next.input }),
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    next.resolve({
+    next.state = "settled";
+    next.settle({
       success: false,
       error: sanitizeHostErrorMessage(message),
     });
-    queueState.isExecuting = false;
-    processNextExecution(queueState);
+    if (queueState.activeExecution === next) {
+      queueState.activeExecution = null;
+      processNextExecution(queueState);
+    }
     return;
   }
 
-  if (next.workerRef) next.workerRef.current = worker;
+  next.worker = worker;
+
+  let listenersAttached = true;
+  const cleanupListeners = (): void => {
+    if (!listenersAttached) return;
+    listenersAttached = false;
+    worker.removeListener("message", dispatchMessage);
+    worker.removeListener("error", dispatchError);
+    worker.removeListener("exit", dispatchExit);
+  };
+
+  const settleActiveExecution = async (
+    result: WorkerOutput,
+    terminateWorker: boolean,
+  ): Promise<void> => {
+    // Every callback closes over its own entry. Checking both identity and state
+    // prevents a stale event from releasing a newer queue owner.
+    if (
+      queueState.activeExecution?.executionId !== next.executionId ||
+      next.state !== "running"
+    ) {
+      return;
+    }
+
+    next.state = "terminating";
+    cleanupListeners();
+    next.settle(result);
+
+    if (terminateWorker) {
+      const acknowledged = await next.controller.terminate(worker);
+      if (!acknowledged) {
+        const error = "Worker termination was not acknowledged";
+        next.worker = null;
+        next.state = "settled";
+        queueState.poisonedError = error;
+        if (queueState.activeExecution?.executionId === next.executionId) {
+          queueState.activeExecution = null;
+        }
+        processNextExecution(queueState);
+        return;
+      }
+    }
+
+    next.worker = null;
+    next.state = "settled";
+    if (queueState.activeExecution?.executionId === next.executionId) {
+      queueState.activeExecution = null;
+      processNextExecution(queueState);
+    }
+  };
+
+  next.cancel = (result) => {
+    void settleActiveExecution(result, true);
+  };
 
   const onMessage = bindDefenseContextCallback(
     next.requireDefenseContext,
     "python3",
     "worker message callback",
     (msg: unknown) => {
-      next.resolve(normalizeWorkerMessage(msg, next.input.protocolToken));
-      queueState.isExecuting = false;
-      worker.terminate();
-      processNextExecution(queueState);
+      try {
+        next.controller.assertMessageSize(msg, "response");
+      } catch (error) {
+        void settleActiveExecution(
+          {
+            success: false,
+            error: sanitizeHostErrorMessage(getErrorMessage(error)),
+          },
+          true,
+        );
+        return;
+      }
+      void settleActiveExecution(
+        normalizeWorkerMessage(msg, next.input.protocolToken),
+        true,
+      );
     },
   );
   const onError = bindDefenseContextCallback(
@@ -315,12 +397,13 @@ function processNextExecution(queueState: QueueState): void {
     "worker error callback",
     (err: Error) => {
       const workerError = sanitizeHostErrorMessage(getErrorMessage(err));
-      next.resolve({
-        success: false,
-        error: workerError,
-      });
-      queueState.isExecuting = false;
-      processNextExecution(queueState);
+      void settleActiveExecution(
+        {
+          success: false,
+          error: workerError,
+        },
+        true,
+      );
     },
   );
   const onExit = bindDefenseContextCallback(
@@ -328,11 +411,10 @@ function processNextExecution(queueState: QueueState): void {
     "python3",
     "worker exit callback",
     () => {
-      if (queueState.isExecuting) {
-        next.resolve({ success: false, error: "Worker exited unexpectedly" });
-        queueState.isExecuting = false;
-        processNextExecution(queueState);
-      }
+      void settleActiveExecution(
+        { success: false, error: "Worker exited unexpectedly" },
+        false,
+      );
     },
   );
 
@@ -341,13 +423,13 @@ function processNextExecution(queueState: QueueState): void {
       onMessage(msg);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      next.resolve({
-        success: false,
-        error: sanitizeHostErrorMessage(message),
-      });
-      queueState.isExecuting = false;
-      worker.terminate();
-      processNextExecution(queueState);
+      void settleActiveExecution(
+        {
+          success: false,
+          error: sanitizeHostErrorMessage(message),
+        },
+        true,
+      );
     }
   };
 
@@ -356,12 +438,13 @@ function processNextExecution(queueState: QueueState): void {
       onError(err);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      next.resolve({
-        success: false,
-        error: sanitizeHostErrorMessage(message),
-      });
-      queueState.isExecuting = false;
-      processNextExecution(queueState);
+      void settleActiveExecution(
+        {
+          success: false,
+          error: sanitizeHostErrorMessage(message),
+        },
+        true,
+      );
     }
   };
 
@@ -370,12 +453,13 @@ function processNextExecution(queueState: QueueState): void {
       onExit();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      next.resolve({
-        success: false,
-        error: sanitizeHostErrorMessage(message),
-      });
-      queueState.isExecuting = false;
-      processNextExecution(queueState);
+      void settleActiveExecution(
+        {
+          success: false,
+          error: sanitizeHostErrorMessage(message),
+        },
+        true,
+      );
     }
   };
 
@@ -389,7 +473,7 @@ function processNextExecution(queueState: QueueState): void {
  */
 async function executePython(
   pythonCode: string,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   scriptPath?: string,
   scriptArgs: string[] = [],
 ): Promise<ExecResult> {
@@ -400,20 +484,28 @@ async function executePython(
     ctx.cwd,
     "python3",
     ctx.fetch,
-    ctx.limits?.maxOutputSize ?? 0,
+    ctx.limits.maxOutputSize,
   );
 
-  // Network operations need a longer timeout. resolveLimits() always populates
-  // maxPythonTimeoutMs (default 10s), so use the network default as a floor.
-  const userTimeout =
-    ctx.limits?.maxPythonTimeoutMs ?? DEFAULT_PYTHON_TIMEOUT_MS;
-  const timeoutMs = ctx.fetch
-    ? Math.max(userTimeout, DEFAULT_PYTHON_NETWORK_TIMEOUT_MS)
-    : userTimeout;
+  const timeoutMs = ctx.limits.maxPythonTimeoutMs;
   const queueState = getQueueState(ctx.fs);
+  if (queueState.poisonedError !== null) {
+    return {
+      stdout: "",
+      stderr: `python3: ${queueState.poisonedError}\n`,
+      exitCode: 1,
+    };
+  }
+
+  const controller = new WorkerRequestController({
+    commandName: "python3",
+    timeoutMs,
+    signal: ctx.signal,
+    maxMessageBytes: ctx.limits.maxWorkerMessageBytes,
+  });
 
   const workerInput: WorkerInput = {
-    protocolToken: generateWorkerProtocolToken(),
+    protocolToken: controller.protocolToken,
     sharedBuffer,
     pythonCode,
     cwd: ctx.cwd,
@@ -423,60 +515,80 @@ async function executePython(
     args: scriptArgs,
     scriptPath,
     timeoutMs,
+    maxFileSize: ctx.limits.maxStringLength,
   };
 
-  const workerRef: { current: Worker | null } = { current: null };
+  controller.assertMessageSize(
+    { ...workerInput, sharedBuffer: undefined },
+    "request",
+  );
 
   const workerPromise = new Promise<WorkerOutput>((resolve) => {
-    // The queue entry is created here so the timeout handler can mark it canceled
+    let settled = false;
     const queueEntry: QueuedExecution = {
+      executionId: Symbol("python3 execution"),
       input: workerInput,
-      resolve: () => {}, // replaced below
-      workerRef,
+      settle: (result) => {
+        if (settled) return;
+        settled = true;
+        controller.close();
+        resolve(result);
+      },
       requireDefenseContext: ctx.requireDefenseContext,
+      state: "queued",
+      worker: null,
+      controller,
+      stopBridge: () => bridgeHandler.stop?.(),
+      cancel: () => {}, // Replaced if and when this entry owns a worker.
     };
 
-    const onTimeout = bindDefenseContextCallback(
+    queueEntry.cancel = (result) => {
+      if (queueEntry.state !== "queued") return;
+      queueEntry.state = "settled";
+      const queuedIndex = queueState.executionQueue.indexOf(queueEntry);
+      if (queuedIndex !== -1) {
+        queueState.executionQueue.splice(queuedIndex, 1);
+      }
+      queueEntry.settle(result);
+      processNextExecution(queueState);
+    };
+
+    const onCancel = bindDefenseContextCallback(
       ctx.requireDefenseContext,
       "python3",
-      "worker timeout callback",
-      () => {
-        if (workerRef.current) {
-          // Worker is running — terminate it
-          workerRef.current.terminate();
-        } else {
-          // Worker hasn't started — mark canceled so processNextExecution skips it
-          queueEntry.canceled = true;
-        }
-        resolve({
+      "worker cancellation callback",
+      (reason: "abort" | "timeout") => {
+        bridgeHandler.stop?.();
+        queueEntry.cancel({
           success: false,
-          error: `Execution timeout: exceeded ${timeoutMs}ms limit`,
+          error:
+            reason === "abort"
+              ? controller.abortMessage()
+              : controller.timeoutMessage(),
         });
       },
     );
 
-    const dispatchTimeout = (): void => {
+    const dispatchCancel = (reason: "abort" | "timeout"): void => {
       try {
-        onTimeout();
+        onCancel(reason);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        resolve({
+        queueEntry.cancel({
           success: false,
           error: sanitizeHostErrorMessage(message),
         });
       }
     };
 
-    const timeout = _setTimeout(dispatchTimeout, timeoutMs);
+    // Arm the parent signal and deadline before making this request visible.
+    controller.arm(dispatchCancel);
 
-    queueEntry.resolve = (result: WorkerOutput) => {
-      _clearTimeout(timeout);
-      resolve(result);
-    };
-
-    // Queue the execution (serialized — one at a time per worker)
-    queueState.executionQueue.push(queueEntry);
-    processNextExecution(queueState);
+    if (!controller.isCanceled) {
+      // Queue the execution (serialized — one at a time per filesystem).
+      queueState.executionQueue.push(queueEntry);
+      processNextExecution(queueState);
+    }
   });
 
   const [bridgeOutput, workerResult] = await Promise.all([
@@ -499,10 +611,13 @@ async function executePython(
 
   if (!workerResult.success && workerResult.error) {
     const workerError = sanitizeHostErrorMessage(workerResult.error);
+    const canceled =
+      workerResult.error === controller.timeoutMessage() ||
+      workerResult.error === controller.abortMessage();
     return {
       stdout: bridgeOutput.stdout,
       stderr: `${bridgeOutput.stderr}python3: ${workerError}\n`,
-      exitCode: bridgeOutput.exitCode || 1,
+      exitCode: bridgeOutput.exitCode || (canceled ? 124 : 1),
     };
   }
 
@@ -512,10 +627,13 @@ async function executePython(
   };
 }
 
-export const python3Command: Command = {
+export const python3Command: RuntimeCommand = {
   name: "python3",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(python3Help);
     }
@@ -594,10 +712,13 @@ export const python3Command: Command = {
   },
 };
 
-export const pythonCommand: Command = {
+export const pythonCommand: RuntimeCommand = {
   name: "python",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     return python3Command.execute(args, ctx);
   },
 };

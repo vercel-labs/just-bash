@@ -14,7 +14,11 @@ import * as fs from "node:fs";
 import * as nodePath from "node:path";
 
 // Re-export path utilities used by callers that import from real-fs-utils.
-export { normalizePath, validatePath } from "./path-utils.js";
+export {
+  isSameOrDescendantPath,
+  normalizePath,
+  validatePath,
+} from "./path-utils.js";
 
 /**
  * Check whether `resolved` is equal to, or a child of, `canonicalRoot`.
@@ -25,9 +29,16 @@ export function isPathWithinRoot(
   resolved: string,
   canonicalRoot: string,
 ): boolean {
-  if (resolved === canonicalRoot) return true;
-  const sep = resolved[canonicalRoot.length];
-  return (sep === "/" || sep === "\\") && resolved.startsWith(canonicalRoot);
+  const pathApi = /^[A-Za-z]:[\\/]/.test(canonicalRoot)
+    ? nodePath.win32
+    : nodePath.posix;
+  const relative = pathApi.relative(canonicalRoot, resolved);
+  return (
+    relative === "" ||
+    (relative !== ".." &&
+      !relative.startsWith(`..${pathApi.sep}`) &&
+      !pathApi.isAbsolute(relative))
+  );
 }
 
 /**

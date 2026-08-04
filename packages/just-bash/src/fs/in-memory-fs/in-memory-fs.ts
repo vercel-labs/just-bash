@@ -1,4 +1,8 @@
-import { type ByteString, unsafeBytesFromLatin1 } from "../../encoding.js";
+import {
+  type ByteString,
+  unsafeBytesFromLatin1,
+  utf8ByteLength,
+} from "../../encoding.js";
 import { fromBuffer, getEncoding, toBuffer } from "../encoding.js";
 import type {
   BufferEncoding,
@@ -24,6 +28,7 @@ import {
   DEFAULT_DIR_MODE,
   DEFAULT_FILE_MODE,
   dirname,
+  isSameOrDescendantPath,
   joinPath,
   MAX_SYMLINK_DEPTH,
   normalizePath,
@@ -50,6 +55,11 @@ export interface FsData {
   [path: string]: FsEntry;
 }
 
+export interface InMemoryFsOptions {
+  /** Aggregate materialized file bytes retained by this filesystem. */
+  maxTotalBytes?: number;
+}
+
 // Text encoder for legacy string content conversion
 const textEncoder = new TextEncoder();
 
@@ -69,8 +79,133 @@ function isFileInit(
 
 export class InMemoryFs implements IFileSystem {
   private data: Map<string, FsEntry> = new Map();
+  private entryIdentities = new WeakMap<FsEntry, string>();
+  private nextEntryIdentity = 1;
+  private readonly maxTotalBytes: number;
+  private retainedBytes = 0;
+  /** Number of directory entries retaining each hard-link-compatible buffer. */
+  private contentReferences = new WeakMap<Uint8Array, number>();
 
-  constructor(initialFiles?: InitialFiles) {
+  private materializedContent(entry: FsEntry | undefined): FileContent | null {
+    return entry?.type === "file" && "content" in entry ? entry.content : null;
+  }
+
+  private storedByteLength(content: FileContent | null): number {
+    if (content === null) return 0;
+    return content instanceof Uint8Array
+      ? content.byteLength
+      : utf8ByteLength(content);
+  }
+
+  private wouldReleaseBytes(entry: FsEntry | undefined): number {
+    const content = this.materializedContent(entry);
+    if (content === null) return 0;
+    if (!(content instanceof Uint8Array)) return this.storedByteLength(content);
+    return this.contentReferences.get(content) === 1 ? content.byteLength : 0;
+  }
+
+  /**
+   * Check a newly allocated, unique file body before creating its buffer.
+   * Replacing the final reference to an old body credits those bytes.
+   */
+  private assertCanAllocate(path: string, prospectiveBytes: number): void {
+    const releasedBytes = this.wouldReleaseBytes(this.data.get(path));
+    if (
+      !Number.isSafeInteger(prospectiveBytes) ||
+      prospectiveBytes < 0 ||
+      prospectiveBytes > this.maxTotalBytes - this.retainedBytes + releasedBytes
+    ) {
+      throw new Error(
+        `ENOSPC: in-memory filesystem byte limit exceeded (${this.maxTotalBytes} bytes)`,
+      );
+    }
+  }
+
+  /** Replace one path while updating retained storage in constant time. */
+  private setEntry(path: string, entry: FsEntry): void {
+    const previous = this.data.get(path);
+    const previousContent = this.materializedContent(previous);
+    const nextContent = this.materializedContent(entry);
+
+    if (previousContent === nextContent) {
+      this.data.set(path, entry);
+      return;
+    }
+
+    const releasedBytes = this.wouldReleaseBytes(previous);
+    const addedBytes =
+      nextContent instanceof Uint8Array
+        ? this.contentReferences.has(nextContent)
+          ? 0
+          : nextContent.byteLength
+        : this.storedByteLength(nextContent);
+    if (addedBytes > this.maxTotalBytes - this.retainedBytes + releasedBytes) {
+      throw new Error(
+        `ENOSPC: in-memory filesystem byte limit exceeded (${this.maxTotalBytes} bytes)`,
+      );
+    }
+
+    if (previousContent instanceof Uint8Array) {
+      const references = this.contentReferences.get(previousContent) ?? 0;
+      if (references <= 1) this.contentReferences.delete(previousContent);
+      else this.contentReferences.set(previousContent, references - 1);
+    }
+    if (nextContent instanceof Uint8Array) {
+      this.contentReferences.set(
+        nextContent,
+        (this.contentReferences.get(nextContent) ?? 0) + 1,
+      );
+    }
+    this.retainedBytes += addedBytes - releasedBytes;
+    this.data.set(path, entry);
+  }
+
+  private deleteEntry(path: string): boolean {
+    const entry = this.data.get(path);
+    if (!entry) return false;
+    const content = this.materializedContent(entry);
+    const releasedBytes = this.wouldReleaseBytes(entry);
+    if (content instanceof Uint8Array) {
+      const references = this.contentReferences.get(content) ?? 0;
+      if (references <= 1) this.contentReferences.delete(content);
+      else this.contentReferences.set(content, references - 1);
+    }
+    this.retainedBytes -= releasedBytes;
+    return this.data.delete(path);
+  }
+
+  private contentByteLength(
+    content: FileContent,
+    encoding?: BufferEncoding,
+  ): number {
+    if (content instanceof Uint8Array) return content.byteLength;
+    if (encoding === "hex") return Math.floor(content.length / 2);
+    if (encoding === "base64") {
+      const padding = content.endsWith("==")
+        ? 2
+        : content.endsWith("=")
+          ? 1
+          : 0;
+      return Math.max(0, Math.floor((content.length * 3) / 4) - padding);
+    }
+    if (encoding === "binary" || encoding === "latin1") return content.length;
+    return utf8ByteLength(content);
+  }
+
+  private identityFor(entry: FsEntry): string {
+    let identity = this.entryIdentities.get(entry);
+    if (!identity) {
+      identity = `memfs:${this.nextEntryIdentity++}`;
+      this.entryIdentities.set(entry, identity);
+    }
+    return identity;
+  }
+
+  constructor(initialFiles?: InitialFiles, options: InMemoryFsOptions = {}) {
+    this.maxTotalBytes = options.maxTotalBytes ?? 1024 * 1024 * 1024;
+    if (!Number.isSafeInteger(this.maxTotalBytes) || this.maxTotalBytes < 0) {
+      throw new Error("InMemoryFs: invalid maxTotalBytes");
+    }
     // Create root directory
     this.data.set("/", {
       type: "directory",
@@ -124,9 +259,13 @@ export class InMemoryFs implements IFileSystem {
 
     // Store content - convert to Uint8Array for internal storage
     const encoding = getEncoding(options);
+    this.assertCanAllocate(
+      normalized,
+      this.contentByteLength(content, encoding),
+    );
     const buffer = toBuffer(content, encoding);
 
-    this.data.set(normalized, {
+    this.setEntry(normalized, {
       type: "file",
       content: buffer,
       mode: metadata?.mode ?? DEFAULT_FILE_MODE,
@@ -147,7 +286,7 @@ export class InMemoryFs implements IFileSystem {
     const normalized = normalizePath(path);
     this.ensureParentDirs(normalized);
 
-    this.data.set(normalized, {
+    this.setEntry(normalized, {
       type: "file",
       lazy,
       mode: metadata?.mode ?? DEFAULT_FILE_MODE,
@@ -172,7 +311,8 @@ export class InMemoryFs implements IFileSystem {
       mode: entry.mode,
       mtime: entry.mtime,
     };
-    this.data.set(path, materialized);
+    this.assertCanAllocate(path, buffer.byteLength);
+    this.setEntry(path, materialized);
     return materialized;
   }
 
@@ -246,7 +386,7 @@ export class InMemoryFs implements IFileSystem {
     }
 
     const encoding = getEncoding(options);
-    const newBuffer = toBuffer(content, encoding);
+    const newByteLength = this.contentByteLength(content, encoding);
 
     if (existing?.type === "file") {
       // Materialize lazy files before appending
@@ -263,12 +403,18 @@ export class InMemoryFs implements IFileSystem {
               "content" in materialized ? (materialized.content as string) : "",
             );
 
+      this.assertCanAllocate(
+        normalized,
+        existingBuffer.byteLength + newByteLength,
+      );
+      const newBuffer = toBuffer(content, encoding);
+
       // Concatenate buffers
       const combined = new Uint8Array(existingBuffer.length + newBuffer.length);
       combined.set(existingBuffer);
       combined.set(newBuffer, existingBuffer.length);
 
-      this.data.set(normalized, {
+      this.setEntry(normalized, {
         type: "file",
         content: combined,
         mode: materialized.mode,
@@ -325,6 +471,7 @@ export class InMemoryFs implements IFileSystem {
       mode: entry.mode,
       size,
       mtime: entry.mtime || new Date(),
+      identity: this.identityFor(entry),
     };
   }
 
@@ -373,6 +520,7 @@ export class InMemoryFs implements IFileSystem {
       mode: entry.mode,
       size,
       mtime: entry.mtime || new Date(),
+      identity: this.identityFor(entry),
     };
   }
 
@@ -589,7 +737,7 @@ export class InMemoryFs implements IFileSystem {
       }
     }
 
-    this.data.delete(normalized);
+    this.deleteEntry(normalized);
   }
 
   async cp(src: string, dest: string, options?: CpOptions): Promise<void> {
@@ -607,14 +755,19 @@ export class InMemoryFs implements IFileSystem {
       this.ensureParentDirs(destNorm);
       // Deep copy: create a new Uint8Array to avoid sharing the buffer reference
       if ("content" in srcEntry) {
+        const sourceBytes =
+          srcEntry.content instanceof Uint8Array
+            ? srcEntry.content.byteLength
+            : textEncoder.encode(srcEntry.content).byteLength;
+        this.assertCanAllocate(destNorm, sourceBytes);
         const contentCopy =
           srcEntry.content instanceof Uint8Array
             ? new Uint8Array(srcEntry.content)
             : srcEntry.content;
-        this.data.set(destNorm, { ...srcEntry, content: contentCopy });
+        this.setEntry(destNorm, { ...srcEntry, content: contentCopy });
       } else {
         // Lazy file - copy the lazy reference (will be materialized on read)
-        this.data.set(destNorm, { ...srcEntry });
+        this.setEntry(destNorm, { ...srcEntry });
       }
     } else if (srcEntry.type === "symlink") {
       // Copy the symlink itself (not its target)
@@ -623,6 +776,9 @@ export class InMemoryFs implements IFileSystem {
     } else if (srcEntry.type === "directory") {
       if (!options?.recursive) {
         throw new Error(`EISDIR: is a directory, cp '${src}'`);
+      }
+      if (isSameOrDescendantPath(srcNorm, destNorm)) {
+        throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
       }
       await this.mkdir(destNorm, { recursive: true });
       const children = await this.readdir(srcNorm);
@@ -635,8 +791,39 @@ export class InMemoryFs implements IFileSystem {
   }
 
   async mv(src: string, dest: string): Promise<void> {
-    await this.cp(src, dest, { recursive: true });
-    await this.rm(src, { recursive: true });
+    validatePath(src, "mv");
+    validatePath(dest, "mv");
+    const srcNorm = normalizePath(src);
+    const destNorm = normalizePath(dest);
+    if (srcNorm === destNorm) return;
+
+    const source = this.data.get(srcNorm);
+    if (!source) {
+      throw new Error(`ENOENT: no such file or directory, mv '${src}'`);
+    }
+    if (
+      source.type === "directory" &&
+      isSameOrDescendantPath(srcNorm, destNorm)
+    ) {
+      throw new Error(`EINVAL: cannot move '${src}' into itself, '${dest}'`);
+    }
+
+    if (source.type === "directory") {
+      await this.mkdir(destNorm, { recursive: true });
+      const children = await this.readdir(srcNorm);
+      for (const child of children) {
+        await this.mv(joinPath(srcNorm, child), joinPath(destNorm, child));
+      }
+      this.deleteEntry(srcNorm);
+      return;
+    }
+
+    this.ensureParentDirs(destNorm);
+    // Reuse the same body while the old path still retains it. The accounting
+    // helper therefore sees an existing reference and a rename never needs
+    // temporary capacity equal to the file size.
+    this.setEntry(destNorm, source);
+    this.deleteEntry(srcNorm);
   }
 
   // Get all paths (useful for debugging/glob)
@@ -710,12 +897,14 @@ export class InMemoryFs implements IFileSystem {
     this.ensureParentDirs(newNorm);
     // For hard links, we create a copy (simulating inode sharing)
     // In a real fs, they'd share the same inode
-    this.data.set(newNorm, {
+    const linkedEntry: FileEntry = {
       type: "file",
       content: (resolved as FileEntry).content,
       mode: resolved.mode,
       mtime: resolved.mtime,
-    });
+    };
+    this.entryIdentities.set(linkedEntry, this.identityFor(resolved));
+    this.setEntry(newNorm, linkedEntry);
   }
 
   // Read the target of a symbolic link

@@ -7,7 +7,8 @@ import { yqCommand } from "../../commands/yq/yq.js";
 import { EMPTY_BYTES, unsafeBytesFromLatin1 } from "../../encoding.js";
 import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
 import { createDefenseAwareCommandContext } from "../../interpreter/defense-aware-command-context.js";
-import type { CommandContext } from "../../types.js";
+import { resolveLimits } from "../../limits.js";
+import type { RuntimeCommandContext } from "../../types.js";
 import { awaitWithDefenseContext } from "../defense-context.js";
 import {
   DefenseInDepthBox,
@@ -15,8 +16,8 @@ import {
 } from "../defense-in-depth-box.js";
 
 function createCommandContext(
-  overrides: Partial<CommandContext> = {},
-): CommandContext {
+  overrides: Partial<RuntimeCommandContext> = {},
+): RuntimeCommandContext {
   return {
     fs: new InMemoryFs(),
     cwd: "/",
@@ -24,10 +25,14 @@ function createCommandContext(
     stdin: EMPTY_BYTES,
     requireDefenseContext: true,
     ...overrides,
+    limits: overrides.limits ?? resolveLimits(),
   };
 }
 
-describe("Defense context invariant", () => {
+const describeDefense =
+  typeof nodeModule.registerHooks === "function" ? describe : describe.skip;
+
+describeDefense("Defense context invariant", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     DefenseInDepthBox.resetInstance();
@@ -192,3 +197,5 @@ describe("Defense context invariant", () => {
     );
   });
 });
+
+import * as nodeModule from "node:module";

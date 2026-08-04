@@ -22,11 +22,21 @@
  *   compgen -o option             - Completion option (plusdirs, dirnames, default, etc.)
  */
 
+import { BoundedStringBuilder } from "../../bounded-builder.js";
+import { utf8ByteLength } from "../../encoding.js";
 import { type ParseException, Parser, parse } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { matchPattern } from "../conditionals.js";
+import { ExecutionLimitError } from "../errors.js";
 import { expandWord, getArrayElements } from "../expansion.js";
 import { callFunction } from "../functions.js";
+import {
+  clearArray,
+  cloneArray,
+  ensureArray,
+  getArray,
+  hasArray,
+} from "../helpers/array.js";
 import { failure, result, success } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -335,17 +345,47 @@ export async function handleCompgen(
 
   // Collect completions
   const completions: string[] = [];
+  const completionSet = new Set<string>();
+  const remainingCompletionCapacity = (): number =>
+    ctx.limits.maxArrayElements - completions.length;
+  const appendCompletions = (values: Iterable<string>): void => {
+    for (const value of values) {
+      if (completions.length >= ctx.limits.maxArrayElements) {
+        throw new ExecutionLimitError(
+          `compgen: completion element limit exceeded (${ctx.limits.maxArrayElements})`,
+          "array_elements",
+        );
+      }
+      if (utf8ByteLength(value) > ctx.limits.maxStringLength) {
+        throw new ExecutionLimitError(
+          `compgen: completion string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+          "string_length",
+        );
+      }
+      ctx.executionScope.consumeWork(1, "compgen completion");
+      completions.push(value);
+      completionSet.add(value);
+    }
+  };
 
   // Handle -o dirnames (only show directories)
   if (dirnamesOption) {
-    const dirCompletions = await getDirectoryCompletions(ctx, searchPrefix);
-    completions.push(...dirCompletions);
+    const dirCompletions = await getDirectoryCompletions(
+      ctx,
+      searchPrefix,
+      remainingCompletionCapacity(),
+    );
+    appendCompletions(dirCompletions);
   }
 
   // Handle -o default (show files)
   if (defaultOption) {
-    const fileCompletions = await getFileCompletions(ctx, searchPrefix);
-    completions.push(...fileCompletions);
+    const fileCompletions = await getFileCompletions(
+      ctx,
+      searchPrefix,
+      remainingCompletionCapacity(),
+    );
+    appendCompletions(fileCompletions);
   }
 
   // Handle action types - loop through all of them to support multiple -A flags
@@ -353,41 +393,89 @@ export async function handleCompgen(
   // where -A directory results come before -W wordlist results
   for (const actionType of actionTypes) {
     if (actionType === "variable") {
-      const vars = getVariableNames(ctx, searchPrefix);
-      completions.push(...vars);
+      const vars = getVariableNames(
+        ctx,
+        searchPrefix,
+        remainingCompletionCapacity(),
+      );
+      appendCompletions(vars);
     } else if (actionType === "export") {
-      const vars = getExportedVariableNames(ctx, searchPrefix);
-      completions.push(...vars);
+      const vars = getExportedVariableNames(
+        ctx,
+        searchPrefix,
+        remainingCompletionCapacity(),
+      );
+      appendCompletions(vars);
     } else if (actionType === "function") {
-      const funcs = getFunctionNames(ctx, searchPrefix);
-      completions.push(...funcs);
+      const funcs = getFunctionNames(
+        ctx,
+        searchPrefix,
+        remainingCompletionCapacity(),
+      );
+      appendCompletions(funcs);
     } else if (actionType === "builtin") {
-      const builtins = getBuiltinNames(searchPrefix);
-      completions.push(...builtins);
+      const builtins = getBuiltinNames(
+        ctx,
+        searchPrefix,
+        remainingCompletionCapacity(),
+      );
+      appendCompletions(builtins);
     } else if (actionType === "keyword") {
-      const keywords = getKeywordNames(searchPrefix);
-      completions.push(...keywords);
+      const keywords = getKeywordNames(
+        ctx,
+        searchPrefix,
+        remainingCompletionCapacity(),
+      );
+      appendCompletions(keywords);
     } else if (actionType === "alias") {
-      const aliases = getAliasNames(ctx, searchPrefix);
-      completions.push(...aliases);
+      const aliases = getAliasNames(
+        ctx,
+        searchPrefix,
+        remainingCompletionCapacity(),
+      );
+      appendCompletions(aliases);
     } else if (actionType === "shopt") {
-      const shopts = getShoptNames(searchPrefix);
-      completions.push(...shopts);
+      const shopts = getShoptNames(
+        ctx,
+        searchPrefix,
+        remainingCompletionCapacity(),
+      );
+      appendCompletions(shopts);
     } else if (actionType === "helptopic") {
-      const topics = getHelpTopicNames(searchPrefix);
-      completions.push(...topics);
+      const topics = getHelpTopicNames(
+        ctx,
+        searchPrefix,
+        remainingCompletionCapacity(),
+      );
+      appendCompletions(topics);
     } else if (actionType === "directory") {
-      const dirs = await getDirectoryCompletions(ctx, searchPrefix);
-      completions.push(...dirs);
+      const dirs = await getDirectoryCompletions(
+        ctx,
+        searchPrefix,
+        remainingCompletionCapacity(),
+      );
+      appendCompletions(dirs);
     } else if (actionType === "file") {
-      const files = await getFileCompletions(ctx, searchPrefix);
-      completions.push(...files);
+      const files = await getFileCompletions(
+        ctx,
+        searchPrefix,
+        remainingCompletionCapacity(),
+      );
+      appendCompletions(files);
     } else if (actionType === "user") {
-      const users = getUserNames(searchPrefix);
-      completions.push(...users);
+      const users = getUserNames(
+        ctx,
+        searchPrefix,
+        remainingCompletionCapacity(),
+      );
+      appendCompletions(users);
     } else if (actionType === "command") {
-      const commands = await getCommandCompletions(ctx, searchPrefix);
-      completions.push(...commands);
+      const commands = await getCommandCompletions(
+        ctx,
+        searchPrefix,
+        remainingCompletionCapacity(),
+      );
+      appendCompletions(commands);
     }
   }
 
@@ -397,13 +485,17 @@ export async function handleCompgen(
     try {
       // First, expand the wordlist (handles $(), ${}, etc.)
       const expandedWordlist = await expandWordlistString(ctx, wordlist);
-      const words = splitWordlist(ctx, expandedWordlist);
+      const words = splitWordlist(
+        ctx,
+        expandedWordlist,
+        remainingCompletionCapacity(),
+        searchPrefix,
+      );
       for (const word of words) {
-        if (searchPrefix === null || word.startsWith(searchPrefix)) {
-          completions.push(word);
-        }
+        appendCompletions([word]);
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof ExecutionLimitError) throw error;
       // Expansion errors (e.g., arithmetic division by zero) return status 1
       return result("", "", 1);
     }
@@ -411,10 +503,15 @@ export async function handleCompgen(
 
   // Handle -o plusdirs: add directories to completions
   if (plusdirsOption) {
-    const dirCompletions = await getDirectoryCompletions(ctx, searchPrefix);
+    const dirCompletions = await getDirectoryCompletions(
+      ctx,
+      searchPrefix,
+      remainingCompletionCapacity(),
+      completionSet,
+    );
     for (const dir of dirCompletions) {
-      if (!completions.includes(dir)) {
-        completions.push(dir);
+      if (!completionSet.has(dir)) {
+        appendCompletions([dir]);
       }
     }
   }
@@ -434,11 +531,12 @@ export async function handleCompgen(
       const savedEnv = new Map<string, string | undefined>();
 
       // Save and set COMP_WORDS (empty array - no elements)
-      savedEnv.set(
-        "COMP_WORDS__length",
-        ctx.state.env.get("COMP_WORDS__length"),
-      );
-      ctx.state.env.set("COMP_WORDS__length", "0");
+      const currentCompWords = getArray(ctx, "COMP_WORDS");
+      const savedCompWords = currentCompWords
+        ? cloneArray(currentCompWords)
+        : undefined;
+      clearArray(ctx, "COMP_WORDS");
+      ensureArray(ctx, "COMP_WORDS");
 
       // Save and set COMP_CWORD
       savedEnv.set("COMP_CWORD", ctx.state.env.get("COMP_CWORD"));
@@ -453,17 +551,13 @@ export async function handleCompgen(
       ctx.state.env.set("COMP_POINT", "0");
 
       // Clear any existing COMPREPLY
-      const savedCompreply = new Map<string, string | undefined>();
-      for (const key of ctx.state.env.keys()) {
-        if (
-          key === "COMPREPLY" ||
-          key.startsWith("COMPREPLY_") ||
-          key === "COMPREPLY__length"
-        ) {
-          savedCompreply.set(key, ctx.state.env.get(key));
-          ctx.state.env.delete(key);
-        }
-      }
+      const currentCompreply = getArray(ctx, "COMPREPLY");
+      const savedCompreply = currentCompreply
+        ? cloneArray(currentCompreply)
+        : undefined;
+      const savedCompreplyScalar = ctx.state.env.get("COMPREPLY");
+      clearArray(ctx, "COMPREPLY");
+      ctx.state.env.delete("COMPREPLY");
 
       // Determine the arguments to pass to the function
       // bash passes: command_name, word_being_completed, previous_word
@@ -478,7 +572,10 @@ export async function handleCompgen(
         if (funcResult.exitCode !== 0) {
           // Restore saved environment
           restoreEnv(ctx, savedEnv);
-          restoreEnv(ctx, savedCompreply);
+          restoreCompletionArray(ctx, "COMP_WORDS", savedCompWords);
+          restoreCompletionArray(ctx, "COMPREPLY", savedCompreply);
+          if (savedCompreplyScalar !== undefined)
+            ctx.state.env.set("COMPREPLY", savedCompreplyScalar);
           return result("", funcResult.stderr, 1);
         }
 
@@ -486,18 +583,28 @@ export async function handleCompgen(
         functionStdout = funcResult.stdout;
 
         // Get COMPREPLY values (supports both scalar and array)
-        const compreplyValues = getCompreplyValues(ctx);
-        completions.push(...compreplyValues);
-      } catch {
+        const compreplyValues = getCompreplyValues(
+          ctx,
+          remainingCompletionCapacity(),
+        );
+        appendCompletions(compreplyValues);
+      } catch (error) {
+        if (error instanceof ExecutionLimitError) throw error;
         // If function execution fails, return exit code 1
         restoreEnv(ctx, savedEnv);
-        restoreEnv(ctx, savedCompreply);
+        restoreCompletionArray(ctx, "COMP_WORDS", savedCompWords);
+        restoreCompletionArray(ctx, "COMPREPLY", savedCompreply);
+        if (savedCompreplyScalar !== undefined)
+          ctx.state.env.set("COMPREPLY", savedCompreplyScalar);
         return result("", "", 1);
       }
 
       // Restore saved environment
       restoreEnv(ctx, savedEnv);
-      restoreEnv(ctx, savedCompreply);
+      restoreCompletionArray(ctx, "COMP_WORDS", savedCompWords);
+      restoreCompletionArray(ctx, "COMPREPLY", savedCompreply);
+      if (savedCompreplyScalar !== undefined)
+        ctx.state.env.set("COMPREPLY", savedCompreplyScalar);
     }
   }
 
@@ -518,11 +625,10 @@ export async function handleCompgen(
       // Split stdout into lines and add as completions
       // All non-empty lines are used as completions (no prefix filtering)
       if (cmdResult.stdout) {
-        const lines = cmdResult.stdout.split("\n");
-        for (const line of lines) {
+        for (const line of nonEmptyLines(cmdResult.stdout)) {
           // Skip empty lines
           if (line.length > 0) {
-            completions.push(line);
+            appendCompletions([line]);
           }
         }
       }
@@ -546,7 +652,13 @@ export async function handleCompgen(
 
     filteredCompletions = completions.filter((c) => {
       // Match using extglob patterns
-      const matches = matchPattern(c, pattern, false, true);
+      const matches = matchPattern(
+        c,
+        pattern,
+        false,
+        true,
+        ctx.limits.maxCallDepth,
+      );
       // Normal: filter OUT matching completions (!matches)
       // Negated: filter OUT non-matching completions (matches)
       // i.e., keep items that match when negated
@@ -561,13 +673,16 @@ export async function handleCompgen(
   }
 
   // Apply prefix/suffix and output
-  const completionOutput = filteredCompletions
-    .map((c) => `${prefix}${c}${suffix}`)
-    .join("\n");
+  const outputBuilder = new BoundedStringBuilder(
+    ctx.limits.maxOutputSize,
+    "compgen",
+  );
+  outputBuilder.append(functionStdout);
+  for (const completion of filteredCompletions) {
+    outputBuilder.append(prefix).append(completion).append(suffix).append("\n");
+  }
   // Prepend function stdout to completions output
-  const output =
-    functionStdout + (completionOutput ? `${completionOutput}\n` : "");
-  return success(output);
+  return success(outputBuilder.build());
 }
 
 /**
@@ -576,39 +691,18 @@ export async function handleCompgen(
 function getVariableNames(
   ctx: InterpreterContext,
   prefix: string | null,
+  maximum: number,
 ): string[] {
-  const names: Set<string> = new Set();
+  const candidates = createCandidateCollector(ctx, prefix, maximum);
 
-  // Add all environment variables
+  // Add scalar and array names from their separate namespaces.
   for (const key of ctx.state.env.keys()) {
-    // Skip internal array markers
-    if (key.includes("_") && /^[a-zA-Z_][a-zA-Z0-9_]*_\d+$/.test(key)) {
-      continue;
-    }
-    if (key.endsWith("__length")) {
-      continue;
-    }
-    // Extract base name for array variables
-    const baseName = key.split("_")[0];
     if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
-      names.add(key);
-    } else if (
-      baseName &&
-      /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(baseName) &&
-      ctx.state.env.has(`${baseName}__length`)
-    ) {
-      names.add(baseName);
+      candidates.add(key);
     }
   }
-
-  // Filter by prefix if provided
-  let resultArr = Array.from(names);
-  if (prefix !== null) {
-    resultArr = resultArr.filter((n) => n.startsWith(prefix));
-  }
-
-  // Sort alphabetically
-  return resultArr.sort();
+  for (const name of ctx.state.arrays?.keys() ?? []) candidates.add(name);
+  return candidates.build();
 }
 
 /**
@@ -617,28 +711,14 @@ function getVariableNames(
 function getExportedVariableNames(
   ctx: InterpreterContext,
   prefix: string | null,
+  maximum: number,
 ): string[] {
+  const candidates = createCandidateCollector(ctx, prefix, maximum);
   const exportedVars = ctx.state.exportedVars ?? new Set<string>();
-  let resultArr = Array.from(exportedVars);
-
-  // Filter by prefix if provided
-  if (prefix !== null) {
-    resultArr = resultArr.filter((n) => n.startsWith(prefix));
+  for (const name of exportedVars) {
+    if (ctx.state.env.has(name)) candidates.add(name);
   }
-
-  // Filter out variables that don't exist or are internal
-  resultArr = resultArr.filter((n) => {
-    if (n.includes("_") && /^[a-zA-Z_][a-zA-Z0-9_]*_\d+$/.test(n)) {
-      return false;
-    }
-    if (n.endsWith("__length")) {
-      return false;
-    }
-    return ctx.state.env.has(n);
-  });
-
-  // Sort alphabetically
-  return resultArr.sort();
+  return candidates.build();
 }
 
 /**
@@ -647,46 +727,37 @@ function getExportedVariableNames(
 function getFunctionNames(
   ctx: InterpreterContext,
   prefix: string | null,
+  maximum: number,
 ): string[] {
-  let resultArr = Array.from(ctx.state.functions.keys());
-
-  // Filter by prefix if provided
-  if (prefix !== null) {
-    resultArr = resultArr.filter((n) => n.startsWith(prefix));
-  }
-
-  // Sort alphabetically
-  return resultArr.sort();
+  const candidates = createCandidateCollector(ctx, prefix, maximum);
+  for (const name of ctx.state.functions.keys()) candidates.add(name);
+  return candidates.build();
 }
 
 /**
  * Get builtin command names, optionally filtered by prefix
  */
-function getBuiltinNames(prefix: string | null): string[] {
-  let resultArr = [...SHELL_BUILTINS];
-
-  // Filter by prefix if provided
-  if (prefix !== null) {
-    resultArr = resultArr.filter((n) => n.startsWith(prefix));
-  }
-
-  // Sort alphabetically
-  return resultArr.sort();
+function getBuiltinNames(
+  ctx: InterpreterContext,
+  prefix: string | null,
+  maximum: number,
+): string[] {
+  const candidates = createCandidateCollector(ctx, prefix, maximum);
+  for (const name of SHELL_BUILTINS) candidates.add(name);
+  return candidates.build();
 }
 
 /**
  * Get shell keyword names, optionally filtered by prefix
  */
-function getKeywordNames(prefix: string | null): string[] {
-  let resultArr = [...SHELL_KEYWORDS];
-
-  // Filter by prefix if provided
-  if (prefix !== null) {
-    resultArr = resultArr.filter((n) => n.startsWith(prefix));
-  }
-
-  // Sort alphabetically
-  return resultArr.sort();
+function getKeywordNames(
+  ctx: InterpreterContext,
+  prefix: string | null,
+  maximum: number,
+): string[] {
+  const candidates = createCandidateCollector(ctx, prefix, maximum);
+  for (const name of SHELL_KEYWORDS) candidates.add(name);
+  return candidates.build();
 }
 
 /**
@@ -695,55 +766,45 @@ function getKeywordNames(prefix: string | null): string[] {
 function getAliasNames(
   ctx: InterpreterContext,
   prefix: string | null,
+  maximum: number,
 ): string[] {
-  const names: string[] = [];
+  const candidates = createCandidateCollector(ctx, prefix, maximum);
 
   // Look for BASH_ALIAS_ prefixed variables
   for (const key of ctx.state.env.keys()) {
     if (key.startsWith("BASH_ALIAS_")) {
       const aliasName = key.slice("BASH_ALIAS_".length);
-      names.push(aliasName);
+      candidates.add(aliasName);
     }
   }
 
-  // Filter by prefix if provided
-  let resultArr = names;
-  if (prefix !== null) {
-    resultArr = resultArr.filter((n) => n.startsWith(prefix));
-  }
-
-  // Sort alphabetically
-  return resultArr.sort();
+  return candidates.build();
 }
 
 /**
  * Get shopt option names, optionally filtered by prefix
  */
-function getShoptNames(prefix: string | null): string[] {
-  let resultArr = [...SHOPT_OPTIONS];
-
-  // Filter by prefix if provided
-  if (prefix !== null) {
-    resultArr = resultArr.filter((n) => n.startsWith(prefix));
-  }
-
-  // Sort alphabetically
-  return resultArr.sort();
+function getShoptNames(
+  ctx: InterpreterContext,
+  prefix: string | null,
+  maximum: number,
+): string[] {
+  const candidates = createCandidateCollector(ctx, prefix, maximum);
+  for (const name of SHOPT_OPTIONS) candidates.add(name);
+  return candidates.build();
 }
 
 /**
  * Get help topic names, optionally filtered by prefix
  */
-function getHelpTopicNames(prefix: string | null): string[] {
-  let resultArr = [...HELP_TOPICS];
-
-  // Filter by prefix if provided
-  if (prefix !== null) {
-    resultArr = resultArr.filter((n) => n.startsWith(prefix));
-  }
-
-  // Sort alphabetically
-  return resultArr.sort();
+function getHelpTopicNames(
+  ctx: InterpreterContext,
+  prefix: string | null,
+  maximum: number,
+): string[] {
+  const candidates = createCandidateCollector(ctx, prefix, maximum);
+  for (const name of HELP_TOPICS) candidates.add(name);
+  return candidates.build();
 }
 
 /**
@@ -752,8 +813,10 @@ function getHelpTopicNames(prefix: string | null): string[] {
 async function getDirectoryCompletions(
   ctx: InterpreterContext,
   prefix: string | null,
+  maximum = ctx.limits.maxArrayElements,
+  excluded?: ReadonlySet<string>,
 ): Promise<string[]> {
-  const results: string[] = [];
+  const candidates = createCandidateCollector(ctx, null, maximum, excluded);
 
   try {
     // Determine the directory to search and the prefix to match
@@ -780,6 +843,7 @@ async function getDirectoryCompletions(
     const entries = await ctx.fs.readdir(searchDir);
 
     for (const entry of entries) {
+      ctx.executionScope.consumeWork(1, "compgen directory scan");
       // Check if it's a directory
       const fullPath = `${searchDir}/${entry}`;
       try {
@@ -790,21 +854,23 @@ async function getDirectoryCompletions(
             if (prefix?.includes("/")) {
               const lastSlash = prefix.lastIndexOf("/");
               const dirPart = prefix.slice(0, lastSlash + 1);
-              results.push(dirPart + entry);
+              candidates.add(dirPart + entry);
             } else {
-              results.push(entry);
+              candidates.add(entry);
             }
           }
         }
-      } catch {
+      } catch (error) {
+        if (error instanceof ExecutionLimitError) throw error;
         // Ignore stat errors
       }
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof ExecutionLimitError) throw error;
     // Ignore directory read errors
   }
 
-  return results.sort();
+  return candidates.build();
 }
 
 /**
@@ -813,8 +879,9 @@ async function getDirectoryCompletions(
 async function getFileCompletions(
   ctx: InterpreterContext,
   prefix: string | null,
+  maximum = ctx.limits.maxArrayElements,
 ): Promise<string[]> {
-  const results: string[] = [];
+  const candidates = createCandidateCollector(ctx, null, maximum);
 
   try {
     // Determine the directory to search and the prefix to match
@@ -841,31 +908,40 @@ async function getFileCompletions(
     const entries = await ctx.fs.readdir(searchDir);
 
     for (const entry of entries) {
+      ctx.executionScope.consumeWork(1, "compgen file scan");
       if (!matchPrefix || entry.startsWith(matchPrefix)) {
         // Include path prefix if the original prefix had one
         if (prefix?.includes("/")) {
           const lastSlash = prefix.lastIndexOf("/");
           const dirPart = prefix.slice(0, lastSlash + 1);
-          results.push(dirPart + entry);
+          candidates.add(dirPart + entry);
         } else {
-          results.push(entry);
+          candidates.add(entry);
         }
       }
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof ExecutionLimitError) throw error;
     // Ignore directory read errors
   }
 
-  return results.sort();
+  return candidates.build();
 }
 
 /**
  * Get user names (stub - returns common system users)
  */
-function getUserNames(_prefix: string | null): string[] {
+function getUserNames(
+  ctx: InterpreterContext,
+  prefix: string | null,
+  maximum: number,
+): string[] {
   // In a real implementation, this would read /etc/passwd
   // For now, return some common user names
-  return ["root", "nobody"];
+  const candidates = createCandidateCollector(ctx, prefix, maximum);
+  candidates.add("root");
+  candidates.add("nobody");
+  return candidates.build();
 }
 
 /**
@@ -874,29 +950,30 @@ function getUserNames(_prefix: string | null): string[] {
 async function getCommandCompletions(
   ctx: InterpreterContext,
   prefix: string | null,
+  maximum: number,
 ): Promise<string[]> {
-  const commands: Set<string> = new Set();
+  const candidates = createCandidateCollector(ctx, prefix, maximum);
 
   // Add builtins
   for (const builtin of SHELL_BUILTINS) {
-    commands.add(builtin);
+    candidates.add(builtin);
   }
 
   // Add functions
   for (const func of ctx.state.functions.keys()) {
-    commands.add(func);
+    candidates.add(func);
   }
 
   // Add aliases
   for (const key of ctx.state.env.keys()) {
     if (key.startsWith("BASH_ALIAS_")) {
-      commands.add(key.slice("BASH_ALIAS_".length));
+      candidates.add(key.slice("BASH_ALIAS_".length));
     }
   }
 
   // Add keywords
   for (const keyword of SHELL_KEYWORDS) {
-    commands.add(keyword);
+    candidates.add(keyword);
   }
 
   // Add external commands from PATH
@@ -906,20 +983,47 @@ async function getCommandCompletions(
     try {
       const entries = await ctx.fs.readdir(dir);
       for (const entry of entries) {
-        commands.add(entry);
+        candidates.add(entry);
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof ExecutionLimitError) throw error;
       // Ignore errors
     }
   }
+  return candidates.build();
+}
 
-  // Filter by prefix
-  let resultArr = Array.from(commands);
-  if (prefix !== null) {
-    resultArr = resultArr.filter((c) => c.startsWith(prefix));
-  }
-
-  return resultArr.sort();
+function createCandidateCollector(
+  ctx: InterpreterContext,
+  prefix: string | null,
+  maximum: number,
+  excluded?: ReadonlySet<string>,
+): { add(value: string): void; build(): string[] } {
+  const values = new Set<string>();
+  return {
+    add(value: string): void {
+      ctx.executionScope.consumeWork(1, "compgen candidate collection");
+      if (prefix !== null && !value.startsWith(prefix)) return;
+      if (excluded?.has(value)) return;
+      if (values.has(value)) return;
+      if (values.size >= maximum) {
+        throw new ExecutionLimitError(
+          `compgen: completion element limit exceeded (${ctx.limits.maxArrayElements})`,
+          "array_elements",
+        );
+      }
+      if (utf8ByteLength(value) > ctx.limits.maxStringLength) {
+        throw new ExecutionLimitError(
+          `compgen: completion string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+          "string_length",
+        );
+      }
+      values.add(value);
+    },
+    build(): string[] {
+      return Array.from(values).sort();
+    },
+  };
 }
 
 /**
@@ -943,10 +1047,22 @@ async function expandWordlistString(
  * Split a wordlist string into individual words, respecting IFS
  * Backslash-escaped IFS characters are treated as literal characters, not delimiters
  */
-function splitWordlist(ctx: InterpreterContext, wordlist: string): string[] {
+function splitWordlist(
+  ctx: InterpreterContext,
+  wordlist: string,
+  maximum: number,
+  prefix: string | null,
+): string[] {
   const ifs = ctx.state.env.get("IFS") ?? " \t\n";
 
   if (ifs.length === 0) {
+    if (prefix !== null && !wordlist.startsWith(prefix)) return [];
+    if (maximum === 0) {
+      throw new ExecutionLimitError(
+        `compgen: completion element limit exceeded (${ctx.limits.maxArrayElements})`,
+        "array_elements",
+      );
+    }
     return [wordlist];
   }
 
@@ -955,6 +1071,16 @@ function splitWordlist(ctx: InterpreterContext, wordlist: string): string[] {
 
   // Parse the wordlist character by character, respecting backslash escapes
   const words: string[] = [];
+  const pushWord = (value: string): void => {
+    if (prefix !== null && !value.startsWith(prefix)) return;
+    if (words.length >= maximum) {
+      throw new ExecutionLimitError(
+        `compgen: completion element limit exceeded (${ctx.limits.maxArrayElements})`,
+        "array_elements",
+      );
+    }
+    words.push(value);
+  };
   let currentWord = "";
   let i = 0;
 
@@ -969,7 +1095,7 @@ function splitWordlist(ctx: InterpreterContext, wordlist: string): string[] {
     } else if (ifsSet.has(char)) {
       // This is an IFS delimiter
       if (currentWord.length > 0) {
-        words.push(currentWord);
+        pushWord(currentWord);
         currentWord = "";
       }
       i++;
@@ -982,7 +1108,7 @@ function splitWordlist(ctx: InterpreterContext, wordlist: string): string[] {
 
   // Don't forget the last word
   if (currentWord.length > 0) {
-    words.push(currentWord);
+    pushWord(currentWord);
   }
 
   return words;
@@ -1004,31 +1130,61 @@ function restoreEnv(
   }
 }
 
+function restoreCompletionArray(
+  ctx: InterpreterContext,
+  name: string,
+  saved: ReturnType<typeof getArray>,
+): void {
+  ctx.state.arrays ??= new Map();
+  if (saved) ctx.state.arrays.set(name, cloneArray(saved));
+  else ctx.state.arrays.delete(name);
+}
+
 /**
  * Get COMPREPLY values (supports both scalar and array)
  * Returns values in order, skipping sparse array gaps
  */
-function getCompreplyValues(ctx: InterpreterContext): string[] {
+function getCompreplyValues(
+  ctx: InterpreterContext,
+  maximum: number,
+): string[] {
   const values: string[] = [];
+  const pushValue = (value: string): void => {
+    if (values.length >= maximum) {
+      throw new ExecutionLimitError(
+        `compgen: completion element limit exceeded (${ctx.limits.maxArrayElements})`,
+        "array_elements",
+      );
+    }
+    values.push(value);
+  };
 
   // Check if COMPREPLY is an array
-  const lengthKey = "COMPREPLY__length";
-  const arrayLength = ctx.state.env.get(lengthKey);
-
-  if (arrayLength !== undefined) {
+  if (hasArray(ctx, "COMPREPLY")) {
     // It's an array - get elements using getArrayElements helper
     // getArrayElements returns Array<[index, value]>
     const elements = getArrayElements(ctx, "COMPREPLY");
     for (const [, value] of elements) {
-      values.push(value);
+      pushValue(value);
     }
   } else {
     // Check if it's a scalar value
     const scalarValue = ctx.state.env.get("COMPREPLY");
     if (scalarValue !== undefined) {
-      values.push(scalarValue);
+      pushValue(scalarValue);
     }
   }
 
   return values;
+}
+
+function* nonEmptyLines(value: string): Iterable<string> {
+  let start = 0;
+  while (start <= value.length) {
+    const end = value.indexOf("\n", start);
+    const lineEnd = end === -1 ? value.length : end;
+    if (lineEnd > start) yield value.slice(start, lineEnd);
+    if (end === -1) return;
+    start = end + 1;
+  }
 }

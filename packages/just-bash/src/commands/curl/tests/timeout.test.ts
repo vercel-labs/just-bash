@@ -126,5 +126,41 @@ describe("curl timeouts", () => {
       // Restore mock
       global.fetch = mockFetch as typeof fetch;
     });
+
+    it("propagates timeout cancellation into the live request", async () => {
+      let requestAborted = false;
+      let laterEffect = false;
+      global.fetch = vi.fn(
+        async (_url: string, options?: RequestInit): Promise<Response> =>
+          await new Promise((resolve, reject) => {
+            const id = setTimeout(() => {
+              laterEffect = true;
+              resolve(new Response("late"));
+            }, 50);
+            options?.signal?.addEventListener(
+              "abort",
+              () => {
+                requestAborted = true;
+                clearTimeout(id);
+                reject(options.signal?.reason);
+              },
+              { once: true },
+            );
+          }),
+      ) as typeof fetch;
+
+      const env = new Bash({
+        network: { allowedUrlPrefixes: ["https://api.example.com"] },
+      });
+      const result = await env.exec(
+        "timeout 0.01 curl https://api.example.com/slow",
+      );
+      await new Promise((resolve) => setTimeout(resolve, 60));
+
+      expect(result).toMatchObject({ exitCode: 124, stdout: "", stderr: "" });
+      expect(requestAborted).toBe(true);
+      expect(laterEffect).toBe(false);
+      global.fetch = mockFetch as typeof fetch;
+    });
   });
 });

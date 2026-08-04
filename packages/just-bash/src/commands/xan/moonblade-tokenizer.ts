@@ -2,6 +2,8 @@
  * Moonblade expression tokenizer
  */
 
+import { ExecutionLimitError } from "../../interpreter/errors.js";
+
 export type TokenType =
   | "int"
   | "float"
@@ -61,24 +63,55 @@ export interface Token {
   pos: number;
 }
 
+export interface TokenizerLimits {
+  maxSourceLength?: number;
+  maxTokens?: number;
+}
+
 export class Tokenizer {
   private pos = 0;
   private tokens: Token[] = [];
 
-  constructor(private input: string) {}
+  private readonly maxSourceLength: number;
+  private readonly maxTokens: number;
+
+  constructor(
+    private input: string,
+    limits: TokenizerLimits = {},
+  ) {
+    this.maxSourceLength = limits.maxSourceLength ?? 1024 * 1024;
+    this.maxTokens = limits.maxTokens ?? 100_000;
+  }
 
   tokenize(): Token[] {
+    if (this.input.length > this.maxSourceLength) {
+      throw new ExecutionLimitError(
+        `xan: expression length limit exceeded (${this.maxSourceLength})`,
+        "string_length",
+      );
+    }
     while (this.pos < this.input.length) {
       this.skipWhitespace();
       if (this.pos >= this.input.length) break;
 
       const token = this.nextToken();
       if (token) {
+        this.assertTokenCapacity();
         this.tokens.push(token);
       }
     }
+    this.assertTokenCapacity();
     this.tokens.push({ type: "eof", value: "", pos: this.pos });
     return this.tokens;
+  }
+
+  private assertTokenCapacity(): void {
+    if (this.tokens.length >= this.maxTokens) {
+      throw new ExecutionLimitError(
+        `xan: expression token limit exceeded (${this.maxTokens})`,
+        "array_elements",
+      );
+    }
   }
 
   private skipWhitespace(): void {

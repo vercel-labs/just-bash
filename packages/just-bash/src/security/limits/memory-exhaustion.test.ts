@@ -45,7 +45,7 @@ describe("Memory Exhaustion Prevention", () => {
         echo "done"
       `);
       expect(result.exitCode).toBe(126);
-      expect(result.stderr).toContain("string length limit exceeded");
+      expect(result.stderr).toContain("string limit exceeded");
     });
 
     it("should allow strings within limit", async () => {
@@ -124,7 +124,7 @@ LINES
           echo "count: \${#arr[@]}"
         }
       `);
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(126);
       expect(result.stderr).toContain("array element limit exceeded");
     });
 

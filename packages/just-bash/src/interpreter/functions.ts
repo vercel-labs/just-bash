@@ -16,9 +16,14 @@ import type { ExecResult } from "../types.js";
 import { clearLocalVarStackForScope } from "./builtins/variable-assignment.js";
 import { ExitError, ReturnError } from "./errors.js";
 import { expandWord } from "./expansion.js";
+import { cloneArray } from "./helpers/array.js";
 import { OK, result, throwExecutionLimit } from "./helpers/result.js";
 import { POSIX_SPECIAL_BUILTINS } from "./helpers/shell-constants.js";
-import { applyRedirections, preExpandRedirectTargets } from "./redirections.js";
+import {
+  applyRedirections,
+  type ExpandedRedirectTargets,
+  preExpandRedirectTargets,
+} from "./redirections.js";
 import type { InterpreterContext } from "./types.js";
 
 export function executeFunctionDef(
@@ -122,6 +127,8 @@ export async function callFunction(
   ctx.state.sourceStack.unshift(func.sourceFile ?? "main");
 
   ctx.state.localScopes.push(new Map());
+  ctx.state.localArrayScopes ??= [];
+  ctx.state.localArrayScopes.push(new Map());
 
   // Push a new set for tracking exports made in this scope
   if (!ctx.state.localExportedVars) {
@@ -130,26 +137,51 @@ export async function callFunction(
   ctx.state.localExportedVars.push(new Set());
 
   const savedPositional = new Map<string, string | undefined>();
-  for (let i = 0; i < args.length; i++) {
-    savedPositional.set(String(i + 1), ctx.state.env.get(String(i + 1)));
-    ctx.state.env.set(String(i + 1), args[i]);
+  const oldPositionalCount = Number.parseInt(ctx.state.env.get("#") ?? "0", 10);
+  const positionalExtent = Math.max(args.length, oldPositionalCount);
+  for (let i = 0; i < positionalExtent; i++) {
+    const key = String(i + 1);
+    savedPositional.set(key, ctx.state.env.get(key));
+    if (i < args.length) ctx.state.env.set(key, args[i]);
+    else ctx.state.env.delete(key);
   }
   savedPositional.set("@", ctx.state.env.get("@"));
   savedPositional.set("#", ctx.state.env.get("#"));
   ctx.state.env.set("@", args.join(" "));
   ctx.state.env.set("#", String(args.length));
 
+  let cleaned = false;
   const cleanup = (): void => {
+    if (cleaned) return;
+    cleaned = true;
     // Get the scope index before popping (for localVarStack cleanup)
     const scopeIndex = ctx.state.localScopes.length - 1;
 
     const localScope = ctx.state.localScopes.pop();
+    const localArrayScope = ctx.state.localArrayScopes?.pop();
     if (localScope) {
       for (const [varName, originalValue] of localScope) {
         if (originalValue === undefined) {
           ctx.state.env.delete(varName);
         } else {
           ctx.state.env.set(varName, originalValue);
+        }
+      }
+    }
+    if (localArrayScope) {
+      ctx.state.arrays ??= new Map();
+      for (const [name, original] of localArrayScope) {
+        if (original === undefined) {
+          ctx.state.arrays.delete(name);
+          ctx.state.associativeArrays?.delete(name);
+        } else {
+          ctx.state.arrays.set(name, cloneArray(original));
+          ctx.state.associativeArrays ??= new Set();
+          if (original.kind === "associative") {
+            ctx.state.associativeArrays.add(name);
+          } else {
+            ctx.state.associativeArrays.delete(name);
+          }
         }
       }
     }
@@ -194,18 +226,17 @@ export async function callFunction(
     ctx.state.callDepth--;
   };
 
-  // Pre-expand redirect targets BEFORE executing the function body.
-  // This is critical because redirections like `fun() { echo $i; } > file$((i++))`
-  // must evaluate $((i++)) before the body runs, so the body sees the new value.
-  const { targets: preExpandedTargets, error: expandError } =
-    await preExpandRedirectTargets(ctx, func.redirections);
-
-  if (expandError) {
-    cleanup();
-    return result("", expandError, 1);
-  }
-
+  let preExpandedTargets: ExpandedRedirectTargets = new Map();
   try {
+    // Redirect expansion is part of the function frame and must be protected by
+    // the same finally cleanup as body execution.
+    const { targets, error: expandError } = await preExpandRedirectTargets(
+      ctx,
+      func.redirections,
+    );
+    preExpandedTargets = targets;
+    if (expandError) return result("", expandError, 1);
+
     // Process redirections on the function definition to get stdin
     // Only use redirection-based stdin if no pipeline stdin was passed
     const redirectionStdin = await processInputRedirections(
@@ -214,7 +245,6 @@ export async function callFunction(
     );
     const effectiveStdin = stdin || redirectionStdin;
     const execResult = await ctx.executeCommand(func.body, effectiveStdin);
-    cleanup();
     // Apply output redirections from the function definition using pre-expanded targets
     // e.g., fun() { echo hi; } 1>&2 should redirect output to stderr when called
     return applyRedirections(
@@ -224,7 +254,6 @@ export async function callFunction(
       preExpandedTargets,
     );
   } catch (error) {
-    cleanup();
     // Handle return statement - convert to normal exit with the specified code
     if (error instanceof ReturnError) {
       const returnResult = result(error.stdout, error.stderr, error.exitCode);
@@ -237,5 +266,7 @@ export async function callFunction(
       );
     }
     throw error;
+  } finally {
+    cleanup();
   }
 }

@@ -7,11 +7,33 @@
  * Grammar based on xan's grammar.pest
  */
 
+import { ExecutionLimitError } from "../../interpreter/errors.js";
+import type { RuntimeCommandContext } from "../../types.js";
 import {
   type Token,
   Tokenizer,
   type TokenType,
 } from "./moonblade-tokenizer.js";
+
+export interface MoonbladeLimits {
+  maxSourceLength?: number;
+  maxTokens?: number;
+  maxDepth?: number;
+  maxOperations?: number;
+  maxAstNodes?: number;
+}
+
+export function getMoonbladeLimits(
+  ctx: RuntimeCommandContext,
+): MoonbladeLimits {
+  return {
+    maxSourceLength: ctx.limits.maxStringLength,
+    maxTokens: ctx.limits.maxQueryTokens,
+    maxAstNodes: ctx.limits.maxQueryElements,
+    maxOperations: ctx.limits.maxJqIterations,
+    maxDepth: ctx.limits.maxQueryDepth,
+  };
+}
 
 export type MoonbladeExpr =
   | { type: "int"; value: number }
@@ -62,9 +84,34 @@ const PREC = {
 class Parser {
   private pos = 0;
   private tokens: Token[];
+  private depth = 0;
+  private operations = 0;
+  private astNodes = 0;
+  private readonly limits: Required<MoonbladeLimits>;
 
-  constructor(tokens: Token[]) {
+  constructor(tokens: Token[], limits: MoonbladeLimits = {}) {
     this.tokens = tokens;
+    this.limits = {
+      maxSourceLength: limits.maxSourceLength ?? 1024 * 1024,
+      maxTokens: limits.maxTokens ?? 100_000,
+      maxDepth: limits.maxDepth ?? 100,
+      maxOperations: limits.maxOperations ?? 100_000,
+      maxAstNodes: limits.maxAstNodes ?? 100_000,
+    };
+    let delimiterDepth = 0;
+    for (const token of tokens) {
+      this.useOperation();
+      if (token.type === "(" || token.type === "[" || token.type === "{") {
+        delimiterDepth++;
+        if (delimiterDepth > this.limits.maxDepth) this.throwDepthLimit();
+      } else if (
+        token.type === ")" ||
+        token.type === "]" ||
+        token.type === "}"
+      ) {
+        delimiterDepth = Math.max(0, delimiterDepth - 1);
+      }
+    }
   }
 
   parse(): MoonbladeExpr {
@@ -76,6 +123,10 @@ class Parser {
   }
 
   parseExpr(minPrec: number): MoonbladeExpr {
+    return this.withDepth(() => this.parseExprInner(minPrec));
+  }
+
+  private parseExprInner(minPrec: number): MoonbladeExpr {
     let left = this.parsePrefix();
 
     while (true) {
@@ -87,6 +138,43 @@ class Parser {
     }
 
     return left;
+  }
+
+  private useOperation(count = 1): void {
+    if (count > this.limits.maxOperations - this.operations) {
+      throw new ExecutionLimitError(
+        `xan: expression parser operation limit exceeded (${this.limits.maxOperations})`,
+        "iterations",
+      );
+    }
+    this.operations += count;
+  }
+
+  private withDepth<T>(operation: () => T): T {
+    if (this.depth >= this.limits.maxDepth) this.throwDepthLimit();
+    this.depth++;
+    try {
+      return operation();
+    } finally {
+      this.depth--;
+    }
+  }
+
+  private throwDepthLimit(): never {
+    throw new ExecutionLimitError(
+      `xan: expression parser depth limit exceeded (${this.limits.maxDepth})`,
+      "recursion",
+    );
+  }
+
+  private addAstNode(): void {
+    if (this.astNodes >= this.limits.maxAstNodes) {
+      throw new ExecutionLimitError(
+        `xan: expression AST node limit exceeded (${this.limits.maxAstNodes})`,
+        "array_elements",
+      );
+    }
+    this.astNodes++;
   }
 
   private parsePrefix(): MoonbladeExpr {
@@ -563,32 +651,43 @@ class Parser {
   }
 
   private countUnderscores(expr: MoonbladeExpr): number {
-    if (expr.type === "underscore") return 1;
-    if (expr.type === "func") {
-      return expr.args.reduce(
-        (sum, arg) => sum + this.countUnderscores(arg.expr),
-        0,
-      );
+    const pending: MoonbladeExpr[] = [expr];
+    let count = 0;
+    while (pending.length > 0) {
+      this.useOperation();
+      const current = pending.pop();
+      if (!current) break;
+      if (current.type === "underscore") {
+        count++;
+      } else if (current.type === "func") {
+        for (const arg of current.args) pending.push(arg.expr);
+      } else if (current.type === "list") {
+        pending.push(...current.elements);
+      } else if (current.type === "map") {
+        for (const entry of current.entries) pending.push(entry.value);
+      }
+      if (pending.length > this.limits.maxAstNodes) {
+        throw new ExecutionLimitError(
+          `xan: expression AST node limit exceeded (${this.limits.maxAstNodes})`,
+          "array_elements",
+        );
+      }
     }
-    if (expr.type === "list") {
-      return expr.elements.reduce(
-        (sum, el) => sum + this.countUnderscores(el),
-        0,
-      );
-    }
-    if (expr.type === "map") {
-      return expr.entries.reduce(
-        (sum, e) => sum + this.countUnderscores(e.value),
-        0,
-      );
-    }
-    return 0;
+    return count;
   }
 
   private fillUnderscore(
     expr: MoonbladeExpr,
     fill: MoonbladeExpr,
   ): MoonbladeExpr {
+    return this.withDepth(() => this.fillUnderscoreInner(expr, fill));
+  }
+
+  private fillUnderscoreInner(
+    expr: MoonbladeExpr,
+    fill: MoonbladeExpr,
+  ): MoonbladeExpr {
+    this.useOperation();
     if (expr.type === "underscore") return fill;
     if (expr.type === "func") {
       return {
@@ -631,6 +730,14 @@ class Parser {
     expr: MoonbladeExpr,
     names: string[],
   ): MoonbladeExpr {
+    return this.withDepth(() => this.bindLambdaArgsInExprInner(expr, names));
+  }
+
+  private bindLambdaArgsInExprInner(
+    expr: MoonbladeExpr,
+    names: string[],
+  ): MoonbladeExpr {
+    this.useOperation();
     if (expr.type === "identifier" && names.includes(expr.name)) {
       return { type: "lambdaBinding", name: expr.name };
     }
@@ -722,6 +829,8 @@ class Parser {
   }
 
   private advance(): Token {
+    this.useOperation();
+    this.addAstNode();
     return this.tokens[this.pos++];
   }
 
@@ -737,9 +846,15 @@ class Parser {
 /**
  * Parse named expressions like: "expr1, expr2 as name, expr3 as (a, b)"
  */
-export function parseNamedExpressions(input: string): NamedExpr[] {
+export function parseNamedExpressions(
+  input: string,
+  limits: MoonbladeLimits = {},
+): NamedExpr[] {
   const results: NamedExpr[] = [];
-  const tokenizer = new Tokenizer(input);
+  const tokenizer = new Tokenizer(input, {
+    maxSourceLength: limits.maxSourceLength,
+    maxTokens: limits.maxTokens,
+  });
   const tokens = tokenizer.tokenize();
 
   let pos = 0;
@@ -775,7 +890,7 @@ export function parseNamedExpressions(input: string): NamedExpr[] {
     }
 
     exprTokens.push({ type: "eof", value: "", pos: 0 });
-    const parser = new Parser(exprTokens);
+    const parser = new Parser(exprTokens, limits);
     const expr = parser.parse();
 
     // Check for "as"
@@ -792,9 +907,16 @@ export function parseNamedExpressions(input: string): NamedExpr[] {
             names.push(peek().value);
             advance();
           }
-          if (peek().type === ",") advance();
+          if (peek().type === ",") {
+            advance();
+          } else if (peek().type !== ")" && peek().type !== "eof") {
+            throw new Error(`Expected tuple alias, got ${peek().type}`);
+          }
         }
-        if (peek().type === ")") advance();
+        if (peek().type !== ")") {
+          throw new Error("Expected ')' after tuple alias");
+        }
+        advance();
         name = names;
       } else if (peek().type === "ident" || peek().type === "string") {
         name = peek().value;
@@ -822,9 +944,15 @@ export function parseNamedExpressions(input: string): NamedExpr[] {
 /**
  * Parse a moonblade expression string into AST
  */
-export function parseMoonblade(input: string): MoonbladeExpr {
-  const tokenizer = new Tokenizer(input);
+export function parseMoonblade(
+  input: string,
+  limits: MoonbladeLimits = {},
+): MoonbladeExpr {
+  const tokenizer = new Tokenizer(input, {
+    maxSourceLength: limits.maxSourceLength,
+    maxTokens: limits.maxTokens,
+  });
   const tokens = tokenizer.tokenize();
-  const parser = new Parser(tokens);
+  const parser = new Parser(tokens, limits);
   return parser.parse();
 }

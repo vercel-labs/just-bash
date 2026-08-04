@@ -15,7 +15,10 @@ import {
   SecurityViolationError,
 } from "./defense-in-depth-box.js";
 
-describe("Defense-in-Depth Hardening", () => {
+const describeDefense =
+  typeof nodeModule.registerHooks === "function" ? describe : describe.skip;
+
+describeDefense("Defense-in-Depth Hardening", () => {
   beforeEach(() => {
     DefenseInDepthBox.resetInstance();
   });
@@ -903,7 +906,7 @@ describe("Defense-in-Depth Hardening", () => {
       expect(error?.message).toContain("__defineSetter__");
     });
 
-    it("should freeze JSON (parse/stringify still work after freeze)", async () => {
+    it("should protect JSON while preserving parse/stringify", async () => {
       const box = DefenseInDepthBox.getInstance(true);
       const handle = box.activate();
 
@@ -917,7 +920,7 @@ describe("Defense-in-Depth Hardening", () => {
       expect(result).toEqual({ a: 1 });
     });
 
-    it("should freeze Math (floor still works after freeze)", async () => {
+    it("should protect Math while preserving floor", async () => {
       const box = DefenseInDepthBox.getInstance(true);
       const handle = box.activate();
 
@@ -1159,3 +1162,5 @@ describe("Defense-in-Depth Hardening", () => {
     });
   });
 });
+
+import * as nodeModule from "node:module";

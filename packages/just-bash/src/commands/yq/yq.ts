@@ -1,5 +1,5 @@
 /**
- * yq - Command-line YAML/XML/INI/CSV/TOML processor
+ * yq - RuntimeCommand-line YAML/XML/INI/CSV/TOML processor
  *
  * Uses jq-style query expressions to process YAML, XML, INI, CSV, and TOML files.
  * Shares the query engine with jq for consistent filtering behavior.
@@ -8,6 +8,7 @@
  * This is a reimplementation for the just-bash sandboxed environment.
  */
 
+import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { decodeBytesToUtf8 } from "../../encoding.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
@@ -16,7 +17,11 @@ import {
   awaitWithDefenseContext,
 } from "../../security/defense-context.js";
 import { SecurityViolationError } from "../../security/defense-in-depth-box.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import {
   type EvaluateOptions,
@@ -24,6 +29,7 @@ import {
   parse,
   type QueryValue,
 } from "../query-engine/index.js";
+import { getValueDepth } from "../query-engine/value-operations.js";
 import {
   defaultFormatOptions,
   detectFormatFromExtension,
@@ -124,6 +130,21 @@ EXAMPLES:
   ],
 };
 
+function parseIndent(value: string | undefined): number | null {
+  if (value === undefined || !/^\d+$/.test(value)) return null;
+  const indent = Number(value);
+  if (!Number.isSafeInteger(indent) || indent < 0 || indent > 32) return null;
+  return indent;
+}
+
+function invalidIndent(value: string | undefined): ExecResult {
+  return {
+    stdout: "",
+    stderr: `yq: invalid indent '${value ?? ""}' (expected integer 0..32)\n`,
+    exitCode: 2,
+  };
+}
+
 interface YqOptions extends FormatOptions {
   exitStatus: boolean;
   slurp: boolean;
@@ -174,7 +195,10 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
       }
       options.outputFormat = format;
     } else if (a.startsWith("--indent=")) {
-      options.indent = Number.parseInt(a.slice(9), 10);
+      const indentValue = a.slice(9);
+      const indent = parseIndent(indentValue);
+      if (indent === null) return invalidIndent(indentValue);
+      options.indent = indent;
     } else if (a.startsWith("--xml-attribute-prefix=")) {
       options.xmlAttributePrefix = a.slice(23);
     } else if (a.startsWith("--xml-content-name=")) {
@@ -199,7 +223,10 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
       }
       options.outputFormat = format;
     } else if (a === "-I" || a === "--indent") {
-      options.indent = Number.parseInt(args[++i], 10);
+      const indentValue = args[++i];
+      const indent = parseIndent(indentValue);
+      if (indent === null) return invalidIndent(indentValue);
+      options.indent = indent;
     } else if (a === "-r" || a === "--raw-output") {
       options.raw = true;
     } else if (a === "-c" || a === "--compact") {
@@ -247,10 +274,13 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
   return { options, filter, files, inputFormatExplicit };
 }
 
-export const yqCommand: Command = {
+export const yqCommand: RuntimeCommand = {
   name: "yq",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     assertDefenseContext(ctx.requireDefenseContext, "yq", "execution entry");
     const withDefenseContext = <T>(
       phase: string,
@@ -311,23 +341,38 @@ export const yqCommand: Command = {
     }
 
     try {
-      const ast = parse(filter);
+      const ast = parse(filter, {
+        maxDepth: ctx.limits.maxQueryDepth,
+        maxTokens: ctx.limits.maxQueryTokens,
+        maxSourceLength: ctx.limits.maxStringLength,
+      });
       let values: QueryValue[];
 
       const evalOptions: EvaluateOptions = {
         limits: ctx.limits
-          ? { maxIterations: ctx.limits.maxJqIterations }
+          ? {
+              maxIterations: ctx.limits.maxJqIterations,
+              maxStringLength: ctx.limits.maxStringLength,
+              maxOutputSize: ctx.limits.maxOutputSize,
+              maxArrayElements: ctx.limits.maxQueryElements,
+              maxDepth: ctx.limits.maxQueryDepth,
+            }
           : undefined,
         env: ctx.env,
         coverage: ctx.coverage,
         requireDefenseContext: ctx.requireDefenseContext,
+        budget: { operations: 0, callDepth: 0 },
+      };
+      const dataLimits = {
+        maxDepth: ctx.limits.maxQueryDepth,
+        maxElements: ctx.limits.maxQueryElements,
       };
 
       if (options.nullInput) {
         values = evaluate(null, ast, evalOptions);
       } else if (options.frontMatter) {
         // Extract and process front-matter only
-        const fm = extractFrontMatter(input);
+        const fm = extractFrontMatter(input, dataLimits);
         if (!fm) {
           return {
             stdout: "",
@@ -341,25 +386,74 @@ export const yqCommand: Command = {
         let items: QueryValue[];
         if (options.inputFormat === "yaml") {
           // YAML supports multiple documents separated by ---
-          items = parseAllYamlDocuments(input);
+          items = parseAllYamlDocuments(input, dataLimits);
         } else {
-          items = [parseInput(input, options)];
+          items = [parseInput(input, options, dataLimits)];
         }
         values = evaluate(items, ast, evalOptions);
       } else {
-        const parsed = parseInput(input, options);
+        const parsed = parseInput(input, options, dataLimits);
         values = evaluate(parsed, ast, evalOptions);
       }
 
       // Format output
-      const formatted = values.map((v) => formatOutput(v, options));
+      const maxOutputSize = Math.min(
+        ctx.limits.maxStringLength,
+        ctx.limits.maxOutputSize,
+      );
       const separator = options.joinOutput ? "" : "\n";
-      const output = formatted.filter((s) => s !== "").join(separator);
-      const finalOutput = output
-        ? options.joinOutput
-          ? output
-          : `${output}\n`
-        : "";
+      const output = new BoundedStringBuilder(
+        maxOutputSize,
+        "yq output",
+        () =>
+          new ExecutionLimitError(
+            `output size limit exceeded (${maxOutputSize} bytes)`,
+            "output_size",
+          ),
+      );
+      let formattedValues = 0;
+      for (const value of values) {
+        if (
+          getValueDepth(value, ctx.limits.maxQueryDepth + 1) >
+          ctx.limits.maxQueryDepth
+        ) {
+          throw new ExecutionLimitError(
+            `query depth limit exceeded (${ctx.limits.maxQueryDepth})`,
+            "recursion",
+          );
+        }
+        const separatorBytes = formattedValues > 0 ? separator.length : 0;
+        const finalNewlineBytes = options.joinOutput ? 0 : 1;
+        const remainingBytes =
+          output.remainingBytes - separatorBytes - finalNewlineBytes;
+        if (remainingBytes < 0) {
+          throw new ExecutionLimitError(
+            `output size limit exceeded (${maxOutputSize} bytes)`,
+            "output_size",
+          );
+        }
+        const serializationLimit = Math.min(
+          remainingBytes,
+          ctx.executionScope?.remainingLiveBytes ?? remainingBytes,
+        );
+        const serializationLease = ctx.executionScope?.reserveBytes(
+          "yq serialization",
+          serializationLimit,
+          "yq output",
+        );
+        let text: string;
+        try {
+          text = formatOutput(value, options, serializationLimit);
+        } finally {
+          serializationLease?.release();
+        }
+        if (text === "") continue;
+        if (formattedValues > 0) output.append(separator);
+        output.append(text);
+        formattedValues++;
+      }
+      if (formattedValues > 0 && !options.joinOutput) output.append("\n");
+      const finalOutput = output.build();
 
       // Handle inplace mode
       if (options.inplace && filePath) {

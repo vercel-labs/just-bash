@@ -51,6 +51,13 @@ describe("exit builtin", () => {
       const result = await env.exec("exit -1");
       expect(result.exitCode).toBe(255);
     });
+
+    it("preserves low bits for integers larger than Number can represent", async () => {
+      const env = new Bash();
+      const value = "9007199254740993";
+      const result = await env.exec(`exit ${value}`);
+      expect(result.exitCode).toBe(Number(BigInt(value) % 256n));
+    });
   });
 
   describe("exit in different contexts", () => {

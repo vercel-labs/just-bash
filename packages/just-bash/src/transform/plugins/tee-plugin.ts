@@ -6,6 +6,7 @@ import type {
   StatementNode,
   WordNode,
 } from "../../ast/types.js";
+import { normalizePath, validatePath } from "../../fs/path-utils.js";
 import { serializeWord } from "../serialize.js";
 import type {
   TransformContext,
@@ -58,8 +59,42 @@ export class TeePlugin implements TransformPlugin<TeePluginMetadata> {
   ): string {
     const ts = this.formatTimestamp(timestamp);
     const idx = String(index).padStart(3, "0");
-    const dir = this.options.outputDir;
-    return `${dir}/${ts}-${idx}-${commandName}.stdout.txt`;
+    validatePath(this.options.outputDir, "create tee output");
+    if (
+      !this.options.outputDir.startsWith("/") ||
+      this.options.outputDir.split("/").includes("..")
+    ) {
+      throw new Error("tee output directory must be an absolute safe path");
+    }
+    const dir = normalizePath(this.options.outputDir);
+    const encodedCommandName = this.encodeCommandName(commandName);
+    const candidate = normalizePath(
+      `${dir}/${ts}-${idx}-${encodedCommandName}.stdout.txt`,
+    );
+    if (dir !== "/" && !candidate.startsWith(`${dir}/`)) {
+      throw new Error("tee output path escapes configured output directory");
+    }
+    return candidate;
+  }
+
+  private encodeCommandName(commandName: string): string {
+    if (/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(commandName)) {
+      return commandName;
+    }
+
+    // FNV-1a gives unsafe or very long names a deterministic collision-resistant
+    // suffix without importing Node-only crypto into the browser build.
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < commandName.length; i++) {
+      hash ^= commandName.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    const slug =
+      commandName
+        .replace(/[^A-Za-z0-9_-]/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .slice(0, 32) || "command";
+    return `${slug}-${hash.toString(16).padStart(8, "0")}`;
   }
 
   private transformScript(
@@ -95,16 +130,12 @@ export class TeePlugin implements TransformPlugin<TeePluginMetadata> {
       newPipelines.push(result.pipeline);
 
       if (result.origCmdNewIndices !== null) {
-        const indices = result.origCmdNewIndices;
-        // Save original PIPESTATUS entries into temp vars
-        newOperators.push(";");
-        newPipelines.push(this.makePipestatusSave(indices));
-        // Restore PIPESTATUS and exit code with dummy pipeline.
-        // Apply the original pipeline's negation here (not on the
-        // wrapped pipeline) so ! inverts the restored exit code.
+        // The restore builtin receives expansions from one PIPESTATUS
+        // snapshot, returns the original pipeline status, and asks the
+        // interpreter to publish those statuses without shell temp vars.
         newOperators.push(";");
         newPipelines.push(
-          this.makePipestatusRestore(indices.length, result.negated),
+          this.makePipestatusRestore(result.origCmdNewIndices, result.negated),
         );
       }
     }
@@ -199,98 +230,42 @@ export class TeePlugin implements TransformPlugin<TeePluginMetadata> {
   }
 
   /**
-   * Save PIPESTATUS entries for original commands into temp vars.
-   * Produces: `__tps0=${PIPESTATUS[idx0]} __tps1=${PIPESTATUS[idx1]} ...`
-   *
-   * All expansions happen before any assignment (single simple command),
-   * so all read from the same PIPESTATUS snapshot.
+   * Restore PIPESTATUS and exit code without user-visible variables.
+   * Produces: `builtin __just_bash_tee_restore ${PIPESTATUS[i]} ...`
    */
-  private makePipestatusSave(origCmdNewIndices: number[]): PipelineNode {
+  private makePipestatusRestore(
+    indices: number[],
+    negated: boolean,
+  ): PipelineNode {
     return {
       type: "Pipeline",
       commands: [
         {
           type: "SimpleCommand",
-          assignments: origCmdNewIndices.map((newIdx, i) => ({
-            type: "Assignment" as const,
-            name: `__tps${i}`,
-            value: {
+          assignments: [],
+          name: {
+            type: "Word",
+            parts: [{ type: "Literal", value: "builtin" }],
+          },
+          args: [
+            {
+              type: "Word",
+              parts: [{ type: "Literal", value: "__just_bash_tee_restore" }],
+            },
+            ...indices.map((index) => ({
               type: "Word" as const,
               parts: [
                 {
                   type: "ParameterExpansion" as const,
-                  parameter: `PIPESTATUS[${newIdx}]`,
+                  parameter: `PIPESTATUS[${index}]`,
                   operation: null,
                 },
               ],
-            },
-            append: false,
-            array: null,
-          })),
-          name: null,
-          args: [],
+            })),
+          ],
           redirections: [],
         },
       ],
-      negated: false,
-    };
-  }
-
-  /**
-   * Restore PIPESTATUS and exit code with a dummy pipeline.
-   * Produces: `(exit $__tps0) | (exit $__tps1) | ...`
-   *
-   * This sets PIPESTATUS to the original commands' exit codes and
-   * sets $? to the last original command's exit code.
-   */
-  private makePipestatusRestore(count: number, negated: boolean): PipelineNode {
-    const commands: CommandNode[] = [];
-    for (let i = 0; i < count; i++) {
-      commands.push({
-        type: "Subshell",
-        body: [
-          {
-            type: "Statement",
-            pipelines: [
-              {
-                type: "Pipeline",
-                commands: [
-                  {
-                    type: "SimpleCommand",
-                    assignments: [],
-                    name: {
-                      type: "Word",
-                      parts: [{ type: "Literal", value: "exit" }],
-                    },
-                    args: [
-                      {
-                        type: "Word",
-                        parts: [
-                          {
-                            type: "ParameterExpansion",
-                            parameter: `__tps${i}`,
-                            operation: null,
-                          },
-                        ],
-                      },
-                    ],
-                    redirections: [],
-                  },
-                ],
-                negated: false,
-              },
-            ],
-            operators: [],
-            background: false,
-          },
-        ],
-        redirections: [],
-      });
-    }
-
-    return {
-      type: "Pipeline",
-      commands,
       negated,
     };
   }

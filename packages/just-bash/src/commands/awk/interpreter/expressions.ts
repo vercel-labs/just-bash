@@ -716,14 +716,8 @@ async function evalGetlineFromCommand(
     ),
   );
 
-  // Use a cache for command output, similar to file caching
-  const cacheKey = `__cmd_${cmd}`;
-  const indexKey = `__cmdi_${cmd}`;
-
-  let lines: string[];
-  let lineIndex: number;
-
-  if (ctx.vars[cacheKey] === undefined) {
+  let stream = ctx.getlineCommandStreams.get(cmd);
+  if (!stream) {
     // First time running this command
     try {
       const result = await withDefenseContext(ctx, "getline command exec", () =>
@@ -732,35 +726,29 @@ async function evalGetlineFromCommand(
       // awk processes lines with regex / FS — decode bytes to UTF-8 so
       // `getline cmd |` from a piped command keeps multibyte fields whole.
       const output = decodeBytesToUtf8(unsafeBytesFromLatin1(result.stdout));
-      lines = output.split("\n");
+      const lines = output.split("\n");
       // Remove trailing empty line if output ends with newline
       if (lines.length > 0 && lines[lines.length - 1] === "") {
         lines.pop();
       }
-      // Store in cache
-      ctx.vars[cacheKey] = JSON.stringify(lines);
-      ctx.vars[indexKey] = -1;
-      lineIndex = -1;
+      stream = { lines, index: -1 };
+      ctx.getlineCommandStreams.set(cmd, stream);
     } catch (e) {
       if (e instanceof SecurityViolationError) {
         throw e;
       }
       return -1; // Error running command
     }
-  } else {
-    // Command already cached
-    lines = JSON.parse(ctx.vars[cacheKey] as string);
-    lineIndex = ctx.vars[indexKey] as number;
   }
 
   // Get next line
-  const nextIndex = lineIndex + 1;
-  if (nextIndex >= lines.length) {
+  const nextIndex = stream.index + 1;
+  if (nextIndex >= stream.lines.length) {
     return 0; // EOF
   }
 
-  const line = lines[nextIndex];
-  ctx.vars[indexKey] = nextIndex;
+  const line = stream.lines[nextIndex];
+  stream.index = nextIndex;
 
   if (variable) {
     setVariable(ctx, variable, line);
@@ -800,50 +788,36 @@ async function evalGetlineFromFile(
 
   const filePath = fs.resolvePath(ctx.cwd, filename);
 
-  // Use a special internal structure to track file state
-  // Store as: __file_lines__[filename] = "line1\nline2\n..." (content)
-  // Store as: __file_index__[filename] = current line index
-  const cacheKey = `__fc_${filePath}`;
-  const indexKey = `__fi_${filePath}`;
-
-  let lines: string[];
-  let lineIndex: number;
-
-  if (ctx.vars[cacheKey] === undefined) {
+  let stream = ctx.getlineFileStreams.get(filePath);
+  if (!stream) {
     // First time reading this file
     try {
       const content = await withDefenseContext(ctx, "getline file read", () =>
         fs.readFile(filePath),
       );
-      lines = content.split("\n");
+      const lines = content.split("\n");
       // Remove trailing empty line if file ends with newline
       if (lines.length > 0 && lines[lines.length - 1] === "") {
         lines.pop();
       }
-      // Store in cache (as JSON for simplicity)
-      ctx.vars[cacheKey] = JSON.stringify(lines);
-      ctx.vars[indexKey] = -1;
-      lineIndex = -1;
+      stream = { lines, index: -1 };
+      ctx.getlineFileStreams.set(filePath, stream);
     } catch (e) {
       if (e instanceof SecurityViolationError) {
         throw e;
       }
       return -1; // Error reading file
     }
-  } else {
-    // File already cached
-    lines = JSON.parse(ctx.vars[cacheKey] as string);
-    lineIndex = ctx.vars[indexKey] as number;
   }
 
   // Get next line
-  const nextIndex = lineIndex + 1;
-  if (nextIndex >= lines.length) {
+  const nextIndex = stream.index + 1;
+  if (nextIndex >= stream.lines.length) {
     return 0; // EOF
   }
 
-  const line = lines[nextIndex];
-  ctx.vars[indexKey] = nextIndex;
+  const line = stream.lines[nextIndex];
+  stream.index = nextIndex;
 
   if (variable) {
     setVariable(ctx, variable, line);

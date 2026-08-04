@@ -26,7 +26,7 @@
 
 import type { ExecResult } from "../../types.js";
 import { failure, success } from "../helpers/result.js";
-import type { InterpreterContext } from "../types.js";
+import type { CompletionSpec, InterpreterContext } from "../types.js";
 
 // Valid completion options for -o/+o flags
 const VALID_OPTIONS = [
@@ -96,7 +96,7 @@ export function handleCompopt(
 
   // If -D flag is set, modify default completion
   if (isDefault) {
-    const spec = ctx.state.completionSpecs.get("__default__") ?? {
+    const spec = ctx.state.defaultCompletionSpec ?? {
       isDefault: true,
     };
     const currentOptions = new Set(spec.options ?? []);
@@ -113,14 +113,14 @@ export function handleCompopt(
 
     spec.options =
       currentOptions.size > 0 ? Array.from(currentOptions) : undefined;
-    ctx.state.completionSpecs.set("__default__", spec);
+    ctx.state.defaultCompletionSpec = spec;
     return success("");
   }
 
   // If -E flag is set, modify empty-line completion
   if (isEmptyLine) {
-    // @banned-pattern-ignore: completion spec with known structure (options array)
-    const spec = ctx.state.completionSpecs.get("__empty__") ?? {};
+    const spec: CompletionSpec =
+      ctx.state.emptyCompletionSpec ?? Object.create(null);
     const currentOptions = new Set(spec.options ?? []);
 
     // Enable options
@@ -135,7 +135,7 @@ export function handleCompopt(
 
     spec.options =
       currentOptions.size > 0 ? Array.from(currentOptions) : undefined;
-    ctx.state.completionSpecs.set("__empty__", spec);
+    ctx.state.emptyCompletionSpec = spec;
     return success("");
   }
 

@@ -209,6 +209,23 @@ describe("js-exec security", () => {
 
   describe("timeout DoS prevention", () => {
     it(
+      "does not raise an explicit host timeout when network is enabled",
+      { timeout: 10_000 },
+      async () => {
+        const env = new Bash({
+          javascript: true,
+          network: { dangerouslyAllowFullInternetAccess: true },
+          executionLimits: { maxJsTimeoutMs: 200 },
+        });
+        const started = Date.now();
+        const result = await env.exec(`js-exec -c "while(true){}"`);
+        expect(result.exitCode).not.toBe(0);
+        expect(result.stderr).toContain("timeout");
+        expect(Date.now() - started).toBeLessThan(5_000);
+      },
+    );
+
+    it(
       "should recover after timeout — subsequent execution succeeds",
       { timeout: 30000 },
       async () => {

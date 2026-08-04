@@ -1,6 +1,6 @@
-import type { Command, ExecResult } from "../../types.js";
+import type { ExecResult, RuntimeCommand } from "../../types.js";
 
-export const trueCommand: Command = {
+export const trueCommand: RuntimeCommand = {
   name: "true",
 
   async execute(): Promise<ExecResult> {
@@ -8,7 +8,7 @@ export const trueCommand: Command = {
   },
 };
 
-export const falseCommand: Command = {
+export const falseCommand: RuntimeCommand = {
   name: "false",
 
   async execute(): Promise<ExecResult> {

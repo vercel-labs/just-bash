@@ -1,4 +1,8 @@
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 
 /**
  * Process echo -e escape sequences
@@ -161,10 +165,13 @@ function processEscapes(input: string): { output: string; stop: boolean } {
   return { output: result, stop: false };
 }
 
-export const echoCommand: Command = {
+export const echoCommand: RuntimeCommand = {
   name: "echo",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     let noNewline = false;
     // When xpg_echo is enabled, interpret escapes by default (like echo -e)
     let interpretEscapes = ctx.xpgEcho ?? false;

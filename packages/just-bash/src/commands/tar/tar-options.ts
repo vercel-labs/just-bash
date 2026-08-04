@@ -36,16 +36,13 @@ export function parseOptions(
 ):
   | { ok: true; options: TarOptions; files: string[] }
   | { ok: false; error: ExecResult } {
-  // GNU old-style: bare first arg is a flag bundle. Value-taking letters
-  // (f, C, T, X) must be terminal or they swallow the rest as their value;
-  // move them to the end.
-  const valueTaking = /[fCTX]/g;
+  // GNU old-style syntax takes option arguments from the following argv
+  // entries, in the same order as their letters appear in the bundle. Expand
+  // it into ordinary one-letter options without ever treating later option
+  // letters as an attached value.
   const args =
     rawArgs.length > 0 && rawArgs[0] !== "" && !rawArgs[0].startsWith("-")
-      ? [
-          `-${rawArgs[0].replace(valueTaking, "") + (rawArgs[0].match(valueTaking) ?? []).join("")}`,
-          ...rawArgs.slice(1),
-        ]
+      ? expandOldStyleOptions(rawArgs)
       : rawArgs;
   const options: TarOptions = {
     create: false,
@@ -370,4 +367,21 @@ export function parseOptions(
   }
 
   return { ok: true, options, files };
+}
+
+function expandOldStyleOptions(rawArgs: string[]): string[] {
+  const bundle = rawArgs[0];
+  const expanded: string[] = [];
+  let valueIndex = 1;
+
+  for (const option of bundle) {
+    expanded.push(`-${option}`);
+    if ("fCTX".includes(option) && valueIndex < rawArgs.length) {
+      expanded.push(rawArgs[valueIndex]);
+      valueIndex++;
+    }
+  }
+
+  expanded.push(...rawArgs.slice(valueIndex));
+  return expanded;
 }

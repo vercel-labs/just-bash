@@ -5,10 +5,42 @@
  * These are pure functions with no external dependencies.
  */
 
-import { BraceExpansionError } from "../errors.js";
+import { utf8ByteLength } from "../../commands/printf/escapes.js";
+import { BraceExpansionError, ExecutionLimitError } from "../errors.js";
 
 // Maximum iterations for range expansion to prevent infinite loops
 const MAX_SAFE_RANGE_ITERATIONS = 10000;
+
+export interface BraceRangeLimits {
+  maxResults: number;
+  maxStringBytes: number;
+}
+
+const DEFAULT_RANGE_LIMITS: BraceRangeLimits = {
+  maxResults: MAX_SAFE_RANGE_ITERATIONS,
+  maxStringBytes: 10 * 1024 * 1024,
+};
+
+function pushRangeValue(
+  results: string[],
+  value: string,
+  limits: BraceRangeLimits,
+  aggregateBytes: { value: number },
+): boolean {
+  if (results.length >= limits.maxResults) {
+    return false;
+  }
+  const bytes = utf8ByteLength(value);
+  if (bytes > limits.maxStringBytes - aggregateBytes.value) {
+    throw new ExecutionLimitError(
+      `brace expansion string limit exceeded (${limits.maxStringBytes} bytes)`,
+      "string_length",
+    );
+  }
+  results.push(value);
+  aggregateBytes.value += bytes;
+  return true;
+}
 
 /**
  * Safely expand a numeric range with step, preventing infinite loops.
@@ -25,6 +57,7 @@ function safeExpandNumericRange(
   rawStep: number | undefined,
   startStr?: string,
   endStr?: string,
+  limits: BraceRangeLimits = DEFAULT_RANGE_LIMITS,
 ): string[] | null {
   // Step of 0 is treated as 1 in bash
   let step = rawStep ?? 1;
@@ -43,6 +76,14 @@ function safeExpandNumericRange(
   if (endStr?.match(/^-?0\d/)) {
     padWidth = Math.max(padWidth, endStr.replace(/^-/, "").length);
   }
+  if (padWidth > limits.maxStringBytes) {
+    throw new ExecutionLimitError(
+      `brace expansion padding limit exceeded (${limits.maxStringBytes} bytes)`,
+      "string_length",
+    );
+  }
+
+  const aggregateBytes = { value: 0 };
 
   const formatNum = (n: number): string => {
     if (padWidth > 0) {
@@ -60,7 +101,7 @@ function safeExpandNumericRange(
       i <= end && count < MAX_SAFE_RANGE_ITERATIONS;
       i += absStep, count++
     ) {
-      results.push(formatNum(i));
+      if (!pushRangeValue(results, formatNum(i), limits, aggregateBytes)) break;
     }
   } else {
     // Descending range (start > end)
@@ -69,7 +110,7 @@ function safeExpandNumericRange(
       i >= end && count < MAX_SAFE_RANGE_ITERATIONS;
       i -= absStep, count++
     ) {
-      results.push(formatNum(i));
+      if (!pushRangeValue(results, formatNum(i), limits, aggregateBytes)) break;
     }
   }
 
@@ -90,6 +131,7 @@ function safeExpandCharRange(
   start: string,
   end: string,
   rawStep: number | undefined,
+  limits: BraceRangeLimits = DEFAULT_RANGE_LIMITS,
 ): string[] | null {
   // Step of 0 is treated as 1 in bash
   let step = rawStep ?? 1;
@@ -116,6 +158,7 @@ function safeExpandCharRange(
   }
 
   const results: string[] = [];
+  const aggregateBytes = { value: 0 };
 
   if (startCode <= endCode) {
     // Ascending range
@@ -124,7 +167,11 @@ function safeExpandCharRange(
       i <= endCode && count < MAX_SAFE_RANGE_ITERATIONS;
       i += absStep, count++
     ) {
-      results.push(String.fromCharCode(i));
+      if (
+        !pushRangeValue(results, String.fromCharCode(i), limits, aggregateBytes)
+      ) {
+        break;
+      }
     }
   } else {
     // Descending range
@@ -133,7 +180,11 @@ function safeExpandCharRange(
       i >= endCode && count < MAX_SAFE_RANGE_ITERATIONS;
       i -= absStep, count++
     ) {
-      results.push(String.fromCharCode(i));
+      if (
+        !pushRangeValue(results, String.fromCharCode(i), limits, aggregateBytes)
+      ) {
+        break;
+      }
     }
   }
 
@@ -160,11 +211,19 @@ export function expandBraceRange(
   step: number | undefined,
   startStr?: string,
   endStr?: string,
+  limits: BraceRangeLimits = DEFAULT_RANGE_LIMITS,
 ): BraceRangeResult {
   const stepPart = step !== undefined ? `..${step}` : "";
 
   if (typeof start === "number" && typeof end === "number") {
-    const expanded = safeExpandNumericRange(start, end, step, startStr, endStr);
+    const expanded = safeExpandNumericRange(
+      start,
+      end,
+      step,
+      startStr,
+      endStr,
+      limits,
+    );
     return {
       expanded,
       literal: `{${start}..${end}${stepPart}}`,
@@ -172,7 +231,7 @@ export function expandBraceRange(
   }
 
   if (typeof start === "string" && typeof end === "string") {
-    const expanded = safeExpandCharRange(start, end, step);
+    const expanded = safeExpandCharRange(start, end, step, limits);
     return {
       expanded,
       literal: `{${start}..${end}${stepPart}}`,

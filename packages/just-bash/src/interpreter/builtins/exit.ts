@@ -14,14 +14,15 @@ export function handleExit(ctx: InterpreterContext, args: string[]): never {
     exitCode = ctx.state.lastExitCode;
   } else {
     const arg = args[0];
-    const parsed = Number.parseInt(arg, 10);
     // Empty string or non-numeric is an error
-    if (arg === "" || Number.isNaN(parsed) || !/^-?\d+$/.test(arg)) {
+    if (arg === "" || !/^-?\d+$/.test(arg)) {
       stderr = `bash: exit: ${arg}: numeric argument required\n`;
       exitCode = 2;
     } else {
-      // Exit codes are modulo 256 (wrap around)
-      exitCode = ((parsed % 256) + 256) % 256;
+      // Parse exactly before reducing. Number.parseInt loses low bits for large
+      // operands, producing the wrong modulo-256 status.
+      const parsed = BigInt(arg);
+      exitCode = Number(((parsed % 256n) + 256n) % 256n);
     }
   }
 

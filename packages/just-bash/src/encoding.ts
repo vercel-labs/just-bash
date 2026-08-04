@@ -23,6 +23,43 @@ export interface ByteString {
 
 const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
 const utf8Encoder = new TextEncoder();
+const DEFAULT_MAX_CONVERSION_BYTES = 512 * 1024 * 1024;
+
+function assertConversionSize(
+  bytes: number,
+  maximum: number,
+  operation: string,
+): void {
+  if (
+    !Number.isSafeInteger(bytes) ||
+    bytes < 0 ||
+    !Number.isSafeInteger(maximum) ||
+    maximum < 0 ||
+    bytes > maximum
+  ) {
+    throw new RangeError(
+      `${operation}: byte conversion limit exceeded (${maximum} bytes)`,
+    );
+  }
+}
+
+/** Return UTF-8 byte length without allocating an encoded copy. */
+export function utf8ByteLength(value: string): number {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x7f) bytes++;
+    else if (code <= 0x7ff) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index++;
+      } else bytes += 3;
+    } else bytes += 3;
+  }
+  return bytes;
+}
 
 /**
  * Tag a latin1 byte buffer (each char = one byte) as a `ByteString`. Use at
@@ -52,9 +89,13 @@ export function latin1FromBytes(b: ByteString): string {
  * a binary stream piped into grep). Callers that want hard failure on
  * invalid UTF-8 should encode + decode manually with `{ fatal: true }`.
  */
-export function decodeBytesToUtf8(b: ByteString): string {
+export function decodeBytesToUtf8(
+  b: ByteString,
+  maxBytes: number = DEFAULT_MAX_CONVERSION_BYTES,
+): string {
   const s = b as unknown as string;
   if (!s) return s;
+  assertConversionSize(s.length, maxBytes, "UTF-8 decode");
 
   let hasHighByte = false;
   for (let i = 0; i < s.length; i++) {
@@ -84,8 +125,12 @@ export function decodeBytesToUtf8(b: ByteString): string {
  * text and need to emit it back as bytes — typically the inverse of an
  * earlier `decodeBytesToUtf8` call inside the same command.
  */
-export function encodeUtf8ToBytes(s: string): ByteString {
+export function encodeUtf8ToBytes(
+  s: string,
+  maxBytes: number = DEFAULT_MAX_CONVERSION_BYTES,
+): ByteString {
   if (!s) return s as unknown as ByteString;
+  assertConversionSize(utf8ByteLength(s), maxBytes, "UTF-8 encode");
   const bytes = utf8Encoder.encode(s);
   let out = "";
   for (let i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
@@ -99,7 +144,11 @@ export const EMPTY_BYTES: ByteString = "" as unknown as ByteString;
  * Convert a `Uint8Array` to a `ByteString`. Each byte becomes one char.
  * The reverse is `Uint8Array.from(latin1FromBytes(b), (c) => c.charCodeAt(0))`.
  */
-export function bytesFromUint8Array(buf: Uint8Array): ByteString {
+export function bytesFromUint8Array(
+  buf: Uint8Array,
+  maxBytes: number = DEFAULT_MAX_CONVERSION_BYTES,
+): ByteString {
+  assertConversionSize(buf.byteLength, maxBytes, "byte-string conversion");
   let out = "";
   for (let i = 0; i < buf.length; i++) out += String.fromCharCode(buf[i]);
   return out as unknown as ByteString;

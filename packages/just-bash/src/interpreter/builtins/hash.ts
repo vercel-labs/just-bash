@@ -16,6 +16,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
+import { quoteValue } from "../helpers/quoting.js";
 import { failure, OK, success } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -171,7 +172,8 @@ export async function handleHash(
     if (listMode) {
       // Reusable format: builtin hash -p /path/to/cmd cmd
       for (const [name, path] of ctx.state.hashTable) {
-        stdout += `builtin hash -p ${path} ${name}\n`;
+        const optionBoundary = name.startsWith("-") ? " --" : "";
+        stdout += `builtin hash -p ${quoteValue(path)}${optionBoundary} ${quoteValue(name)}\n`;
       }
     } else {
       // Default format (bash style: hits command table)

@@ -50,7 +50,7 @@ describe("curl form data", () => {
         "curl --data-urlencode 'message=hello world' https://api.example.com/post",
       );
 
-      expect(lastRequest?.options.body).toBe("message=hello%20world");
+      expect(lastRequest?.options.body).toBe("message=hello+world");
     });
 
     it("encodes special characters", async () => {
@@ -64,7 +64,7 @@ describe("curl form data", () => {
         "curl --data-urlencode 'data=a&b=c' https://api.example.com/post",
       );
 
-      expect(lastRequest?.options.body).toBe("data=a%26b%3Dc");
+      expect(lastRequest?.options.body).toBe("data=a%26b%3dc");
     });
 
     it("appends multiple --data-urlencode values", async () => {

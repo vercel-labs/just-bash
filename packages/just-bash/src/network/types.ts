@@ -5,6 +5,8 @@
  * you must explicitly configure allowed URLs.
  */
 
+import type { PinnedConnectionOwnerFactory } from "./dns-pin.js";
+
 /**
  * DNS lookup result used for private IP resolution checks
  */
@@ -79,7 +81,8 @@ export interface NetworkConfig {
    * - https://api.example.com/v1-admin
    * - https://api.example.com/v2/users
    * - https://api.example.org/v1/users (different origin)
-   * - URLs that rely on ambiguous encoded separators like %2f or %5c
+   * - URLs that rely on ambiguous separators or path parameters like %2f,
+   *   %5c, semicolons, or nested encodings
    *
    * Invalid entries (missing scheme, missing host, relative paths) will throw an error.
    */
@@ -117,6 +120,9 @@ export interface NetworkConfig {
    * Reject URLs with private/loopback IP addresses as hostnames.
    * Performs both lexical hostname checks and DNS resolution to catch
    * domains that resolve to private IPs (e.g., DNS rebinding attacks).
+   * Domain requests fail closed on resolution errors, empty or malformed
+   * answers, and runtimes that cannot pin the reviewed address to the actual
+   * connection. Each redirect hop is resolved and pinned independently.
    * Useful for mitigating SSRF attacks. Default: false (opt-in).
    *
    * When enabled, the private IP check is enforced even when
@@ -131,6 +137,11 @@ export interface NetworkConfig {
    * denyPrivateRanges DNS rebinding check.
    */
   _dnsResolve?: (hostname: string) => Promise<DnsLookupResult[]>;
+
+  /**
+   * @internal Override request-owned connection binding for testing.
+   */
+  _createConnectionOwner?: PinnedConnectionOwnerFactory;
 }
 
 /**

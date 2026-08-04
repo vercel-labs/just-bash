@@ -14,6 +14,40 @@ type EvalFn = (
   ctx: EvalContext,
 ) => QueryValue[];
 
+const MAX_DATE_MILLISECONDS = 8_640_000_000_000_000;
+const MAX_DATE_SECONDS = MAX_DATE_MILLISECONDS / 1000;
+const ISO_UTC_FORMAT = "%Y-%m-%dT%H:%M:%SZ";
+
+function dateFromTimestamp(value: number, operation: string): Date {
+  if (!Number.isFinite(value) || Math.abs(value) > MAX_DATE_SECONDS) {
+    throw new Error(`${operation} timestamp is outside the supported range`);
+  }
+  return new Date(value * 1000);
+}
+
+function parseIsoUtc(value: string): Date | null {
+  const match = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})Z$/,
+  );
+  if (!match) return null;
+
+  const [, year, month, day, hour, minute, second] = match.map(Number);
+  const milliseconds = Date.UTC(year, month - 1, day, hour, minute, second);
+  if (!Number.isFinite(milliseconds)) return null;
+  const date = new Date(milliseconds);
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day ||
+    date.getUTCHours() !== hour ||
+    date.getUTCMinutes() !== minute ||
+    date.getUTCSeconds() !== second
+  ) {
+    return null;
+  }
+  return date;
+}
+
 /**
  * Handle date builtins that need evaluate function for arguments.
  * Returns null if the builtin name is not a date builtin handled here.
@@ -33,7 +67,7 @@ export function evalDateBuiltin(
       // Convert Unix timestamp to broken-down time array
       // jq format: [year, month(0-11), day(1-31), hour, minute, second, weekday(0-6), yearday(0-365)]
       if (typeof value !== "number") return [null];
-      const date = new Date(value * 1000);
+      const date = dateFromTimestamp(value, "gmtime");
       const year = date.getUTCFullYear();
       const month = date.getUTCMonth(); // 0-11
       const day = date.getUTCDate(); // 1-31
@@ -80,7 +114,7 @@ export function evalDateBuiltin(
       let date: Date;
       if (typeof value === "number") {
         // Unix timestamp
-        date = new Date(value * 1000);
+        date = dateFromTimestamp(value, "strftime");
       } else if (Array.isArray(value)) {
         // Broken-down time array
         const [year, month, day, hour = 0, minute = 0, second = 0] = value;
@@ -143,29 +177,11 @@ export function evalDateBuiltin(
       if (typeof fmt !== "string") {
         throw new Error("strptime/1 requires a string format");
       }
-      // Simple strptime for common ISO format
-      if (fmt === "%Y-%m-%dT%H:%M:%SZ") {
-        const match = value.match(
-          /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})Z$/,
-        );
-        if (match) {
-          const [, year, month, day, hour, minute, second] = match.map(Number);
-          const date = new Date(
-            Date.UTC(year, month - 1, day, hour, minute, second),
-          );
-          const weekday = date.getUTCDay();
-          const startOfYear = Date.UTC(year, 0, 1);
-          const yearday = Math.floor(
-            (date.getTime() - startOfYear) / (24 * 60 * 60 * 1000),
-          );
-          return [
-            [year, month - 1, day, hour, minute, second, weekday, yearday],
-          ];
-        }
+      if (fmt !== ISO_UTC_FORMAT) {
+        throw new Error(`strptime format is not supported: ${fmt}`);
       }
-      // Fallback: try to parse as ISO date
-      const date = new Date(value);
-      if (!Number.isNaN(date.getTime())) {
+      const date = parseIsoUtc(value);
+      if (date) {
         const year = date.getUTCFullYear();
         const month = date.getUTCMonth();
         const day = date.getUTCDate();
@@ -187,10 +203,10 @@ export function evalDateBuiltin(
       if (typeof value !== "string") {
         throw new Error("fromdate requires a string input");
       }
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) {
+      const date = parseIsoUtc(value);
+      if (!date) {
         throw new Error(
-          `date "${value}" does not match format "%Y-%m-%dT%H:%M:%SZ"`,
+          `date "${value}" does not match format "${ISO_UTC_FORMAT}"`,
         );
       }
       return [Math.floor(date.getTime() / 1000)];
@@ -201,7 +217,7 @@ export function evalDateBuiltin(
       if (typeof value !== "number") {
         throw new Error("todate requires a number input");
       }
-      const date = new Date(value * 1000);
+      const date = dateFromTimestamp(value, "todate");
       return [date.toISOString().replace(/\.\d{3}Z$/, "Z")];
     }
 

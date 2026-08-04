@@ -35,9 +35,16 @@ export function compareStrings(
   usePattern = false,
   nocasematch = false,
   extglob = false,
+  maxPatternDepth = 256,
 ): boolean {
   if (usePattern) {
-    const isEqual = matchPattern(left, right, nocasematch, extglob);
+    const isEqual = matchPattern(
+      left,
+      right,
+      nocasematch,
+      extglob,
+      maxPatternDepth,
+    );
     return op === "!=" ? !isEqual : isEqual;
   }
   if (nocasematch) {

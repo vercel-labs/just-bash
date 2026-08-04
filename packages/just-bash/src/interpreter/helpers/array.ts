@@ -3,29 +3,145 @@
  */
 
 import type { WordNode } from "../../ast/types.js";
-import type { InterpreterContext } from "../types.js";
+import { utf8ByteLength } from "../../encoding.js";
+import { ExecutionLimitError } from "../errors.js";
+import type { InterpreterContext, ShellArray } from "../types.js";
+
+export function cloneArray(array: ShellArray): ShellArray {
+  return { kind: array.kind, elements: new Map(array.elements) };
+}
+
+export function cloneArrays(
+  arrays: Map<string, ShellArray> | undefined,
+): Map<string, ShellArray> {
+  return new Map(
+    Array.from(arrays ?? [], ([name, array]) => [name, cloneArray(array)]),
+  );
+}
+
+export function getArray(
+  ctx: InterpreterContext,
+  arrayName: string,
+): ShellArray | undefined {
+  return ctx.state.arrays?.get(arrayName);
+}
+
+export function ensureArray(
+  ctx: InterpreterContext,
+  arrayName: string,
+  kind: "indexed" | "associative" = "indexed",
+): ShellArray {
+  ctx.state.arrays ??= new Map();
+  let array = ctx.state.arrays.get(arrayName);
+  if (!array) {
+    array = { kind, elements: new Map() };
+    ctx.state.arrays.set(arrayName, array);
+  }
+  return array;
+}
+
+export function setArrayKind(
+  ctx: InterpreterContext,
+  arrayName: string,
+  kind: "indexed" | "associative",
+): ShellArray {
+  const array = ensureArray(ctx, arrayName, kind);
+  array.kind = kind;
+  return array;
+}
+
+export function hasArray(ctx: InterpreterContext, arrayName: string): boolean {
+  return ctx.state.arrays?.has(arrayName) ?? false;
+}
+
+export function getArrayElement(
+  ctx: InterpreterContext,
+  arrayName: string,
+  key: string | number,
+): string | undefined {
+  return getArray(ctx, arrayName)?.elements.get(String(key));
+}
+
+export function hasArrayElement(
+  ctx: InterpreterContext,
+  arrayName: string,
+  key: string | number,
+): boolean {
+  return getArray(ctx, arrayName)?.elements.has(String(key)) ?? false;
+}
+
+export function setArrayElement(
+  ctx: InterpreterContext,
+  arrayName: string,
+  key: string | number,
+  value: string,
+  kind?: "indexed" | "associative",
+): void {
+  const array = ensureArray(ctx, arrayName, kind);
+  const normalizedKey = String(key);
+  if (
+    !array.elements.has(normalizedKey) &&
+    array.elements.size >= ctx.limits.maxArrayElements
+  ) {
+    throw new ExecutionLimitError(
+      `array element limit exceeded (${ctx.limits.maxArrayElements})`,
+      "array_elements",
+    );
+  }
+  if (utf8ByteLength(value) > ctx.limits.maxStringLength) {
+    throw new ExecutionLimitError(
+      `array value string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+      "string_length",
+    );
+  }
+  array.elements.set(normalizedKey, value);
+}
+
+/** Prove a batch of distinct keys fits before any persistent mutation. */
+export function assertArrayKeysFit(
+  ctx: InterpreterContext,
+  arrayName: string,
+  keys: Iterable<string | number>,
+  replace = false,
+): void {
+  const prospective = new Set<string>(
+    replace ? [] : (getArray(ctx, arrayName)?.elements.keys() ?? []),
+  );
+  for (const key of keys) {
+    prospective.add(String(key));
+    if (prospective.size > ctx.limits.maxArrayElements) {
+      throw new ExecutionLimitError(
+        `array element limit exceeded (${ctx.limits.maxArrayElements})`,
+        "array_elements",
+      );
+    }
+  }
+}
+
+export function deleteArrayElement(
+  ctx: InterpreterContext,
+  arrayName: string,
+  key: string | number,
+): boolean {
+  return getArray(ctx, arrayName)?.elements.delete(String(key)) ?? false;
+}
+
+export function deleteArray(ctx: InterpreterContext, arrayName: string): void {
+  ctx.state.arrays?.delete(arrayName);
+  ctx.state.associativeArrays?.delete(arrayName);
+}
 
 /**
  * Get all indices of an array, sorted in ascending order.
- * Arrays are stored as `name_0`, `name_1`, etc. in the environment.
+ * Indexed arrays are held in dedicated structured interpreter state.
  */
 export function getArrayIndices(
   ctx: InterpreterContext,
   arrayName: string,
 ): number[] {
-  const prefix = `${arrayName}_`;
-  const indices: number[] = [];
-
-  for (const key of ctx.state.env.keys()) {
-    if (key.startsWith(prefix)) {
-      const indexStr = key.slice(prefix.length);
-      const index = Number.parseInt(indexStr, 10);
-      // Only include numeric indices (not __length or other metadata)
-      if (!Number.isNaN(index) && String(index) === indexStr) {
-        indices.push(index);
-      }
-    }
-  }
+  const indices = Array.from(getArray(ctx, arrayName)?.elements.keys() ?? [])
+    .filter((key) => /^(0|[1-9]\d*)$/.test(key))
+    .map(Number);
 
   return indices.sort((a, b) => a - b);
 }
@@ -34,43 +150,22 @@ export function getArrayIndices(
  * Clear all elements of an array from the environment.
  */
 export function clearArray(ctx: InterpreterContext, arrayName: string): void {
-  const prefix = `${arrayName}_`;
-  for (const key of ctx.state.env.keys()) {
-    if (key.startsWith(prefix)) {
-      ctx.state.env.delete(key);
-    }
-  }
+  ensureArray(
+    ctx,
+    arrayName,
+    ctx.state.associativeArrays?.has(arrayName) ? "associative" : "indexed",
+  ).elements.clear();
 }
 
 /**
  * Get all keys of an associative array.
- * For associative arrays, keys are stored as `name_key` where key is a string.
+ * Associative keys are retained exactly in the array element map.
  */
 export function getAssocArrayKeys(
   ctx: InterpreterContext,
   arrayName: string,
 ): string[] {
-  const prefix = `${arrayName}_`;
-  const metadataSuffix = `${arrayName}__length`;
-  const keys: string[] = [];
-
-  for (const envKey of ctx.state.env.keys()) {
-    // Skip the metadata entry (name__length)
-    if (envKey === metadataSuffix) {
-      continue;
-    }
-    if (envKey.startsWith(prefix)) {
-      const key = envKey.slice(prefix.length);
-      // Skip if the key itself starts with underscore (would be part of metadata pattern)
-      // This handles edge cases like name__foo where foo could be confused with metadata
-      if (key.startsWith("_length")) {
-        continue;
-      }
-      keys.push(key);
-    }
-  }
-
-  return keys.sort();
+  return Array.from(getArray(ctx, arrayName)?.elements.keys() ?? []).sort();
 }
 
 /**

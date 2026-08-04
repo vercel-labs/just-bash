@@ -1,9 +1,50 @@
 import { minimatch } from "minimatch";
+import { BoundedStringBuilder } from "../../bounded-builder.js";
+import { utf8ByteLength } from "../../encoding.js";
 import type { FsStat } from "../../fs/interface.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { FileTraversalBudget } from "../../fs/traversal.js";
+import {
+  ExecutionAbortedError,
+  ExecutionLimitError,
+} from "../../interpreter/errors.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { DEFAULT_BATCH_SIZE } from "../../utils/constants.js";
 import { hasHelpFlag, showHelp } from "../help.js";
+
+function appendLsOutput(
+  ctx: RuntimeCommandContext,
+  current: string,
+  next: string,
+): string {
+  if (
+    utf8ByteLength(next) >
+    ctx.limits.maxOutputSize - utf8ByteLength(current)
+  ) {
+    throw new ExecutionLimitError(
+      `ls: output size limit exceeded (${ctx.limits.maxOutputSize} bytes)`,
+      "output_size",
+    );
+  }
+  return current + next;
+}
+
+function joinLsLines(
+  ctx: RuntimeCommandContext,
+  lines: readonly string[],
+): string {
+  const output = new BoundedStringBuilder(ctx.limits.maxOutputSize, "ls");
+  for (let index = 0; index < lines.length; index++) {
+    if (index > 0) output.append("\n");
+    output.append(lines[index]);
+  }
+  if (lines.length > 0) output.append("\n");
+  return output.build();
+}
 
 // Format size in human-readable format (e.g., 1.5K, 234M, 2G)
 function formatHumanSize(bytes: number): string {
@@ -97,10 +138,13 @@ const argDefs = {
   onePerLine: { short: "1", type: "boolean" as const },
 };
 
-export const lsCommand: Command = {
+export const lsCommand: RuntimeCommand = {
   name: "ls",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(lsHelp);
     }
@@ -130,13 +174,19 @@ export const lsCommand: Command = {
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
+    const traversalBudget = new FileTraversalBudget({
+      limits: ctx.limits,
+      signal: ctx.signal,
+      executionScope: ctx.executionScope,
+      site: "ls",
+    });
 
     for (let i = 0; i < paths.length; i++) {
       const path = paths[i];
 
       // Add blank line between directory listings
       if (i > 0 && stdout && !stdout.endsWith("\n\n")) {
-        stdout += "\n";
+        stdout = appendLsOutput(ctx, stdout, "\n");
       }
 
       // With -d flag, just list the directories/files themselves, not their contents
@@ -157,15 +207,23 @@ export const lsCommand: Command = {
               : String(size).padStart(5);
             const mtime = stat.mtime ?? new Date(0);
             const dateStr = formatDate(mtime);
-            stdout += `${mode} 1 user user ${sizeStr} ${dateStr} ${path}${suffix}\n`;
+            stdout = appendLsOutput(
+              ctx,
+              stdout,
+              `${mode} 1 user user ${sizeStr} ${dateStr} ${path}${suffix}\n`,
+            );
           } else {
             const suffix = classifyFiles
               ? classifySuffix(await ctx.fs.lstat(fullPath))
               : "";
-            stdout += `${path}${suffix}\n`;
+            stdout = appendLsOutput(ctx, stdout, `${path}${suffix}\n`);
           }
         } catch {
-          stderr += `ls: cannot access '${path}': No such file or directory\n`;
+          stderr = appendLsOutput(
+            ctx,
+            stderr,
+            `ls: cannot access '${path}': No such file or directory\n`,
+          );
           exitCode = 2;
         }
         continue;
@@ -183,9 +241,10 @@ export const lsCommand: Command = {
           humanReadable,
           sortBySize,
           classifyFiles,
+          traversalBudget,
         );
-        stdout += result.stdout;
-        stderr += result.stderr;
+        stdout = appendLsOutput(ctx, stdout, result.stdout);
+        stderr = appendLsOutput(ctx, stderr, result.stderr);
         if (result.exitCode !== 0) exitCode = result.exitCode;
       } else {
         const result = await listPath(
@@ -200,9 +259,13 @@ export const lsCommand: Command = {
           humanReadable,
           sortBySize,
           classifyFiles,
+          false,
+          traversalBudget,
+          0,
+          new Set(),
         );
-        stdout += result.stdout;
-        stderr += result.stderr;
+        stdout = appendLsOutput(ctx, stdout, result.stdout);
+        stderr = appendLsOutput(ctx, stderr, result.stderr);
         if (result.exitCode !== 0) exitCode = result.exitCode;
       }
     }
@@ -213,7 +276,7 @@ export const lsCommand: Command = {
 
 async function listGlob(
   pattern: string,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   showAll: boolean,
   showAlmostAll: boolean,
   longFormat: boolean,
@@ -221,6 +284,7 @@ async function listGlob(
   humanReadable: boolean = false,
   sortBySize: boolean = false,
   classifyFiles: boolean = false,
+  traversalBudget?: FileTraversalBudget,
 ): Promise<ExecResult> {
   const showHidden = showAll || showAlmostAll;
   const allPaths = ctx.fs.getAllPaths();
@@ -228,8 +292,11 @@ async function listGlob(
 
   const matches: string[] = [];
   for (const p of allPaths) {
-    const relativePath = p.startsWith(basePath)
-      ? p.slice(basePath.length + 1) || p
+    traversalBudget?.visit(p.split("/").length - 1);
+    const isWithinBase =
+      p === basePath || basePath === "/" || p.startsWith(`${basePath}/`);
+    const relativePath = isWithinBase
+      ? p.slice(basePath === "/" ? 1 : basePath.length + 1) || p
       : p;
 
     if (minimatch(relativePath, pattern) || minimatch(p, pattern)) {
@@ -297,7 +364,11 @@ async function listGlob(
         lines.push(`-rw-r--r-- 1 user user     0 Jan  1 00:00 ${match}`);
       }
     }
-    return { stdout: `${lines.join("\n")}\n`, stderr: "", exitCode: 0 };
+    return {
+      stdout: joinLsLines(ctx, lines),
+      stderr: "",
+      exitCode: 0,
+    };
   }
 
   if (classifyFiles) {
@@ -311,15 +382,23 @@ async function listGlob(
         classified.push(match);
       }
     }
-    return { stdout: `${classified.join("\n")}\n`, stderr: "", exitCode: 0 };
+    return {
+      stdout: joinLsLines(ctx, classified),
+      stderr: "",
+      exitCode: 0,
+    };
   }
 
-  return { stdout: `${matches.join("\n")}\n`, stderr: "", exitCode: 0 };
+  return {
+    stdout: joinLsLines(ctx, matches),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 async function listPath(
   path: string,
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   showAll: boolean,
   showAlmostAll: boolean,
   longFormat: boolean,
@@ -330,11 +409,20 @@ async function listPath(
   sortBySize: boolean = false,
   classifyFiles: boolean = false,
   _isSubdir: boolean = false,
+  traversalBudget: FileTraversalBudget = new FileTraversalBudget({
+    limits: ctx.limits,
+    signal: ctx.signal,
+    executionScope: ctx.executionScope,
+    site: "ls",
+  }),
+  traversalDepth = 0,
+  ancestorIdentities: Set<string> = new Set(),
 ): Promise<ExecResult> {
   const showHidden = showAll || showAlmostAll;
   const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
 
   try {
+    traversalBudget.visit(traversalDepth);
     const stat = await ctx.fs.stat(fullPath);
 
     if (!stat.isDirectory) {
@@ -358,8 +446,24 @@ async function listPath(
       return { stdout: `${path}${fileSuffix}\n`, stderr: "", exitCode: 0 };
     }
 
+    const identity =
+      stat.identity ??
+      (stat.dev !== undefined && stat.ino !== undefined
+        ? `${String(stat.dev)}:${String(stat.ino)}`
+        : await ctx.fs.realpath(fullPath).catch(() => undefined));
+    if (identity !== undefined && ancestorIdentities.has(identity)) {
+      return {
+        stdout: "",
+        stderr: `ls: ${path}: symbolic link cycle detected\n`,
+        exitCode: 2,
+      };
+    }
+    const childAncestors = new Set(ancestorIdentities);
+    if (identity !== undefined) childAncestors.add(identity);
+
     // It's a directory
     let entries = await ctx.fs.readdir(fullPath);
+    traversalBudget.checkpoint();
 
     // Filter hidden files unless -a or -A
     if (!showHidden) {
@@ -396,6 +500,8 @@ async function listPath(
     }
 
     let stdout = "";
+    let stderr = "";
+    let exitCode = 0;
 
     // For recursive listing:
     // - All directories get a header (including the first one)
@@ -403,11 +509,11 @@ async function listPath(
     // - Subdirectories use './subdir:' format when starting from '.'
     // - When starting from other path, subdirs use '{path}/subdir:' format
     if (recursive || showHeader) {
-      stdout += `${path}:\n`;
+      stdout = appendLsOutput(ctx, stdout, `${path}:\n`);
     }
 
     if (longFormat) {
-      stdout += `total ${entries.length}\n`;
+      stdout = appendLsOutput(ctx, stdout, `total ${entries.length}\n`);
 
       // Separate special entries (. and ..) from regular entries
       const specialEntries = entries.filter((e) => e === "." || e === "..");
@@ -415,7 +521,11 @@ async function listPath(
 
       // Add special entries first
       for (const entry of specialEntries) {
-        stdout += `drwxr-xr-x 1 user user     0 Jan  1 00:00 ${entry}\n`;
+        stdout = appendLsOutput(
+          ctx,
+          stdout,
+          `drwxr-xr-x 1 user user     0 Jan  1 00:00 ${entry}\n`,
+        );
       }
 
       // Parallelize stat calls for regular entries
@@ -466,7 +576,7 @@ async function listPath(
       );
 
       for (const { line } of entryStats) {
-        stdout += line;
+        stdout = appendLsOutput(ctx, stdout, line);
       }
     } else if (classifyFiles) {
       // Classify each entry with type suffix
@@ -495,9 +605,9 @@ async function listPath(
         classified.push(...batchResults);
       }
 
-      stdout += classified.join("\n") + (classified.length ? "\n" : "");
+      stdout = appendLsOutput(ctx, stdout, joinLsLines(ctx, classified));
     } else {
-      stdout += entries.join("\n") + (entries.length ? "\n" : "");
+      stdout = appendLsOutput(ctx, stdout, joinLsLines(ctx, entries));
     }
 
     // Handle recursive - parallel processing for better performance
@@ -561,6 +671,9 @@ async function listPath(
               sortBySize,
               classifyFiles,
               true,
+              traversalBudget,
+              traversalDepth + 1,
+              childAncestors,
             );
             return { name: dir.name, result };
           }),
@@ -576,13 +689,21 @@ async function listPath(
 
       // Append results
       for (const { result } of subResults) {
-        stdout += "\n";
-        stdout += result.stdout;
+        stdout = appendLsOutput(ctx, stdout, "\n");
+        stdout = appendLsOutput(ctx, stdout, result.stdout);
+        stderr = appendLsOutput(ctx, stderr, result.stderr);
+        if (result.exitCode !== 0) exitCode = result.exitCode;
       }
     }
 
-    return { stdout, stderr: "", exitCode: 0 };
-  } catch {
+    return { stdout, stderr, exitCode };
+  } catch (error) {
+    if (
+      error instanceof ExecutionLimitError ||
+      error instanceof ExecutionAbortedError
+    ) {
+      throw error;
+    }
     return {
       stdout: "",
       stderr: `ls: ${path}: No such file or directory\n`,

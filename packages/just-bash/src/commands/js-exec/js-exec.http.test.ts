@@ -232,6 +232,16 @@ describe("js-exec http operations", () => {
       expect(result.exitCode).toBe(0);
     });
 
+    it("stores prototype-looking header names as ordinary own keys", async () => {
+      const env = new Bash({ javascript: true });
+      const result = await env.exec(
+        `js-exec -c "var h = new Headers(); h.set('__proto__', 'safe'); h.set('constructor', 'also-safe'); console.log(h.has('__proto__'), h.get('__proto__'), h.has('constructor'), h.get('constructor'))"`,
+      );
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toBe("true safe true also-safe\n");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should support Response static methods", async () => {
       const env = new Bash({ javascript: true });
       const result = await env.exec(

@@ -22,8 +22,7 @@ export default defineConfig({
     // process-level isolation so they don't leak state into thread neighbours.
     poolMatchGlobs: [
       ["forks", "**/security/attacks/**"],
-      ["forks", "**/security/defense-in-depth-box*.test.ts"],
-      ["forks", "**/security/defense-in-depth-hardening.test.ts"],
+      ["forks", "**/security/defense-in-depth*.test.ts"],
       ["forks", "**/security/sandbox/**"],
       ["forks", "**/sqlite3.worker-protocol-abuse.test.ts"],
       ["forks", "**/python3.worker-protocol-abuse.test.ts"],

@@ -3,6 +3,26 @@ import { searchContent } from "./matcher.js";
 import { buildRegex, type PreFilter } from "./regex.js";
 
 describe("preFilterMatches — substring fast-path", () => {
+  it("bounds ordinary line matching work", () => {
+    const { regex } = buildRegex("x", { mode: "basic" });
+    expect(() =>
+      searchContent("x\nx\nx\n", regex, {
+        onlyMatching: true,
+        maxWork: 3,
+      }),
+    ).toThrow("matching work limit exceeded");
+  });
+
+  it("bounds ordinary retained output records", () => {
+    const { regex } = buildRegex("x", { mode: "basic" });
+    expect(() =>
+      searchContent("xxx", regex, {
+        onlyMatching: true,
+        maxMatches: 2,
+      }),
+    ).toThrow("result limit exceeded");
+  });
+
   it("skips lines where no needle is present (case-sensitive)", () => {
     const content = "hello world\nfoo bar\nhello foo\n";
     const { regex } = buildRegex("foo", { mode: "basic" });
@@ -149,5 +169,65 @@ describe("searchContentMultiline — file-level preFilter", () => {
     // All lines match because none contain "def " at line start
     expect(result.matched).toBe(true);
     expect(result.output).toBe("1:hello\n2:world\n");
+  });
+
+  it("counts dense matches without retaining every match span", () => {
+    const content = `${Array.from({ length: 1_000 }, () => "x").join("\n")}\n`;
+    const { regex } = buildRegex("x", { mode: "basic", multiline: true });
+    const result = searchContent(content, regex, {
+      multiline: true,
+      countMatches: true,
+    });
+
+    expect(result.output).toBe("1000\n");
+    expect(result.matchCount).toBe(1_000);
+  });
+
+  it("counts the union of lines touched by overlapping multiline spans", () => {
+    const { regex } = buildRegex("a\\nb", {
+      mode: "extended",
+      multiline: true,
+    });
+    const result = searchContent("a\nb\na\nb\n", regex, {
+      multiline: true,
+      countOnly: true,
+    });
+
+    expect(result.output).toBe("4\n");
+    expect(result.matchCount).toBe(4);
+  });
+
+  it("bounds synchronous match work even when maxCount is unlimited", () => {
+    const { regex } = buildRegex("x", { mode: "basic", multiline: true });
+    expect(() =>
+      searchContent("xxxxxxxx", regex, {
+        multiline: true,
+        onlyMatching: true,
+        maxWork: 3,
+      }),
+    ).toThrow("matching work limit exceeded");
+  });
+
+  it("bounds retained multiline match spans", () => {
+    const { regex } = buildRegex("x", { mode: "basic", multiline: true });
+    expect(() =>
+      searchContent("xxx", regex, {
+        multiline: true,
+        onlyMatching: true,
+        maxMatches: 2,
+      }),
+    ).toThrow("match limit exceeded");
+  });
+
+  it("honors cancellation during multiline scanning", () => {
+    const controller = new AbortController();
+    controller.abort();
+    const { regex } = buildRegex("x", { mode: "basic", multiline: true });
+    expect(() =>
+      searchContent("x", regex, {
+        multiline: true,
+        signal: controller.signal,
+      }),
+    ).toThrow("execution aborted");
   });
 });

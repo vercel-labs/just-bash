@@ -10,6 +10,28 @@ import { getValueDepth } from "../value-operations.js";
 // Default max depth for nested structures
 const DEFAULT_MAX_JQ_DEPTH = 2000;
 
+function bytesToBinaryString(bytes: Uint8Array): string {
+  const chunks: string[] = [];
+  const chunkSize = 32 * 1024;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const end = Math.min(offset + chunkSize, bytes.length);
+    let chunk = "";
+    for (let i = offset; i < end; i++) {
+      chunk += String.fromCharCode(bytes[i]);
+    }
+    chunks.push(chunk);
+  }
+  return chunks.join("");
+}
+
+function binaryStringToBytes(binary: string): Uint8Array {
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
 /**
  * Handle format builtins (those starting with @).
  * Returns null if the builtin name is not a format builtin handled here.
@@ -26,7 +48,8 @@ export function evalFormatBuiltin(
         if (typeof Buffer !== "undefined") {
           return [Buffer.from(value, "utf-8").toString("base64")];
         }
-        return [btoa(value)];
+        const bytes = new TextEncoder().encode(value);
+        return [btoa(bytesToBinaryString(bytes))];
       }
       return [null];
 
@@ -36,7 +59,8 @@ export function evalFormatBuiltin(
         if (typeof Buffer !== "undefined") {
           return [Buffer.from(value, "base64").toString("utf-8")];
         }
-        return [atob(value)];
+        const bytes = binaryStringToBytes(atob(value));
+        return [new TextDecoder("utf-8", { fatal: false }).decode(bytes)];
       }
       return [null];
 

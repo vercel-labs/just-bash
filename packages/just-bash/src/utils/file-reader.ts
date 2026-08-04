@@ -6,7 +6,8 @@
  */
 
 import { type ByteString, EMPTY_BYTES, readBytesFrom } from "../encoding.js";
-import type { CommandContext, ExecResult } from "../types.js";
+import { ExecutionLimitError } from "../interpreter/errors.js";
+import type { ExecResult, RuntimeCommandContext } from "../types.js";
 import { DEFAULT_BATCH_SIZE } from "./constants.js";
 
 export interface ReadFilesOptions {
@@ -40,6 +41,25 @@ export interface ReadFilesResult {
   exitCode: number;
 }
 
+/** Charge bytes read from a file to the execution-wide input budget. */
+export function accountFileInput(
+  ctx: RuntimeCommandContext,
+  bytes: number,
+  site: string,
+): void {
+  if (
+    !Number.isSafeInteger(bytes) ||
+    bytes < 0 ||
+    bytes > ctx.limits.maxInputBytes
+  ) {
+    throw new ExecutionLimitError(
+      `${site}: input size limit exceeded (${ctx.limits.maxInputBytes} bytes)`,
+      "string_length",
+    );
+  }
+  ctx.executionScope?.consumeInput(bytes, site);
+}
+
 /**
  * Read content from files or stdin.
  *
@@ -56,7 +76,7 @@ export interface ReadFilesResult {
  * }
  */
 export async function readFiles(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   files: string[],
   options: ReadFilesOptions,
 ): Promise<ReadFilesResult> {
@@ -140,7 +160,7 @@ export async function readFiles(
  * const lines = decodeBytesToUtf8(result.content).split("\n");
  */
 export async function readAndConcat(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   files: string[],
   options: { cmdName: string; allowStdinMarker?: boolean },
 ): Promise<

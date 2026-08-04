@@ -1,7 +1,7 @@
-import type { Command } from "../../types.js";
+import type { RuntimeCommand } from "../../types.js";
 import { createChecksumCommand } from "./checksum.js";
 
-export const sha1sumCommand: Command = createChecksumCommand(
+export const sha1sumCommand: RuntimeCommand = createChecksumCommand(
   "sha1sum",
   "sha1",
   "compute SHA1 message digest",

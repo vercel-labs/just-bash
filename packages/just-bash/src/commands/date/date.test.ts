@@ -315,6 +315,15 @@ describe("date", () => {
       expect(result.exitCode).toBe(1);
     });
 
+    it("rejects timestamps outside the exact and supported Date range", async () => {
+      const env = new Bash();
+      for (const timestamp of ["9007199254740992", "8640000000001"]) {
+        const result = await env.exec(`date -d '@${timestamp}' +%s`);
+        expect(result.stderr).toContain("invalid date");
+        expect(result.exitCode).toBe(1);
+      }
+    });
+
     it("should treat bare numeric -d as a year, not epoch seconds (GNU compat)", async () => {
       // Pre-PR behaviour: -d '2024' falls through to new Date(s), which JS
       // parses as the year 2024 (YYYY -> 2024-01-01T00:00:00Z). The PR
@@ -545,5 +554,21 @@ describe("date", () => {
       expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
     });
+  });
+});
+
+describe("date strftime execution limits", () => {
+  it("bounds directive processing with maxLoopIterations", async () => {
+    const env = new Bash({ executionLimits: { maxLoopIterations: 2 } });
+    const result = await env.exec("date +%Y%Y%Y");
+    expect(result.exitCode).toBe(126);
+    expect(result.stderr).toContain("strftime: iteration limit exceeded");
+  });
+
+  it("bounds formatted output before returning it", async () => {
+    const env = new Bash({ executionLimits: { maxOutputSize: 4 } });
+    const result = await env.exec("date +%Y");
+    expect(result.exitCode).toBe(126);
+    expect(result.stderr).toContain("strftime: output size limit exceeded");
   });
 });

@@ -1,5 +1,9 @@
 import { latin1FromBytes } from "../../encoding.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
@@ -17,10 +21,13 @@ const argDefs = {
   append: { short: "a", long: "append", type: "boolean" as const },
 };
 
-export const teeCommand: Command = {
+export const teeCommand: RuntimeCommand = {
   name: "tee",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(teeHelp);
     }

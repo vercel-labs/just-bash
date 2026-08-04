@@ -34,6 +34,7 @@ jobs:
         with:
           fetch-depth: 0
           lfs: true
+          persist-credentials: false
 
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
@@ -46,6 +47,12 @@ jobs:
           node-version: "24"
           cache: "pnpm"
           registry-url: "https://registry.npmjs.org"
+
+      # node-liblzma is compiled during install. Keep this in sync with the
+      # unit-test workflow so the release gate exercises XZ support rather
+      # than silently installing without a usable native codec.
+      - name: Install XZ build dependency
+        run: sudo apt-get update && sudo apt-get install --yes liblzma-dev
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

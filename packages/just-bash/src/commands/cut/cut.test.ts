@@ -30,6 +30,12 @@ describe("cut command", () => {
     expect(result.exitCode).toBe(0);
   });
 
+  it("selects duplicate-valued fields by source position", async () => {
+    const env = new Bash({ files: { "/duplicates": "same:same:last\n" } });
+    const result = await env.exec("cut -d: -f1,2 /duplicates");
+    expect(result.stdout).toBe("same:same\n");
+  });
+
   it("should cut range of fields", async () => {
     const env = createEnv();
     const result = await env.exec("cut -d: -f1-3 /test/passwd.txt");

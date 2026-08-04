@@ -29,6 +29,8 @@ export interface GlobOptions {
   globskipdots?: boolean;
   /** Maximum number of glob filesystem operations (default: 100000) */
   maxGlobOperations?: number;
+  /** Optional aggregate accounting shared by all expanders in one execution. */
+  consumeOperation?: () => void;
 }
 
 /**
@@ -48,6 +50,7 @@ export class GlobExpander {
   private globskipdots = true; // Default to true in bash >=5.2
   private ops: { count: number } = { count: 0 };
   private maxOps: number;
+  private consumeOperation?: () => void;
 
   constructor(
     private fs: IFileSystem,
@@ -66,6 +69,7 @@ export class GlobExpander {
       this.extglob = options.extglob ?? false;
       this.globskipdots = options.globskipdots ?? true;
       this.maxOps = options.maxGlobOperations ?? 100000;
+      this.consumeOperation = options.consumeOperation;
     } else {
       this.maxOps = 100000;
     }
@@ -88,6 +92,7 @@ export class GlobExpander {
         "glob_operations",
       );
     }
+    this.consumeOperation?.();
   }
 
   /**

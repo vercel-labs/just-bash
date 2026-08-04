@@ -51,22 +51,16 @@ export function parseArithNumber(str: string): number {
   // Handle base#num format
   // Bash supports bases 2-64 with digits: 0-9, a-z (10-35), A-Z (36-61), @ (62), _ (63)
   if (str.includes("#")) {
-    const [baseStr, numStr] = str.split("#");
+    const parts = str.split("#");
+    if (parts.length !== 2) return Number.NaN;
+    const [baseStr, numStr] = parts;
+    if (!/^\d+$/.test(baseStr) || numStr.length === 0) return Number.NaN;
     const base = Number.parseInt(baseStr, 10);
     if (base < 2 || base > 64) {
       return Number.NaN;
     }
-    // For bases <= 36, we can use parseInt
-    if (base <= 36) {
-      const result = Number.parseInt(numStr, base);
-      // Clamp to MAX_SAFE_INTEGER (we don't support 64-bit integers)
-      if (result > Number.MAX_SAFE_INTEGER) {
-        return Number.MAX_SAFE_INTEGER;
-      }
-      return result;
-    }
-
-    // For bases 37-64, manually calculate
+    // Parse every digit ourselves. Number.parseInt accepts a valid prefix and
+    // silently ignores an invalid suffix (for example `2#10x`).
     let result = 0;
     for (const ch of numStr) {
       let digitValue: number;
@@ -75,7 +69,8 @@ export function parseArithNumber(str: string): number {
       } else if (/[a-z]/.test(ch)) {
         digitValue = ch.charCodeAt(0) - "a".charCodeAt(0) + 10;
       } else if (/[A-Z]/.test(ch)) {
-        digitValue = ch.charCodeAt(0) - "A".charCodeAt(0) + 36;
+        digitValue =
+          ch.charCodeAt(0) - "A".charCodeAt(0) + (base <= 36 ? 10 : 36);
       } else if (ch === "@") {
         digitValue = 62;
       } else if (ch === "_") {

@@ -7,11 +7,15 @@
  */
 
 import { latin1FromBytes } from "../../encoding.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 
 async function tacExecute(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   if (args.length > 0 && args[0] !== "-") {
     // Try to read from file
@@ -53,7 +57,7 @@ async function tacExecute(
   };
 }
 
-export const tac: Command = {
+export const tac: RuntimeCommand = {
   name: "tac",
   execute: tacExecute,
 };

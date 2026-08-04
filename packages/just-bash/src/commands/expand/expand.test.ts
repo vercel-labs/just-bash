@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 
 describe("expand", () => {
   it("converts tabs to 8 spaces by default", async () => {
@@ -140,6 +141,57 @@ describe("expand", () => {
     const result = await bash.exec("printf 'x' | expand -t 0");
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("invalid tab size");
+  });
+
+  it("rejects a tab stop above the allocation limit", async () => {
+    const bash = new Bash({
+      executionLimits: { maxStringLength: 32, maxOutputSize: 64 },
+    });
+    const result = await bash.exec("printf '\\t' | expand -t 33");
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("expand: invalid tab size: '33'\n");
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("rejects non-finite tab stops before repeat", async () => {
+    const bash = new Bash();
+    const huge = "9".repeat(400);
+    const result = await bash.exec(`printf '\\t' | expand -t ${huge}`);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(`expand: invalid tab size: '${huge}'\n`);
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("rejects trailing tab-stop garbage before repeat", async () => {
+    const bash = new Bash();
+    const result = await bash.exec("expand -t 8x");
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("expand: invalid tab size: '8x'\n");
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("checks tab expansion before repeat allocation", async () => {
+    const bash = new Bash({
+      files: { "/input": "\t" },
+      executionLimits: { maxStringLength: 100, maxOutputSize: 7 },
+    });
+    const result = await bash.exec("expand /input");
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "bash: expand: output size limit exceeded (7 bytes)\n",
+    );
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+  });
+
+  it("allows output at the exact UTF-8 byte boundary", async () => {
+    const bash = new Bash({
+      files: { "/input": "éé" },
+      executionLimits: { maxStringLength: 100, maxOutputSize: 4 },
+    });
+    const result = await bash.exec("expand /input");
+    expect(result.stdout).toBe("éé");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
   });
 
   it("handles tab alignment correctly", async () => {

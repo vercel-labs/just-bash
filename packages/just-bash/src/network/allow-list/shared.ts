@@ -121,11 +121,31 @@ export interface EnvAdapter {
   readFile(path: string): Promise<string>;
 }
 
+function withMockConnectionOwner(
+  network: BashOptions["network"],
+): BashOptions["network"] {
+  if (!network?.denyPrivateRanges || network._createConnectionOwner) {
+    return network;
+  }
+  return {
+    ...network,
+    // These suites mock global fetch. Keep the reviewed-address owner
+    // boundary explicit instead of falling through to the real network.
+    _createConnectionOwner: async () => ({
+      fetch: async (url: string, init: RequestInit) => global.fetch(url, init),
+      async close() {},
+    }),
+  };
+}
+
 /**
  * Creates an adapter for BashEnv
  */
 export function createBashEnvAdapter(options: BashOptions): EnvAdapter {
-  const env = new Bash({ ...options });
+  const env = new Bash({
+    ...options,
+    network: withMockConnectionOwner(options.network),
+  });
   return {
     exec: (cmd) => env.exec(cmd),
     readFile: (path) => env.readFile(path),
@@ -138,7 +158,9 @@ export function createBashEnvAdapter(options: BashOptions): EnvAdapter {
 export async function createSandboxAdapter(
   options: BashOptions,
 ): Promise<EnvAdapter> {
-  const sandbox = await Sandbox.create({ network: options.network });
+  const sandbox = await Sandbox.create({
+    network: withMockConnectionOwner(options.network),
+  });
   return {
     exec: async (cmd) => {
       const command = await sandbox.runCommand(cmd);

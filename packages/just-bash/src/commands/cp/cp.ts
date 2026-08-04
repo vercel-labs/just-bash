@@ -1,5 +1,20 @@
+import { isSameOrDescendantPath } from "../../fs/path-utils.js";
+import {
+  compareCanonicalContainment,
+  compareFileIdentity,
+  FileTraversalBudget,
+  traverseFileTree,
+} from "../../fs/traversal.js";
+import {
+  ExecutionAbortedError,
+  ExecutionLimitError,
+} from "../../interpreter/errors.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
@@ -24,10 +39,13 @@ const argDefs = {
   verbose: { short: "v", long: "verbose", type: "boolean" as const },
 };
 
-export const cpCommand: Command = {
+export const cpCommand: RuntimeCommand = {
   name: "cp",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(cpHelp);
     }
@@ -57,6 +75,12 @@ export const cpCommand: Command = {
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
+    const traversalBudget = new FileTraversalBudget({
+      limits: ctx.limits,
+      signal: ctx.signal,
+      executionScope: ctx.executionScope,
+      site: "cp",
+    });
 
     // Check if dest is a directory
     let destIsDir = false;
@@ -93,16 +117,65 @@ export const cpCommand: Command = {
           exitCode = 1;
           continue;
         }
+        if (srcStat.isDirectory) {
+          const containment = await compareCanonicalContainment(
+            ctx.fs,
+            srcPath,
+            targetPath,
+            traversalBudget,
+          );
+          if (
+            isSameOrDescendantPath(srcPath, targetPath) ||
+            containment === "inside"
+          ) {
+            stderr += `cp: cannot copy '${src}' into itself, '${targetPath}'\n`;
+            exitCode = 1;
+            continue;
+          }
+          if (containment === "unknown") {
+            stderr += `cp: cannot safely determine whether '${targetPath}' is inside '${src}'\n`;
+            exitCode = 1;
+            continue;
+          }
+        }
 
-        // Check for no-clobber: skip if target exists
+        // A no-clobber skip performs no destructive operation and therefore
+        // does not require proving the identity of the existing target.
         if (noClobber) {
           try {
             await ctx.fs.stat(targetPath);
-            // Target exists, skip silently
             continue;
           } catch {
-            // Target doesn't exist, proceed with copy
+            // Target doesn't exist, proceed with copy.
           }
+        }
+
+        const identity = await compareFileIdentity(ctx.fs, srcPath, targetPath);
+        if (identity === "same") {
+          stderr += `cp: '${src}' and '${targetPath}' are the same file\n`;
+          exitCode = 1;
+          continue;
+        }
+        if (identity === "unknown") {
+          stderr += `cp: cannot safely determine whether '${src}' and '${targetPath}' are the same file\n`;
+          exitCode = 1;
+          continue;
+        }
+
+        if (srcStat.isDirectory) {
+          await traverseFileTree(
+            {
+              fs: ctx.fs,
+              root: srcPath,
+              limits: ctx.limits,
+              signal: ctx.signal,
+              executionScope: ctx.executionScope,
+              site: "cp",
+              symlinks: "never",
+              budget: traversalBudget,
+            },
+            () => undefined,
+          );
         }
 
         await ctx.fs.cp(srcPath, targetPath, { recursive });
@@ -117,6 +190,12 @@ export const cpCommand: Command = {
           stdout += `'${src}' -> '${targetPath}'\n`;
         }
       } catch (error) {
+        if (
+          error instanceof ExecutionLimitError ||
+          error instanceof ExecutionAbortedError
+        ) {
+          throw error;
+        }
         const message = getErrorMessage(error);
         if (message.includes("ENOENT") || message.includes("no such file")) {
           stderr += `cp: cannot stat '${src}': No such file or directory\n`;

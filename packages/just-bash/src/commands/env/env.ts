@@ -1,6 +1,10 @@
 import { latin1FromBytes } from "../../encoding.js";
 import { mapToRecord } from "../../helpers/env.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const envHelp = {
@@ -14,10 +18,13 @@ const envHelp = {
   ],
 };
 
-export const envCommand: Command = {
+export const envCommand: RuntimeCommand = {
   name: "env",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(envHelp);
     }
@@ -127,10 +134,13 @@ const printenvHelp = {
   options: ["    --help       display this help and exit"],
 };
 
-export const printenvCommand: Command = {
+export const printenvCommand: RuntimeCommand = {
   name: "printenv",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(printenvHelp);
     }

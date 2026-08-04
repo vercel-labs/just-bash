@@ -1,4 +1,8 @@
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import {
   getTail,
   parseHeadTailArgs,
@@ -20,10 +24,13 @@ const tailHelp = {
   ],
 };
 
-export const tailCommand: Command = {
+export const tailCommand: RuntimeCommand = {
   name: "tail",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(tailHelp);
     }

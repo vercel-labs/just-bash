@@ -2,7 +2,7 @@
  * Column operation commands: select, drop, rename, enum
  */
 
-import type { CommandContext, ExecResult } from "../../types.js";
+import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import { parseColumnSpec } from "./column-selection.js";
 import {
   type CsvRow,
@@ -14,7 +14,7 @@ import {
 
 export async function cmdSelect(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   // First positional arg is column spec, rest are files
   let colSpec = "";
@@ -50,12 +50,16 @@ export async function cmdSelect(
     return newRow;
   });
 
-  return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+  return {
+    stdout: formatCsv(newHeaders, newData, ctx),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 export async function cmdDrop(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   // First positional arg is column spec, rest are files
   let colSpec = "";
@@ -92,12 +96,16 @@ export async function cmdDrop(
     return newRow;
   });
 
-  return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+  return {
+    stdout: formatCsv(newHeaders, newData, ctx),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 export async function cmdRename(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   // xan rename NEW_NAMES [-s cols] FILE
   // If -s is provided, rename specific columns
@@ -156,12 +164,16 @@ export async function cmdRename(
     return newRow;
   });
 
-  return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+  return {
+    stdout: formatCsv(newHeaders, newData, ctx),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 export async function cmdEnum(
   args: string[],
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   let colName = "index";
   const filteredArgs: string[] = [];
@@ -187,5 +199,9 @@ export async function cmdEnum(
     return newRow;
   });
 
-  return { stdout: formatCsv(newHeaders, newData), stderr: "", exitCode: 0 };
+  return {
+    stdout: formatCsv(newHeaders, newData, ctx),
+    stderr: "",
+    exitCode: 0,
+  };
 }

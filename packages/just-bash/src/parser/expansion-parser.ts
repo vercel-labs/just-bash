@@ -355,17 +355,19 @@ function parseParameterOperation(
       const wordStr = value.slice(i, wordEnd);
       // Parse the word for expansions (variables, arithmetic, command substitution)
       // When inside double quotes, single quotes should be literal, not quote delimiters
-      const wordParts = parseWordParts(
-        p,
-        wordStr,
-        false,
-        false,
-        true, // isAssignment=true for tilde expansion after : in default values
-        false,
-        quoted,
-        false, // noBraceExpansion
-        false, // regexPattern
-        true, // inParameterExpansion - so \} is treated as escaped }
+      const wordParts = p.withDepth(() =>
+        parseWordParts(
+          p,
+          wordStr,
+          false,
+          false,
+          true, // isAssignment=true for tilde expansion after : in default values
+          false,
+          quoted,
+          false, // noBraceExpansion
+          false, // regexPattern
+          true, // inParameterExpansion - so \} is treated as escaped }
+        ),
       );
       const word = AST.word(ensureNonEmpty(wordParts));
 
@@ -450,17 +452,19 @@ function parseParameterOperation(
     const wordStr = value.slice(i, wordEnd);
     // Parse the word for expansions (variables, arithmetic, command substitution)
     // When inside double quotes, single quotes should be literal, not quote delimiters
-    const wordParts = parseWordParts(
-      p,
-      wordStr,
-      false,
-      false,
-      true, // isAssignment=true for tilde expansion after : in default values
-      false,
-      quoted,
-      false, // noBraceExpansion
-      false, // regexPattern
-      true, // inParameterExpansion - so \} is treated as escaped }
+    const wordParts = p.withDepth(() =>
+      parseWordParts(
+        p,
+        wordStr,
+        false,
+        false,
+        true, // isAssignment=true for tilde expansion after : in default values
+        false,
+        quoted,
+        false, // noBraceExpansion
+        false, // regexPattern
+        true, // inParameterExpansion - so \} is treated as escaped }
+      ),
     );
     const word = AST.word(ensureNonEmpty(wordParts));
 
@@ -503,7 +507,9 @@ function parseParameterOperation(
     const patternEnd = WordParser.findParameterOperationEnd(p, value, i);
     const patternStr = value.slice(i, patternEnd);
     // Parse the pattern for variable expansions and quoting (like PatternReplacement)
-    const patternParts = parseWordParts(p, patternStr, false, false, false);
+    const patternParts = p.withDepth(() =>
+      parseWordParts(p, patternStr, false, false, false),
+    );
     const pattern = AST.word(ensureNonEmpty(patternParts));
 
     return {
@@ -538,7 +544,9 @@ function parseParameterOperation(
     }
     const patternStr = value.slice(i, patternEnd);
     // Parse the pattern for variable expansions (e.g., ${var//$pat/repl})
-    const patternParts = parseWordParts(p, patternStr, false, false, false);
+    const patternParts = p.withDepth(() =>
+      parseWordParts(p, patternStr, false, false, false),
+    );
     const pattern = AST.word(ensureNonEmpty(patternParts));
 
     let replacement: WordNode | null = null;
@@ -553,7 +561,9 @@ function parseParameterOperation(
       );
       const replaceStr = value.slice(replaceStart, replaceEnd);
       // Parse the replacement for variable expansions
-      const replaceParts = parseWordParts(p, replaceStr, false, false, false);
+      const replaceParts = p.withDepth(() =>
+        parseWordParts(p, replaceStr, false, false, false),
+      );
       replacement = AST.word(ensureNonEmpty(replaceParts));
       endIdx = replaceEnd;
     }

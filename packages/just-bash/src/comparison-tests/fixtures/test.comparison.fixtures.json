@@ -145,6 +145,15 @@
     "stderr": "",
     "exitCode": 0
   },
+  "7a8e450961caecd3": {
+    "command": "ln -s target.txt symlink.txt; ln target.txt hardlink.txt; test target.txt -ef symlink.txt; echo $?; test target.txt -ef hardlink.txt; echo $?; test target.txt -nt missing.txt; echo $?; test missing.txt -ot target.txt; echo $?",
+    "files": {
+      "target.txt": "content"
+    },
+    "stdout": "0\n0\n0\n0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "7d3cfdb988f34f1f": {
     "command": "test 5 -lt 3 && echo less || echo notless",
     "files": {},

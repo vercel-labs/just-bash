@@ -9,6 +9,15 @@ const FIXED_DATE = new Date("2024-01-15T10:30:45.123Z");
 const TS = "2024-01-15T10-30-45.123Z";
 
 describe("transform", () => {
+  it("rejects source above maxSourceBytes before parsing", () => {
+    const bash = new Bash({ executionLimits: { maxSourceBytes: 8 } });
+
+    expect(() => bash.transform("echo 1234")).toThrow(
+      /script input size limit exceeded \(8 bytes\)/,
+    );
+    expect(() => bash.transform("echo ok")).not.toThrow();
+  });
+
   describe("no plugins", () => {
     it("returns original script unchanged", () => {
       const bash = new Bash();
@@ -35,7 +44,7 @@ describe("transform", () => {
       );
       const result = bash.transform("echo hello | grep hello");
       expect(result.script).toBe(
-        `echo hello | tee /tmp/logs/${TS}-000-echo.stdout.txt | grep hello | tee /tmp/logs/${TS}-001-grep.stdout.txt ; __tps0=\${PIPESTATUS[0]} __tps1=\${PIPESTATUS[2]} ; (exit $__tps0) | (exit $__tps1)`,
+        `echo hello | tee /tmp/logs/${TS}-000-echo.stdout.txt | grep hello | tee /tmp/logs/${TS}-001-grep.stdout.txt ; builtin __just_bash_tee_restore \${PIPESTATUS[0]} \${PIPESTATUS[2]}`,
       );
     });
 
@@ -50,7 +59,7 @@ describe("transform", () => {
       );
       const result = bash.transform("cat file | sort | grep pattern | wc -l");
       expect(result.script).toBe(
-        `cat file | sort | grep pattern | tee /tmp/logs/${TS}-000-grep.stdout.txt | wc -l ; __tps0=\${PIPESTATUS[0]} __tps1=\${PIPESTATUS[1]} __tps2=\${PIPESTATUS[2]} __tps3=\${PIPESTATUS[4]} ; (exit $__tps0) | (exit $__tps1) | (exit $__tps2) | (exit $__tps3)`,
+        `cat file | sort | grep pattern | tee /tmp/logs/${TS}-000-grep.stdout.txt | wc -l ; builtin __just_bash_tee_restore \${PIPESTATUS[0]} \${PIPESTATUS[1]} \${PIPESTATUS[2]} \${PIPESTATUS[4]}`,
       );
     });
 
@@ -84,7 +93,7 @@ describe("transform", () => {
       );
       const result = bash.transform("echo a | cat\necho b | cat");
       expect(result.script).toBe(
-        `echo a | tee /tmp/logs/${TS}-000-echo.stdout.txt | cat | tee /tmp/logs/${TS}-001-cat.stdout.txt ; __tps0=\${PIPESTATUS[0]} __tps1=\${PIPESTATUS[2]} ; (exit $__tps0) | (exit $__tps1)\necho b | tee /tmp/logs/${TS}-002-echo.stdout.txt | cat | tee /tmp/logs/${TS}-003-cat.stdout.txt ; __tps0=\${PIPESTATUS[0]} __tps1=\${PIPESTATUS[2]} ; (exit $__tps0) | (exit $__tps1)`,
+        `echo a | tee /tmp/logs/${TS}-000-echo.stdout.txt | cat | tee /tmp/logs/${TS}-001-cat.stdout.txt ; builtin __just_bash_tee_restore \${PIPESTATUS[0]} \${PIPESTATUS[2]}\necho b | tee /tmp/logs/${TS}-002-echo.stdout.txt | cat | tee /tmp/logs/${TS}-003-cat.stdout.txt ; builtin __just_bash_tee_restore \${PIPESTATUS[0]} \${PIPESTATUS[2]}`,
       );
     });
 
@@ -167,14 +176,19 @@ describe("transform", () => {
   });
 
   describe("plugin chaining", () => {
-    it("tee + collector: collector sees inserted tee and exit", () => {
+    it("tee + collector: collector sees inserted tee and restore builtin", () => {
       const bash = new Bash();
       bash.registerTransformPlugin(
         new TeePlugin({ outputDir: "/tmp/logs", timestamp: FIXED_DATE }),
       );
       bash.registerTransformPlugin(new CommandCollectorPlugin());
       const result = bash.transform("echo hello | grep hello");
-      expect(result.metadata.commands).toEqual(["echo", "exit", "grep", "tee"]);
+      expect(result.metadata.commands).toEqual([
+        "builtin",
+        "echo",
+        "grep",
+        "tee",
+      ]);
     });
 
     it("metadata from multiple plugins is merged", () => {
@@ -200,7 +214,12 @@ describe("transform", () => {
         .use(new CommandCollectorPlugin())
         .transform("echo hello | grep hello");
 
-      expect(result.metadata.commands).toEqual(["echo", "exit", "grep", "tee"]);
+      expect(result.metadata.commands).toEqual([
+        "builtin",
+        "echo",
+        "grep",
+        "tee",
+      ]);
       expect(result.metadata.teeFiles).toHaveLength(2);
       expect(result.metadata.teeFiles[0].commandName).toBe("echo");
       expect(result.metadata.teeFiles[1].commandName).toBe("grep");
@@ -218,6 +237,14 @@ describe("transform", () => {
       const result = new BashTransformPipeline().transform("echo hello");
       expect(result.script).toBe("echo hello");
       expect(result.metadata).toEqual({});
+    });
+
+    it("rejects oversized source before standalone parsing", () => {
+      const pipeline = new BashTransformPipeline(2);
+      expect(() => pipeline.transform("é")).not.toThrow();
+      expect(() => pipeline.transform("éx")).toThrow(
+        "script input size limit exceeded (2 bytes)",
+      );
     });
 
     it("merges metadata from all plugins", () => {

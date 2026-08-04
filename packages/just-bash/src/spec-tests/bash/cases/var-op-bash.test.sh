@@ -302,8 +302,6 @@ status=0
 ## END
 
 #### assoc array and @P @Q @a
-## SKIP (unimplementable): Interactive shell invocation not implemented
-
 # note: "y z" causes a bug!
 $SH -c 'declare -A A=(["x"]="y"); echo ${A@P} - ${A[@]@P}'
 echo status=$?

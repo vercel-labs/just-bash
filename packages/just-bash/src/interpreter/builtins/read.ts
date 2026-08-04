@@ -2,13 +2,16 @@
  * read - Read a line of input builtin
  */
 
+import { utf8ByteLength } from "../../encoding.js";
 import type { ExecResult } from "../../types.js";
-import { clearArray } from "../helpers/array.js";
+import { ExecutionLimitError } from "../errors.js";
+import { clearArray, setArrayElement } from "../helpers/array.js";
 import {
   getIfs,
   splitByIfsForRead,
   stripTrailingIfsWhitespace,
 } from "../helpers/ifs.js";
+import { checkReadonlyError } from "../helpers/readonly.js";
 import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -238,6 +241,19 @@ export function handleRead(
     varNames.push("REPLY");
   }
 
+  const destinations = new Set<string>();
+  if (arrayName) destinations.add(arrayName);
+  for (const name of varNames) destinations.add(name);
+  // The -N path assigns REPLY even when -a was also supplied and no explicit
+  // scalar destination was given.
+  if (ncharsExact >= 0 && varNames.length === 0) destinations.add("REPLY");
+  for (const name of destinations) {
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+      return result("", `bash: read: \`${name}': not a valid identifier\n`, 1);
+    }
+    checkReadonlyError(ctx, name, "bash");
+  }
+
   // Note: prompt (-p) would typically output to terminal, but we ignore it in non-interactive mode
 
   // Handle -t 0: check if input is available without reading
@@ -284,6 +300,26 @@ export function handleRead(
 
   // Get input
   let line = "";
+  let lineBytes = 0;
+  const appendLine = (value: string): void => {
+    const bytes = utf8ByteLength(value);
+    if (bytes > ctx.limits.maxStringLength - lineBytes) {
+      throw new ExecutionLimitError(
+        `read: string length limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+        "string_length",
+      );
+    }
+    line += value;
+    lineBytes += bytes;
+  };
+  const assertLineLimit = (value: string): void => {
+    if (utf8ByteLength(value) > ctx.limits.maxStringLength) {
+      throw new ExecutionLimitError(
+        `read: string length limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+        "string_length",
+      );
+    }
+  };
   let consumed = 0;
   let foundDelimiter = true; // Assume found unless no newline at end
 
@@ -317,6 +353,7 @@ export function handleRead(
     // -N: Read exactly N characters (ignores delimiters, no IFS splitting)
     const toRead = Math.min(ncharsExact, effectiveStdin.length);
     line = effectiveStdin.substring(0, toRead);
+    assertLineLimit(line);
     consumed = toRead;
     foundDelimiter = toRead >= ncharsExact;
 
@@ -359,16 +396,16 @@ export function handleRead(
           // Backslash-delimiter (non-newline): counts as one char (the escaped delimiter)
           inputPos += 2;
           charCount++;
-          line += nextChar;
+          appendLine(nextChar);
           consumed = inputPos;
           continue;
         }
-        line += nextChar;
+        appendLine(nextChar);
         inputPos += 2;
         charCount++;
         consumed = inputPos;
       } else {
-        line += char;
+        appendLine(char);
         inputPos++;
         charCount++;
         consumed = inputPos;
@@ -408,19 +445,19 @@ export function handleRead(
 
         if (nextChar === effectiveDelimiter) {
           // Backslash-delimiter: escape the delimiter, include it literally
-          line += nextChar;
+          appendLine(nextChar);
           inputPos += 2;
           continue;
         }
 
         // Other backslash escapes: keep both for now (will be processed later)
-        line += char;
-        line += nextChar;
+        appendLine(char);
+        appendLine(nextChar);
         inputPos += 2;
         continue;
       }
 
-      line += char;
+      appendLine(char);
       inputPos++;
     }
 
@@ -468,26 +505,23 @@ export function handleRead(
 
   // Split by IFS (default is space, tab, newline)
   const ifs = getIfs(ctx.state.env);
+  const maxArrayElements = ctx.limits.maxArrayElements;
 
   // Handle array assignment (-a)
   if (arrayName) {
     // Pass raw flag - splitting respects backslash escapes in non-raw mode
-    const { words } = splitByIfsForRead(line, ifs, undefined, raw);
-
-    // Check array element limit
-    const maxArrayElements = ctx.limits?.maxArrayElements ?? 100000;
-    if (words.length > maxArrayElements) {
-      return result(
-        "",
-        `read: array element limit exceeded (${maxArrayElements})\n`,
-        1,
-      );
-    }
+    const { words } = splitByIfsForRead(
+      line,
+      ifs,
+      maxArrayElements,
+      undefined,
+      raw,
+    );
 
     clearArray(ctx, arrayName);
     // Assign words to array elements, processing backslash escapes after splitting
     for (let j = 0; j < words.length; j++) {
-      ctx.state.env.set(`${arrayName}_${j}`, processBackslashEscapes(words[j]));
+      setArrayElement(ctx, arrayName, j, processBackslashEscapes(words[j]));
     }
     return result("", "", foundDelimiter ? 0 : 1);
   }
@@ -495,7 +529,13 @@ export function handleRead(
   // Use the advanced IFS splitting for read with proper whitespace/non-whitespace handling
   // Pass raw flag - splitting respects backslash escapes in non-raw mode
   const maxSplit = varNames.length;
-  const { words, wordStarts } = splitByIfsForRead(line, ifs, maxSplit, raw);
+  const { words, wordStarts } = splitByIfsForRead(
+    line,
+    ifs,
+    maxArrayElements,
+    maxSplit,
+    raw,
+  );
 
   // Assign words to variables
   for (let j = 0; j < varNames.length; j++) {

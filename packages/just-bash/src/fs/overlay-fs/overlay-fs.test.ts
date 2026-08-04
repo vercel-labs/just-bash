@@ -39,6 +39,27 @@ describe("OverlayFs", () => {
         new OverlayFs({ root: filePath, allowSymlinks: true });
       }).toThrow("not a directory");
     });
+
+    it("bounds aggregate copy-on-write memory and releases removed files", async () => {
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+        maxMemoryBytes: 5,
+      });
+
+      await overlay.writeFile("/data", "abc");
+      await overlay.appendFile("/data", "de");
+      await expect(overlay.appendFile("/data", "f")).rejects.toThrow(
+        "overlay memory byte limit exceeded (5 bytes)",
+      );
+      await expect(overlay.readFile("/data")).resolves.toBe("abcde");
+
+      await overlay.rm("/data");
+      await expect(overlay.writeFile("/other", "12345")).resolves.toBe(
+        undefined,
+      );
+    });
   });
 
   describe("mount point", () => {

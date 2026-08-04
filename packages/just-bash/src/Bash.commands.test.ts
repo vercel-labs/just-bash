@@ -83,14 +83,15 @@ describe("Bash commands filtering", () => {
     expect((await env.exec("cp /test.txt /test2.txt")).exitCode).toBe(127);
   });
 
-  it("custom commands can use Node.js APIs with defense-in-depth enabled", async () => {
+  it("explicitly trusted custom commands can use Node.js APIs", async () => {
     const env = new Bash({
       customCommands: [
         {
           name: "myfetch",
+          trusted: true,
           execute: async (_args, _ctx) => {
-            // Custom command uses setTimeout and fetch — both are blocked
-            // globals, but should work because commands are trusted.
+            // Trusted host extensions deliberately run outside the restricted
+            // command context.
             await new Promise((r) => setTimeout(r, 1));
             return { stdout: "custom-ok\n", stderr: "", exitCode: 0 };
           },

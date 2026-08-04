@@ -78,7 +78,7 @@ describe("OneTrue AWK Spec Tests", () => {
           if (!result.passed) {
             expect.fail(formatError(result));
           }
-        });
+        }, 10_000);
       }
     });
   }

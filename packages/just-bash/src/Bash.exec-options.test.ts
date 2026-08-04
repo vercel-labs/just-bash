@@ -50,6 +50,19 @@ async function waitFor(
 }
 
 describe("exec options", () => {
+  it("returns exit 124 when the supplied signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      new Bash().exec("echo unreachable", { signal: controller.signal }),
+    ).resolves.toMatchObject({
+      stdout: "",
+      stderr: "bash: execution aborted\n",
+      exitCode: 124,
+    });
+  });
+
   describe("per-exec env", () => {
     it("should use env vars for single execution", async () => {
       const env = new Bash();

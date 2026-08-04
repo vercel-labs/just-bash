@@ -1,5 +1,5 @@
 import { assertDefenseContext } from "../security/defense-context.js";
-import type { CommandContext } from "../types.js";
+import type { RuntimeCommandContext } from "../types.js";
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   return (
@@ -47,11 +47,11 @@ function wrapFunction<TArgs extends unknown[], TResult>(
 }
 
 function wrapFileSystem(
-  fs: CommandContext["fs"],
+  fs: RuntimeCommandContext["fs"],
   requireDefenseContext: boolean | undefined,
   component: string,
-): CommandContext["fs"] {
-  const wrappedFs: CommandContext["fs"] = {
+): RuntimeCommandContext["fs"] {
+  const wrappedFs: RuntimeCommandContext["fs"] = {
     readFile: wrapFunction(
       fs.readFile.bind(fs),
       requireDefenseContext,
@@ -192,15 +192,15 @@ function wrapFileSystem(
  * context is expected but missing.
  */
 export function createDefenseAwareCommandContext(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   commandName: string,
-): CommandContext {
+): RuntimeCommandContext {
   if (!ctx.requireDefenseContext) {
     return ctx;
   }
 
   const component = `command:${commandName}`;
-  const wrappedCtx: CommandContext = {
+  const wrappedCtx: RuntimeCommandContext = {
     ...ctx,
     fs: wrapFileSystem(ctx.fs, ctx.requireDefenseContext, component),
   };

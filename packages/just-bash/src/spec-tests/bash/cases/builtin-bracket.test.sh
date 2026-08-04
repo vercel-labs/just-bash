@@ -532,7 +532,6 @@ status=2
 ## status: 1
 
 #### -ef
-## SKIP (unimplementable): -ef with hardlinks requires inode tracking - virtual filesystem limitation
 left=$TMP/left
 right=$TMP/right
 touch $left $right

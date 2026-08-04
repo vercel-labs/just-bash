@@ -6,17 +6,21 @@
  * In sandboxed environment, always returns "user".
  */
 
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 
 async function whoamiExecute(
   _args: string[],
-  _ctx: CommandContext,
+  _ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
   // In sandboxed environment, always return "user"
   return { stdout: "user\n", stderr: "", exitCode: 0 };
 }
 
-export const whoami: Command = {
+export const whoami: RuntimeCommand = {
   name: "whoami",
   execute: whoamiExecute,
 };

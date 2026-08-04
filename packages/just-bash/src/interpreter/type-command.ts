@@ -550,7 +550,7 @@ export async function findFirstInPath(
       // Check if it's a directory
       try {
         const stat = await ctx.fs.stat(fullPath);
-        if (stat.isDirectory) {
+        if (stat.isDirectory || (stat.mode & 0o111) === 0) {
           continue; // Skip directories
         }
       } catch {

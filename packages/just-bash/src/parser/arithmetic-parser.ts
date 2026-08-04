@@ -131,6 +131,14 @@ export function parseArithExpr(
   return parseArithComma(p, input, pos);
 }
 
+function parseNestedArithExpr(
+  p: Parser,
+  input: string,
+  pos: number,
+): { expr: ArithExpr; pos: number } {
+  return p.withDepth(() => parseArithExpr(p, input, pos));
+}
+
 function parseArithComma(
   p: Parser,
   input: string,
@@ -163,11 +171,19 @@ function parseArithTernary(
   currentPos = skipArithWhitespace(input, currentPos);
   if (input[currentPos] === "?") {
     currentPos++;
-    const { expr: consequent, pos: p2 } = parseArithExpr(p, input, currentPos);
+    const { expr: consequent, pos: p2 } = parseNestedArithExpr(
+      p,
+      input,
+      currentPos,
+    );
     currentPos = skipArithWhitespace(input, p2);
     if (input[currentPos] === ":") {
       currentPos++;
-      const { expr: alternate, pos: p3 } = parseArithExpr(p, input, currentPos);
+      const { expr: alternate, pos: p3 } = parseNestedArithExpr(
+        p,
+        input,
+        currentPos,
+      );
       return {
         expr: { type: "ArithTernary", condition, consequent, alternate },
         pos: p3,
@@ -506,7 +522,9 @@ function parseArithPower(
     if (isMissingOperand(input, p2)) {
       return makeMissingOperandError(op, p2);
     }
-    const { expr: exponent, pos: p3 } = parseArithPower(p, input, p2); // Right associative
+    const { expr: exponent, pos: p3 } = p.withDepth(() =>
+      parseArithPower(p, input, p2),
+    ); // Right associative
     return {
       expr: {
         type: "ArithBinary",
@@ -535,7 +553,9 @@ function parseArithUnary(
   ) {
     const op = input.slice(currentPos, currentPos + 2) as "++" | "--";
     currentPos += 2;
-    const { expr: operand, pos: p2 } = parseArithUnary(p, input, currentPos);
+    const { expr: operand, pos: p2 } = p.withDepth(() =>
+      parseArithUnary(p, input, currentPos),
+    );
     return {
       expr: { type: "ArithUnary", operator: op, operand, prefix: true },
       pos: p2,
@@ -550,7 +570,9 @@ function parseArithUnary(
   ) {
     const op = input[currentPos] as "+" | "-" | "!" | "~";
     currentPos++;
-    const { expr: operand, pos: p2 } = parseArithUnary(p, input, currentPos);
+    const { expr: operand, pos: p2 } = p.withDepth(() =>
+      parseArithUnary(p, input, currentPos),
+    );
     return {
       expr: { type: "ArithUnary", operator: op, operand, prefix: true },
       pos: p2,
@@ -605,7 +627,11 @@ function parseArithPostfix(
   let subscript: ArithExpr | undefined;
   if (input[currentPos] === "[" && expr.type === "ArithConcat") {
     currentPos++; // Skip [
-    const { expr: indexExpr, pos: p2 } = parseArithExpr(p, input, currentPos);
+    const { expr: indexExpr, pos: p2 } = parseNestedArithExpr(
+      p,
+      input,
+      currentPos,
+    );
     subscript = indexExpr;
     currentPos = p2;
     if (input[currentPos] === "]") currentPos++; // Skip ]
@@ -633,10 +659,8 @@ function parseArithPostfix(
         input.slice(currentPos, currentPos + op.length + 1) !== "=="
       ) {
         currentPos += op.length;
-        const { expr: value, pos: p2 } = parseArithTernary(
-          p,
-          input,
-          currentPos,
+        const { expr: value, pos: p2 } = p.withDepth(() =>
+          parseArithTernary(p, input, currentPos),
         );
         // For dynamic element (x$foo[5]), create dynamic assignment with subscript from the element
         if (expr.type === "ArithDynamicElement") {
@@ -708,7 +732,7 @@ function parseArithPrimary(
 
   // Nested arithmetic: $((expr))
   const nestedResult = parseNestedArithmetic(
-    parseArithExpr,
+    parseNestedArithExpr,
     p,
     input,
     currentPos,
@@ -763,7 +787,7 @@ function parseArithPrimary(
   // Grouped expression
   if (input[currentPos] === "(") {
     currentPos++;
-    const { expr, pos: p2 } = parseArithExpr(p, input, currentPos);
+    const { expr, pos: p2 } = parseNestedArithExpr(p, input, currentPos);
     currentPos = skipArithWhitespace(input, p2);
     if (input[currentPos] === ")") currentPos++;
     return { expr: { type: "ArithGroup", expression: expr }, pos: currentPos };
@@ -814,7 +838,7 @@ function parseArithPrimary(
     if (!trimmed) {
       return { expr: { type: "ArithNumber", value: 0 }, pos: currentPos };
     }
-    const { expr } = parseArithExpr(p, trimmed, 0);
+    const { expr } = parseNestedArithExpr(p, trimmed, 0);
     return { expr, pos: currentPos };
   }
 
@@ -1032,7 +1056,7 @@ function parseArithPrimary(
 
       let indexExpr: ArithExpr | undefined;
       if (stringKey === undefined) {
-        const { expr, pos: p2 } = parseArithExpr(p, input, currentPos);
+        const { expr, pos: p2 } = parseNestedArithExpr(p, input, currentPos);
         indexExpr = expr;
         currentPos = p2;
         if (input[currentPos] === "]") currentPos++; // Skip ]
@@ -1056,10 +1080,8 @@ function parseArithPrimary(
             input.slice(currentPos, currentPos + op.length + 1) !== "=="
           ) {
             currentPos += op.length;
-            const { expr: value, pos: p2 } = parseArithTernary(
-              p,
-              input,
-              currentPos,
+            const { expr: value, pos: p2 } = p.withDepth(() =>
+              parseArithTernary(p, input, currentPos),
             );
             return {
               expr: {
@@ -1100,10 +1122,8 @@ function parseArithPrimary(
         ) {
           currentPos += op.length;
           // Use parseArithTernary instead of parseArithExpr to give assignment higher precedence than comma
-          const { expr: value, pos: p2 } = parseArithTernary(
-            p,
-            input,
-            currentPos,
+          const { expr: value, pos: p2 } = p.withDepth(() =>
+            parseArithTernary(p, input, currentPos),
           );
           return {
             expr: {

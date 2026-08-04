@@ -1,4 +1,8 @@
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { DEFAULT_BATCH_SIZE } from "../../utils/constants.js";
 import { hasHelpFlag, showHelp } from "../help.js";
@@ -30,10 +34,13 @@ interface TreeOptions {
   fullPath: boolean;
 }
 
-export const treeCommand: Command = {
+export const treeCommand: RuntimeCommand = {
   name: "tree",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(treeHelp);
     }
@@ -87,7 +94,7 @@ interface TreeResult {
 }
 
 async function buildTree(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   path: string,
   options: TreeOptions,
   prefix: string,
@@ -211,7 +218,7 @@ async function buildTree(
 }
 
 async function buildTreeRecursive(
-  ctx: CommandContext,
+  ctx: RuntimeCommandContext,
   path: string,
   options: TreeOptions,
   prefix: string,

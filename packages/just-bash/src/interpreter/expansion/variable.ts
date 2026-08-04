@@ -15,8 +15,11 @@ import { BASH_VERSION } from "../../shell-metadata.js";
 import { evaluateArithmetic } from "../arithmetic.js";
 import { BadSubstitutionError, NounsetError } from "../errors.js";
 import {
+  getArrayElement,
   getArrayIndices,
   getAssocArrayKeys,
+  hasArray,
+  hasArrayElement,
   unquoteKey,
 } from "../helpers/array.js";
 import { getIfsSeparator } from "../helpers/ifs.js";
@@ -28,7 +31,7 @@ import type { InterpreterContext } from "../types.js";
  * This handles patterns like $var and ${var} but not complex expansions.
  * Used to support namerefs pointing to array elements like A[$key].
  */
-function expandSimpleVarsInSubscript(
+function normalizeAssociativeSubscript(
   ctx: InterpreterContext,
   subscript: string,
 ): string {
@@ -74,17 +77,14 @@ export function getArrayElements(
   if (isAssoc) {
     // For associative arrays, get string keys
     const keys = getAssocArrayKeys(ctx, arrayName);
-    return keys.map((key) => [
-      key,
-      ctx.state.env.get(`${arrayName}_${key}`) ?? "",
-    ]);
+    return keys.map((key) => [key, getArrayElement(ctx, arrayName, key) ?? ""]);
   }
 
   // For indexed arrays, get numeric indices
   const indices = getArrayIndices(ctx, arrayName);
   return indices.map((index) => [
     index,
-    ctx.state.env.get(`${arrayName}_${index}`) ?? "",
+    getArrayElement(ctx, arrayName, index) ?? "",
   ]);
 }
 
@@ -104,10 +104,10 @@ export function isArray(ctx: InterpreterContext, name: string): boolean {
   }
   // Check if it's an associative array
   if (ctx.state.associativeArrays?.has(name)) {
-    return getAssocArrayKeys(ctx, name).length > 0;
+    return hasArray(ctx, name);
   }
   // Check for indexed array elements
-  return getArrayIndices(ctx, name).length > 0;
+  return hasArray(ctx, name);
 }
 
 /**
@@ -314,8 +314,8 @@ export async function getVariable(
       // First unquote, then expand simple variable references for nameref support
       let key = unquoteKey(subscript);
       // Expand simple variable references like $var or ${var}
-      key = expandSimpleVarsInSubscript(ctx, key);
-      const value = ctx.state.env.get(`${arrayName}_${key}`);
+      key = normalizeAssociativeSubscript(ctx, key);
+      const value = getArrayElement(ctx, arrayName, key);
       if (value === undefined && checkNounset && ctx.state.options.nounset) {
         throw new NounsetError(`${arrayName}[${subscript}]`);
       }
@@ -368,11 +368,11 @@ export async function getVariable(
         return "";
       }
       // Look up by actual index, not position
-      const value = ctx.state.env.get(`${arrayName}_${actualIdx}`);
+      const value = getArrayElement(ctx, arrayName, actualIdx);
       return value || "";
     }
 
-    const value = ctx.state.env.get(`${arrayName}_${index}`);
+    const value = getArrayElement(ctx, arrayName, index);
     if (value !== undefined) {
       return value;
     }
@@ -448,11 +448,14 @@ export async function getVariable(
   // In bash, $a where a is an array returns ${a[0]} (first element)
   if (isArray(ctx, name)) {
     // Return the first element (index 0)
-    const firstValue = ctx.state.env.get(`${name}_0`);
+    const firstValue = getArrayElement(ctx, name, 0);
     if (firstValue !== undefined) {
       return firstValue;
     }
     // Array exists but no element at index 0 - return empty string
+    if (checkNounset && ctx.state.options.nounset) {
+      throw new NounsetError(name);
+    }
     return "";
   }
 
@@ -541,8 +544,8 @@ export async function isVariableSet(
 
     if (isAssoc) {
       // For associative arrays, use subscript as string key (remove quotes if present)
-      const key = unquoteKey(subscript);
-      return ctx.state.env.has(`${arrayName}_${key}`);
+      const key = normalizeAssociativeSubscript(ctx, unquoteKey(subscript));
+      return hasArrayElement(ctx, arrayName, key);
     }
 
     // Evaluate subscript as arithmetic expression for indexed arrays
@@ -570,10 +573,10 @@ export async function isVariableSet(
       );
       const actualIdx = maxIndex + 1 + index;
       if (actualIdx < 0) return false;
-      return ctx.state.env.has(`${arrayName}_${actualIdx}`);
+      return hasArrayElement(ctx, arrayName, actualIdx);
     }
 
-    return ctx.state.env.has(`${arrayName}_${index}`);
+    return hasArrayElement(ctx, arrayName, index);
   }
 
   // Check if this is a nameref - resolve and check target
@@ -593,10 +596,10 @@ export async function isVariableSet(
   }
 
   // Check if plain variable name refers to an array (no scalar exists)
-  // In bash, plain array name is "set" if array has elements
+  // An unsubscripted array decays to element zero; an empty array (or a sparse
+  // array without index zero) is therefore unset for default-value operators.
   if (isArray(ctx, name)) {
-    // Array with elements is considered "set"
-    return true;
+    return hasArrayElement(ctx, name, 0);
   }
 
   return false;

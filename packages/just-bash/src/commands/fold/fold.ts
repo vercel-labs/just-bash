@@ -7,8 +7,12 @@
  * If no FILE is specified, standard input is read.
  */
 
-import { decodeBytesToUtf8 } from "../../encoding.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { decodeBytesToUtf8, utf8ByteLength } from "../../encoding.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const foldHelp = {
@@ -46,7 +50,7 @@ function getCharWidth(
 ): number {
   if (countBytes) {
     // In byte mode, each character is 1 byte (simplified - assumes ASCII)
-    return new TextEncoder().encode(char).length;
+    return utf8ByteLength(char);
   }
 
   if (char === "\t") {
@@ -75,8 +79,10 @@ function foldLine(line: string, options: FoldOptions): string {
   let lastSpaceIndex = -1;
   let lastSpaceColumn = 0;
 
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
+  // Iterate by Unicode code point so a wrap can never split a surrogate pair.
+  // `currentLine` remains a JavaScript string, therefore tracked indices are
+  // still UTF-16 offsets suitable for slice().
+  for (const char of line) {
     const charWidth = getCharWidth(char, currentColumn, countBytes);
 
     // Would this character exceed the width?
@@ -132,9 +138,12 @@ function processContent(content: string, options: FoldOptions): string {
   return foldedLines.join("\n") + (hasTrailingNewline ? "\n" : "");
 }
 
-export const fold: Command = {
+export const fold: RuntimeCommand = {
   name: "fold",
-  execute: async (args: string[], ctx: CommandContext): Promise<ExecResult> => {
+  execute: async (
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> => {
     if (hasHelpFlag(args)) {
       return showHelp(foldHelp);
     }

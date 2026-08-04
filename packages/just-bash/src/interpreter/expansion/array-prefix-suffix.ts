@@ -297,7 +297,7 @@ export async function handleArrayPatternWithPrefixSuffix(
     }
     // Apply pattern removal to each element
     values = values.map((value) =>
-      applyPatternRemoval(value, regexStr, op.side, op.greedy),
+      applyPatternRemoval(ctx, value, regexStr, op.side, op.greedy),
     );
   } else if (arrayOperation?.type === "PatternReplacement") {
     const op = arrayOperation as PatternReplacementOp;

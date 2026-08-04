@@ -1,5 +1,9 @@
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { unknownOption } from "../help.js";
 
 /**
@@ -56,10 +60,13 @@ function parseDateString(dateStr: string): Date | null {
   return null;
 }
 
-export const touchCommand: Command = {
+export const touchCommand: RuntimeCommand = {
   name: "touch",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     const files: string[] = [];
     let dateStr: string | null = null;
     let noCreate = false;

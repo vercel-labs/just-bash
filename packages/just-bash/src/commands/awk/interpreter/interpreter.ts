@@ -4,6 +4,7 @@
  * Main interpreter class that orchestrates AWK program execution.
  */
 
+import { ExecutionLimitError } from "../../../interpreter/errors.js";
 import {
   assertDefenseContext as assertDefenseContextInvariant,
   awaitWithDefenseContext,
@@ -81,6 +82,14 @@ export class AwkInterpreter {
   async executeLine(line: string): Promise<void> {
     this.assertDefenseContext("line execution entry");
     if (!this.program || this.ctx.shouldExit) return;
+
+    this.ctx.recordsProcessed++;
+    if (this.ctx.recordsProcessed > this.ctx.maxIterations) {
+      throw new ExecutionLimitError(
+        `record limit exceeded (${this.ctx.maxIterations})`,
+        "iterations",
+      );
+    }
 
     // Update context with new line
     setCurrentLine(this.ctx, line);

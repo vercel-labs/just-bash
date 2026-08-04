@@ -33,6 +33,8 @@ export interface WorkerInput {
   args: string[];
   scriptPath?: string;
   timeoutMs?: number;
+  /** Maximum size of one HOSTFS file, enforced before guest allocations. */
+  maxFileSize?: number;
 }
 
 export interface WorkerOutput {
@@ -79,10 +81,16 @@ function assertApprovedPath(
 // Emscripten callbacks could call require() unrestricted.
 // ESM imports (import { ... } from "...") are unaffected by Module._load.
 try {
-  // biome-ignore lint/complexity/noBannedTypes: Module._load signature is untyped
-  const NodeModule = require("node:module") as { _load: Function };
-  if (typeof NodeModule._load === "function") {
+  const NodeModule = require("node:module") as {
+    _load: (request: string, ...args: unknown[]) => unknown;
+    _resolveFilename: (request: string, ...args: unknown[]) => unknown;
+  };
+  if (
+    typeof NodeModule._load === "function" &&
+    typeof NodeModule._resolveFilename === "function"
+  ) {
     const originalLoad = NodeModule._load;
+    const originalResolveFilename = NodeModule._resolveFilename;
     const blockedModules = new Set([
       "child_process",
       "node:child_process",
@@ -118,6 +126,17 @@ try {
         );
       }
       return originalLoad.apply(this, [request, ...rest]);
+    };
+    NodeModule._resolveFilename = function (
+      request: string,
+      ...rest: unknown[]
+    ) {
+      if (blockedModules.has(request)) {
+        throw new Error(
+          `[Defense-in-depth] resolving '${request}' is blocked in worker context`,
+        );
+      }
+      return originalResolveFilename.apply(this, [request, ...rest]);
     };
     moduleLoadGuardInstalled = true;
   }
@@ -288,7 +307,12 @@ function createHOSTFS(
   backend: SyncBackend,
   FS: EmscriptenFS,
   PATH: EmscriptenPATH,
+  configuredMaxFileSize: number,
 ) {
+  const maxFileSize =
+    Number.isSafeInteger(configuredMaxFileSize) && configuredMaxFileSize >= 0
+      ? configuredMaxFileSize
+      : 0;
   const ERRNO_CODES: Record<string, number> = Object.assign(
     Object.create(null) as Record<string, number>,
     {
@@ -303,6 +327,7 @@ function createHOSTFS(
       ENOTDIR: 54,
       EISDIR: 31,
       EINVAL: 28,
+      EFBIG: 27,
       EMFILE: 33,
       ENOSPC: 51,
       ESPIPE: 70,
@@ -425,9 +450,17 @@ function createHOSTFS(
           node.mode = mode;
         }
         if (attr.size !== undefined) {
+          if (
+            !Number.isSafeInteger(attr.size) ||
+            attr.size < 0 ||
+            attr.size > maxFileSize
+          ) {
+            throw new FS.ErrnoError(ERRNO_CODES.EFBIG);
+          }
           tryFSOperation(() => {
             const content = backend.readFile(path);
-            const newContent = content.slice(0, attr.size);
+            const newContent = new Uint8Array(attr.size as number);
+            newContent.set(content.subarray(0, attr.size as number));
             backend.writeFile(path, newContent);
           });
         }
@@ -525,6 +558,10 @@ function createHOSTFS(
           }
         }
 
+        if (content.length > maxFileSize) {
+          throw new FS.ErrnoError(ERRNO_CODES.EFBIG);
+        }
+
         stream.hostContent = content;
         stream.hostModified = isTruncate && isWrite;
         stream.hostPath = path;
@@ -570,6 +607,18 @@ function createHOSTFS(
         length: number,
         position: number,
       ) {
+        if (
+          !Number.isSafeInteger(position) ||
+          !Number.isSafeInteger(length) ||
+          !Number.isSafeInteger(offset) ||
+          position < 0 ||
+          length < 0 ||
+          offset < 0 ||
+          length > buffer.length - offset ||
+          position > maxFileSize - length
+        ) {
+          throw new FS.ErrnoError(ERRNO_CODES.EFBIG);
+        }
         let content = stream.hostContent || new Uint8Array(0);
         const newSize = Math.max(content.length, position + length);
 
@@ -586,8 +635,13 @@ function createHOSTFS(
       },
 
       llseek(stream: EmscriptenStream, offset: number, whence: number) {
+        const SEEK_SET = 0;
         const SEEK_CUR = 1;
         const SEEK_END = 2;
+
+        if (whence !== SEEK_SET && whence !== SEEK_CUR && whence !== SEEK_END) {
+          throw new FS.ErrnoError(ERRNO_CODES.EINVAL);
+        }
 
         let position = offset;
         if (whence === SEEK_CUR) {
@@ -599,7 +653,11 @@ function createHOSTFS(
           }
         }
 
-        if (position < 0) {
+        if (
+          !Number.isSafeInteger(position) ||
+          position < 0 ||
+          position > maxFileSize
+        ) {
           throw new FS.ErrnoError(ERRNO_CODES.EINVAL);
         }
 
@@ -1302,11 +1360,6 @@ async function runPython(input: WorkerInput): Promise<WorkerOutput> {
     };
   }
 
-  // Activate defense-in-depth after WASM loads (first call only).
-  // Subsequent calls reuse the cached compiled module, so webassembly
-  // exclusion in defense config handles that.
-  activateDefense(input.protocolToken);
-
   // Module is ready - enable direct backend output and flush any buffered output
   moduleReady = true;
   for (const text of pendingStdout) backend.writeStdout(text);
@@ -1315,7 +1368,12 @@ async function runPython(input: WorkerInput): Promise<WorkerOutput> {
   // Stdlib zip is written to MEMFS in the preRun callback above
 
   // Mount HOSTFS for just-bash filesystem access
-  const HOSTFS = createHOSTFS(backend, Module.FS, Module.PATH);
+  const HOSTFS = createHOSTFS(
+    backend,
+    Module.FS,
+    Module.PATH,
+    input.maxFileSize ?? 8 * 1024 * 1024,
+  );
   try {
     Module.FS.mkdir("/host");
     Module.FS.mount(HOSTFS, { root: "/" }, "/host");
@@ -1384,6 +1442,10 @@ sys.exit(_jb_exit_code)
 
   // Execute CPython with the script
   try {
+    // CPython, MEMFS, and HOSTFS bootstrap are now complete. Guest Python is
+    // not reachable until callMain, so activate loader denial at this exact
+    // boundary rather than authorizing loader calls by their stack text.
+    activateDefense(input.protocolToken);
     const ret = Module.callMain([scriptPath]);
     // callMain returns the exit code, or throws ExitStatus with EXIT_RUNTIME
     const exitCode =
@@ -1442,6 +1504,13 @@ function activateDefense(protocolToken: string): void {
       // performance: Excluded because we replaced it above with a ms-precision
       // stub. Defense doesn't need to block it — it's already degraded.
       "performance_timing",
+      // CPython's Emscripten runtime performs lazy CJS loads during callMain.
+      // A worker-entry guard installed before CPython loads rejects the exact
+      // dangerous builtin set without relying on loader stack text. CPython
+      // exposes no JS bridge to guest Python, so this compatibility exclusion
+      // does not make Module methods guest-reachable.
+      "module_load",
+      "module_resolve_filename",
     ],
     onViolation,
   });

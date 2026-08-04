@@ -147,8 +147,7 @@ describe("find performance tracing", () => {
     console.log(`  Eval calls: ${details.evalCalls}`);
   });
 
-  it("should prune terminal directories (deep nesting)", async () => {
-    // Create a structure where terminal directory pruning makes a big difference
+  it("should conservatively traverse path patterns with deep nesting", async () => {
     const files: Record<string, string> = {};
 
     // Create 10 "pulls" directories, each with files and deep subdirs
@@ -199,14 +198,13 @@ describe("find performance tracing", () => {
       `With pruning: ${summary2?.details?.readdirCalls} readdir calls, ${summary2?.details?.nodeCount} nodes`,
     );
 
-    // The optimized version should visit fewer nodes
-    expect((summary2?.details?.nodeCount as number) || 0).toBeLessThan(
-      (summary1?.details?.nodeCount as number) || Infinity,
-    );
+    // A shell path pattern's '*' can match slashes. Skipping descendants here
+    // would change results, so both predicates must traverse the full tree.
+    expect(summary2?.details?.nodeCount).toBe(summary1?.details?.nodeCount);
 
-    // Should find only the direct files in pulls (10 projects * 5 files = 50)
+    // Direct and nested JSON files all match */pulls/*.json.
     const lines = result.stdout.trim().split("\n").filter(Boolean);
-    expect(lines).toHaveLength(50);
+    expect(lines).toHaveLength(450);
     expect(result.exitCode).toBe(0);
   });
 
@@ -246,12 +244,8 @@ describe("find performance tracing", () => {
       `Nodes processed: ${summary?.details?.nodeCount}, Eval calls: ${summary?.details?.evalCalls}`,
     );
 
-    // With extension filtering, we should process fewer nodes
-    // (the non-.json files should be filtered before evaluation)
-    // 5 projects + 5 pulls dirs + 10 json files = 20 nodes (not 25 with all files)
-    expect((summary?.details?.nodeCount as number) || 0).toBeLessThanOrEqual(
-      25,
-    );
+    // Conservative traversal evaluates non-matching siblings as well.
+    expect(summary?.details?.nodeCount).toBe(36);
   });
 
   it("should trace against real filesystem (current project)", async () => {
@@ -577,7 +571,7 @@ describe("find node visitation verification", () => {
     return events.find((e) => e.category === "find" && e.name === "summary");
   }
 
-  it("should visit minimal nodes for -path '*/pulls/*.json' -type f", async () => {
+  it("should visit all potentially matching nodes for -path '*/pulls/*.json' -type f", async () => {
     const files = createLargeFilesystem();
     const events: TraceEvent[] = [];
     const env = new Bash({
@@ -588,12 +582,13 @@ describe("find node visitation verification", () => {
     const result = await env.exec('find /data -path "*/pulls/*.json" -type f');
     expect(result.exitCode).toBe(0);
 
-    // Expected: 5 orgs × 10 repos × 5 direct PRs = 250 files
+    // '*' matches slashes, so archived descendants also match.
     const lines = result.stdout.trim().split("\n").filter(Boolean);
-    expect(lines).toHaveLength(250);
+    expect(lines).toHaveLength(400);
 
-    // All results should be direct children of pulls/, not in archive/
-    expect(lines.every((l) => l.match(/\/pulls\/\d+\.json$/))).toBe(true);
+    expect(
+      lines.every((l) => l.includes("/pulls/") && l.endsWith(".json")),
+    ).toBe(true);
 
     const summary = getTraceSummary(events);
     expect(summary).toBeDefined();
@@ -609,8 +604,7 @@ describe("find node visitation verification", () => {
     // (only .json files in pulls in our setup)
     const nodeCount = summary?.details?.nodeCount as number;
 
-    // Verify pruning is working: should be less than full tree
-    expect(nodeCount).toBeLessThan(1000);
+    expect(nodeCount).toBeGreaterThan(1000);
 
     // Without terminal pruning, we'd visit everything (~1156 nodes with implicit dirs)
     console.log(
@@ -718,8 +712,8 @@ describe("find node visitation verification", () => {
     // First query finds ALL .json files: pulls(250+150) + issues(150) + package.json(50) = 600
     expect(lines1).toHaveLength(600);
 
-    // Second query finds only direct children of pulls (terminal pruning)
-    expect(lines2).toHaveLength(250);
+    // Path matching includes archived descendants because '*' matches '/'.
+    expect(lines2).toHaveLength(400);
 
     const summary1 = getTraceSummary(events1);
     const summary2 = getTraceSummary(events2);
@@ -735,8 +729,7 @@ describe("find node visitation verification", () => {
       `-path pattern (terminal pruning): ${nodeCount2} nodes, ${lines2.length} results`,
     );
 
-    // Pruned version should visit fewer nodes (skips archive/2024 dirs and their files)
-    expect(nodeCount2).toBeLessThan(nodeCount1);
+    expect(nodeCount2).toBe(nodeCount1);
   });
 
   it("should verify readdir call counts with -maxdepth", async () => {
@@ -771,7 +764,7 @@ describe("find node visitation verification", () => {
     console.log(`\n-maxdepth 2: ${readdirCalls} readdir calls`);
   });
 
-  it("should verify extension filtering reduces eval calls", async () => {
+  it("should conservatively evaluate extension path filters", async () => {
     // Create structure with many non-matching extensions
     const files: Record<string, string> = {};
     for (let i = 1; i <= 10; i++) {
@@ -806,9 +799,7 @@ describe("find node visitation verification", () => {
     const evalCalls = summary?.details?.evalCalls as number;
     const nodeCount = summary?.details?.nodeCount as number;
 
-    // Expected: /data(1) + repo1-10(10) + pulls dirs(10) + json files(20) = 41 nodes
-    // NOT 41 + 50 non-json files = 91
-    expect(nodeCount).toBeLessThanOrEqual(45);
+    expect(nodeCount).toBe(91);
 
     console.log(
       `\nExtension filtering: ${nodeCount} nodes, ${evalCalls} eval calls`,
@@ -820,8 +811,8 @@ describe("find node visitation verification", () => {
     const files: Record<string, string> = {};
     files["/data/pulls/1.json"] = "{}";
     files["/data/pulls/2.json"] = "{}";
-    files["/data/pulls/pulls/nested.json"] = "{}"; // Should NOT match */pulls/*.json
-    files["/data/pulls/other/deep.json"] = "{}"; // Should NOT match
+    files["/data/pulls/pulls/nested.json"] = "{}";
+    files["/data/pulls/other/deep.json"] = "{}";
 
     const events: TraceEvent[] = [];
     const env = new Bash({
@@ -833,9 +824,13 @@ describe("find node visitation verification", () => {
     expect(result.exitCode).toBe(0);
 
     const lines = result.stdout.trim().split("\n").filter(Boolean);
-    // Should only find direct children: /data/pulls/1.json and /data/pulls/2.json
-    expect(lines).toHaveLength(2);
-    expect(lines.sort()).toEqual(["/data/pulls/1.json", "/data/pulls/2.json"]);
+    expect(lines).toHaveLength(4);
+    expect(lines.sort()).toEqual([
+      "/data/pulls/1.json",
+      "/data/pulls/2.json",
+      "/data/pulls/other/deep.json",
+      "/data/pulls/pulls/nested.json",
+    ]);
   });
 
   it("should handle -mindepth and -maxdepth combination", async () => {

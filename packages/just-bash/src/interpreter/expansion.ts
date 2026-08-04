@@ -24,6 +24,7 @@ import {
   ExecutionLimitError,
   ExitError,
 } from "./errors.js";
+import { cloneArrays } from "./helpers/array.js";
 
 /**
  * Check if a string exceeds the maximum allowed length.
@@ -341,9 +342,25 @@ async function expandBracesInPartsAsync(
   parts: WordPart[],
   operationCounter: { count: number } = { count: 0 },
 ): Promise<BraceExpandedPart[][]> {
-  if (operationCounter.count > MAX_BRACE_OPERATIONS) {
-    return [[]];
-  }
+  const chargeBraceOperation = (): void => {
+    operationCounter.count++;
+    ctx.executionScope.consumeLimited(
+      "brace_operations",
+      1,
+      Math.min(MAX_BRACE_OPERATIONS, ctx.limits.maxBraceExpansionResults),
+      "brace expansion",
+    );
+  };
+  const pushBraceValue = (values: string[], value: string): void => {
+    if (values.length >= ctx.limits.maxBraceExpansionResults) {
+      throw new ExecutionLimitError(
+        `brace expansion result limit exceeded (${ctx.limits.maxBraceExpansionResults})`,
+        "array_elements",
+      );
+    }
+    chargeBraceOperation();
+    values.push(value);
+  };
 
   let results: BraceExpandedPart[][] = [[]];
 
@@ -360,11 +377,14 @@ async function expandBracesInPartsAsync(
             item.step,
             item.startStr,
             item.endStr,
+            {
+              maxResults: ctx.limits.maxBraceExpansionResults,
+              maxStringBytes: ctx.limits.maxStringLength,
+            },
           );
           if (range.expanded) {
             for (const val of range.expanded) {
-              operationCounter.count++;
-              braceValues.push(val);
+              pushBraceValue(braceValues, val);
             }
           } else {
             hasInvalidRange = true;
@@ -379,7 +399,6 @@ async function expandBracesInPartsAsync(
             operationCounter,
           );
           for (const exp of expanded) {
-            operationCounter.count++;
             // Join all parts, expanding any deferred WordParts
             const joinedParts: string[] = [];
             for (const p of exp) {
@@ -389,14 +408,14 @@ async function expandBracesInPartsAsync(
                 joinedParts.push(await expandPart(ctx, p));
               }
             }
-            braceValues.push(joinedParts.join(""));
+            pushBraceValue(braceValues, joinedParts.join(""));
           }
         }
       }
 
       if (hasInvalidRange) {
         for (const result of results) {
-          operationCounter.count++;
+          chargeBraceOperation();
           result.push(invalidRangeLiteral);
         }
         continue;
@@ -407,16 +426,22 @@ async function expandBracesInPartsAsync(
         newSize > ctx.limits.maxBraceExpansionResults ||
         operationCounter.count > MAX_BRACE_OPERATIONS
       ) {
-        return results;
+        throw new ExecutionLimitError(
+          `brace expansion result limit exceeded (${ctx.limits.maxBraceExpansionResults})`,
+          "array_elements",
+        );
       }
 
       const newResults: BraceExpandedPart[][] = [];
       for (const result of results) {
         for (const val of braceValues) {
-          operationCounter.count++;
-          if (operationCounter.count > MAX_BRACE_OPERATIONS) {
-            return newResults.length > 0 ? newResults : results;
+          if (newResults.length >= ctx.limits.maxBraceExpansionResults) {
+            throw new ExecutionLimitError(
+              `brace expansion result limit exceeded (${ctx.limits.maxBraceExpansionResults})`,
+              "array_elements",
+            );
           }
+          chargeBraceOperation();
           newResults.push([...result, val]);
         }
       }
@@ -424,7 +449,7 @@ async function expandBracesInPartsAsync(
     } else {
       // Non-brace part: keep as WordPart for deferred expansion
       for (const result of results) {
-        operationCounter.count++;
+        chargeBraceOperation();
         result.push(part);
       }
     }
@@ -602,7 +627,11 @@ export async function expandRedirectTarget(
 
   if (hasUnquotedExpansion && !isIfsEmpty(ctx.state.env)) {
     const ifsChars = getIfs(ctx.state.env);
-    const splitWords = splitByIfsForExpansion(value, ifsChars);
+    const splitWords = splitByIfsForExpansion(
+      value,
+      ifsChars,
+      ctx.limits.maxArrayElements,
+    );
     if (splitWords.length > 1) {
       // Word splitting produces multiple words - ambiguous redirect
       return {
@@ -636,6 +665,13 @@ export async function expandRedirectTarget(
     extglob: ctx.state.shoptOptions.extglob,
     globskipdots: ctx.state.shoptOptions.globskipdots,
     maxGlobOperations: ctx.limits.maxGlobOperations,
+    consumeOperation: () =>
+      ctx.executionScope.consumeLimited(
+        "glob_operations",
+        1,
+        ctx.limits.maxGlobOperations,
+        "glob expansion",
+      ),
   });
 
   const matches = await globExpander.expand(globPattern);
@@ -766,6 +802,7 @@ async function expandPart(
       // Save environment - command substitutions run in a subshell and should not
       // modify parent environment (e.g., aliases defined inside $() should not leak)
       const savedEnv = new Map(ctx.state.env);
+      const savedArrays = cloneArrays(ctx.state.arrays);
       const savedCwd = ctx.state.cwd;
       // Suppress verbose mode (set -v) inside command substitutions
       // bash only prints verbose output for the main script
@@ -776,6 +813,7 @@ async function expandPart(
         // Restore environment but preserve exit code
         const exitCode = result.exitCode;
         ctx.state.env = savedEnv;
+        ctx.state.arrays = savedArrays;
         ctx.state.cwd = savedCwd;
         ctx.state.suppressVerbose = savedSuppressVerbose;
         // Store the exit code for $?
@@ -800,6 +838,7 @@ async function expandPart(
       } catch (error) {
         // Restore environment on error as well
         ctx.state.env = savedEnv;
+        ctx.state.arrays = savedArrays;
         ctx.state.cwd = savedCwd;
         ctx.state.bashPid = savedBashPid;
         ctx.substitutionDepth = savedDepth;
@@ -866,6 +905,10 @@ async function expandPart(
             item.step,
             item.startStr,
             item.endStr,
+            {
+              maxResults: ctx.limits.maxBraceExpansionResults,
+              maxStringBytes: ctx.limits.maxStringLength,
+            },
           );
           if (range.expanded) {
             results.push(...range.expanded);

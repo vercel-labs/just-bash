@@ -37,6 +37,15 @@ describe("read builtin", () => {
   });
 
   describe("read options", () => {
+    it("does not let mixed -a -N overwrite a readonly scalar", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        'readonly target=old; printf x | read -a scratch -N 1 target; status=$?; printf \'%s:%s\' "$status" "$target"',
+      );
+      expect(result.stderr).toContain("target: readonly variable");
+      expect(result.stdout).toBe("1:old");
+    });
+
     it("should support -r to disable backslash escape", async () => {
       const env = new Bash();
       const result = await env.exec(`

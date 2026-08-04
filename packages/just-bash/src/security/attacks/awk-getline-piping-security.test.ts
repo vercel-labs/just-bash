@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
-describe("AWK getline piping security", () => {
+const describeDefense =
+  typeof nodeModule.registerHooks === "function" ? describe : describe.skip;
+
+describeDefense("AWK getline piping security", () => {
   it("keeps getline command side effects inside sandboxed filesystem", async () => {
     const bash = new Bash();
     const result = await bash.exec(`
@@ -70,3 +73,5 @@ describe("AWK getline piping security", () => {
     expect(result.exitCode).toBe(0);
   });
 });
+
+import * as nodeModule from "node:module";

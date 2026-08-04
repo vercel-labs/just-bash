@@ -264,7 +264,7 @@ export const FETCH_POLYFILL_SOURCE = `
 
   // --- Headers ---
   function Headers(init) {
-    this._map = {};
+    this._map = Object.create(null);
     if (!init) return;
     if (init instanceof Headers) {
       var keys = Object.keys(init._map);
@@ -281,7 +281,7 @@ export const FETCH_POLYFILL_SOURCE = `
 
   Headers.prototype.append = function(name, value) {
     var key = String(name).toLowerCase();
-    if (!this._map[key]) this._map[key] = [];
+    if (!Object.prototype.hasOwnProperty.call(this._map, key)) this._map[key] = [];
     this._map[key].push(String(value));
   };
 
@@ -295,7 +295,7 @@ export const FETCH_POLYFILL_SOURCE = `
   };
 
   Headers.prototype.has = function(name) {
-    return String(name).toLowerCase() in this._map;
+    return Object.prototype.hasOwnProperty.call(this._map, String(name).toLowerCase());
   };
 
   Headers.prototype.set = function(name, value) {

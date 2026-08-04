@@ -208,10 +208,15 @@ export function parseSimpleCommand(p: Parser): SimpleCommandNode {
         // Build the array assignment string: name=(elem1 elem2 ...)
         const elemStrings = elements.map((e) => WordParser.wordToString(p, e));
         const arrayStr = `${baseName}=(${elemStrings.join(" ")})`;
-        args.push(p.parseWordFromString(arrayStr, false, false));
+        args.push(p.parseWordFromString(arrayStr, false, false, true));
       } else {
         args.push(
-          p.parseWordFromString(tokenValue, token.quoted, token.singleQuoted),
+          p.parseWordFromString(
+            tokenValue,
+            token.quoted,
+            token.singleQuoted,
+            true,
+          ),
         );
       }
     } else if (p.check(TokenType.LPAREN)) {

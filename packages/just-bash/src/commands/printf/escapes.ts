@@ -3,6 +3,32 @@
  * Used by printf command and find -printf
  */
 
+import { utf8ByteLength } from "../../encoding.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
+
+export { utf8ByteLength } from "../../encoding.js";
+
+const DEFAULT_MAX_FORMAT_BYTES: number = 10 * 1024 * 1024;
+
+export function assertFormattingInteger(
+  value: number,
+  maxBytes: number,
+  kind: "width" | "precision",
+): void {
+  const magnitude = kind === "width" ? Math.abs(value) : value;
+  if (
+    !Number.isFinite(value) ||
+    !Number.isSafeInteger(value) ||
+    magnitude < 0 ||
+    magnitude > maxBytes
+  ) {
+    throw new ExecutionLimitError(
+      `format ${kind} limit exceeded (${maxBytes} bytes)`,
+      "string_length",
+    );
+  }
+}
+
 /**
  * Apply width and alignment to a string value
  * Supports: width (right-justify), -width (left-justify), .precision (truncate)
@@ -14,7 +40,12 @@ export function applyWidth(
   value: string,
   width: number,
   precision: number,
+  maxBytes: number = DEFAULT_MAX_FORMAT_BYTES,
 ): string {
+  assertFormattingInteger(width, maxBytes, "width");
+  if (precision !== -1) {
+    assertFormattingInteger(precision, maxBytes, "precision");
+  }
   let result = value;
 
   // Apply precision (truncate)
@@ -25,6 +56,13 @@ export function applyWidth(
   // Apply width
   const absWidth = Math.abs(width);
   if (absWidth > result.length) {
+    const prospectiveBytes = utf8ByteLength(result) + absWidth - result.length;
+    if (prospectiveBytes > maxBytes) {
+      throw new ExecutionLimitError(
+        `formatted value size limit exceeded (${maxBytes} bytes)`,
+        "string_length",
+      );
+    }
     if (width < 0) {
       // Left-justify
       result = result.padEnd(absWidth, " ");
@@ -32,6 +70,13 @@ export function applyWidth(
       // Right-justify
       result = result.padStart(absWidth, " ");
     }
+  }
+
+  if (utf8ByteLength(result) > maxBytes) {
+    throw new ExecutionLimitError(
+      `formatted value size limit exceeded (${maxBytes} bytes)`,
+      "string_length",
+    );
   }
 
   return result;
@@ -46,6 +91,7 @@ export function applyWidth(
 export function parseWidthPrecision(
   format: string,
   startIndex: number,
+  maxBytes: number = DEFAULT_MAX_FORMAT_BYTES,
 ): [number, number, number] {
   let i = startIndex;
   let width = 0;
@@ -79,6 +125,11 @@ export function parseWidthPrecision(
     width = -width;
   }
 
+  assertFormattingInteger(width, maxBytes, "width");
+  if (precision !== -1) {
+    assertFormattingInteger(precision, maxBytes, "precision");
+  }
+
   return [width, precision, i - startIndex];
 }
 
@@ -87,7 +138,16 @@ export function parseWidthPrecision(
  * Handles: \n, \t, \r, \\, \a, \b, \f, \v, \e, \0NNN (octal), \xHH (hex),
  *          \uHHHH (unicode), \UHHHHHHHH (unicode)
  */
-export function processEscapes(str: string): string {
+export function processEscapes(
+  str: string,
+  maxBytes: number = DEFAULT_MAX_FORMAT_BYTES,
+): string {
+  if (utf8ByteLength(str) > maxBytes) {
+    throw new ExecutionLimitError(
+      `escaped string size limit exceeded (${maxBytes} bytes)`,
+      "string_length",
+    );
+  }
   let result = "";
   let i = 0;
 

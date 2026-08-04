@@ -307,6 +307,22 @@ export function getBlockedGlobals(): BlockedGlobal[] {
       reason:
         "setUncaughtExceptionCaptureCallback could intercept security errors",
     },
+    ...[
+      "on",
+      "once",
+      "addListener",
+      "prependListener",
+      "prependOnceListener",
+    ].map(
+      (prop): BlockedGlobal => ({
+        prop,
+        target: process,
+        violationType: "process_exception_handler",
+        strategy: "throw",
+        reason:
+          "process-global listeners can outlive the sandbox and lose its security context",
+      }),
+    ),
 
     // IPC communication vectors (may be undefined in non-IPC contexts)
     {

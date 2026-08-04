@@ -32,6 +32,9 @@ export interface PrintParserContext {
   parsePrimary(): AwkExpr;
   parseAddSub(): AwkExpr;
   setPos(pos: number): void;
+  useOperation(count?: number): void;
+  withDepth<T>(operation: () => T): T;
+  assertArrayLength(length: number): void;
 }
 
 // Token type values for use in this module
@@ -99,9 +102,11 @@ export function parsePrintStatement(p: PrintParserContext): AwkStmt {
   } else {
     // Parse print arguments - use parsePrintArg to stop before > and >>
     // In AWK, > and >> at print level are redirection, not comparison
+    p.assertArrayLength(args.length);
     args.push(parsePrintArg(p));
     while (p.check(TokenTypes.COMMA as TokenType)) {
       p.advance();
+      p.assertArrayLength(args.length);
       args.push(parsePrintArg(p));
     }
   }
@@ -161,7 +166,7 @@ function parsePrintAssignment(
     )
   ) {
     const opToken = p.advance();
-    const value = parsePrintAssignment(p, allowGt);
+    const value = p.withDepth(() => parsePrintAssignment(p, allowGt));
 
     if (
       expr.type !== "variable" &&
@@ -204,6 +209,7 @@ function lookAheadForTernary(p: PrintParserContext): boolean {
   let i = p.pos;
 
   while (i < p.tokens.length) {
+    p.useOperation();
     const token = p.tokens[i];
 
     // Track parentheses depth
@@ -407,6 +413,7 @@ export function parsePrintfStatement(p: PrintParserContext): AwkStmt {
     if (hasParens) {
       p.skipNewlines();
     }
+    p.assertArrayLength(args.length);
     args.push(hasParens ? p.parseExpression() : parsePrintArg(p));
   }
 

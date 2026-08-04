@@ -164,7 +164,7 @@ describe("curl @file interpretation", () => {
         "curl --data-urlencode @/note.txt https://api.example.com/test",
       );
       expect(result.exitCode).toBe(0);
-      expect(lastRequest?.options.body).toBe("hello%20world%20%26%20friends");
+      expect(lastRequest?.options.body).toBe("hello+world+%26+friends");
     });
 
     it("URL-encodes the file contents with name when value is name@file", async () => {
@@ -173,7 +173,7 @@ describe("curl @file interpretation", () => {
         "curl --data-urlencode note@/note.txt https://api.example.com/test",
       );
       expect(result.exitCode).toBe(0);
-      expect(lastRequest?.options.body).toBe("note=value%20with%20space");
+      expect(lastRequest?.options.body).toBe("note=value+with+space");
     });
 
     it("concatenates inline and @file urlencode values with &", async () => {
@@ -182,20 +182,20 @@ describe("curl @file interpretation", () => {
         'curl --data-urlencode "a=1" --data-urlencode note@/note.txt https://api.example.com/test',
       );
       expect(result.exitCode).toBe(0);
-      expect(lastRequest?.options.body).toBe("a=1&note=from%20file");
+      expect(lastRequest?.options.body).toBe("a=1&note=from+file");
     });
 
     it("percent-encodes `=` inside file contents (no name=value split)", async () => {
       // Real file contents may contain `=` bytes that must NOT be treated as
       // a name/value separator. encodeFormData would split on `=` and emit
       // `a=b%26c`; the @file form must treat the whole body as one value:
-      // every `=` percent-encodes to %3D.
+      // every `=` percent-encodes to %3d.
       const env = createEnv({ "/note.txt": "a=b&c" });
       const result = await env.exec(
         "curl --data-urlencode @/note.txt https://api.example.com/test",
       );
       expect(result.exitCode).toBe(0);
-      expect(lastRequest?.options.body).toBe("a%3Db%26c");
+      expect(lastRequest?.options.body).toBe("a%3db%26c");
     });
 
     it("percent-encodes `=` inside file contents for the name@file form", async () => {
@@ -204,7 +204,7 @@ describe("curl @file interpretation", () => {
         "curl --data-urlencode payload@/note.txt https://api.example.com/test",
       );
       expect(result.exitCode).toBe(0);
-      expect(lastRequest?.options.body).toBe("payload=k%3Dv");
+      expect(lastRequest?.options.body).toBe("payload=k%3dv");
     });
 
     it("supports --data-urlencode=@file form", async () => {
@@ -213,7 +213,7 @@ describe("curl @file interpretation", () => {
         "curl --data-urlencode=@/note.txt https://api.example.com/test",
       );
       expect(result.exitCode).toBe(0);
-      expect(lastRequest?.options.body).toBe("hi%20there");
+      expect(lastRequest?.options.body).toBe("hi+there");
     });
   });
 

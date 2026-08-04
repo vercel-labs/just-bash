@@ -1,4 +1,6 @@
 import { describe, expect, test } from "vitest";
+import { ExecutionScope } from "../../execution-scope.js";
+import { resolveLimits } from "../../limits.js";
 import type { InterpreterContext, InterpreterState } from "../types.js";
 import { handleComplete } from "./complete.js";
 
@@ -60,6 +62,7 @@ function createMockCtx(): InterpreterContext {
     fs: {} as unknown as InterpreterContext["fs"],
     commands: {} as unknown as InterpreterContext["commands"],
     limits: {} as unknown as InterpreterContext["limits"],
+    executionScope: new ExecutionScope(resolveLimits()),
     execFn: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
     executeScript: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
     executeStatement: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
@@ -158,10 +161,24 @@ describe("complete builtin", () => {
     const ctx = createMockCtx();
     const result = handleComplete(ctx, ["-F", "invalidZZ", "-D"]);
     expect(result.exitCode).toBe(0);
-    expect(ctx.state.completionSpecs?.get("__default__")).toEqual({
+    expect(ctx.state.defaultCompletionSpec).toEqual({
       function: "invalidZZ",
       isDefault: true,
     });
+  });
+
+  test("ordinary reserved-looking command names do not collide with defaults", () => {
+    const ctx = createMockCtx();
+    handleComplete(ctx, ["-W", "$(echo pwned)", "__default__"]);
+    handleComplete(ctx, ["-F", "fallback", "-D"]);
+
+    expect(ctx.state.completionSpecs?.get("__default__")?.wordlist).toBe(
+      "$(echo pwned)",
+    );
+    expect(ctx.state.defaultCompletionSpec?.function).toBe("fallback");
+    const printed = handleComplete(ctx, ["-p"]);
+    expect(printed.stdout).toContain("complete -W '$(echo pwned)' __default__");
+    expect(printed.stdout).toContain("complete -F fallback -D");
   });
 
   test("complete foo with no options is allowed (bash BUG behavior)", () => {

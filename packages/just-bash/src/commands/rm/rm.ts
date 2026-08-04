@@ -1,6 +1,10 @@
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 
 const argDefs = {
@@ -10,10 +14,13 @@ const argDefs = {
   verbose: { short: "v", long: "verbose", type: "boolean" as const },
 };
 
-export const rmCommand: Command = {
+export const rmCommand: RuntimeCommand = {
   name: "rm",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     const parsed = parseArgs("rm", args, argDefs);
     if (!parsed.ok) return parsed.error;
 

@@ -3,7 +3,11 @@ import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { mapToRecord } from "../../helpers/env.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { _performanceNow } from "../../security/trusted-globals.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 
 /**
  * time - time command execution
@@ -28,10 +32,13 @@ import type { Command, CommandContext, ExecResult } from "../../types.js";
  * Note: In this JavaScript implementation, user/system CPU time and memory
  * metrics are not available, so %M, %S, %U output 0.
  */
-export const timeCommand: Command = {
+export const timeCommand: RuntimeCommand = {
   name: "time",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     // Parse options
     let format = "%e %M"; // Default format
     let outputFile: string | null = null;

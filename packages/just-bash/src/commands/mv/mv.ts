@@ -1,5 +1,20 @@
+import { isSameOrDescendantPath } from "../../fs/path-utils.js";
+import {
+  compareCanonicalContainment,
+  compareFileIdentity,
+  FileTraversalBudget,
+  traverseFileTree,
+} from "../../fs/traversal.js";
+import {
+  ExecutionAbortedError,
+  ExecutionLimitError,
+} from "../../interpreter/errors.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
@@ -21,10 +36,13 @@ const argDefs = {
   verbose: { short: "v", long: "verbose", type: "boolean" as const },
 };
 
-export const mvCommand: Command = {
+export const mvCommand: RuntimeCommand = {
   name: "mv",
 
-  async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+  async execute(
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> {
     if (hasHelpFlag(args)) {
       return showHelp(mvHelp);
     }
@@ -57,6 +75,12 @@ export const mvCommand: Command = {
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
+    const traversalBudget = new FileTraversalBudget({
+      limits: ctx.limits,
+      signal: ctx.signal,
+      executionScope: ctx.executionScope,
+      site: "mv",
+    });
 
     // Note: force is accepted but not used since we don't prompt
     void force;
@@ -82,6 +106,7 @@ export const mvCommand: Command = {
     for (const src of sources) {
       try {
         const srcPath = ctx.fs.resolvePath(ctx.cwd, src);
+        const srcStat = await ctx.fs.stat(srcPath);
 
         let targetPath = destPath;
         if (destIsDir) {
@@ -89,16 +114,61 @@ export const mvCommand: Command = {
           targetPath =
             destPath === "/" ? `/${basename}` : `${destPath}/${basename}`;
         }
-
-        // Check if target exists for -n flag
+        if (srcStat.isDirectory) {
+          const containment = await compareCanonicalContainment(
+            ctx.fs,
+            srcPath,
+            targetPath,
+            traversalBudget,
+          );
+          if (
+            isSameOrDescendantPath(srcPath, targetPath) ||
+            containment === "inside"
+          ) {
+            stderr += `mv: cannot move '${src}' into itself, '${targetPath}'\n`;
+            exitCode = 1;
+            continue;
+          }
+          if (containment === "unknown") {
+            stderr += `mv: cannot safely determine whether '${targetPath}' is inside '${src}'\n`;
+            exitCode = 1;
+            continue;
+          }
+        }
+        // A no-clobber skip performs no destructive operation and therefore
+        // does not require proving the identity of the existing target.
         if (noClobber) {
           try {
             await ctx.fs.stat(targetPath);
-            // Target exists and -n is set, skip this file silently
             continue;
           } catch {
-            // Target doesn't exist, proceed with move
+            // Target doesn't exist, proceed with move.
           }
+        }
+        const identity = await compareFileIdentity(ctx.fs, srcPath, targetPath);
+        if (identity === "same") {
+          // POSIX rename of a file onto itself succeeds without changing it.
+          continue;
+        }
+        if (identity === "unknown") {
+          stderr += `mv: cannot safely determine whether '${src}' and '${targetPath}' are the same file\n`;
+          exitCode = 1;
+          continue;
+        }
+        if (srcStat.isDirectory) {
+          await traverseFileTree(
+            {
+              fs: ctx.fs,
+              root: srcPath,
+              limits: ctx.limits,
+              signal: ctx.signal,
+              executionScope: ctx.executionScope,
+              site: "mv",
+              symlinks: "never",
+              budget: traversalBudget,
+            },
+            () => undefined,
+          );
         }
 
         await ctx.fs.mv(srcPath, targetPath);
@@ -110,6 +180,12 @@ export const mvCommand: Command = {
           stdout += `renamed '${src}' -> '${targetName}'\n`;
         }
       } catch (error) {
+        if (
+          error instanceof ExecutionLimitError ||
+          error instanceof ExecutionAbortedError
+        ) {
+          throw error;
+        }
         const message = getErrorMessage(error);
         if (message.includes("ENOENT") || message.includes("no such file")) {
           stderr += `mv: cannot stat '${src}': No such file or directory\n`;

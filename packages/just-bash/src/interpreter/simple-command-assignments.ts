@@ -8,16 +8,14 @@
  */
 
 import type { SimpleCommandNode, WordNode } from "../ast/types.js";
+import { boundedJoin } from "../bounded-builder.js";
 import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
 import type { ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
-import {
-  applyCaseTransform,
-  getLocalVarDepth,
-  isInteger,
-} from "./builtins/index.js";
-import { ArithmeticError, ExitError } from "./errors.js";
+import { applyCaseTransform, isInteger } from "./builtins/index.js";
+import { ArithmeticError, ExecutionLimitError, ExitError } from "./errors.js";
+import { applyAssignmentTildeExpansion } from "./expansion/tilde.js";
 import {
   expandWord,
   expandWordWithGlob,
@@ -25,7 +23,12 @@ import {
   isArray,
 } from "./expansion.js";
 import {
+  clearArray,
+  cloneArray,
+  getArray,
+  getArrayElement,
   parseKeyedElementFromWord,
+  setArrayElement,
   wordToLiteralString,
 } from "./helpers/array.js";
 import {
@@ -36,9 +39,21 @@ import {
 } from "./helpers/nameref.js";
 import { checkReadonlyError, isReadonly } from "./helpers/readonly.js";
 import { result } from "./helpers/result.js";
-import { expandTildesInValue } from "./helpers/tilde.js";
 import { traceAssignment } from "./helpers/xtrace.js";
 import type { InterpreterContext } from "./types.js";
+
+function appendAssignmentValue(
+  ctx: InterpreterContext,
+  existing: string,
+  value: string,
+): string {
+  return boundedJoin(
+    [existing, value],
+    "",
+    ctx.limits.maxStringLength,
+    "array assignment",
+  );
+}
 
 /**
  * Result of processing assignments in a simple command
@@ -227,49 +242,59 @@ async function processArrayAssignment(
 
   // Check if this is an associative array
   const isAssoc = ctx.state.associativeArrays?.has(name);
+  const savedArray = getArray(ctx, name);
+  const savedArraySnapshot = savedArray ? cloneArray(savedArray) : undefined;
+  const savedScalar = ctx.state.env.get(name);
+  const restoreTarget = (): void => {
+    ctx.state.arrays ??= new Map();
+    if (savedArraySnapshot) ctx.state.arrays.set(name, savedArraySnapshot);
+    else ctx.state.arrays.delete(name);
+    if (savedScalar === undefined) ctx.state.env.delete(name);
+    else ctx.state.env.set(name, savedScalar);
+  };
 
   // Check if elements use [key]=value or [key]+=value syntax
   const hasKeyedElements = checkHasKeyedElements(array);
 
   // Helper to clear existing array elements
   const clearExistingElements = () => {
-    const prefix = `${name}_`;
-    for (const key of ctx.state.env.keys()) {
-      if (key.startsWith(prefix) && !key.includes("__")) {
-        ctx.state.env.delete(key);
-      }
-    }
+    clearArray(ctx, name);
     ctx.state.env.delete(name);
   };
 
-  if (isAssoc && hasKeyedElements) {
-    await processAssociativeArrayAssignment(
-      ctx,
-      node,
-      name,
-      array,
-      append,
-      clearExistingElements,
-      (msg) => {
-        xtraceOutput += msg;
-      },
-    );
-  } else if (hasKeyedElements) {
-    await processIndexedArrayWithKeysAssignment(
-      ctx,
-      name,
-      array,
-      append,
-      clearExistingElements,
-    );
-  } else {
-    await processSimpleArrayAssignment(
-      ctx,
-      name,
-      array,
-      append,
-      clearExistingElements,
-    );
+  try {
+    if (isAssoc && hasKeyedElements) {
+      await processAssociativeArrayAssignment(
+        ctx,
+        node,
+        name,
+        array,
+        append,
+        clearExistingElements,
+        (msg) => {
+          xtraceOutput += msg;
+        },
+      );
+    } else if (hasKeyedElements) {
+      await processIndexedArrayWithKeysAssignment(
+        ctx,
+        name,
+        array,
+        append,
+        clearExistingElements,
+      );
+    } else {
+      await processSimpleArrayAssignment(
+        ctx,
+        name,
+        array,
+        append,
+        clearExistingElements,
+      );
+    }
+  } catch (error) {
+    restoreTarget();
+    throw error;
   }
 
   // For prefix assignments with a command, bash stringifies the array syntax
@@ -344,6 +369,12 @@ async function processAssociativeArrayAssignment(
 
   // First pass: Expand all values BEFORE clearing the array
   for (const element of array) {
+    if (pendingElements.length >= ctx.limits.maxArrayElements) {
+      throw new ExecutionLimitError(
+        `array element limit exceeded (${ctx.limits.maxArrayElements})`,
+        "array_elements",
+      );
+    }
     const parsed = parseKeyedElementFromWord(element);
     if (parsed) {
       const { key, valueParts, append: elementAppend } = parsed;
@@ -351,10 +382,16 @@ async function processAssociativeArrayAssignment(
       if (valueParts.length > 0) {
         const valueWord: WordNode = { type: "Word", parts: valueParts };
         value = await expandWord(ctx, valueWord);
+        if (
+          valueParts.every(
+            (part) => part.type === "Literal" || part.type === "TildeExpansion",
+          )
+        ) {
+          value = applyAssignmentTildeExpansion(ctx, value);
+        }
       } else {
         value = "";
       }
-      value = expandTildesInValue(ctx, value);
       pendingElements.push({
         type: "keyed",
         key,
@@ -368,6 +405,10 @@ async function processAssociativeArrayAssignment(
   }
 
   // Clear existing elements AFTER all expansion
+  ctx.executionScope.consumeWork(
+    pendingElements.length,
+    "associative array assignment",
+  );
   if (!append) {
     clearExistingElements();
   }
@@ -376,10 +417,16 @@ async function processAssociativeArrayAssignment(
   for (const pending of pendingElements) {
     if (pending.type === "keyed") {
       if (pending.append) {
-        const existing = ctx.state.env.get(`${name}_${pending.key}`) ?? "";
-        ctx.state.env.set(`${name}_${pending.key}`, existing + pending.value);
+        const existing = getArrayElement(ctx, name, pending.key) ?? "";
+        setArrayElement(
+          ctx,
+          name,
+          pending.key,
+          appendAssignmentValue(ctx, existing, pending.value),
+          "associative",
+        );
       } else {
-        ctx.state.env.set(`${name}_${pending.key}`, pending.value);
+        setArrayElement(ctx, name, pending.key, pending.value, "associative");
       }
     } else {
       const lineNum = node.line ?? ctx.state.currentLine ?? 1;
@@ -411,33 +458,58 @@ async function processIndexedArrayWithKeysAssignment(
     values: string[];
   }
   const pendingElements: (PendingElement | PendingNonKeyed)[] = [];
+  let pendingValueCount = 0;
 
   // First pass: Expand all RHS values
   for (const element of array) {
     const parsed = parseKeyedElementFromWord(element);
     if (parsed) {
+      if (pendingValueCount >= ctx.limits.maxArrayElements) {
+        throw new ExecutionLimitError(
+          `array element limit exceeded (${ctx.limits.maxArrayElements})`,
+          "array_elements",
+        );
+      }
       const { key: indexExpr, valueParts, append: elementAppend } = parsed;
       let value: string;
       if (valueParts.length > 0) {
         const valueWord: WordNode = { type: "Word", parts: valueParts };
         value = await expandWord(ctx, valueWord);
+        if (
+          valueParts.every(
+            (part) => part.type === "Literal" || part.type === "TildeExpansion",
+          )
+        ) {
+          value = applyAssignmentTildeExpansion(ctx, value);
+        }
       } else {
         value = "";
       }
-      value = expandTildesInValue(ctx, value);
       pendingElements.push({
         type: "keyed",
         indexExpr,
         value,
         append: elementAppend,
       });
+      pendingValueCount++;
     } else {
       const expanded = await expandWordWithGlob(ctx, element);
+      if (
+        expanded.values.length >
+        ctx.limits.maxArrayElements - pendingValueCount
+      ) {
+        throw new ExecutionLimitError(
+          `array element limit exceeded (${ctx.limits.maxArrayElements})`,
+          "array_elements",
+        );
+      }
       pendingElements.push({ type: "non-keyed", values: expanded.values });
+      pendingValueCount += expanded.values.length;
     }
   }
 
   // Clear existing elements AFTER all RHS expansion
+  ctx.executionScope.consumeWork(pendingValueCount, "indexed array assignment");
   if (!append) {
     clearExistingElements();
   }
@@ -461,15 +533,20 @@ async function processIndexedArrayWithKeysAssignment(
         }
       }
       if (pending.append) {
-        const existing = ctx.state.env.get(`${name}_${index}`) ?? "";
-        ctx.state.env.set(`${name}_${index}`, existing + pending.value);
+        const existing = getArrayElement(ctx, name, index) ?? "";
+        setArrayElement(
+          ctx,
+          name,
+          index,
+          appendAssignmentValue(ctx, existing, pending.value),
+        );
       } else {
-        ctx.state.env.set(`${name}_${index}`, pending.value);
+        setArrayElement(ctx, name, index, pending.value);
       }
       currentIndex = index + 1;
     } else {
       for (const val of pending.values) {
-        ctx.state.env.set(`${name}_${currentIndex++}`, val);
+        setArrayElement(ctx, name, currentIndex++, val);
       }
     }
   }
@@ -488,10 +565,22 @@ async function processSimpleArrayAssignment(
   const allElements: string[] = [];
   for (const element of array) {
     const expanded = await expandWordWithGlob(ctx, element);
-    allElements.push(...expanded.values);
+    for (const value of expanded.values) {
+      if (allElements.length >= ctx.limits.maxArrayElements) {
+        throw new ExecutionLimitError(
+          `array element limit exceeded (${ctx.limits.maxArrayElements})`,
+          "array_elements",
+        );
+      }
+      allElements.push(value);
+    }
   }
 
   let startIndex = 0;
+  ctx.executionScope.consumeWork(
+    allElements.length,
+    "indexed array assignment",
+  );
   if (append) {
     const elements = getArrayElements(ctx, name);
     if (elements.length > 0) {
@@ -502,7 +591,7 @@ async function processSimpleArrayAssignment(
     } else {
       const scalarValue = ctx.state.env.get(name);
       if (scalarValue !== undefined) {
-        ctx.state.env.set(`${name}_0`, scalarValue);
+        setArrayElement(ctx, name, 0, scalarValue);
         ctx.state.env.delete(name);
         startIndex = 1;
       }
@@ -512,10 +601,7 @@ async function processSimpleArrayAssignment(
   }
 
   for (let i = 0; i < allElements.length; i++) {
-    ctx.state.env.set(`${name}_${startIndex + i}`, allElements[i]);
-  }
-  if (!append) {
-    ctx.state.env.set(`${name}__length`, String(allElements.length));
+    setArrayElement(ctx, name, startIndex + i, allElements[i]);
   }
 }
 
@@ -529,7 +615,7 @@ async function processSubscriptAssignment(
   subscriptExpr: string,
   value: string,
   append: boolean,
-  tempAssignments: Map<string, string | undefined>,
+  _tempAssignments: Map<string, string | undefined>,
 ): Promise<SingleAssignmentResult> {
   let resolvedArrayName = arrayName;
 
@@ -564,14 +650,10 @@ async function processSubscriptAssignment(
   }
 
   const isAssoc = ctx.state.associativeArrays?.has(resolvedArrayName);
-  let envKey: string;
+  let elementKey: string;
 
   if (isAssoc) {
-    envKey = await computeAssocArrayEnvKey(
-      ctx,
-      resolvedArrayName,
-      subscriptExpr,
-    );
+    elementKey = await computeAssocArrayKey(ctx, subscriptExpr);
   } else {
     const indexResult = await computeIndexedArrayIndex(
       ctx,
@@ -585,28 +667,29 @@ async function processSubscriptAssignment(
         error: indexResult.error,
       };
     }
-    envKey = `${resolvedArrayName}_${indexResult.index}`;
+    elementKey = String(indexResult.index);
   }
 
-  const finalValue = append ? (ctx.state.env.get(envKey) || "") + value : value;
+  const finalValue = append
+    ? appendAssignmentValue(
+        ctx,
+        getArrayElement(ctx, resolvedArrayName, elementKey) || "",
+        value,
+      )
+    : value;
 
   if (node.name) {
-    tempAssignments.set(envKey, ctx.state.env.get(envKey));
-    ctx.state.env.set(envKey, finalValue);
+    // Array-element prefix assignments are command-temporary in bash. They are
+    // not representable in an exported environment, so leave shell array state
+    // untouched rather than leaking the write into the caller.
   } else {
-    const localDepth = getLocalVarDepth(ctx, resolvedArrayName);
-    if (
-      localDepth !== undefined &&
-      localDepth === ctx.state.callDepth &&
-      ctx.state.localScopes.length > 0
-    ) {
-      const currentScope =
-        ctx.state.localScopes[ctx.state.localScopes.length - 1];
-      if (!currentScope.has(envKey)) {
-        currentScope.set(envKey, ctx.state.env.get(envKey));
-      }
-    }
-    ctx.state.env.set(envKey, finalValue);
+    setArrayElement(
+      ctx,
+      resolvedArrayName,
+      elementKey,
+      finalValue,
+      isAssoc ? "associative" : "indexed",
+    );
   }
 
   return { continueToNext: true, xtraceOutput: "" };
@@ -615,9 +698,8 @@ async function processSubscriptAssignment(
 /**
  * Compute the env key for an associative array subscript
  */
-async function computeAssocArrayEnvKey(
+async function computeAssocArrayKey(
   ctx: InterpreterContext,
-  arrayName: string,
   subscriptExpr: string,
 ): Promise<string> {
   let key: string;
@@ -635,13 +717,13 @@ async function computeAssocArrayEnvKey(
   } else {
     key = subscriptExpr;
   }
-  return `${arrayName}_${key}`;
+  return key;
 }
 
 /**
  * Compute the index for an indexed array subscript
  */
-async function computeIndexedArrayIndex(
+export async function computeIndexedArrayIndex(
   ctx: InterpreterContext,
   arrayName: string,
   subscriptExpr: string,
@@ -664,6 +746,7 @@ async function computeIndexedArrayIndex(
       const arithAst = parseArithmeticExpression(parser, evalExpr);
       index = await evaluateArithmetic(ctx, arithAst.expression, false);
     } catch (e) {
+      if (e instanceof ExitError) throw e;
       if (e instanceof ArithmeticError) {
         const lineNum = ctx.state.currentLine;
         const errorMsg = `bash: line ${lineNum}: ${subscriptExpr}: ${e.message}\n`;
@@ -672,8 +755,15 @@ async function computeIndexedArrayIndex(
         }
         return { index: 0, error: result("", errorMsg, 1) };
       }
-      const varValue = ctx.state.env.get(subscriptExpr);
-      index = varValue ? Number.parseInt(varValue, 10) : 0;
+      const lineNum = ctx.state.currentLine;
+      return {
+        index: 0,
+        error: result(
+          "",
+          `bash: line ${lineNum}: ${arrayName}[${subscriptExpr}]: bad array subscript\n`,
+          1,
+        ),
+      };
     }
     if (Number.isNaN(index)) index = 0;
   }
@@ -786,8 +876,12 @@ async function processScalarAssignment(
       finalValue = "0";
     }
   } else {
-    const appendKey = isArray(ctx, targetName) ? `${targetName}_0` : targetName;
-    finalValue = append ? (ctx.state.env.get(appendKey) || "") + value : value;
+    const current = isArray(ctx, targetName)
+      ? getArrayElement(ctx, targetName, 0)
+      : ctx.state.env.get(targetName);
+    finalValue = append
+      ? appendAssignmentValue(ctx, current || "", value)
+      : value;
   }
 
   finalValue = applyCaseTransform(ctx, targetName, finalValue);
@@ -795,20 +889,24 @@ async function processScalarAssignment(
   xtraceOutput += await traceAssignment(ctx, targetName, finalValue);
 
   // Compute actual env key
-  let actualEnvKey = targetName;
+  let arrayElementKey: string | undefined;
   if (namerefArrayRef) {
-    actualEnvKey = await computeNamerefArrayEnvKey(ctx, namerefArrayRef);
-  } else {
-    if (isArray(ctx, targetName)) {
-      actualEnvKey = `${targetName}_0`;
-    }
+    arrayElementKey = await computeNamerefArrayKey(ctx, namerefArrayRef);
+  } else if (isArray(ctx, targetName)) {
+    arrayElementKey = "0";
   }
 
   if (node.name) {
-    tempAssignments.set(actualEnvKey, ctx.state.env.get(actualEnvKey));
-    ctx.state.env.set(actualEnvKey, finalValue);
+    if (arrayElementKey === undefined) {
+      tempAssignments.set(targetName, ctx.state.env.get(targetName));
+      ctx.state.env.set(targetName, finalValue);
+    } else {
+      // See processSubscriptAssignment: do not leak array-element prefix writes.
+    }
   } else {
-    ctx.state.env.set(actualEnvKey, finalValue);
+    if (arrayElementKey === undefined)
+      ctx.state.env.set(targetName, finalValue);
+    else setArrayElement(ctx, targetName, arrayElementKey, finalValue);
     if (ctx.state.options.allexport) {
       ctx.state.exportedVars = ctx.state.exportedVars || new Set();
       ctx.state.exportedVars.add(targetName);
@@ -825,7 +923,7 @@ async function processScalarAssignment(
 /**
  * Compute the env key for a nameref pointing to an array element
  */
-async function computeNamerefArrayEnvKey(
+async function computeNamerefArrayKey(
   ctx: InterpreterContext,
   namerefArrayRef: { arrayName: string; subscriptExpr: string },
 ): Promise<string> {
@@ -833,7 +931,7 @@ async function computeNamerefArrayEnvKey(
   const isAssoc = ctx.state.associativeArrays?.has(arrayName);
 
   if (isAssoc) {
-    return computeAssocArrayEnvKey(ctx, arrayName, subscriptExpr);
+    return computeAssocArrayKey(ctx, subscriptExpr);
   }
 
   let index: number;
@@ -859,5 +957,5 @@ async function computeNamerefArrayEnvKey(
     }
   }
 
-  return `${arrayName}_${index}`;
+  return String(index);
 }

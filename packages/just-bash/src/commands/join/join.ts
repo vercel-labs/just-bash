@@ -12,8 +12,14 @@ import {
   encodeUtf8ToBytes,
   latin1FromBytes,
 } from "../../encoding.js";
-import type { Command, CommandContext, ExecResult } from "../../types.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { utf8ByteLength } from "../printf/escapes.js";
 
 const joinHelp = {
   name: "join",
@@ -165,9 +171,12 @@ function parseOutputFormat(
   return result;
 }
 
-export const join: Command = {
+export const join: RuntimeCommand = {
   name: "join",
-  execute: async (args: string[], ctx: CommandContext): Promise<ExecResult> => {
+  execute: async (
+    args: string[],
+    ctx: RuntimeCommandContext,
+  ): Promise<ExecResult> => {
     if (hasHelpFlag(args)) {
       return showHelp(joinHelp);
     }
@@ -309,8 +318,50 @@ export const join: Command = {
       }
     }
 
+    const maxArrayElements = ctx.limits.maxArrayElements;
+    const maxIterations = ctx.limits.maxLoopIterations;
+    const maxStringLength = Math.min(
+      ctx.limits.maxInputBytes,
+      ctx.limits.maxStringLength,
+    );
+    const maxOutputSize = Math.min(
+      ctx.limits.maxOutputSize,
+      ctx.limits.maxStringLength,
+    );
+    const aggregateInputBytes = contents.reduce(
+      (total, content) => total + utf8ByteLength(content),
+      0,
+    );
+    if (aggregateInputBytes > maxStringLength) {
+      throw new ExecutionLimitError(
+        `join: aggregate input size limit exceeded (${maxStringLength} bytes)`,
+        "string_length",
+      );
+    }
+    let parsedLineCount = 0;
+    let iterations = 0;
+    const useIteration = (): void => {
+      if (++iterations > maxIterations) {
+        throw new ExecutionLimitError(
+          `join: iteration limit exceeded (${maxIterations})`,
+          "iterations",
+        );
+      }
+    };
+
     // Parse lines from both files
     const parseLines = (content: string, joinField: number): ParsedLine[] => {
+      let lineCount = content.length > 0 ? 1 : 0;
+      for (let i = 0; i < content.length; i++) {
+        if (content.charCodeAt(i) === 10 && i + 1 < content.length) lineCount++;
+      }
+      if (lineCount > maxArrayElements - parsedLineCount) {
+        throw new ExecutionLimitError(
+          `join: array element limit exceeded (${maxArrayElements})`,
+          "array_elements",
+        );
+      }
+      parsedLineCount += lineCount;
       const lines = content.split("\n");
       if (content.endsWith("\n") && lines[lines.length - 1] === "") {
         lines.pop();
@@ -337,6 +388,25 @@ export const join: Command = {
     }
 
     const output: string[] = [];
+    let outputBytes = 0;
+    const appendOutput = (line: string): void => {
+      useIteration();
+      if (output.length >= maxArrayElements) {
+        throw new ExecutionLimitError(
+          `join: array element limit exceeded (${maxArrayElements})`,
+          "array_elements",
+        );
+      }
+      const lineBytes = utf8ByteLength(line) + 1;
+      if (lineBytes > maxOutputSize - outputBytes) {
+        throw new ExecutionLimitError(
+          `join: output size limit exceeded (${maxOutputSize} bytes)`,
+          "output_size",
+        );
+      }
+      output.push(line);
+      outputBytes += lineBytes;
+    };
     const matchedKeys2 = new Set<string>();
 
     // Process file1 lines
@@ -350,13 +420,13 @@ export const join: Command = {
         if (options.onlyUnpairable.size === 0) {
           // Output joined lines (unless we only want unpairable)
           for (const line2 of matches) {
-            output.push(formatOutputLine(line1, line2, options));
+            appendOutput(formatOutputLine(line1, line2, options));
           }
         }
       } else {
         // No match - print if -a1 or -v1
         if (options.printUnpairable.has(1) || options.onlyUnpairable.has(1)) {
-          output.push(formatOutputLine(line1, null, options));
+          appendOutput(formatOutputLine(line1, null, options));
         }
       }
     }
@@ -365,7 +435,7 @@ export const join: Command = {
     if (options.printUnpairable.has(2) || options.onlyUnpairable.has(2)) {
       for (const line2 of lines2) {
         if (!matchedKeys2.has(line2.joinKey)) {
-          output.push(formatOutputLine(null, line2, options));
+          appendOutput(formatOutputLine(null, line2, options));
         }
       }
     }
