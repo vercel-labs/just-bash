@@ -1,5 +1,32 @@
 # just-bash
 
+## 3.3.0
+
+### Minor Changes
+
+- [#291](https://github.com/vercel-labs/just-bash/pull/291) [`47f604a`](https://github.com/vercel-labs/just-bash/commit/47f604a7f1e12730318e4c88c7872a5a35383056) Thanks [@trieloff](https://github.com/trieloff)! - jq: add external-argument flags (`--arg`, `--argjson`, `--rawfile`, `--slurpfile`, `--args`, `--jsonargs`) and the `$ARGS` object (`$ARGS.named` / `$ARGS.positional`), matching real jq 1.7.1 behavior including exit codes, error messages, and prototype-sensitive key handling.
+
+- [#331](https://github.com/vercel-labs/just-bash/pull/331) [`6680247`](https://github.com/vercel-labs/just-bash/commit/66802470837cfac3a58a09e00d37b2070387ba7b) Thanks [@trieloff](https://github.com/trieloff)! - Treat a `-` FILE operand in `grep` as standard input, matching GNU. `grep PATTERN -` now reads stdin instead of failing with "No such file or directory", stdin is labelled `(standard input)` in the multi-file prefix and in `-l`/`-L`/`-c` output, repeated `-` operands see the stream drained by the first one, and `-` is exempt from `-r` recursion and `--include`/`--exclude` filtering.
+
+- [#325](https://github.com/vercel-labs/just-bash/pull/325) [`edc7f2f`](https://github.com/vercel-labs/just-bash/commit/edc7f2fac5337cebd19911c5756b76ed02e52090) Thanks [@trieloff](https://github.com/trieloff)! - Support process substitution `<(cmd)` and `>(cmd)`.
+
+  `<(cmd)` runs `cmd` and substitutes a readable `/dev/fd/N` path backed by an
+  in-memory file; `>(cmd)` substitutes a writable path whose contents are fed to
+  `cmd` once the outer command finishes. Descriptors are numbered from 63
+  downwards like bash and released when the command that opened them completes.
+  Previously any use raised `Parse error: Expected redirection target`.
+
+- [#327](https://github.com/vercel-labs/just-bash/pull/327) [`eaedb5b`](https://github.com/vercel-labs/just-bash/commit/eaedb5bc34cffd2077b88bb1ccc48ea7e0545a48) Thanks [@trieloff](https://github.com/trieloff)! - Add `grep -f FILE` / `--file=FILE` to read patterns from a file (one per line). Patterns from `-f` OR-combine with `-e` patterns and with each other, `-f -` reads patterns from stdin, empty pattern lines match every line, and an empty pattern file selects nothing (exit 1). Newline-separated `PATTERNS` operands are now split into individual patterns, and `-x` groups alternatives correctly (`^(?:a|b)$`).
+
+### Patch Changes
+
+- [#332](https://github.com/vercel-labs/just-bash/pull/332) [`4f9bdec`](https://github.com/vercel-labs/just-bash/commit/4f9bdec02edb9eb72511546b759cb7e20bc2e27e) Thanks [@trieloff](https://github.com/trieloff)! - Fix `grep -L` exit status to match GNU grep. The status reports whether a line
+  was selected, not whether a filename was printed, so `grep -L` now exits 0 when
+  every file matched (printing nothing) and 1 when no file matched (printing every
+  name) — previously these were inverted.
+
+- [#328](https://github.com/vercel-labs/just-bash/pull/328) [`65dafd5`](https://github.com/vercel-labs/just-bash/commit/65dafd55afbfa7e62642ce485787f7d65fad4961) Thanks [@trieloff](https://github.com/trieloff)! - Stop pipelines from draining the enclosing shell's stdin, so `while read …; do … | …; done < file` runs once per line again.
+
 ## 3.2.0
 
 ### Minor Changes
