@@ -20,7 +20,11 @@ import {
 } from "../security/defense-in-depth-box.js";
 import { _Proxy } from "../security/trusted-globals.js";
 import { _clearFiniteTimeout, _setTimeoutIfFinite } from "../timers.js";
-import type { ExecResult, RuntimeCommandContext } from "../types.js";
+import type {
+  ExecResult,
+  RuntimeCommand,
+  RuntimeCommandContext,
+} from "../types.js";
 import {
   handleBreak,
   handleCd,
@@ -289,6 +293,7 @@ function createRevocableCommandContext(
       coverage: context.coverage ? wrapCapability(context.coverage) : undefined,
       assignShellVariable: wrapFunction(context.assignShellVariable),
       exec: wrapFunction(context.exec),
+      origCommand: wrapFunction(context.origCommand),
       execWithInheritedStdin: wrapFunction(context.execWithInheritedStdin),
       fetch: wrapFunction(context.fetch),
       getRegisteredCommands: wrapFunction(context.getRegisteredCommands),
@@ -869,11 +874,18 @@ export async function executeExternalCommand(
     jsBootstrapCode: ctx.jsBootstrapCode,
     invokeTool: ctx.invokeTool,
   };
+  let originalCommandContext = cmdCtx;
+  const originalCommand = (cmd as RuntimeCommand).internalOriginalCommand;
+  if (originalCommand) {
+    cmdCtx.origCommand = (originalArgs) =>
+      originalCommand.execute(originalArgs, originalCommandContext);
+  }
   const revocable = createRevocableCommandContext(cmdCtx, commandName);
   const guardedCmdCtx = createDefenseAwareCommandContext(
     revocable.context,
     commandName,
   );
+  originalCommandContext = guardedCmdCtx;
 
   try {
     const runCommand = (): Promise<ExecResult> =>
