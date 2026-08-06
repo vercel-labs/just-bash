@@ -55,15 +55,14 @@ describe("sqlite3 error handling", () => {
   });
 
   describe("SQL errors without -bail", () => {
-    it("should continue after error and return exit code 0", async () => {
+    it("should continue after an error, report it on stderr, and exit 1", async () => {
       const env = new Bash();
       const result = await env.exec(
         'sqlite3 :memory: "SELECT * FROM nonexistent; SELECT 42"',
       );
-      expect(result.stdout).toContain("Error:");
-      expect(result.stdout).toContain("no such table");
-      expect(result.stdout).toContain("42");
-      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("42\n");
+      expect(result.stderr).toBe("Error: no such table: nonexistent\n");
+      expect(result.exitCode).toBe(1);
     });
 
     it("should handle multiple errors", async () => {
@@ -71,10 +70,29 @@ describe("sqlite3 error handling", () => {
       const result = await env.exec(
         'sqlite3 :memory: "SELECT * FROM bad1; SELECT * FROM bad2; SELECT 1"',
       );
-      expect(result.stdout).toMatch(/Error:.*bad1/);
-      expect(result.stdout).toMatch(/Error:.*bad2/);
-      expect(result.stdout).toContain("1");
-      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("1\n");
+      expect(result.stderr).toBe(
+        "Error: no such table: bad1\nError: no such table: bad2\n",
+      );
+      expect(result.exitCode).toBe(1);
+    });
+
+    it("should keep the error out of a redirected stdout", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        'sqlite3 -csv :memory: "SELECT * FROM nonexistent" > /out.csv; cat /out.csv',
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("Error: no such table: nonexistent\n");
+    });
+
+    it("should let && short-circuit on a failed statement", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        'sqlite3 :memory: "SELECT * FROM nonexistent" && echo reached',
+      );
+      expect(result.stdout).toBe("");
+      expect(result.exitCode).toBe(1);
     });
   });
 
@@ -128,8 +146,8 @@ describe("sqlite3 error handling", () => {
         `sqlite3 :memory: "SELECT load_extension('/tmp/evil.so')"`,
       );
       // better-sqlite3 disables load_extension by default for security
-      expect(result.stdout).toContain("Error:");
-      expect(result.stdout).toMatch(/not authorized|no such function/i);
+      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toMatch(/not authorized|no such function/i);
     });
 
     it("should block load_extension with entry point", async () => {
@@ -137,8 +155,8 @@ describe("sqlite3 error handling", () => {
       const result = await env.exec(
         `sqlite3 :memory: "SELECT load_extension('/tmp/evil.so', 'sqlite3_evil_init')"`,
       );
-      expect(result.stdout).toContain("Error:");
-      expect(result.stdout).toMatch(/not authorized|no such function/i);
+      expect(result.stderr).toContain("Error:");
+      expect(result.stderr).toMatch(/not authorized|no such function/i);
     });
   });
 });

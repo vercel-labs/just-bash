@@ -939,18 +939,16 @@ export const sqlite3Command: RuntimeCommand = {
         stdout += `${sql}\n`;
       }
 
-      // Process results
+      // Process results. Real sqlite3 reports a failed statement on stderr and
+      // exits 1 whether or not -bail is set; -bail only decides whether the
+      // remaining statements still run.
+      let stderr = "";
       let hadError = false;
-      let bailError: string | null = null;
       for (const stmtResult of result.results) {
         if (stmtResult.type === "error") {
-          if (options.bail) {
-            bailError = stmtResult.error ?? "SQL error";
-            hadError = true;
-            break;
-          }
-          stdout += `Error: ${stmtResult.error}\n`;
+          stderr += `Error: ${stmtResult.error ?? "SQL error"}\n`;
           hadError = true;
+          if (options.bail) break;
         } else if (stmtResult.columns && stmtResult.rows) {
           if (stmtResult.rows.length > 0 || options.header) {
             try {
@@ -966,7 +964,7 @@ export const sqlite3Command: RuntimeCommand = {
               const message = sanitizeErrorMessage((error as Error).message);
               return {
                 stdout,
-                stderr: `sqlite3: ${message}\n`,
+                stderr: `${stderr}sqlite3: ${message}\n`,
                 exitCode: 1,
               };
             }
@@ -992,25 +990,17 @@ export const sqlite3Command: RuntimeCommand = {
           const message = sanitizeErrorMessage((e as Error).message);
           return {
             stdout,
-            stderr: `sqlite3: failed to write database: ${message}\n`,
+            stderr: `${stderr}sqlite3: failed to write database: ${message}\n`,
             exitCode: 1,
           };
         }
       }
 
-      if (bailError !== null) {
-        return {
-          stdout,
-          stderr: `Error: ${bailError}\n`,
-          exitCode: 1,
-        };
-      }
-
       // sqlite3 emits text; the pipeline handles encoding.
       return {
         stdout,
-        stderr: "",
-        exitCode: hadError && options.bail ? 1 : 0,
+        stderr,
+        exitCode: hadError ? 1 : 0,
       };
     } finally {
       databaseLease?.release();
