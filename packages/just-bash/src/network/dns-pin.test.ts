@@ -1,9 +1,13 @@
 import dns from "node:dns";
 import { describe, expect, it } from "vitest";
-import { _createPinnedLookup, createPinnedConnectionOwner } from "./dns-pin.js";
+import {
+  _createPinnedLookup,
+  createPinnedConnectionOwner,
+  type PinnedAddress,
+} from "./dns-pin.js";
 
 function lookup(
-  pin: { hostname: string; address: string; family: 4 | 6 },
+  pin: PinnedAddress,
   hostname: string,
   options: { family?: number; all?: boolean } = {},
 ): Promise<{
@@ -19,34 +23,85 @@ function lookup(
 }
 
 describe("request-owned DNS connector lookup", () => {
-  it("returns only the reviewed address", async () => {
+  it("returns the first reviewed address", async () => {
     await expect(
       lookup(
-        { hostname: "API.Example", address: "93.184.216.34", family: 4 },
+        {
+          hostname: "API.Example",
+          addresses: [{ address: "93.184.216.34", family: 4 }],
+        },
         "api.example",
       ),
     ).resolves.toEqual({ address: "93.184.216.34", family: 4 });
   });
 
-  it("supports all=true without adding alternate addresses", async () => {
+  it("returns every reviewed address for all=true", async () => {
     await expect(
       lookup(
-        { hostname: "api.example", address: "2001:4860:4860::8888", family: 6 },
+        {
+          hostname: "api.example",
+          addresses: [
+            { address: "2001:4860:4860::8888", family: 6 },
+            { address: "8.8.8.8", family: 4 },
+          ],
+        },
         "api.example",
         { all: true },
       ),
     ).resolves.toEqual({
-      address: [{ address: "2001:4860:4860::8888", family: 6 }],
+      address: [
+        { address: "2001:4860:4860::8888", family: 6 },
+        { address: "8.8.8.8", family: 4 },
+      ],
       family: undefined,
     });
   });
 
-  it("fails closed for another hostname or address family", async () => {
-    const pin = {
+  it("selects the requested family from a dual-stack review", async () => {
+    const pin: PinnedAddress = {
+      hostname: "dualstack.example",
+      addresses: [
+        { address: "2001:4860:4860::8888", family: 6 },
+        { address: "8.8.8.8", family: 4 },
+      ],
+    };
+
+    await expect(
+      lookup(pin, "dualstack.example", { family: 4 }),
+    ).resolves.toEqual({ address: "8.8.8.8", family: 4 });
+    await expect(
+      lookup(pin, "dualstack.example", { family: 6 }),
+    ).resolves.toEqual({ address: "2001:4860:4860::8888", family: 6 });
+  });
+
+  it("filters all=true results by the requested family", async () => {
+    await expect(
+      lookup(
+        {
+          hostname: "api.example",
+          addresses: [
+            { address: "2001:4860:4860::8888", family: 6 },
+            { address: "8.8.8.8", family: 4 },
+            { address: "1.1.1.1", family: 4 },
+          ],
+        },
+        "api.example",
+        { family: 4, all: true },
+      ),
+    ).resolves.toEqual({
+      address: [
+        { address: "8.8.8.8", family: 4 },
+        { address: "1.1.1.1", family: 4 },
+      ],
+      family: undefined,
+    });
+  });
+
+  it("fails closed for another hostname or an unavailable family", async () => {
+    const pin: PinnedAddress = {
       hostname: "api.example",
-      address: "1.1.1.1",
-      family: 4,
-    } as const;
+      addresses: [{ address: "1.1.1.1", family: 4 }],
+    };
     await expect(lookup(pin, "other.example")).rejects.toMatchObject({
       code: "ENOTFOUND",
     });
@@ -58,11 +113,17 @@ describe("request-owned DNS connector lookup", () => {
   it("keeps concurrent decisions independent", async () => {
     const [first, second] = await Promise.all([
       lookup(
-        { hostname: "same.example", address: "1.1.1.1", family: 4 },
+        {
+          hostname: "same.example",
+          addresses: [{ address: "1.1.1.1", family: 4 }],
+        },
         "same.example",
       ),
       lookup(
-        { hostname: "same.example", address: "8.8.8.8", family: 4 },
+        {
+          hostname: "same.example",
+          addresses: [{ address: "8.8.8.8", family: 4 }],
+        },
         "same.example",
       ),
     ]);
@@ -74,10 +135,9 @@ describe("request-owned DNS connector lookup", () => {
 
   it("creates independent pools without patching process-global DNS", async () => {
     const originalLookup = dns.lookup;
-    const pin = {
+    const pin: PinnedAddress = {
       hostname: "pool.example",
-      address: "93.184.216.34",
-      family: 4 as const,
+      addresses: [{ address: "93.184.216.34", family: 4 }],
     };
     const [first, second] = await Promise.all([
       createPinnedConnectionOwner(pin),
