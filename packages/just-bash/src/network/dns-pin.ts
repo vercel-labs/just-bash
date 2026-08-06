@@ -36,6 +36,24 @@ export class DnsPinningUnavailableError extends Error {
   }
 }
 
+/**
+ * Both shapes a dynamic `import("undici")` can resolve to.
+ *
+ * Node resolves the package and exposes its CommonJS exports as named ones. A
+ * bundler that inlines the same module into its own graph cannot always do
+ * that, and hands back a namespace carrying the module under `default` alone.
+ */
+type UndiciNamespace =
+  | typeof import("undici")
+  | Pick<typeof import("undici"), "default">;
+
+type UndiciExports = typeof import("undici") | typeof import("undici").default;
+
+/** @internal Pure namespace normalization used by focused interop tests. */
+export function _undiciExports(namespace: UndiciNamespace): UndiciExports {
+  return "Agent" in namespace ? namespace : namespace.default;
+}
+
 type PinnedLookup = import("node:net").LookupFunction;
 
 function lookupDenied(hostname: string): NodeJS.ErrnoException {
@@ -87,8 +105,14 @@ export const createPinnedConnectionOwner: PinnedConnectionOwnerFactory = async (
 
   try {
     // This branch is removed from the browser build by __BROWSER__ folding.
-    const undici = await import("undici");
-    const agent = new undici.Agent({
+    // Read the transport off the normalized namespace: a bundled undici is
+    // reachable only through `default`, and `new undefined()` here would be
+    // reported as a runtime that cannot pin rather than as the packaging
+    // problem it is.
+    const { Agent, fetch: undiciFetch } = _undiciExports(
+      await import("undici"),
+    );
+    const agent = new Agent({
       connections: 1,
       pipelining: 0,
       connect: {
@@ -100,7 +124,7 @@ export const createPinnedConnectionOwner: PinnedConnectionOwnerFactory = async (
     return {
       async fetch(url, init) {
         if (closed) throw new DnsPinningUnavailableError();
-        const boundFetch = undici.fetch as unknown as (
+        const boundFetch = undiciFetch as unknown as (
           input: string,
           options: unknown,
         ) => Promise<unknown>;

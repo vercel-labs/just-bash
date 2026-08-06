@@ -1,6 +1,10 @@
 import dns from "node:dns";
 import { describe, expect, it } from "vitest";
-import { _createPinnedLookup, createPinnedConnectionOwner } from "./dns-pin.js";
+import {
+  _createPinnedLookup,
+  _undiciExports,
+  createPinnedConnectionOwner,
+} from "./dns-pin.js";
 
 function lookup(
   pin: { hostname: string; address: string; family: 4 | 6 },
@@ -70,6 +74,19 @@ describe("request-owned DNS connector lookup", () => {
       { address: "1.1.1.1", family: 4 },
       { address: "8.8.8.8", family: 4 },
     ]);
+  });
+
+  it("reads the transport off a bundled namespace", async () => {
+    const undici = await import("undici");
+    // What a bundler that inlined undici's CommonJS module hands back: one
+    // key, with everything the transport needs behind it. Reading `Agent`
+    // straight off this namespace is undefined, and the resulting TypeError
+    // reports as a runtime that cannot pin at all.
+    const bundled = { default: undici.default };
+
+    expect(_undiciExports(bundled).Agent).toBe(undici.Agent);
+    expect(_undiciExports(bundled).fetch).toBe(undici.fetch);
+    expect(_undiciExports(undici).Agent).toBe(undici.Agent);
   });
 
   it("creates independent pools without patching process-global DNS", async () => {
