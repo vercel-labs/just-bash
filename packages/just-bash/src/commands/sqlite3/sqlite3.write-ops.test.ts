@@ -57,8 +57,9 @@ describe("sqlite3 write operations", () => {
       const result = await env.exec(
         'sqlite3 :memory: "CREATE TABLE t(x); DROP TABLE t; SELECT * FROM t"',
       );
-      expect(result.stdout).toContain("no such table");
-      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("Error: no such table: t\n");
+      expect(result.exitCode).toBe(1);
     });
   });
 

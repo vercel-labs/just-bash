@@ -91,8 +91,9 @@ describe("sqlite3", () => {
     it("should error on SQL syntax error", async () => {
       const env = new Bash();
       const result = await env.exec('sqlite3 :memory: "SELEC * FROM t"');
-      expect(result.stdout).toContain("Error:");
-      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("Error:");
+      expect(result.exitCode).toBe(1);
     });
 
     it("should error on unknown option", async () => {
@@ -109,8 +110,9 @@ describe("sqlite3", () => {
       const result = await env.exec(
         'sqlite3 :memory: "SELECT * FROM nonexistent"',
       );
-      expect(result.stdout).toContain("no such table");
-      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("Error: no such table: nonexistent\n");
+      expect(result.exitCode).toBe(1);
     });
   });
 
