@@ -1,7 +1,11 @@
 import { minimatch } from "minimatch";
 import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { utf8ByteLength } from "../../encoding.js";
-import type { FsStat } from "../../fs/interface.js";
+import {
+  DirectoryReadLimitError,
+  type FsStat,
+  type ReaddirOptions,
+} from "../../fs/interface.js";
 import { FileTraversalBudget } from "../../fs/traversal.js";
 import {
   ExecutionAbortedError,
@@ -44,6 +48,13 @@ function joinLsLines(
   }
   if (lines.length > 0) output.append("\n");
   return output.build();
+}
+
+function getReaddirOptions(ctx: RuntimeCommandContext): ReaddirOptions {
+  return {
+    maxEntries: ctx.limits.maxTraversalEntries,
+    maxNameBytes: ctx.limits.maxOutputSize,
+  };
 }
 
 // Format size in human-readable format (e.g., 1.5K, 234M, 2G)
@@ -462,7 +473,8 @@ async function listPath(
     if (identity !== undefined) childAncestors.add(identity);
 
     // It's a directory
-    let entries = await ctx.fs.readdir(fullPath);
+    let entries = await ctx.fs.readdir(fullPath, getReaddirOptions(ctx));
+    traversalBudget.discover(entries.length);
     traversalBudget.checkpoint();
 
     // Filter hidden files unless -a or -A
@@ -619,7 +631,10 @@ async function listPath(
       let dirEntries: { name: string; isDirectory: boolean }[] = [];
 
       if (ctx.fs.readdirWithFileTypes) {
-        const entriesWithTypes = await ctx.fs.readdirWithFileTypes(fullPath);
+        const entriesWithTypes = await ctx.fs.readdirWithFileTypes(
+          fullPath,
+          getReaddirOptions(ctx),
+        );
         dirEntries = entriesWithTypes
           .filter((e) => e.isDirectory && filteredEntries.includes(e.name))
           .map((e) => ({ name: e.name, isDirectory: true }));
@@ -698,6 +713,9 @@ async function listPath(
 
     return { stdout, stderr, exitCode };
   } catch (error) {
+    if (error instanceof DirectoryReadLimitError) {
+      throw new ExecutionLimitError(`ls: ${error.message}`, "iterations");
+    }
     if (
       error instanceof ExecutionLimitError ||
       error instanceof ExecutionAbortedError

@@ -66,9 +66,11 @@ export type {
   LazyFileEntry,
   LazyFileProvider,
   MkdirOptions,
+  ReaddirOptions,
   RmOptions,
   SymlinkEntry,
 } from "./fs/interface.js";
+export { DirectoryReadLimitError } from "./fs/interface.js";
 export {
   MountableFs,
   type MountableFsOptions,

@@ -74,6 +74,19 @@ export interface DirentEntry {
   isSymbolicLink: boolean;
 }
 
+/** Limits applied while enumerating one directory. */
+export interface ReaddirOptions {
+  /** Maximum number of names retained from one directory. */
+  maxEntries?: number;
+  /** Maximum cumulative UTF-8 bytes across retained names. */
+  maxNameBytes?: number;
+}
+
+/** Raised before a directory enumeration can exceed its configured bounds. */
+export class DirectoryReadLimitError extends Error {
+  readonly name = "DirectoryReadLimitError";
+}
+
 /**
  * Stat result from the filesystem
  */
@@ -198,7 +211,7 @@ export interface IFileSystem {
    * @returns Array of entry names (not full paths)
    * @throws Error if path doesn't exist or is not a directory
    */
-  readdir(path: string): Promise<string[]>;
+  readdir(path: string, options?: ReaddirOptions): Promise<string[]>;
 
   /**
    * Read directory contents with file type information (optional)
@@ -206,7 +219,10 @@ export interface IFileSystem {
    * @returns Array of DirentEntry objects with name and type
    * @throws Error if path doesn't exist or is not a directory
    */
-  readdirWithFileTypes?(path: string): Promise<DirentEntry[]>;
+  readdirWithFileTypes?(
+    path: string,
+    options?: ReaddirOptions,
+  ): Promise<DirentEntry[]>;
 
   /**
    * Remove a file or directory

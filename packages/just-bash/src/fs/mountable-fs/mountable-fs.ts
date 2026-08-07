@@ -7,6 +7,7 @@ import type {
   FsStat,
   IFileSystem,
   MkdirOptions,
+  ReaddirOptions,
   ReadFileOptions,
   RmOptions,
   WriteFileOptions,
@@ -415,7 +416,7 @@ export class MountableFs implements IFileSystem {
     return fs.mkdir(relativePath, options);
   }
 
-  async readdir(path: string): Promise<string[]> {
+  async readdir(path: string, options?: ReaddirOptions): Promise<string[]> {
     const normalized = normalizePath(path);
     const entries = new Set<string>();
     let readdirError: Error | null = null;
@@ -423,7 +424,7 @@ export class MountableFs implements IFileSystem {
     // Get entries from the owning filesystem
     const { fs, relativePath } = this.routePath(path);
     try {
-      const fsEntries = await fs.readdir(relativePath);
+      const fsEntries = await fs.readdir(relativePath, options);
       for (const entry of fsEntries) {
         entries.add(entry);
       }

@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { InMemoryFs } from "../in-memory-fs/in-memory-fs.js";
+import type { ReaddirOptions } from "../interface.js";
 import { MountableFs } from "./mountable-fs.js";
+
+class ReaddirOptionsFs extends InMemoryFs {
+  seenOptions?: ReaddirOptions;
+
+  override readdir(path: string, options?: ReaddirOptions): Promise<string[]> {
+    this.seenOptions = options;
+    return super.readdir(path);
+  }
+}
 
 describe("MountableFs", () => {
   describe("mount/unmount operations", () => {
@@ -624,6 +634,17 @@ describe("MountableFs", () => {
   });
 
   describe("edge cases", () => {
+    it("forwards directory read limits through a mount", async () => {
+      const mounted = new ReaddirOptionsFs({ "/test.txt": "content" });
+      const fs = new MountableFs();
+      fs.mount("/mnt/data", mounted);
+      const options = { maxEntries: 100_000, maxNameBytes: 1024 * 1024 };
+
+      await fs.readdir("/mnt/data", options);
+
+      expect(mounted.seenOptions).toEqual(options);
+    });
+
     it("should handle trailing slashes in mount points", () => {
       const fs = new MountableFs();
       const mounted = new InMemoryFs();

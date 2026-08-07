@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DirectoryReadLimitError } from "../interface.js";
 import { ReadWriteFs } from "./read-write-fs.js";
 
 describe("ReadWriteFs", () => {
@@ -598,6 +599,31 @@ describe("ReadWriteFs", () => {
       const namesFromWithTypes = entriesWithTypes.map((e) => e.name);
 
       expect(namesFromWithTypes).toEqual(namesFromReaddir);
+    });
+
+    it("stops lazy enumeration at the entry limit", async () => {
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+      fs.writeFileSync(path.join(tempDir, "a"), "");
+      fs.writeFileSync(path.join(tempDir, "b"), "");
+      fs.writeFileSync(path.join(tempDir, "c"), "");
+
+      await expect(rwfs.readdir("/", { maxEntries: 2 })).rejects.toThrowError(
+        new DirectoryReadLimitError(
+          "directory entry limit exceeded (2), scandir '/'",
+        ),
+      );
+    });
+
+    it("stops lazy enumeration at the cumulative filename byte limit", async () => {
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+      fs.writeFileSync(path.join(tempDir, "😀"), "");
+      fs.writeFileSync(path.join(tempDir, "😀😀"), "");
+
+      await expect(rwfs.readdir("/", { maxNameBytes: 8 })).rejects.toThrowError(
+        new DirectoryReadLimitError(
+          "directory name size limit exceeded (8 bytes), scandir '/'",
+        ),
+      );
     });
   });
 });

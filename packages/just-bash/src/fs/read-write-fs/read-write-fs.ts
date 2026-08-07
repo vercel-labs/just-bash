@@ -26,10 +26,12 @@ import type {
   FsStat,
   IFileSystem,
   MkdirOptions,
+  ReaddirOptions,
   ReadFileOptions,
   RmOptions,
   WriteFileOptions,
 } from "../interface.js";
+import { DirectoryReadLimitError } from "../interface.js";
 import { resolvePath as resolveVPath } from "../path-utils.js";
 import {
   isPathWithinRoot,
@@ -356,12 +358,15 @@ export class ReadWriteFs implements IFileSystem {
     }
   }
 
-  async readdir(path: string): Promise<string[]> {
-    const entries = await this.readdirWithFileTypes(path);
+  async readdir(path: string, options?: ReaddirOptions): Promise<string[]> {
+    const entries = await this.readdirWithFileTypes(path, options);
     return entries.map((e) => e.name);
   }
 
-  async readdirWithFileTypes(path: string): Promise<DirentEntry[]> {
+  async readdirWithFileTypes(
+    path: string,
+    options?: ReaddirOptions,
+  ): Promise<DirentEntry[]> {
     validatePath(path, "scandir");
     const realPath = this.toRealPath(path);
     const canonical = this.resolveAndValidate(realPath, path);
@@ -377,18 +382,42 @@ export class ReadWriteFs implements IFileSystem {
           throw new Error(`EACCES: permission denied, '${path}' is a symlink`);
         }
       }
-      const entries = await fs.promises.readdir(canonical, {
-        withFileTypes: true,
-      });
-      return entries
-        .map((dirent) => ({
+      const entries: DirentEntry[] = [];
+      let nameBytes = 0;
+      const directory = await fs.promises.opendir(canonical);
+
+      for await (const dirent of directory) {
+        if (
+          options?.maxEntries !== undefined &&
+          entries.length >= options.maxEntries
+        ) {
+          throw new DirectoryReadLimitError(
+            `directory entry limit exceeded (${options.maxEntries}), scandir '${path}'`,
+          );
+        }
+
+        nameBytes += Buffer.byteLength(dirent.name, "utf8");
+        if (
+          options?.maxNameBytes !== undefined &&
+          nameBytes > options.maxNameBytes
+        ) {
+          throw new DirectoryReadLimitError(
+            `directory name size limit exceeded (${options.maxNameBytes} bytes), scandir '${path}'`,
+          );
+        }
+
+        entries.push({
           name: dirent.name,
           isFile: dirent.isFile(),
           isDirectory: dirent.isDirectory(),
           isSymbolicLink: dirent.isSymbolicLink(),
-        }))
-        .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+        });
+      }
+      return entries.sort((a, b) =>
+        a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+      );
     } catch (e) {
+      if (e instanceof DirectoryReadLimitError) throw e;
       const err = e as NodeJS.ErrnoException;
       if (err.code === "ENOENT") {
         throw new Error(`ENOENT: no such file or directory, scandir '${path}'`);
