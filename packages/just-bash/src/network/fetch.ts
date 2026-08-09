@@ -236,9 +236,8 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
 
   function validatedPinnedAddress(
     url: string,
-    hostname: string,
     result: DnsLookupResult,
-  ): PinnedAddress {
+  ): PinnedAddress["addresses"][number] {
     const { address, family } = result;
     if (addressFamily(address) !== family) {
       throw new NetworkAccessDeniedError(
@@ -247,14 +246,15 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
       );
     }
 
-    return { hostname, address, family };
+    return { address, family };
   }
 
   /**
    * Checks if a URL is allowed by the configuration and, when
-   * denyPrivateRanges is on, returns the validated DNS result so the
-   * actual fetch can be pinned to that exact address (defeats DNS
-   * rebinding between the preflight check and connection).
+   * denyPrivateRanges is on, returns every validated DNS result so the
+   * actual fetch can be pinned to that reviewed address set (defeats DNS
+   * rebinding between the preflight check and connection while preserving
+   * dual-stack fallback).
    *
    * @throws NetworkAccessDeniedError if the URL is not allowed
    */
@@ -313,7 +313,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     }
 
     const validated = addresses.map((result) =>
-      validatedPinnedAddress(url, hostname, result),
+      validatedPinnedAddress(url, result),
     );
     for (const { address } of validated) {
       if (isPrivateIp(address)) {
@@ -323,7 +323,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
         );
       }
     }
-    return validated[0];
+    return { hostname, addresses: validated };
   }
 
   /**

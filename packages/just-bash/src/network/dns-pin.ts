@@ -2,8 +2,8 @@
  * Request-owned connection binding for DNS-reviewed HTTP requests.
  *
  * Each owner has a private Undici Agent whose connector resolves exactly one
- * hostname to exactly one preflight-reviewed address. The Agent is never
- * shared between requests or redirect hops, so an existing origin pool cannot
+ * hostname to its preflight-reviewed addresses. The Agent is never shared
+ * between requests or redirect hops, so an existing origin pool cannot
  * substitute a socket opened under a different DNS decision.
  *
  * The browser build removes the Node-only `undici` branch and edge runtimes
@@ -16,8 +16,14 @@ const IS_BROWSER = typeof __BROWSER__ !== "undefined" && __BROWSER__;
 
 export interface PinnedAddress {
   hostname: string;
-  address: string;
-  family: 4 | 6;
+  /**
+   * All public addresses validated at preflight. The connector lookup filters
+   * this list by the requested family at connect time, so callers that ask for
+   * IPv4 or IPv6 get a matching address whenever one was reviewed. Multiple
+   * addresses of the same family are preserved verbatim; every returned value
+   * is safe to use because each was validated as public.
+   */
+  addresses: { address: string; family: 4 | 6 }[];
 }
 
 export interface PinnedConnectionOwner {
@@ -58,26 +64,32 @@ export function _createPinnedLookup(pinned: PinnedAddress): PinnedLookup {
         : options.family === "IPv6"
           ? 6
           : options.family;
+    const matching =
+      requestedFamily === undefined || requestedFamily === 0
+        ? pinned.addresses
+        : pinned.addresses.filter((a) => a.family === requestedFamily);
+
     if (
       hostname.toLowerCase() !== pinned.hostname.toLowerCase() ||
-      (requestedFamily !== undefined &&
-        requestedFamily !== 0 &&
-        requestedFamily !== pinned.family)
+      matching.length === 0
     ) {
       callback(lookupDenied(hostname), "");
       return;
     }
 
     if (options.all) {
-      callback(null, [{ address: pinned.address, family: pinned.family }]);
+      callback(
+        null,
+        matching.map(({ address, family }) => ({ address, family })),
+      );
     } else {
-      callback(null, pinned.address, pinned.family);
+      callback(null, matching[0].address, matching[0].family);
     }
   };
 }
 
 /**
- * Create a disposable transport whose pool identity is the reviewed address.
+ * Create a disposable transport whose pool identity is the reviewed address set.
  * The returned owner must be closed after the response body is consumed.
  */
 export const createPinnedConnectionOwner: PinnedConnectionOwnerFactory = async (

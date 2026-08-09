@@ -63,8 +63,33 @@ describe("secureFetch request-owned connection binding", () => {
     expect(owners.pins).toEqual([
       {
         hostname: "same-origin.example",
-        address: "93.184.216.34",
-        family: 4,
+        addresses: [{ address: "93.184.216.34", family: 4 }],
+      },
+    ]);
+    expect(owners.closed).toEqual([1]);
+  });
+
+  it("preserves every address from a dual-stack preflight", async () => {
+    const owners = fakeOwners(async () => new Response("bound"));
+    const secureFetch = createSecureFetch({
+      dangerouslyAllowFullInternetAccess: true,
+      denyPrivateRanges: true,
+      _dnsResolve: async () => [
+        { address: "2001:4860:4860::8888", family: 6 },
+        { address: "8.8.8.8", family: 4 },
+      ],
+      _createConnectionOwner: owners.factory,
+    });
+
+    const result = await secureFetch("https://dualstack.example/path");
+    expect(result.status).toBe(200);
+    expect(owners.pins).toEqual([
+      {
+        hostname: "dualstack.example",
+        addresses: [
+          { address: "2001:4860:4860::8888", family: 6 },
+          { address: "8.8.8.8", family: 4 },
+        ],
       },
     ]);
     expect(owners.closed).toEqual([1]);
@@ -73,7 +98,7 @@ describe("secureFetch request-owned connection binding", () => {
   it("keeps concurrent pins for the same hostname in separate owners", async () => {
     let resolution = 0;
     const owners = fakeOwners(
-      async (_url, _init, pin) => new Response(pin.address),
+      async (_url, _init, pin) => new Response(pin.addresses[0].address),
     );
     const secureFetch = createSecureFetch({
       dangerouslyAllowFullInternetAccess: true,
@@ -95,7 +120,7 @@ describe("secureFetch request-owned connection binding", () => {
     expect(
       results.map((result) => new TextDecoder().decode(result.body)),
     ).toEqual(["1.1.1.1", "8.8.8.8"]);
-    expect(owners.pins.map((pin) => pin.address)).toEqual([
+    expect(owners.pins.map((pin) => pin.addresses[0].address)).toEqual([
       "1.1.1.1",
       "8.8.8.8",
     ]);
@@ -110,7 +135,7 @@ describe("secureFetch request-owned connection binding", () => {
           headers: { location: "https://second.example/landing" },
         });
       }
-      return new Response(pin.address);
+      return new Response(pin.addresses[0].address);
     });
     const secureFetch = createSecureFetch({
       allowedUrlPrefixes: ["https://first.example", "https://second.example"],
@@ -127,7 +152,7 @@ describe("secureFetch request-owned connection binding", () => {
     const result = await secureFetch("https://first.example/start");
 
     expect(new TextDecoder().decode(result.body)).toBe("1.1.1.1");
-    expect(owners.pins.map((pin) => pin.address)).toEqual([
+    expect(owners.pins.map((pin) => pin.addresses[0].address)).toEqual([
       "8.8.8.8",
       "1.1.1.1",
     ]);
