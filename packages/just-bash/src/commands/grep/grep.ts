@@ -14,6 +14,7 @@ import {
   type RegexMode,
   searchContent,
 } from "../search-engine/index.js";
+
 /**
  * The name GNU grep prints for the `-` operand. It appears wherever a real
  * file name would: the multi-file `file:line` prefix, `-l`/`-L` listings and
@@ -361,13 +362,15 @@ export const grepCommand: RuntimeCommand = {
       }
       patterns.push(...splitPatternOperand(positionalPattern));
     } else {
-      patterns.splice(0, patterns.length, ...patterns.flatMap(splitPatternOperand));
+      patterns.splice(
+        0,
+        patterns.length,
+        ...patterns.flatMap(splitPatternOperand),
+      );
     }
 
     // Collect patterns: -e/positional first, then each -f file in order.
     // All of them OR-combine, exactly like GNU grep.
-    const patterns: string[] =
-      pattern === null ? [] : splitPatternOperand(pattern);
     /** True once `-f -` has drained stdin, so it can't also be searched. */
     let stdinUsedForPatterns = false;
     for (const patternFile of patternFiles) {
