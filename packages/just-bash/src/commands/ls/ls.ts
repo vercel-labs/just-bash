@@ -196,9 +196,7 @@ export const lsCommand: RuntimeCommand = {
             const mode = stat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
             const suffix = classifyFiles
               ? classifySuffix(await ctx.fs.lstat(fullPath))
-              : stat.isDirectory
-                ? "/"
-                : "";
+              : "";
             const size = stat.size ?? 0;
             const sizeStr = humanReadable
               ? formatHumanSize(size).padStart(5)
@@ -516,9 +514,7 @@ async function listPath(
               const mode = entryStat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
               const suffix = classifyFiles
                 ? classifySuffix(await ctx.fs.lstat(entryPath))
-                : entryStat.isDirectory
-                  ? "/"
-                  : "";
+                : "";
               const size = entryStat.size ?? 0;
               const sizeStr = humanReadable
                 ? formatHumanSize(size).padStart(5)

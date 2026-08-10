@@ -1,0 +1,22 @@
+{
+  "5459ae704ce5d38a": {
+    "command": "ls -1",
+    "files": {
+      "dir1/x.txt": "c\n",
+      "f1.txt": "a\n"
+    },
+    "stdout": "dir1\nf1.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5ea97f22a87a48b3": {
+    "command": "ls -1F",
+    "files": {
+      "dir1/x.txt": "c\n",
+      "f1.txt": "a\n"
+    },
+    "stdout": "dir1/\nf1.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

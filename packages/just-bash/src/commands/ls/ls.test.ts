@@ -70,11 +70,22 @@ describe("ls", () => {
     expect(result.stderr).toBe("");
   });
 
-  it("should show directory indicator in long format", async () => {
+  it("should mark a directory in the mode column, not with a suffix", async () => {
     const env = new Bash({
       files: { "/dir/subdir/file.txt": "" },
     });
     const result = await env.exec("ls -l /dir");
+    expect(result.stdout).toMatch(
+      /^total 1\ndrwxr-xr-x 1 user user\s+0 \w{3}\s+\d+\s+[\d:]+\s+subdir\n$/,
+    );
+    expect(result.stderr).toBe("");
+  });
+
+  it("should show the directory indicator in long format with -F", async () => {
+    const env = new Bash({
+      files: { "/dir/subdir/file.txt": "" },
+    });
+    const result = await env.exec("ls -lF /dir");
     expect(result.stdout).toMatch(
       /^total 1\ndrwxr-xr-x 1 user user\s+0 \w{3}\s+\d+\s+[\d:]+\s+subdir\/\n$/,
     );
