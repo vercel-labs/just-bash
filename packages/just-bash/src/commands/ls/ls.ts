@@ -1,4 +1,3 @@
-import { minimatch } from "minimatch";
 import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { utf8ByteLength } from "../../encoding.js";
 import type { FsStat } from "../../fs/interface.js";
@@ -229,172 +228,31 @@ export const lsCommand: RuntimeCommand = {
         continue;
       }
 
-      // Check if it's a glob pattern
-      if (path.includes("*") || path.includes("?") || path.includes("[")) {
-        const result = await listGlob(
-          path,
-          ctx,
-          showAll,
-          showAlmostAll,
-          longFormat,
-          reverse,
-          humanReadable,
-          sortBySize,
-          classifyFiles,
-          traversalBudget,
-        );
-        stdout = appendLsOutput(ctx, stdout, result.stdout);
-        stderr = appendLsOutput(ctx, stderr, result.stderr);
-        if (result.exitCode !== 0) exitCode = result.exitCode;
-      } else {
-        const result = await listPath(
-          path,
-          ctx,
-          showAll,
-          showAlmostAll,
-          longFormat,
-          recursive,
-          paths.length > 1,
-          reverse,
-          humanReadable,
-          sortBySize,
-          classifyFiles,
-          false,
-          traversalBudget,
-          0,
-          new Set(),
-        );
-        stdout = appendLsOutput(ctx, stdout, result.stdout);
-        stderr = appendLsOutput(ctx, stderr, result.stderr);
-        if (result.exitCode !== 0) exitCode = result.exitCode;
-      }
+      const result = await listPath(
+        path,
+        ctx,
+        showAll,
+        showAlmostAll,
+        longFormat,
+        recursive,
+        paths.length > 1,
+        reverse,
+        humanReadable,
+        sortBySize,
+        classifyFiles,
+        false,
+        traversalBudget,
+        0,
+        new Set(),
+      );
+      stdout = appendLsOutput(ctx, stdout, result.stdout);
+      stderr = appendLsOutput(ctx, stderr, result.stderr);
+      if (result.exitCode !== 0) exitCode = result.exitCode;
     }
 
     return { stdout, stderr, exitCode };
   },
 };
-
-async function listGlob(
-  pattern: string,
-  ctx: RuntimeCommandContext,
-  showAll: boolean,
-  showAlmostAll: boolean,
-  longFormat: boolean,
-  reverse: boolean = false,
-  humanReadable: boolean = false,
-  sortBySize: boolean = false,
-  classifyFiles: boolean = false,
-  traversalBudget?: FileTraversalBudget,
-): Promise<ExecResult> {
-  const showHidden = showAll || showAlmostAll;
-  const allPaths = ctx.fs.getAllPaths();
-  const basePath = ctx.fs.resolvePath(ctx.cwd, ".");
-
-  const matches: string[] = [];
-  for (const p of allPaths) {
-    traversalBudget?.visit(p.split("/").length - 1);
-    const isWithinBase =
-      p === basePath || basePath === "/" || p.startsWith(`${basePath}/`);
-    const relativePath = isWithinBase
-      ? p.slice(basePath === "/" ? 1 : basePath.length + 1) || p
-      : p;
-
-    if (minimatch(relativePath, pattern) || minimatch(p, pattern)) {
-      // Filter hidden files unless showHidden
-      const basename = relativePath.split("/").pop() || relativePath;
-      if (!showHidden && basename.startsWith(".")) {
-        continue;
-      }
-      matches.push(relativePath || p);
-    }
-  }
-
-  if (matches.length === 0) {
-    return {
-      stdout: "",
-      stderr: `ls: ${pattern}: No such file or directory\n`,
-      exitCode: 2,
-    };
-  }
-
-  // Sort by size if -S flag, otherwise alphabetically
-  if (sortBySize) {
-    const matchesWithSize: { path: string; size: number }[] = [];
-    for (const match of matches) {
-      const fullPath = ctx.fs.resolvePath(ctx.cwd, match);
-      try {
-        const stat = await ctx.fs.stat(fullPath);
-        matchesWithSize.push({ path: match, size: stat.size ?? 0 });
-      } catch {
-        matchesWithSize.push({ path: match, size: 0 });
-      }
-    }
-    matchesWithSize.sort((a, b) => b.size - a.size); // largest first
-    matches.length = 0;
-    matches.push(...matchesWithSize.map((m) => m.path));
-  } else {
-    matches.sort();
-  }
-  if (reverse) {
-    matches.reverse();
-  }
-
-  if (longFormat) {
-    const lines: string[] = [];
-    for (const match of matches) {
-      const fullPath = ctx.fs.resolvePath(ctx.cwd, match);
-      try {
-        const stat = await ctx.fs.stat(fullPath);
-        const mode = stat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
-        const suffix = classifyFiles
-          ? classifySuffix(await ctx.fs.lstat(fullPath))
-          : stat.isDirectory
-            ? "/"
-            : "";
-        const size = stat.size ?? 0;
-        const sizeStr = humanReadable
-          ? formatHumanSize(size).padStart(5)
-          : String(size).padStart(5);
-        const mtime = stat.mtime ?? new Date(0);
-        const dateStr = formatDate(mtime);
-        lines.push(
-          `${mode} 1 user user ${sizeStr} ${dateStr} ${match}${suffix}`,
-        );
-      } catch {
-        lines.push(`-rw-r--r-- 1 user user     0 Jan  1 00:00 ${match}`);
-      }
-    }
-    return {
-      stdout: joinLsLines(ctx, lines),
-      stderr: "",
-      exitCode: 0,
-    };
-  }
-
-  if (classifyFiles) {
-    const classified: string[] = [];
-    for (const match of matches) {
-      const fullPath = ctx.fs.resolvePath(ctx.cwd, match);
-      try {
-        const stat = await ctx.fs.lstat(fullPath);
-        classified.push(`${match}${classifySuffix(stat)}`);
-      } catch {
-        classified.push(match);
-      }
-    }
-    return {
-      stdout: joinLsLines(ctx, classified),
-      stderr: "",
-      exitCode: 0,
-    };
-  }
-
-  return {
-    stdout: joinLsLines(ctx, matches),
-    stderr: "",
-    exitCode: 0,
-  };
-}
 
 async function listPath(
   path: string,
