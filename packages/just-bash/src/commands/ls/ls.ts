@@ -180,16 +180,10 @@ export const lsCommand: RuntimeCommand = {
       site: "ls",
     });
 
-    for (let i = 0; i < paths.length; i++) {
-      const path = paths[i];
-
-      // Add blank line between directory listings
-      if (i > 0 && stdout && !stdout.endsWith("\n\n")) {
-        stdout = appendLsOutput(ctx, stdout, "\n");
-      }
-
-      // With -d flag, just list the directories/files themselves, not their contents
-      if (directoryOnly) {
+    // With -d every operand names itself, so there is nothing to group: the
+    // whole list is one block of names in sort order.
+    if (directoryOnly) {
+      for (const path of await sortOperands(paths, ctx, sortBySize, reverse)) {
         const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
         try {
           const stat = await ctx.fs.stat(fullPath);
@@ -225,9 +219,34 @@ export const lsCommand: RuntimeCommand = {
           );
           exitCode = 2;
         }
-        continue;
       }
+      return { stdout, stderr, exitCode };
+    }
 
+    // Operands are partitioned before anything is listed: everything that is
+    // not a directory prints first as a single block, then each directory
+    // prints its contents under a label. Only the directory groups are
+    // separated by a blank line.
+    const fileOperands: string[] = [];
+    const dirOperands: string[] = [];
+    for (const path of paths) {
+      try {
+        const stat = await ctx.fs.stat(ctx.fs.resolvePath(ctx.cwd, path));
+        (stat.isDirectory ? dirOperands : fileOperands).push(path);
+      } catch {
+        stderr = appendLsOutput(
+          ctx,
+          stderr,
+          `ls: ${path}: No such file or directory\n`,
+        );
+        exitCode = 2;
+      }
+    }
+
+    const listOperand = async (
+      path: string,
+      showHeader: boolean,
+    ): Promise<void> => {
       const result = await listPath(
         path,
         ctx,
@@ -235,7 +254,7 @@ export const lsCommand: RuntimeCommand = {
         showAlmostAll,
         longFormat,
         recursive,
-        paths.length > 1,
+        showHeader,
         reverse,
         humanReadable,
         sortBySize,
@@ -248,11 +267,60 @@ export const lsCommand: RuntimeCommand = {
       stdout = appendLsOutput(ctx, stdout, result.stdout);
       stderr = appendLsOutput(ctx, stderr, result.stderr);
       if (result.exitCode !== 0) exitCode = result.exitCode;
+    };
+
+    for (const path of await sortOperands(
+      fileOperands,
+      ctx,
+      sortBySize,
+      reverse,
+    )) {
+      await listOperand(path, false);
+    }
+
+    // A lone directory operand is listed bare; anything else labels it.
+    const labelDirectories = paths.length > 1;
+    for (const path of await sortOperands(
+      dirOperands,
+      ctx,
+      sortBySize,
+      reverse,
+    )) {
+      if (stdout) stdout = appendLsOutput(ctx, stdout, "\n");
+      await listOperand(path, labelDirectories);
     }
 
     return { stdout, stderr, exitCode };
   },
 };
+
+// Operands carry the same sort order as directory entries do.
+async function sortOperands(
+  paths: readonly string[],
+  ctx: RuntimeCommandContext,
+  sortBySize: boolean,
+  reverse: boolean,
+): Promise<string[]> {
+  const sorted = [...paths];
+
+  if (sortBySize) {
+    const sizes = new Map<string, number>();
+    for (const path of sorted) {
+      try {
+        const stat = await ctx.fs.stat(ctx.fs.resolvePath(ctx.cwd, path));
+        sizes.set(path, stat.size ?? 0);
+      } catch {
+        sizes.set(path, 0);
+      }
+    }
+    sorted.sort((a, b) => (sizes.get(b) ?? 0) - (sizes.get(a) ?? 0));
+  } else {
+    sorted.sort();
+  }
+
+  if (reverse) sorted.reverse();
+  return sorted;
+}
 
 async function listPath(
   path: string,
