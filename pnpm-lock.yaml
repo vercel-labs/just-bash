@@ -174,9 +174,6 @@ importers:
       ini:
         specifier: ^6.0.0
         version: 6.0.0
-      minimatch:
-        specifier: ^10.2.6
-        version: 10.2.6
       modern-tar:
         specifier: ^0.7.7
         version: 0.7.7
