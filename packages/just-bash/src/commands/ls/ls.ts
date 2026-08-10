@@ -119,6 +119,8 @@ const lsHelp = {
   ],
 };
 
+type SortKey = "name" | "size" | "time";
+
 const argDefs = {
   showAll: { short: "a", long: "all", type: "boolean" as const },
   showAlmostAll: { short: "A", long: "almost-all", type: "boolean" as const },
@@ -157,10 +159,13 @@ export const lsCommand: RuntimeCommand = {
     const humanReadable = parsed.result.flags.humanReadable;
     const recursive = parsed.result.flags.recursive;
     const reverse = parsed.result.flags.reverse;
-    const sortBySize = parsed.result.flags.sortBySize;
     const classifyFiles = parsed.result.flags.classifyFiles;
     const directoryOnly = parsed.result.flags.directoryOnly;
-    const _sortByTime = parsed.result.flags.sortByTime;
+    const sortKey = resolveSortKey(
+      args,
+      parsed.result.flags.sortBySize,
+      parsed.result.flags.sortByTime,
+    );
     // Note: onePerLine is accepted but implicit in our output
     void parsed.result.flags.onePerLine;
 
@@ -183,7 +188,7 @@ export const lsCommand: RuntimeCommand = {
     // With -d every operand names itself, so there is nothing to group: the
     // whole list is one block of names in sort order.
     if (directoryOnly) {
-      for (const path of await sortOperands(paths, ctx, sortBySize, reverse)) {
+      for (const path of await sortOperands(paths, ctx, sortKey, reverse)) {
         const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
         try {
           const stat = await ctx.fs.stat(fullPath);
@@ -257,7 +262,7 @@ export const lsCommand: RuntimeCommand = {
         showHeader,
         reverse,
         humanReadable,
-        sortBySize,
+        sortKey,
         classifyFiles,
         false,
         traversalBudget,
@@ -272,7 +277,7 @@ export const lsCommand: RuntimeCommand = {
     for (const path of await sortOperands(
       fileOperands,
       ctx,
-      sortBySize,
+      sortKey,
       reverse,
     )) {
       await listOperand(path, false);
@@ -280,12 +285,7 @@ export const lsCommand: RuntimeCommand = {
 
     // A lone directory operand is listed bare; anything else labels it.
     const labelDirectories = paths.length > 1;
-    for (const path of await sortOperands(
-      dirOperands,
-      ctx,
-      sortBySize,
-      reverse,
-    )) {
+    for (const path of await sortOperands(dirOperands, ctx, sortKey, reverse)) {
       if (stdout) stdout = appendLsOutput(ctx, stdout, "\n");
       await listOperand(path, labelDirectories);
     }
@@ -294,28 +294,84 @@ export const lsCommand: RuntimeCommand = {
   },
 };
 
+/**
+ * -S and -t are the same kind of flag, and giving both is not an error: the
+ * one written last on the command line decides, so the choice cannot be made
+ * from the parsed booleans alone.
+ */
+function resolveSortKey(
+  args: readonly string[],
+  sortBySize: boolean,
+  sortByTime: boolean,
+): SortKey {
+  if (!sortBySize && !sortByTime) return "name";
+  if (sortBySize !== sortByTime) return sortBySize ? "size" : "time";
+
+  let last: SortKey = "name";
+  for (const arg of args) {
+    if (arg === "--") break;
+    if (!arg.startsWith("-") || arg.startsWith("--")) continue;
+    for (const flag of arg.slice(1)) {
+      if (flag === "S") last = "size";
+      else if (flag === "t") last = "time";
+    }
+  }
+  return last;
+}
+
 // Operands carry the same sort order as directory entries do.
 async function sortOperands(
   paths: readonly string[],
   ctx: RuntimeCommandContext,
-  sortBySize: boolean,
+  sortKey: SortKey,
   reverse: boolean,
 ): Promise<string[]> {
-  const sorted = [...paths];
+  return await sortNames(
+    paths,
+    (path) => ctx.fs.resolvePath(ctx.cwd, path),
+    ctx,
+    sortKey,
+    reverse,
+  );
+}
 
-  if (sortBySize) {
-    const sizes = new Map<string, number>();
-    for (const path of sorted) {
+/**
+ * Size and time both sort descending — largest and newest first — and fall
+ * back to the name when two entries tie, so a listing never depends on the
+ * order the filesystem happened to return. -r reverses the result, tiebreak
+ * included.
+ */
+async function sortNames(
+  names: readonly string[],
+  resolve: (name: string) => string,
+  ctx: RuntimeCommandContext,
+  sortKey: SortKey,
+  reverse: boolean,
+): Promise<string[]> {
+  const sorted = [...names];
+
+  if (sortKey === "name") {
+    sorted.sort();
+  } else {
+    const keys = new Map<string, number>();
+    for (const name of sorted) {
       try {
-        const stat = await ctx.fs.stat(ctx.fs.resolvePath(ctx.cwd, path));
-        sizes.set(path, stat.size ?? 0);
+        const stat = await ctx.fs.stat(resolve(name));
+        keys.set(
+          name,
+          sortKey === "size"
+            ? (stat.size ?? 0)
+            : (stat.mtime ?? new Date(0)).getTime(),
+        );
       } catch {
-        sizes.set(path, 0);
+        keys.set(name, 0);
       }
     }
-    sorted.sort((a, b) => (sizes.get(b) ?? 0) - (sizes.get(a) ?? 0));
-  } else {
-    sorted.sort();
+    sorted.sort((a, b) => {
+      const difference = (keys.get(b) ?? 0) - (keys.get(a) ?? 0);
+      if (difference !== 0) return difference;
+      return a < b ? -1 : a > b ? 1 : 0;
+    });
   }
 
   if (reverse) sorted.reverse();
@@ -332,7 +388,7 @@ async function listPath(
   showHeader: boolean,
   reverse: boolean = false,
   humanReadable: boolean = false,
-  sortBySize: boolean = false,
+  sortKey: SortKey = "name",
   classifyFiles: boolean = false,
   _isSubdir: boolean = false,
   traversalBudget: FileTraversalBudget = new FileTraversalBudget({
@@ -396,25 +452,14 @@ async function listPath(
       entries = entries.filter((e) => !e.startsWith("."));
     }
 
-    // Sort by size if -S flag, otherwise alphabetically
-    if (sortBySize) {
-      const entriesWithSize: { name: string; size: number }[] = [];
-      for (const entry of entries) {
-        const entryPath =
-          fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`;
-        try {
-          const entryStat = await ctx.fs.stat(entryPath);
-          entriesWithSize.push({ name: entry, size: entryStat.size ?? 0 });
-        } catch {
-          entriesWithSize.push({ name: entry, size: 0 });
-        }
-      }
-      entriesWithSize.sort((a, b) => b.size - a.size); // largest first
-      entries = entriesWithSize.map((e) => e.name);
-    } else {
-      // Sort entries (already sorted by readdir, but ensure consistent order)
-      entries.sort();
-    }
+    // -S and -t need each entry's metadata; plain name order does not.
+    entries = await sortNames(
+      entries,
+      (entry) => (fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`),
+      ctx,
+      sortKey,
+      false,
+    );
 
     // Add . and .. entries for -a flag (but not for -A)
     if (showAll) {
@@ -594,7 +639,7 @@ async function listPath(
               false,
               reverse,
               humanReadable,
-              sortBySize,
+              sortKey,
               classifyFiles,
               true,
               traversalBudget,

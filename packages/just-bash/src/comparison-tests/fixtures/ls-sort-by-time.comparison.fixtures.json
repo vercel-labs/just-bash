@@ -1,0 +1,57 @@
+{
+  "1cbc6f80570dea1b": {
+    "command": "touch -d 2020-01-01T00:00:00 big-old.txt && touch -d 2026-01-01T00:00:00 small-new.txt && touch -d 2023-01-01T00:00:00 mid-b.txt && ls -1t",
+    "files": {
+      "big-old.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+      "small-new.txt": "a\n",
+      "mid-b.txt": "bb\n"
+    },
+    "stdout": "small-new.txt\nmid-b.txt\nbig-old.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2f3d1d8dc60c9e24": {
+    "command": "touch -d 2020-01-01T00:00:00 big-old.txt && touch -d 2026-01-01T00:00:00 small-new.txt && touch -d 2023-01-01T00:00:00 mid-b.txt && ls -1tr",
+    "files": {
+      "big-old.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+      "small-new.txt": "a\n",
+      "mid-b.txt": "bb\n"
+    },
+    "stdout": "big-old.txt\nmid-b.txt\nsmall-new.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "aedbe72732767e65": {
+    "command": "touch -d 2020-01-01T00:00:00 big-old.txt && touch -d 2026-01-01T00:00:00 small-new.txt && touch -d 2023-01-01T00:00:00 mid-b.txt && ls -1t big-old.txt small-new.txt",
+    "files": {
+      "big-old.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+      "small-new.txt": "a\n",
+      "mid-b.txt": "bb\n"
+    },
+    "stdout": "small-new.txt\nbig-old.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bbec30638d2d34a6": {
+    "command": "touch -d 2020-01-01T00:00:00 big-old.txt && touch -d 2026-01-01T00:00:00 small-new.txt && touch -d 2023-01-01T00:00:00 mid-b.txt && ls -1tS",
+    "files": {
+      "big-old.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+      "small-new.txt": "a\n",
+      "mid-b.txt": "bb\n"
+    },
+    "stdout": "big-old.txt\nmid-b.txt\nsmall-new.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bd7d56b28256aa01": {
+    "command": "touch -d 2020-01-01T00:00:00 big-old.txt && touch -d 2026-01-01T00:00:00 small-new.txt && touch -d 2023-01-01T00:00:00 mid-b.txt && ls -1St",
+    "files": {
+      "big-old.txt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+      "small-new.txt": "a\n",
+      "mid-b.txt": "bb\n"
+    },
+    "stdout": "small-new.txt\nmid-b.txt\nbig-old.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
