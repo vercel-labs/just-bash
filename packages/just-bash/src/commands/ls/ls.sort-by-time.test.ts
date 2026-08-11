@@ -92,3 +92,34 @@ describe("ls -t sorts by modification time", () => {
     expect(result.stdout).toBe("small-new.txt\nbig-old.txt\n");
   });
 });
+
+describe("ls -R orders sections by the active sort key", () => {
+  const NESTED = {
+    "/w/aaa/f": "",
+    "/w/zzz/f": "",
+  };
+
+  async function stamped() {
+    const bash = new Bash({ cwd: "/w", files: NESTED });
+    const setup = await bash.exec(
+      "touch -d 2020-01-01 /w/aaa && touch -d 2026-01-01 /w/zzz",
+    );
+    expect(setup.exitCode).toBe(0);
+    return bash;
+  }
+
+  it("emits the newest section first under -Rt", async () => {
+    const result = await (await stamped()).exec("ls -Rt /w");
+    expect(result.stdout).toBe("/w:\nzzz\naaa\n\n/w/zzz:\nf\n\n/w/aaa:\nf\n");
+  });
+
+  it("keeps name order under plain -R", async () => {
+    const result = await (await stamped()).exec("ls -R /w");
+    expect(result.stdout).toBe("/w:\naaa\nzzz\n\n/w/aaa:\nf\n\n/w/zzz:\nf\n");
+  });
+
+  it("reverses the sections under -Rtr", async () => {
+    const result = await (await stamped()).exec("ls -Rtr /w");
+    expect(result.stdout).toBe("/w:\naaa\nzzz\n\n/w/aaa:\nf\n\n/w/zzz:\nf\n");
+  });
+});

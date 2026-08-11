@@ -233,6 +233,10 @@ export const lsCommand: RuntimeCommand = {
     const fileOperands: string[] = [];
     const dirOperands: string[] = [];
     for (const path of paths) {
+      // Each operand is a filesystem visit like any other, so it is charged
+      // before the stat rather than after the walk starts. A long operand list
+      // otherwise does all its work before the budget can refuse any of it.
+      traversalBudget.visit(0);
       try {
         const stat = await ctx.fs.stat(ctx.fs.resolvePath(ctx.cwd, path));
         (stat.isDirectory ? dirOperands : fileOperands).push(path);
@@ -610,11 +614,19 @@ async function listPath(
         }
       }
 
-      // Sort directory entries to maintain order
-      dirEntries.sort((a, b) => a.name.localeCompare(b.name));
-      if (reverse) {
-        dirEntries.reverse();
-      }
+      // Sections come out in the same order the entries did, so -t and -S
+      // reach the descent and not just each directory's own listing.
+      const dirOrder = await sortNames(
+        dirEntries.map((d) => d.name),
+        (name) => (fullPath === "/" ? `/${name}` : `${fullPath}/${name}`),
+        ctx,
+        sortKey,
+        reverse,
+      );
+      const dirRank = new Map(dirOrder.map((name, index) => [name, index]));
+      dirEntries.sort(
+        (a, b) => (dirRank.get(a.name) ?? 0) - (dirRank.get(b.name) ?? 0),
+      );
 
       // Process subdirectories in parallel batches
       const subResults: { name: string; result: ExecResult }[] = [];
@@ -648,11 +660,11 @@ async function listPath(
         subResults.push(...batchResults);
       }
 
-      // Sort results to maintain consistent order
-      subResults.sort((a, b) => a.name.localeCompare(b.name));
-      if (reverse) {
-        subResults.reverse();
-      }
+      // Batching resolves out of order, so restore the order settled above
+      // rather than sorting by name a second time.
+      subResults.sort(
+        (a, b) => (dirRank.get(a.name) ?? 0) - (dirRank.get(b.name) ?? 0),
+      );
 
       // Append results
       for (const { result } of subResults) {

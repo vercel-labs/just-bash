@@ -48,4 +48,17 @@ describe("command filesystem traversal budgets", () => {
       exitCode: 126,
     });
   });
+
+  // Operands are visits too: a long list would otherwise stat every one of
+  // them before the budget got a chance to refuse any of the work.
+  it("bounds ls operand resolution, not just the walk below it", async () => {
+    const bash = new Bash({
+      files: { "/root/a": "a", "/root/b": "b", "/root/c": "c" },
+      executionLimits: { maxTraversalEntries: 2 },
+    });
+
+    await expect(
+      bash.exec("ls /root/a /root/b /root/c"),
+    ).resolves.toMatchObject({ exitCode: 126 });
+  });
 });
