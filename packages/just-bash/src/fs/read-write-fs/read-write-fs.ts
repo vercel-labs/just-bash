@@ -42,7 +42,12 @@ import {
 } from "../real-fs-utils.js";
 
 /** Error patterns that are safe to pass through (contain virtual paths, not real ones). */
-const RW_PASSTHROUGH_ERRORS = ["EACCES", "escaping sandbox", "EFBIG"] as const;
+const RW_PASSTHROUGH_ERRORS = [
+  "EACCES",
+  "escaping sandbox",
+  "EFBIG",
+  "ENOTSUP",
+] as const;
 
 export interface ReadWriteFsOptions {
   /**
@@ -212,21 +217,13 @@ export class ReadWriteFs implements IFileSystem {
         );
         try {
           existingStat = await fh.stat();
-          if (existingStat.nlink <= 1) {
-            // Preserve normal open(O_TRUNC) behavior for ordinary files. In
-            // particular, this succeeds for a writable file in a directory
-            // where the caller cannot create or replace directory entries.
-            await fh.truncate(0);
-            await fh.writeFile(buffer);
-            return;
-          }
         } finally {
           await fh.close();
         }
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
       }
-      await this.replaceFile(canonical, buffer, existingStat?.mode ?? null);
+      await this.replaceFile(canonical, buffer, existingStat);
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
       if (err.code === "ELOOP") {
@@ -253,41 +250,49 @@ export class ReadWriteFs implements IFileSystem {
       await fs.promises.mkdir(dir, { recursive: true });
       // Re-validate after mkdir to catch TOCTOU parent-swap attacks
       canonical = this.resolveAndValidate(realPath, path);
-      // When symlinks disabled, use O_NOFOLLOW to prevent symlink-swap
       const noFollow = this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW;
-      const flags =
-        fs.constants.O_WRONLY |
-        fs.constants.O_CREAT |
-        fs.constants.O_APPEND |
-        noFollow;
-      const fh = await fs.promises.open(canonical, flags, 0o666);
+      let existingStat: fs.Stats | null = null;
       try {
-        const stat = await fh.stat();
-        if (stat.nlink <= 1) {
-          await fh.writeFile(buffer);
-          return;
+        const permissionHandle = await fs.promises.open(
+          canonical,
+          fs.constants.O_WRONLY | noFollow,
+        );
+        try {
+          existingStat = await permissionHandle.stat();
+        } finally {
+          await permissionHandle.close();
         }
-      } finally {
-        await fh.close();
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
       }
 
-      // Appending through a hard link would mutate every name for the inode,
-      // including names outside the sandbox. Copy the current contents into a
-      // private sibling and replace only the sandbox directory entry instead.
-      const readFlags = this.allowSymlinks
-        ? fs.constants.O_RDONLY
-        : fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW;
-      const source = await fs.promises.open(canonical, readFlags);
+      if (!existingStat) {
+        await this.replaceFile(canonical, buffer, null);
+        return;
+      }
+      if (
+        this.maxFileReadSize > 0 &&
+        existingStat.size > this.maxFileReadSize
+      ) {
+        throw new Error(
+          `EFBIG: file too large, append '${path}' (${existingStat.size} bytes, max ${this.maxFileReadSize})`,
+        );
+      }
+
+      // Copy through a no-atime handle where the platform supports it. The
+      // copy is limited to the size snapshot above, so concurrent growth
+      // cannot make this loop unbounded.
+      const source = await this.openCopySource(
+        canonical,
+        existingStat,
+        "append",
+        path,
+      );
       try {
         const stat = await source.stat();
-        if (this.maxFileReadSize > 0 && stat.size > this.maxFileReadSize) {
-          throw new Error(
-            `EFBIG: file too large, append '${path}' (${stat.size} bytes, max ${this.maxFileReadSize})`,
-          );
-        }
-        await this.replaceFile(canonical, buffer, stat.mode, {
+        await this.replaceFile(canonical, buffer, stat, {
           handle: source,
-          size: stat.size,
+          size: existingStat.size,
         });
       } finally {
         await source.close();
@@ -301,6 +306,28 @@ export class ReadWriteFs implements IFileSystem {
     }
   }
 
+  /** Open a copy source without updating atime on Linux. */
+  private async openCopySource(
+    canonical: string,
+    stat: fs.Stats,
+    operation: string,
+    virtualPath: string,
+  ): Promise<fs.promises.FileHandle> {
+    const noFollow = this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW;
+    // Node does not expose O_NOATIME on every platform. Linux defines it as
+    // octal 01000000; elsewhere reads use the platform's normal atime policy.
+    if (process.platform !== "linux" && stat.nlink > 1) {
+      throw new Error(
+        `ENOTSUP: ${operation} '${virtualPath}' cannot copy a shared inode without changing atime on this platform`,
+      );
+    }
+    const noAtime = process.platform === "linux" ? 0o1000000 : 0;
+    return fs.promises.open(
+      canonical,
+      fs.constants.O_RDONLY | noFollow | noAtime,
+    );
+  }
+
   /**
    * Commit file contents by replacing a directory entry, never by mutating
    * its existing inode. This prevents writes through host-planted hard links
@@ -309,14 +336,14 @@ export class ReadWriteFs implements IFileSystem {
   private async replaceFile(
     canonical: string,
     content: Uint8Array,
-    existingMode: number | null,
+    existingStat: Pick<fs.Stats, "mode" | "atime" | "mtime"> | null,
     source?: { handle: fs.promises.FileHandle; size: number },
     times?: { atime: Date; mtime: Date },
   ): Promise<void> {
     const dir = nodePath.dirname(canonical);
     let tempPath = "";
     let fh: fs.promises.FileHandle | null = null;
-    const createMode = existingMode === null ? 0o666 : 0o600;
+    const createMode = existingStat === null ? 0o666 : 0o600;
     for (let attempts = 0; attempts < 100; attempts++) {
       tempPath = nodePath.join(dir, `.just-bash-write-${this.transactionId++}`);
       try {
@@ -373,10 +400,15 @@ export class ReadWriteFs implements IFileSystem {
           }
         }
         await writeAt(content);
-        if (existingMode !== null) {
-          await tempHandle.chmod(existingMode & 0o777);
+        if (existingStat !== null) {
+          await tempHandle.chmod(existingStat.mode & 0o7777);
         }
-        if (times) await tempHandle.utimes(times.atime, times.mtime);
+        if (times) {
+          await tempHandle.utimes(times.atime, times.mtime);
+        } else if (existingStat !== null) {
+          const tempStat = await tempHandle.stat();
+          await tempHandle.utimes(existingStat.atime, tempStat.mtime);
+        }
       } finally {
         await tempHandle.close();
         fh = null;
@@ -1020,16 +1052,29 @@ export class ReadWriteFs implements IFileSystem {
       const fh = await fs.promises.open(canonical, flags);
       try {
         const stat = await fh.stat();
-        if (!stat.isDirectory() && stat.nlink > 1) {
+        if (!stat.isDirectory()) {
           if (this.maxFileReadSize > 0 && stat.size > this.maxFileReadSize) {
             throw new Error(
               `EFBIG: file too large, chmod '${path}' (${stat.size} bytes, max ${this.maxFileReadSize})`,
             );
           }
-          await this.replaceFile(canonical, new Uint8Array(0), mode, {
-            handle: fh,
-            size: stat.size,
-          });
+          const source = await this.openCopySource(
+            canonical,
+            stat,
+            "chmod",
+            path,
+          );
+          try {
+            await this.replaceFile(
+              canonical,
+              new Uint8Array(0),
+              { mode, atime: stat.atime, mtime: stat.mtime },
+              { handle: source, size: stat.size },
+              { atime: stat.atime, mtime: stat.mtime },
+            );
+          } finally {
+            await source.close();
+          }
           return;
         }
         await fh.chmod(mode);
@@ -1251,19 +1296,29 @@ export class ReadWriteFs implements IFileSystem {
       const fh = await fs.promises.open(canonical, flags);
       try {
         const stat = await fh.stat();
-        if (!stat.isDirectory() && stat.nlink > 1) {
+        if (!stat.isDirectory()) {
           if (this.maxFileReadSize > 0 && stat.size > this.maxFileReadSize) {
             throw new Error(
               `EFBIG: file too large, utimes '${path}' (${stat.size} bytes, max ${this.maxFileReadSize})`,
             );
           }
-          await this.replaceFile(
+          const source = await this.openCopySource(
             canonical,
-            new Uint8Array(0),
-            stat.mode,
-            { handle: fh, size: stat.size },
-            { atime, mtime },
+            stat,
+            "utimes",
+            path,
           );
+          try {
+            await this.replaceFile(
+              canonical,
+              new Uint8Array(0),
+              stat,
+              { handle: source, size: stat.size },
+              { atime, mtime },
+            );
+          } finally {
+            await source.close();
+          }
           return;
         }
         await fh.utimes(atime, mtime);

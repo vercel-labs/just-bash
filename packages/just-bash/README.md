@@ -242,6 +242,13 @@ await env.exec('echo "hello" > file.txt'); // writes to real filesystem
 
 Keep `ReadWriteFs` pointed at a workspace directory, not at the installed `just-bash` package or any other trusted runtime code. Guest-writable roots should stay separate from trusted code.
 
+`ReadWriteFs` commits file-content changes by replacing directory entries so a
+host-created hard link cannot carry writes beyond the configured root. The
+target's parent directory must therefore be writable even when overwriting an
+existing file. On Linux, source-preserving operations use `O_NOATIME`; on other
+platforms they reject already-shared inodes when copying would change metadata
+visible through another hard link.
+
 **MountableFs** - Mount multiple filesystems at different paths. Combines read-only and read-write filesystems into a unified namespace:
 
 ```typescript

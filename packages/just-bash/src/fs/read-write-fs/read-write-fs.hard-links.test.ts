@@ -51,8 +51,25 @@ describe("ReadWriteFs host-planted hard-link containment", () => {
   });
 
   it("contains append by copying and replacing the sandbox entry", async () => {
+    const originalStat = fs.statSync(outsideFile);
+    const oldAtime = new Date(originalStat.atimeMs - 60_000);
+    fs.utimesSync(outsideFile, oldAtime, originalStat.mtime);
+
+    if (process.platform !== "linux") {
+      await expect(rwfs.appendFile("/linked.txt", "-sandbox")).rejects.toThrow(
+        "ENOTSUP",
+      );
+      expect(fs.statSync(outsideFile).atimeMs).toBeCloseTo(
+        oldAtime.getTime(),
+        2,
+      );
+      expect(fs.readFileSync(linkedFile, "utf8")).toBe("outside");
+      return;
+    }
+
     await rwfs.appendFile("/linked.txt", "-sandbox");
 
+    expect(fs.statSync(outsideFile).atimeMs).toBeCloseTo(oldAtime.getTime(), 2);
     expect(fs.readFileSync(linkedFile, "utf8")).toBe("outside-sandbox");
     expect(fs.readFileSync(outsideFile, "utf8")).toBe("outside");
     expect(fs.statSync(linkedFile).ino).not.toBe(fs.statSync(outsideFile).ino);
@@ -124,18 +141,44 @@ describe("ReadWriteFs host-planted hard-link containment", () => {
   });
 
   it("contains chmod on a multiply-linked file", async () => {
-    const originalMode = fs.statSync(outsideFile).mode & 0o777;
+    const originalStat = fs.statSync(outsideFile);
+    const originalMode = originalStat.mode & 0o7777;
 
-    await rwfs.chmod("/linked.txt", 0o700);
+    if (process.platform !== "linux") {
+      await expect(rwfs.chmod("/linked.txt", 0o4755)).rejects.toThrow(
+        "ENOTSUP",
+      );
+      expect(fs.statSync(outsideFile).mode & 0o7777).toBe(originalMode);
+      return;
+    }
 
-    expect(fs.statSync(outsideFile).mode & 0o777).toBe(originalMode);
-    expect(fs.statSync(linkedFile).mode & 0o777).toBe(0o700);
+    await rwfs.chmod("/linked.txt", 0o4755);
+
+    expect(fs.statSync(outsideFile).mode & 0o7777).toBe(originalMode);
+    expect(fs.statSync(outsideFile).mtimeMs).toBe(originalStat.mtimeMs);
+    expect(fs.statSync(linkedFile).mode & 0o7777).toBe(0o4755);
+    expect(fs.statSync(linkedFile).atimeMs).toBeCloseTo(
+      originalStat.atimeMs,
+      2,
+    );
+    expect(fs.statSync(linkedFile).mtimeMs).toBeCloseTo(
+      originalStat.mtimeMs,
+      2,
+    );
     expect(fs.statSync(linkedFile).ino).not.toBe(fs.statSync(outsideFile).ino);
   });
 
   it("contains utimes on a multiply-linked file", async () => {
     const originalMtime = fs.statSync(outsideFile).mtimeMs;
     const changed = new Date(originalMtime - 60_000);
+
+    if (process.platform !== "linux") {
+      await expect(
+        rwfs.utimes("/linked.txt", changed, changed),
+      ).rejects.toThrow("ENOTSUP");
+      expect(fs.statSync(outsideFile).mtimeMs).toBe(originalMtime);
+      return;
+    }
 
     await rwfs.utimes("/linked.txt", changed, changed);
 

@@ -61,6 +61,7 @@ describe("ReadWriteFs hard-link containment through shell operations", () => {
       "",
     ],
   ])("contains %s", async (_name, script, expectedInside, expectedStdout) => {
+    if (_name === "append redirection" && process.platform !== "linux") return;
     const result = await bash.exec(script);
 
     expect(result.stdout).toBe(expectedStdout);
@@ -74,6 +75,7 @@ describe("ReadWriteFs hard-link containment through shell operations", () => {
     ["chmod", "chmod 700 linked.txt"],
     ["touch", "touch -m -t 202001010000 linked.txt"],
   ])("contains %s metadata mutation", async (_name, script) => {
+    if (process.platform !== "linux") return;
     const originalStat = fs.statSync(outsideFile);
 
     const result = await bash.exec(script);

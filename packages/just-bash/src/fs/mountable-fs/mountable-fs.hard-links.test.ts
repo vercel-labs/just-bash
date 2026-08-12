@@ -40,6 +40,7 @@ describe("MountableFs host-planted hard-link containment", () => {
 
   it("preserves containment through delegated content operations", async () => {
     await mounted.writeFile("/workspace/linked.txt", "sandbox");
+    // writeFile detached the entry, so append no longer reads a shared inode.
     await mounted.appendFile("/workspace/linked.txt", "-appended");
 
     expect(fs.readFileSync(linkedFile, "utf8")).toBe("sandbox-appended");
@@ -57,6 +58,15 @@ describe("MountableFs host-planted hard-link containment", () => {
     const originalMode = fs.statSync(outsideFile).mode & 0o777;
     const originalMtime = fs.statSync(outsideFile).mtimeMs;
     const changed = new Date(fs.statSync(outsideFile).mtimeMs - 60_000);
+
+    if (process.platform !== "linux") {
+      await expect(
+        mounted.chmod("/workspace/linked.txt", 0o700),
+      ).rejects.toThrow("ENOTSUP");
+      expect(fs.statSync(outsideFile).mode & 0o777).toBe(originalMode);
+      expect(fs.statSync(outsideFile).mtimeMs).toBe(originalMtime);
+      return;
+    }
 
     await mounted.chmod("/workspace/linked.txt", 0o700);
     await mounted.utimes("/workspace/linked.txt", changed, changed);

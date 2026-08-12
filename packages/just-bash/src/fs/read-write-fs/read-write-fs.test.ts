@@ -115,21 +115,21 @@ describe("ReadWriteFs", () => {
       );
     });
 
-    it("should overwrite a writable file without replacing its directory entry", async () => {
+    it("should fail closed when an overwrite cannot replace its directory entry", async () => {
       const dirPath = path.join(tempDir, "non-writable-dir");
       const filePath = path.join(dirPath, "writable.txt");
       fs.mkdirSync(dirPath);
       fs.writeFileSync(filePath, "original");
       fs.chmodSync(filePath, 0o666);
       fs.chmodSync(dirPath, 0o555);
-      const originalInode = fs.statSync(filePath).ino;
       const rwfs = new ReadWriteFs({ root: tempDir });
 
       try {
-        await rwfs.writeFile("/non-writable-dir/writable.txt", "modified");
+        await expect(
+          rwfs.writeFile("/non-writable-dir/writable.txt", "modified"),
+        ).rejects.toThrow();
 
-        expect(fs.readFileSync(filePath, "utf8")).toBe("modified");
-        expect(fs.statSync(filePath).ino).toBe(originalInode);
+        expect(fs.readFileSync(filePath, "utf8")).toBe("original");
       } finally {
         fs.chmodSync(dirPath, 0o755);
       }
@@ -397,6 +397,16 @@ describe("ReadWriteFs", () => {
     it("should throw ENOENT for non-existent file", async () => {
       const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       await expect(rwfs.chmod("/nonexistent", 0o755)).rejects.toThrow("ENOENT");
+    });
+
+    it("should preserve special mode bits through replacement", async () => {
+      const filePath = path.join(tempDir, "special-mode.txt");
+      fs.writeFileSync(filePath, "content");
+      const rwfs = new ReadWriteFs({ root: tempDir });
+
+      await rwfs.chmod("/special-mode.txt", 0o4755);
+
+      expect(fs.statSync(filePath).mode & 0o7777).toBe(0o4755);
     });
   });
 
