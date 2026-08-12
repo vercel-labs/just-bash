@@ -95,6 +95,18 @@ describe("serialize", () => {
     it("tilde expansion", () => roundTrip("cd ~"));
     it("tilde with user", () => roundTrip("ls ~root"));
     it("glob", () => roundTrip("ls *.txt"));
+    it("structured extglob", () =>
+      roundTrip(
+        "echo x@($(printf ')')|`printf ')'`|\"quoted|pipe\"|escaped\\|pipe|@(nested|alt))",
+      ));
+    it("structured extglob with brace expansion", () =>
+      roundTrip("echo x@(f{oo,ar}|bar)"));
+    it("preserves nested extglob syntax", () => {
+      const script =
+        "echo x@(${value:-left|right}|[a|b]|prefix{one|two,three}|final)";
+
+      expect(serialize(parse(script))).toBe(script);
+    });
     it("brace expansion words", () => roundTrip("echo {a,b,c}"));
     it("brace expansion range", () => roundTrip("echo {1..10}"));
     it("brace expansion range with step", () => roundTrip("echo {1..10..2}"));
@@ -467,5 +479,80 @@ describe("serialize", () => {
 
     it("function with redirections", () =>
       roundTrip("f() { echo hello; } > out.txt"));
+  });
+
+  describe("structured extglobs", () => {
+    it("serializes transformed alternatives instead of the stale raw pattern", () => {
+      const ast = parse("echo x@(before|after)");
+      const command = ast.statements[0].pipelines[0].commands[0];
+      if (command.type !== "SimpleCommand") {
+        throw new Error("Expected a simple command");
+      }
+      const glob = command.args[0].parts[1];
+      if (glob.type !== "Glob" || !glob.extglob) {
+        throw new Error("Expected a structured extglob");
+      }
+      const alternative = glob.extglob.alternatives[0].parts[0];
+      if (alternative.type !== "Literal") {
+        throw new Error("Expected a literal alternative");
+      }
+
+      alternative.value = "updated";
+
+      expect(serialize(ast)).toBe("echo x@(updated|after)");
+    });
+
+    it("serializes an updated public extglob pattern when metadata is stale", () => {
+      const ast = parse("echo x@(before|after)");
+      const command = ast.statements[0].pipelines[0].commands[0];
+      if (command.type !== "SimpleCommand") {
+        throw new Error("Expected a simple command");
+      }
+      const glob = command.args[0].parts[1];
+      if (glob.type !== "Glob" || !glob.extglob) {
+        throw new Error("Expected a structured extglob");
+      }
+
+      glob.pattern = "@(updated|after)";
+
+      expect(serialize(ast)).toBe("echo x@(updated|after)");
+    });
+
+    it("escapes braces added by a transformed alternative", () => {
+      const ast = parse("echo x@(before|after)");
+      const command = ast.statements[0].pipelines[0].commands[0];
+      if (command.type !== "SimpleCommand") {
+        throw new Error("Expected a simple command");
+      }
+      const glob = command.args[0].parts[1];
+      if (glob.type !== "Glob" || !glob.extglob) {
+        throw new Error("Expected a structured extglob");
+      }
+      const alternative = glob.extglob.alternatives[0].parts[0];
+      if (alternative.type !== "Literal") {
+        throw new Error("Expected a literal alternative");
+      }
+
+      alternative.value = "{foo,bar}";
+
+      expect(serialize(ast)).toBe("echo x@(\\{foo,bar\\}|after)");
+    });
+
+    it("preserves raw patterns on legacy glob nodes", () => {
+      const ast = parse("echo placeholder");
+      const command = ast.statements[0].pipelines[0].commands[0];
+      if (command.type !== "SimpleCommand") {
+        throw new Error("Expected a simple command");
+      }
+
+      command.args = [
+        {
+          type: "Word",
+          parts: [{ type: "Glob", pattern: "@(one|two)" }],
+        },
+      ];
+
+      expect(serialize(ast)).toBe("echo @(one|two)");
+    });
   });
 });

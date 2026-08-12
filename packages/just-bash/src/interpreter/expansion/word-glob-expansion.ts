@@ -14,6 +14,7 @@ import type {
   WordNode,
   WordPart,
 } from "../../ast/types.js";
+import { getCurrentExtglob } from "../../ast/types.js";
 import { GlobExpander } from "../../shell/glob.js";
 import { GlobError } from "../errors.js";
 import { appendBoundedElements } from "../helpers/bounded-array.js";
@@ -42,7 +43,11 @@ import {
   handleNamerefArrayExpansion,
   handleSimpleArrayExpansion,
 } from "./array-word-expansion.js";
-import { hasGlobPattern, unescapeGlobPattern } from "./glob-escape.js";
+import {
+  hasEscapedGlobPattern,
+  hasGlobPattern,
+  unescapeGlobPattern,
+} from "./glob-escape.js";
 import {
   handleIndirectArrayExpansion,
   handleIndirectInAlternative,
@@ -70,6 +75,7 @@ import { getArrayElements } from "./variable.js";
 import type {
   AssignPreparedDefaultFn,
   PrepareMixedParameterFn,
+  SplitWord,
 } from "./word-split.js";
 
 /**
@@ -78,6 +84,10 @@ import type {
 export interface WordGlobExpansionDeps {
   expandWordAsync: (ctx: InterpreterContext, word: WordNode) => Promise<string>;
   expandWordForGlobbing: (
+    ctx: InterpreterContext,
+    word: WordNode,
+  ) => Promise<string>;
+  expandWordWithStructuredExtglobs: (
     ctx: InterpreterContext,
     word: WordNode,
   ) => Promise<string>;
@@ -116,7 +126,7 @@ export interface WordGlobExpansionDeps {
     expandPart: (ctx: InterpreterContext, part: WordPart) => Promise<string>,
     prepareMixedParameter: PrepareMixedParameterFn,
     assignPreparedDefault: AssignPreparedDefaultFn,
-  ) => Promise<string[]>;
+  ) => Promise<SplitWord[]>;
 }
 
 /**
@@ -129,6 +139,9 @@ export async function expandWordWithGlobImpl(
 ): Promise<{ values: string[]; quoted: boolean }> {
   ctx.coverage?.hit("bash:expansion:word_glob");
   const wordParts = word.parts;
+  const hasStructuredExtglob = wordParts.some(
+    (part) => part.type === "Glob" && getCurrentExtglob(part),
+  );
   const {
     hasQuoted,
     hasCommandSub,
@@ -211,7 +224,11 @@ export async function expandWordWithGlobImpl(
     return applyGlobToValues(ctx, splitResult);
   }
 
-  const value = await deps.expandWordAsync(ctx, word);
+  const value = hasStructuredExtglob
+    ? ctx.state.options.noglob
+      ? await deps.expandWordWithStructuredExtglobs(ctx, word)
+      : await deps.expandWordForGlobbing(ctx, word)
+    : await deps.expandWordAsync(ctx, word);
   return handleFinalGlobExpansion(
     ctx,
     word,
@@ -841,16 +858,24 @@ async function expandMixedWordParts(
  */
 async function applyGlobToValues(
   ctx: InterpreterContext,
-  values: string[],
+  values: Array<string | SplitWord>,
 ): Promise<{ values: string[]; quoted: boolean }> {
-  if (ctx.state.options.noglob) {
-    return { values, quoted: false };
-  }
-
   const expandedValues: string[] = [];
-  for (const v of values) {
-    if (hasGlobPattern(v, ctx.state.shoptOptions.extglob)) {
-      const matches = await expandGlobPattern(ctx, v);
+  for (const entry of values) {
+    const { value, globPattern, shouldGlob } =
+      typeof entry === "string"
+        ? {
+            value: entry,
+            globPattern: entry,
+            shouldGlob: hasGlobPattern(entry, ctx.state.shoptOptions.extglob),
+          }
+        : entry;
+    if (!ctx.state.options.noglob && shouldGlob) {
+      const matches = await expandGlobPattern(ctx, globPattern);
+      if (matches.length === 1 && matches[0] === globPattern) {
+        expandedValues.push(value);
+        continue;
+      }
       appendBoundedElements(
         expandedValues,
         matches,
@@ -858,7 +883,7 @@ async function applyGlobToValues(
         "glob expansion",
       );
     } else {
-      expandedValues.push(v);
+      expandedValues.push(value);
     }
   }
   return { values: expandedValues, quoted: false };
@@ -915,11 +940,21 @@ async function handleFinalGlobExpansion(
   ) => Promise<string>,
 ): Promise<{ values: string[]; quoted: boolean }> {
   const hasGlobParts = wordParts.some((p) => p.type === "Glob");
+  const hasStructuredExtglob = wordParts.some(
+    (part) => part.type === "Glob" && getCurrentExtglob(part),
+  );
+  const structuredGlobPattern =
+    hasStructuredExtglob && !ctx.state.options.noglob ? value : null;
+  const unescapedValue =
+    hasStructuredExtglob && ctx.state.options.noglob
+      ? value
+      : unescapeGlobPattern(value);
 
   if (!ctx.state.options.noglob && hasGlobParts) {
-    const globPattern = await expandWordForGlobbing(ctx, word);
+    const globPattern =
+      structuredGlobPattern ?? (await expandWordForGlobbing(ctx, word));
 
-    if (hasGlobPattern(globPattern, ctx.state.shoptOptions.extglob)) {
+    if (hasEscapedGlobPattern(globPattern, ctx.state.shoptOptions.extglob)) {
       const matches = await expandGlobPattern(ctx, globPattern);
       if (matches.length > 0 && matches[0] !== globPattern) {
         return { values: matches, quoted: false };
@@ -929,7 +964,6 @@ async function handleFinalGlobExpansion(
       }
     }
 
-    const unescapedValue = unescapeGlobPattern(value);
     if (!isIfsEmpty(ctx.state.env)) {
       const ifsChars = getIfs(ctx.state.env);
       const splitValues = splitByIfsForExpansion(
@@ -949,7 +983,7 @@ async function handleFinalGlobExpansion(
   ) {
     const globPattern = await expandWordForGlobbing(ctx, word);
 
-    if (hasGlobPattern(globPattern, ctx.state.shoptOptions.extglob)) {
+    if (hasEscapedGlobPattern(globPattern, ctx.state.shoptOptions.extglob)) {
       const matches = await expandGlobPattern(ctx, globPattern);
       if (matches.length > 0 && matches[0] !== globPattern) {
         return { values: matches, quoted: false };
@@ -957,12 +991,11 @@ async function handleFinalGlobExpansion(
     }
   }
 
-  if (value === "" && !hasQuoted) {
+  if (value === "" && !hasQuoted && !hasStructuredExtglob) {
     return { values: [], quoted: false };
   }
 
   if (hasGlobParts && !hasQuoted) {
-    const unescapedValue = unescapeGlobPattern(value);
     if (!isIfsEmpty(ctx.state.env)) {
       const ifsChars = getIfs(ctx.state.env);
       const splitValues = splitByIfsForExpansion(

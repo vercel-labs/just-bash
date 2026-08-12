@@ -20,7 +20,7 @@ import { ExecutionLimitError } from "../errors.js";
 import { getIfsSeparator } from "../helpers/ifs.js";
 import { escapeRegex } from "../helpers/regex.js";
 import type { InterpreterContext } from "../types.js";
-import { patternToRegex } from "./pattern.js";
+import { expandGlobPart, patternToRegex } from "./pattern.js";
 import { applyPatternRemoval } from "./pattern-removal.js";
 
 /**
@@ -334,7 +334,7 @@ export async function handlePositionalPatternReplacement(
     for (const part of operation.pattern.parts) {
       if (part.type === "Glob") {
         regex += patternToRegex(
-          part.pattern,
+          await expandGlobPart(ctx, part, expandPart),
           true,
           ctx.state.shoptOptions.extglob,
         );
@@ -541,7 +541,11 @@ export async function handlePositionalPatternRemoval(
   if (operation.pattern) {
     for (const part of operation.pattern.parts) {
       if (part.type === "Glob") {
-        regexStr += patternToRegex(part.pattern, operation.greedy, extglob);
+        regexStr += patternToRegex(
+          await expandGlobPart(ctx, part, expandPart),
+          operation.greedy,
+          extglob,
+        );
       } else if (part.type === "Literal") {
         regexStr += patternToRegex(part.value, operation.greedy, extglob);
       } else if (part.type === "SingleQuoted" || part.type === "Escaped") {

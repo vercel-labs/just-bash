@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { WordNode } from "../ast/types.js";
 import { Bash } from "../Bash.js";
 import { parse } from "../parser/parser.js";
 import { BashTransformPipeline } from "./pipeline.js";
@@ -189,6 +190,190 @@ describe("transform", () => {
       const result = bash.transform("echo hello | cat");
       expect(result.script).toBe("echo hello | cat");
     });
+
+    it("ignores commands removed by a direct extglob pattern rewrite", () => {
+      const bash = new Bash();
+      bash.registerTransformPlugin({
+        name: "rewrite-public-extglob-pattern",
+        transform: ({ ast }) => {
+          const command = ast.statements[0].pipelines[0].commands[0];
+          if (command.type !== "SimpleCommand") {
+            throw new Error("Expected a simple command");
+          }
+          const glob = command.args[0].parts[0];
+          if (glob.type !== "Glob") {
+            throw new Error("Expected a structured extglob");
+          }
+          glob.pattern = "@(bar)";
+          return { ast };
+        },
+      });
+      bash.registerTransformPlugin(new CommandCollectorPlugin());
+
+      const result = bash.transform("echo @($(printf stale)|foo)");
+
+      expect(result.script).toBe("echo @(bar)");
+      expect(result.metadata.commands).toEqual(["echo"]);
+    });
+
+    it("collects commands from case patterns and conditional operands", () => {
+      const bash = new Bash();
+      bash.registerTransformPlugin(new CommandCollectorPlugin());
+
+      const result = bash.transform(
+        "[[ x == @($(printf conditional)) ]] && :; case x in @($(printf case))) :;; esac",
+      );
+
+      expect(result.metadata.commands).toEqual([":", "printf"]);
+    });
+  });
+
+  it("executes transformed extglobs in patterns and assignments", async () => {
+    const bash = new Bash();
+    bash.registerTransformPlugin({
+      name: "rewrite-extglob",
+      transform: ({ ast }) => {
+        const updateExtglob = (word: WordNode): void => {
+          const glob = word.parts.find((part) => part.type === "Glob");
+          if (!glob?.extglob) {
+            throw new Error("Expected a structured extglob");
+          }
+          const alternative = glob.extglob.alternatives[0].parts[0];
+          if (alternative.type !== "Literal") {
+            throw new Error("Expected a literal alternative");
+          }
+          alternative.value = "bar";
+        };
+
+        const conditional = ast.statements[1].pipelines[0].commands[0];
+        if (
+          conditional.type !== "ConditionalCommand" ||
+          conditional.expression.type !== "CondBinary"
+        ) {
+          throw new Error("Expected a binary conditional");
+        }
+        updateExtglob(conditional.expression.right);
+
+        const caseCommand = ast.statements[2].pipelines[0].commands[0];
+        if (caseCommand.type !== "Case") {
+          throw new Error("Expected a case command");
+        }
+        updateExtglob(caseCommand.items[0].patterns[0]);
+
+        const assignment = ast.statements[3].pipelines[0].commands[0];
+        if (
+          assignment.type !== "SimpleCommand" ||
+          !assignment.assignments[0].value
+        ) {
+          throw new Error("Expected an assignment value");
+        }
+        updateExtglob(assignment.assignments[0].value);
+
+        return { ast };
+      },
+    });
+
+    const result = await bash.exec(
+      'shopt -s extglob; [[ bar == @(foo) ]] && echo conditional; case bar in @(foo) ) echo case;; esac; value=@(foo); printf "%s\\n" "$value"',
+    );
+
+    expect(result.stdout).toBe("conditional\ncase\n@(bar)\n");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("executes direct extglob pattern rewrites consistently", async () => {
+    const bash = new Bash();
+    bash.registerTransformPlugin({
+      name: "rewrite-public-extglob-pattern",
+      transform: ({ ast }) => {
+        const updatePattern = (word: WordNode): void => {
+          const glob = word.parts.find((part) => part.type === "Glob");
+          if (glob?.type !== "Glob") {
+            throw new Error("Expected a structured extglob");
+          }
+          glob.pattern = "@(bar)";
+        };
+
+        const conditional = ast.statements[1].pipelines[0].commands[0];
+        if (
+          conditional.type !== "ConditionalCommand" ||
+          conditional.expression.type !== "CondBinary"
+        ) {
+          throw new Error("Expected a binary conditional");
+        }
+        updatePattern(conditional.expression.right);
+
+        const caseCommand = ast.statements[2].pipelines[0].commands[0];
+        if (caseCommand.type !== "Case") {
+          throw new Error("Expected a case command");
+        }
+        updatePattern(caseCommand.items[0].patterns[0]);
+
+        const assignment = ast.statements[3].pipelines[0].commands[0];
+        if (
+          assignment.type !== "SimpleCommand" ||
+          !assignment.assignments[0].value
+        ) {
+          throw new Error("Expected an assignment value");
+        }
+        updatePattern(assignment.assignments[0].value);
+
+        return { ast };
+      },
+    });
+
+    const script =
+      'shopt -s extglob; [[ bar == @(foo) ]] && echo conditional; case bar in @(foo) ) echo case;; esac; value=@(foo); printf "%s\\n" "$value"';
+    expect(bash.transform(script).script).toContain("@(bar)");
+
+    const result = await bash.exec(script);
+
+    expect(result.stdout).toBe("conditional\ncase\n@(bar)\n");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("executes transformed extglobs in parameter patterns", async () => {
+    const bash = new Bash();
+    bash.registerTransformPlugin({
+      name: "rewrite-pattern-extglob",
+      transform: ({ ast }) => {
+        const command = ast.statements[2].pipelines[0].commands[0];
+        if (
+          command.type !== "SimpleCommand" ||
+          command.args[1].parts[0].type !== "DoubleQuoted"
+        ) {
+          throw new Error("Expected a double-quoted parameter expansion");
+        }
+        const expansion = command.args[1].parts[0].parts[0];
+        if (
+          expansion.type !== "ParameterExpansion" ||
+          expansion.operation?.type !== "PatternRemoval"
+        ) {
+          throw new Error("Expected a pattern removal");
+        }
+        const glob = expansion.operation.pattern.parts[0];
+        if (!glob || glob.type !== "Glob" || !glob.extglob) {
+          throw new Error("Expected a structured extglob");
+        }
+        const alternative = glob.extglob.alternatives[0].parts[0];
+        if (alternative.type !== "Literal") {
+          throw new Error("Expected a literal alternative");
+        }
+        alternative.value = "bar";
+
+        return { ast };
+      },
+    });
+
+    const result = await bash.exec(
+      'shopt -s extglob; value=bar; printf "%s\\n" "${value##@(foo)}"',
+    );
+
+    expect(result.stdout).toBe("\n");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
   });
 
   describe("plugin chaining", () => {

@@ -334,154 +334,306 @@ function skipHeredocBodies(
  * @param error Error reporting function
  * @returns Index of the closing `)` in `value`
  */
+type ScanContext = CommandScanContext | ParameterScanContext;
+
+type CommandScanContext = {
+  type: "command";
+  index: number;
+  depth: number;
+  quote: "'" | '"' | undefined;
+  caseDepth: number;
+  inCasePattern: boolean;
+  wordBuffer: string;
+  pendingHeredocs: { delim: string; stripTabs: boolean }[];
+  arithDepth: number;
+};
+
+type ParameterScanContext = {
+  type: "parameter";
+  index: number;
+  depth: number;
+  quote: "'" | '"' | "$'" | undefined;
+};
+
+type ScanWorkConsumer = (count: number) => void;
+// This must exceed the parser's nesting limit so parser errors retain precedence.
+const MAX_SUBSTITUTION_SCAN_DEPTH = 1_000;
+
+const findBacktickClose = (value: string, start: number): number => {
+  for (let index = start + 1; index < value.length; index++) {
+    if (value[index] === "\\" && index + 1 < value.length) {
+      index++;
+    } else if (value[index] === "`") {
+      return index;
+    }
+  }
+  return -1;
+};
+
+const scanSubstitutionBody = (
+  value: string,
+  start: number,
+  consumeScanWork?: ScanWorkConsumer,
+): number => {
+  const contexts: ScanContext[] = [
+    {
+      type: "command",
+      index: start,
+      depth: 1,
+      quote: undefined,
+      caseDepth: 0,
+      inCasePattern: false,
+      wordBuffer: "",
+      pendingHeredocs: [],
+      arithDepth: 0,
+    },
+  ];
+
+  while (contexts.length > 0) {
+    const context = contexts[contexts.length - 1];
+    if (context.index >= value.length) return -1;
+
+    const character = value[context.index];
+    consumeScanWork?.(1);
+
+    if (context.type === "parameter") {
+      if (context.quote) {
+        if (
+          character === "\\" &&
+          context.quote !== "'" &&
+          context.index + 1 < value.length
+        ) {
+          context.index += 2;
+        } else {
+          if (character === (context.quote === "$'" ? "'" : context.quote)) {
+            context.quote = undefined;
+          }
+          context.index++;
+        }
+        continue;
+      }
+
+      if (character === "$" && value[context.index + 1] === "'") {
+        context.quote = "$'";
+        context.index += 2;
+        continue;
+      }
+      if (character === "'" || character === '"') {
+        context.quote = character;
+        context.index++;
+        continue;
+      }
+      if (character === "\\" && context.index + 1 < value.length) {
+        context.index += 2;
+        continue;
+      }
+      if (
+        character === "$" &&
+        value[context.index + 1] === "(" &&
+        value[context.index + 2] !== "("
+      ) {
+        if (contexts.length >= MAX_SUBSTITUTION_SCAN_DEPTH) return -1;
+        context.index += 2;
+        contexts.push({
+          type: "command",
+          index: context.index,
+          depth: 1,
+          quote: undefined,
+          caseDepth: 0,
+          inCasePattern: false,
+          wordBuffer: "",
+          pendingHeredocs: [],
+          arithDepth: 0,
+        });
+        continue;
+      }
+      if (character === "{") context.depth++;
+      else if (character === "}") {
+        context.depth--;
+        if (context.depth === 0) {
+          contexts.pop();
+          if (contexts.length === 0) return context.index;
+          contexts[contexts.length - 1].index = context.index + 1;
+          continue;
+        }
+      }
+      context.index++;
+      continue;
+    }
+
+    if (context.quote) {
+      if (character === "\\" && context.index + 1 < value.length) {
+        context.index += 2;
+      } else {
+        if (character === context.quote) context.quote = undefined;
+        context.index++;
+      }
+      continue;
+    }
+
+    if (
+      context.arithDepth === 0 &&
+      character === "<" &&
+      value[context.index + 1] === "<" &&
+      value[context.index + 2] !== "<"
+    ) {
+      let delimiterStart = context.index + 2;
+      let stripTabs = false;
+      if (value[delimiterStart] === "-") {
+        stripTabs = true;
+        delimiterStart++;
+      }
+      while (value[delimiterStart] === " " || value[delimiterStart] === "\t") {
+        delimiterStart++;
+      }
+      const { delim, endPos, unclosedQuote, unclosedSubstitution } =
+        readHeredocDelimiter(value, delimiterStart);
+      if (unclosedQuote || unclosedSubstitution) return -1;
+      if (delim.length > 0) {
+        context.pendingHeredocs.push({ delim, stripTabs });
+        context.wordBuffer = "";
+        context.index = endPos;
+        continue;
+      }
+    }
+
+    if (character === "\n" && context.pendingHeredocs.length > 0) {
+      const resume = skipHeredocBodies(
+        value,
+        context.index,
+        context.pendingHeredocs,
+      );
+      consumeScanWork?.(resume - context.index);
+      context.pendingHeredocs.length = 0;
+      context.wordBuffer = "";
+      context.index = resume;
+      continue;
+    }
+
+    if (character === "$" && value[context.index + 1] === "{") {
+      if (contexts.length >= MAX_SUBSTITUTION_SCAN_DEPTH) return -1;
+      context.index += 2;
+      contexts.push({
+        type: "parameter",
+        index: context.index,
+        depth: 1,
+        quote: undefined,
+      });
+      continue;
+    }
+    if (
+      character === "$" &&
+      value[context.index + 1] === "(" &&
+      value[context.index + 2] !== "("
+    ) {
+      if (contexts.length >= MAX_SUBSTITUTION_SCAN_DEPTH) return -1;
+      context.index += 2;
+      contexts.push({
+        type: "command",
+        index: context.index,
+        depth: 1,
+        quote: undefined,
+        caseDepth: 0,
+        inCasePattern: false,
+        wordBuffer: "",
+        pendingHeredocs: [],
+        arithDepth: 0,
+      });
+      continue;
+    }
+    if (character === "`") {
+      const end = findBacktickClose(value, context.index);
+      if (end === -1) return -1;
+      consumeScanWork?.(end - context.index);
+      context.wordBuffer = "";
+      context.index = end + 1;
+      continue;
+    }
+    if (character === "'") {
+      context.quote = character;
+      context.wordBuffer = "";
+      context.index++;
+      continue;
+    }
+    if (character === '"') {
+      context.quote = character;
+      context.wordBuffer = "";
+      context.index++;
+      continue;
+    }
+    if (character === "\\" && context.index + 1 < value.length) {
+      context.wordBuffer = "";
+      context.index += 2;
+      continue;
+    }
+    if (/[a-zA-Z_]/.test(character)) {
+      context.wordBuffer += character;
+      context.index++;
+      continue;
+    }
+
+    if (context.wordBuffer === "case") {
+      context.caseDepth++;
+      context.inCasePattern = false;
+    } else if (context.wordBuffer === "in" && context.caseDepth > 0) {
+      context.inCasePattern = true;
+    } else if (context.wordBuffer === "esac" && context.caseDepth > 0) {
+      context.caseDepth--;
+      context.inCasePattern = false;
+    }
+    context.wordBuffer = "";
+
+    if (character === "(" && value[context.index + 1] === "(") {
+      context.arithDepth++;
+    } else if (
+      character === ")" &&
+      value[context.index + 1] === ")" &&
+      context.arithDepth > 0
+    ) {
+      context.arithDepth--;
+    }
+
+    if (character === "(") {
+      if (!context.inCasePattern) context.depth++;
+    } else if (character === ")") {
+      if (context.inCasePattern) {
+        context.inCasePattern = false;
+      } else {
+        context.depth--;
+        if (context.depth === 0) {
+          contexts.pop();
+          if (contexts.length === 0) return context.index;
+          contexts[contexts.length - 1].index = context.index + 1;
+          continue;
+        }
+      }
+    } else if (
+      character === ";" &&
+      context.caseDepth > 0 &&
+      value[context.index + 1] === ";"
+    ) {
+      context.inCasePattern = true;
+    }
+    context.index++;
+  }
+
+  return -1;
+};
+
+export const findCommandSubstitutionEnd = (
+  value: string,
+  start: number,
+  consumeScanWork?: ScanWorkConsumer,
+): number => scanSubstitutionBody(value, start + 2, consumeScanWork);
+
 function findSubstitutionBodyEnd(
   value: string,
   cmdStart: number,
   error: ErrorFn,
 ): number {
-  let depth = 1;
-  let i = cmdStart;
-
-  // Track context for case statements
-  let inSingleQuote = false;
-  let inDoubleQuote = false;
-  let caseDepth = 0;
-  let inCasePattern = false;
-  let wordBuffer = "";
-  // Heredocs opened on the current line, in the order their bodies follow the
-  // next newline. Their bodies are literal and must be skipped without quote
-  // tracking so e.g. an apostrophe in the body isn't read as a shell quote.
-  const pendingHeredocs: { delim: string; stripTabs: boolean }[] = [];
-  // Depth of arithmetic `((...))` regions. Inside one, `<<` is the left-shift
-  // operator, not a heredoc opener, so heredoc detection is suppressed. The
-  // outer substitution is never arithmetic here (`$((` is routed to arithmetic
-  // parsing), but a nested `$((`/`((` can still appear in the command body.
-  let arithDepth = 0;
-
-  while (i < value.length && depth > 0) {
-    const c = value[i];
-
-    if (inSingleQuote) {
-      if (c === "'") inSingleQuote = false;
-    } else if (inDoubleQuote) {
-      if (c === "\\" && i + 1 < value.length) {
-        i++; // Skip escaped char
-      } else if (c === '"') {
-        inDoubleQuote = false;
-      }
-    } else {
-      // Track arithmetic `((...))` nesting so a left-shift `<<` inside it is not
-      // mistaken for a heredoc (which would otherwise swallow the rest of a
-      // multi-line arithmetic expression while scanning for the closing `)`).
-      if (c === "(" && value[i + 1] === "(") {
-        arithDepth++;
-      } else if (c === ")" && value[i + 1] === ")" && arithDepth > 0) {
-        arithDepth--;
-      }
-
-      // Heredoc operator: `<<DELIM` / `<<-DELIM` (but not the `<<<` here-string,
-      // whose operand stays on the same line and is quote-tracked normally, nor
-      // a `<<` left-shift inside arithmetic).
-      if (
-        arithDepth === 0 &&
-        c === "<" &&
-        value[i + 1] === "<" &&
-        value[i + 2] !== "<"
-      ) {
-        let p = i + 2;
-        let stripTabs = false;
-        if (value[p] === "-") {
-          stripTabs = true;
-          p++;
-        }
-        while (value[p] === " " || value[p] === "\t") {
-          p++;
-        }
-        const { delim, endPos, unclosedQuote, unclosedSubstitution } =
-          readHeredocDelimiter(value, p);
-        if (unclosedQuote) {
-          error(
-            `unexpected EOF while looking for matching \`${unclosedQuote}'`,
-          );
-        }
-        if (unclosedSubstitution) {
-          error("unexpected EOF while looking for matching `)'");
-        }
-        if (delim.length > 0) {
-          pendingHeredocs.push({ delim, stripTabs });
-          wordBuffer = "";
-          i = endPos;
-          continue;
-        }
-      }
-
-      // Newline with pending heredocs: skip their literal bodies before
-      // resuming the boundary scan past the final terminator line.
-      if (c === "\n" && pendingHeredocs.length > 0) {
-        const resume = skipHeredocBodies(value, i, pendingHeredocs);
-        pendingHeredocs.length = 0;
-        wordBuffer = "";
-        i = resume;
-        continue;
-      }
-
-      // Not in quotes
-      if (c === "'") {
-        inSingleQuote = true;
-        wordBuffer = "";
-      } else if (c === '"') {
-        inDoubleQuote = true;
-        wordBuffer = "";
-      } else if (c === "\\" && i + 1 < value.length) {
-        i++; // Skip escaped char
-        wordBuffer = "";
-      } else if (/[a-zA-Z_]/.test(c)) {
-        wordBuffer += c;
-      } else {
-        // Check for keywords
-        if (wordBuffer === "case") {
-          caseDepth++;
-          inCasePattern = false;
-        } else if (wordBuffer === "in" && caseDepth > 0) {
-          inCasePattern = true;
-        } else if (wordBuffer === "esac" && caseDepth > 0) {
-          caseDepth--;
-          inCasePattern = false;
-        }
-        wordBuffer = "";
-
-        if (c === "(") {
-          // Check for $( which starts nested command substitution
-          if (i > 0 && value[i - 1] === "$") {
-            depth++;
-          } else if (!inCasePattern) {
-            depth++;
-          }
-        } else if (c === ")") {
-          if (inCasePattern) {
-            // ) ends the case pattern, doesn't affect depth
-            inCasePattern = false;
-          } else {
-            depth--;
-          }
-        } else if (c === ";") {
-          // ;; in case body means next pattern
-          if (caseDepth > 0 && i + 1 < value.length && value[i + 1] === ";") {
-            inCasePattern = true;
-          }
-        }
-      }
-    }
-
-    if (depth > 0) i++;
-  }
-
-  // Check for unclosed substitution
-  if (depth > 0) {
-    error("unexpected EOF while looking for matching `)'");
-  }
-
-  return i;
+  const end = scanSubstitutionBody(value, cmdStart);
+  if (end === -1) error("unexpected EOF while looking for matching `)'");
+  return end;
 }
 
 /**

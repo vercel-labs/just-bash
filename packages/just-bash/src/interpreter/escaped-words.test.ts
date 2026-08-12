@@ -104,4 +104,34 @@ describe("escaped words", () => {
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);
   });
+
+  it("keeps escaped glob syntax literal after word splitting", async () => {
+    const result = await new Bash().exec(
+      "touch y-match; value='x y'; printf '<%s>\\n' $value\\*",
+    );
+
+    expect(result.stdout).toBe("<x>\n<y*>\n");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("does not failglob escaped syntax after word splitting", async () => {
+    const result = await new Bash().exec(
+      "shopt -s failglob; value='x y'; printf '<%s>\\n' $value\\*",
+    );
+
+    expect(result.stdout).toBe("<x>\n<y*>\n");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("globs backslashes produced by parameter expansion", async () => {
+    const result = await new Bash().exec(
+      "touch 'a*b'; value='a\\*b'; printf '<%s>\\n' $value",
+    );
+
+    expect(result.stdout).toBe("<a*b>\n");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
 });

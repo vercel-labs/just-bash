@@ -35,7 +35,7 @@ import { getIfsSeparator } from "../helpers/ifs.js";
 import { getNamerefTarget, isNameref } from "../helpers/nameref.js";
 import { escapeRegex } from "../helpers/regex.js";
 import type { InterpreterContext } from "../types.js";
-import { patternToRegex } from "./pattern.js";
+import { expandGlobPart, patternToRegex } from "./pattern.js";
 import {
   applyPatternRemoval,
   getVarNamesWithPrefix,
@@ -231,7 +231,11 @@ export async function handlePatternRemoval(
   if (operation.pattern) {
     for (const part of operation.pattern.parts) {
       if (part.type === "Glob") {
-        regexStr += patternToRegex(part.pattern, operation.greedy, extglob);
+        regexStr += patternToRegex(
+          await expandGlobPart(ctx, part, expandPart),
+          operation.greedy,
+          extglob,
+        );
       } else if (part.type === "Literal") {
         // Unquoted literal - treat as glob pattern (may contain *, ?, [...])
         regexStr += patternToRegex(part.value, operation.greedy, extglob);
@@ -275,7 +279,11 @@ export async function handlePatternReplacement(
   if (operation.pattern) {
     for (const part of operation.pattern.parts) {
       if (part.type === "Glob") {
-        regex += patternToRegex(part.pattern, true, extglob);
+        regex += patternToRegex(
+          await expandGlobPart(ctx, part, expandPart),
+          true,
+          extglob,
+        );
       } else if (part.type === "Literal") {
         // Unquoted literal - treat as glob pattern (may contain *, ?, [...], \X)
         regex += patternToRegex(part.value, true, extglob);
@@ -498,6 +506,7 @@ export async function handleCaseModification(
   operation: CaseModificationOp,
   expandWordPartsAsync: ExpandWordPartsAsyncFn,
   expandParameterAsync: ExpandParameterAsyncFn,
+  expandPart: ExpandPartFn,
 ): Promise<string> {
   ctx.coverage?.hit("bash:expansion:case_modification");
   if (operation.pattern) {
@@ -505,7 +514,11 @@ export async function handleCaseModification(
     let patternRegexStr = "";
     for (const part of operation.pattern.parts) {
       if (part.type === "Glob") {
-        patternRegexStr += patternToRegex(part.pattern, true, extglob);
+        patternRegexStr += patternToRegex(
+          await expandGlobPart(ctx, part, expandPart),
+          true,
+          extglob,
+        );
       } else if (part.type === "Literal") {
         patternRegexStr += patternToRegex(part.value, true, extglob);
       } else if (part.type === "SingleQuoted" || part.type === "Escaped") {

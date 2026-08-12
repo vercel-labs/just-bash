@@ -20,6 +20,7 @@ import type {
   UntilNode,
   WhileNode,
 } from "../ast/types.js";
+import { getCurrentExtglob } from "../ast/types.js";
 import { utf8ByteLength } from "../encoding.js";
 import type { ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
@@ -37,6 +38,7 @@ import {
 import {
   escapeGlobChars,
   expandWord,
+  expandWordForPattern,
   expandWordWithGlob,
   isWordFullyQuoted,
 } from "./expansion.js";
@@ -104,6 +106,10 @@ class CompoundOutput {
     this.ctx.executionScope.appendOutput("stdout", stdout, "control-flow");
     this.ctx.executionScope.appendOutput("stderr", stderr, "control-flow");
     this.append(stdout, stderr);
+  }
+
+  appendExpansionStderr(stderr: string): void {
+    this.append("", stderr);
   }
 
   replace(stdout: string, stderr: string): void {
@@ -239,7 +245,9 @@ async function executeForBody(
     } catch (e) {
       if (e instanceof GlobError) {
         // failglob: return error with exit code 1
-        return { stdout: "", stderr: e.stderr, exitCode: 1 };
+        const stderr = (ctx.state.expansionStderr || "") + e.stderr;
+        ctx.state.expansionStderr = "";
+        return { stdout: "", stderr, exitCode: 1 };
       }
       throw e;
     }
@@ -597,6 +605,10 @@ async function executeCaseBody(
   let exitCode = 0;
 
   const value = await expandWord(ctx, node.word);
+  if (ctx.state.expansionStderr) {
+    output.appendExpansionStderr(ctx.state.expansionStderr);
+    ctx.state.expansionStderr = "";
+  }
 
   // fallThrough tracks whether we should execute the next case body unconditionally
   // This happens when the previous case ended with ;& (unconditional fall-through)
@@ -609,7 +621,16 @@ async function executeCaseBody(
     if (!fallThrough) {
       // Normal pattern matching
       for (const pattern of item.patterns) {
-        let patternStr = await expandWord(ctx, pattern);
+        const hasStructuredExtglob = pattern.parts.some(
+          (part) => part.type === "Glob" && getCurrentExtglob(part),
+        );
+        let patternStr = hasStructuredExtglob
+          ? await expandWordForPattern(ctx, pattern)
+          : await expandWord(ctx, pattern);
+        if (ctx.state.expansionStderr) {
+          output.appendExpansionStderr(ctx.state.expansionStderr);
+          ctx.state.expansionStderr = "";
+        }
         // If the pattern is fully quoted, escape glob characters for literal matching
         if (isWordFullyQuoted(pattern)) {
           patternStr = escapeGlobChars(patternStr);

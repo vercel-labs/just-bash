@@ -4,7 +4,11 @@
  * Functions for analyzing word parts to determine what types of expansions are present.
  */
 
-import type { ParameterExpansionPart, WordPart } from "../../ast/types.js";
+import {
+  getCurrentExtglob,
+  type ParameterExpansionPart,
+  type WordPart,
+} from "../../ast/types.js";
 
 /**
  * Check if a glob pattern string contains variable references ($var or ${var})
@@ -186,10 +190,22 @@ export function analyzeWordParts(parts: WordPart[]): WordPartsAnalysis {
         hasIndirection = true;
       }
     }
-    // Check Glob parts for variable references - patterns like +($ABC) contain
-    // parameter expansions that should be subject to IFS splitting
-    if (part.type === "Glob" && globPatternHasVarRef(part.pattern)) {
-      hasParamExpansion = true;
+    if (part.type === "Glob") {
+      const extglob = getCurrentExtglob(part);
+      if (extglob) {
+        for (const alternative of extglob.alternatives) {
+          const analysis = analyzeWordParts(alternative.parts);
+          hasCommandSub ||= analysis.hasCommandSub;
+          hasArrayVar ||= analysis.hasArrayVar;
+          hasArrayAtExpansion ||= analysis.hasArrayAtExpansion;
+          hasParamExpansion ||= analysis.hasParamExpansion;
+          hasVarNamePrefixExpansion ||= analysis.hasVarNamePrefixExpansion;
+          hasIndirection ||= analysis.hasIndirection;
+        }
+      } else if (globPatternHasVarRef(part.pattern)) {
+        // Legacy raw glob nodes keep their existing variable-reference detection.
+        hasParamExpansion = true;
+      }
     }
   }
 

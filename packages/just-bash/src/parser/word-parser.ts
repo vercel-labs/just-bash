@@ -15,6 +15,7 @@ import {
 import { parseArithmeticExpression } from "./arithmetic-parser.js";
 import { TokenType } from "./lexer.js";
 import type { Parser } from "./parser.js";
+import { findCommandSubstitutionEnd } from "./parser-substitution.js";
 
 // =============================================================================
 // PURE STRING UTILITIES
@@ -231,6 +232,13 @@ export function findParameterOperationEnd(
         }
       }
       if (i < value.length) i++; // Skip closing quote
+      continue;
+    }
+
+    if (char === "$" && value[i + 1] === "(") {
+      const end = findCommandSubstitutionEnd(value, i);
+      if (end === -1) return i;
+      i = end + 1;
       continue;
     }
 

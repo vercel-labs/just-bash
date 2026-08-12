@@ -28,6 +28,7 @@ import type {
   WordNode,
   WordPart,
 } from "../ast/types.js";
+import { getCurrentExtglob } from "../ast/types.js";
 
 export function serialize(node: ScriptNode): string {
   return serializeScript(node);
@@ -186,8 +187,17 @@ function serializeWordPart(part: WordPart, inDoubleQuotes: boolean): string {
       return serializeBraceExpansion(part);
     case "TildeExpansion":
       return part.user !== null ? `~${part.user}` : "~";
-    case "Glob":
-      return part.pattern;
+    case "Glob": {
+      const extglob = getCurrentExtglob(part);
+      if (!extglob) {
+        return part.pattern;
+      }
+      const pattern = `${extglob.operator}(${extglob.alternatives.map(serializeWord).join("|")})`;
+      const rawPattern = `${extglob.operator}(${extglob.alternatives.map(serializeExtglobWordWithRawBraces).join("|")})`;
+      return rawPattern === extglob.sourcePattern
+        ? extglob.sourcePattern
+        : pattern;
+    }
     default: {
       const _exhaustive: never = part;
       throw new Error(
@@ -195,6 +205,42 @@ function serializeWordPart(part: WordPart, inDoubleQuotes: boolean): string {
       );
     }
   }
+}
+
+function serializeExtglobWordWithRawBraces(node: WordNode): string {
+  return node.parts
+    .map((part) =>
+      part.type === "Literal"
+        ? escapeExtglobLiteral(part.value)
+        : serializeWordPart(part, false),
+    )
+    .join("");
+}
+
+function escapeExtglobLiteral(value: string): string {
+  let result = "";
+  let literal = "";
+  let braceDepth = 0;
+
+  for (const character of value) {
+    if (character === "{") {
+      if (braceDepth === 0) {
+        result += escapeLiteral(literal);
+        literal = "";
+      }
+      braceDepth += 1;
+      result += character;
+    } else if (character === "}" && braceDepth > 0) {
+      braceDepth -= 1;
+      result += character;
+    } else if (braceDepth > 0) {
+      result += character;
+    } else {
+      literal += character;
+    }
+  }
+
+  return result + escapeLiteral(literal);
 }
 
 /**

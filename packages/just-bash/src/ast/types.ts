@@ -782,6 +782,23 @@ export interface TildeExpansionPart extends ASTNode {
 export interface GlobPart extends ASTNode {
   type: "Glob";
   pattern: string;
+  /** Parsed extglob structure when this node originated from an extglob pattern. */
+  extglob?: ExtglobMetadata;
+}
+
+export type ExtglobOperator = "@" | "*" | "+" | "?" | "!";
+
+export interface ExtglobMetadata {
+  operator: ExtglobOperator;
+  alternatives: WordNode[];
+  /** Original raw pattern, used to detect a direct update to Glob.pattern. */
+  readonly sourcePattern: string;
+}
+
+export function getCurrentExtglob(part: GlobPart): ExtglobMetadata | undefined {
+  return part.extglob?.sourcePattern === part.pattern
+    ? part.extglob
+    : undefined;
 }
 
 // =============================================================================

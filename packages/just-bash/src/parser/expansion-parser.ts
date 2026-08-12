@@ -6,6 +6,7 @@
 
 import {
   AST,
+  type ExtglobOperator,
   type InnerParameterOperation,
   type ParameterExpansionPart,
   type ParameterOperation,
@@ -13,8 +14,9 @@ import {
   type WordPart,
 } from "../ast/types.js";
 import { parseArithmeticExpression } from "./arithmetic-parser.js";
+import { findExtglobClose, splitExtglobAlternatives } from "./extglob.js";
 import type { Parser } from "./parser.js";
-import { ParseException } from "./types.js";
+import { MAX_TOKENS, ParseException } from "./types.js";
 import * as WordParser from "./word-parser.js";
 
 function normalizeRegexBracketEscapes(pattern: string): string {
@@ -37,39 +39,6 @@ function normalizeRegexBracketEscapes(pattern: string): string {
 /** Ensure a word-parts array is non-empty (use empty-string literal as fallback). */
 function ensureNonEmpty(parts: WordPart[]): WordPart[] {
   return parts.length > 0 ? parts : [AST.literal("")];
-}
-
-/**
- * Find the closing parenthesis for an extglob pattern starting at openIdx.
- * Handles nested extglob patterns and escaped characters.
- */
-function findExtglobClose(value: string, openIdx: number): number {
-  let depth = 1;
-  let i = openIdx + 1;
-  while (i < value.length && depth > 0) {
-    const c = value[i];
-    if (c === "\\") {
-      i += 2; // Skip escaped char
-      continue;
-    }
-    // Handle nested extglob patterns
-    if ("@*+?!".includes(c) && i + 1 < value.length && value[i + 1] === "(") {
-      i++; // Skip the extglob operator
-      depth++;
-      i++; // Skip the (
-      continue;
-    }
-    if (c === "(") {
-      depth++;
-    } else if (c === ")") {
-      depth--;
-      if (depth === 0) {
-        return i;
-      }
-    }
-    i++;
-  }
-  return -1;
 }
 
 function parseSimpleParameter(
@@ -1067,10 +1036,47 @@ export function parseWordParts(
       // Find the matching closing paren
       const closeIdx = findExtglobClose(value, i + 1);
       if (closeIdx !== -1) {
+        p.chargeExtglobScanWork((closeIdx - i + 1) * 3);
         flushLiteral();
-        // Include the entire extglob pattern including the operator and parens
         const pattern = value.slice(i, closeIdx + 1);
-        parts.push({ type: "Glob", pattern });
+        const alternativeStrings = splitExtglobAlternatives(
+          value.slice(i + 2, closeIdx),
+          MAX_TOKENS,
+        );
+        if (!alternativeStrings) {
+          p.error(`Too many extglob alternatives: limit of ${MAX_TOKENS}`);
+        }
+        p.chargeSyntheticTokens(alternativeStrings.length);
+        const alternatives = alternativeStrings.map((alternative) =>
+          AST.word(
+            ensureNonEmpty(
+              p.withDepth(() =>
+                parseWordParts(
+                  p,
+                  alternative,
+                  false,
+                  false,
+                  isAssignment,
+                  hereDoc,
+                  singleQuotesAreLiteral,
+                  true,
+                  regexPattern,
+                  inParameterExpansion,
+                  false,
+                ),
+              ),
+            ),
+          ),
+        );
+        parts.push({
+          type: "Glob",
+          pattern,
+          extglob: {
+            operator: char as ExtglobOperator,
+            alternatives,
+            sourcePattern: pattern,
+          },
+        });
         i = closeIdx + 1;
         continue;
       }

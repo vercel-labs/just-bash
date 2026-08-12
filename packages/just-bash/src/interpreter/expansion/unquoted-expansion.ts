@@ -34,7 +34,7 @@ import {
 import { escapeRegex } from "../helpers/regex.js";
 import type { InterpreterContext } from "../types.js";
 import { hasGlobPattern } from "./glob-escape.js";
-import { patternToRegex } from "./pattern.js";
+import { expandGlobPart, patternToRegex } from "./pattern.js";
 import {
   applyPatternRemoval,
   getVarNamesWithPrefix,
@@ -250,7 +250,7 @@ export async function handleUnquotedArrayPatternReplacement(
     for (const part of operation.pattern.parts) {
       if (part.type === "Glob") {
         regex += patternToRegex(
-          part.pattern,
+          await expandGlobPart(ctx, part, expandPart),
           true,
           ctx.state.shoptOptions.extglob,
         );
@@ -430,7 +430,11 @@ export async function handleUnquotedArrayPatternRemoval(
   if (operation.pattern) {
     for (const part of operation.pattern.parts) {
       if (part.type === "Glob") {
-        regexStr += patternToRegex(part.pattern, operation.greedy, extglob);
+        regexStr += patternToRegex(
+          await expandGlobPart(ctx, part, expandPart),
+          operation.greedy,
+          extglob,
+        );
       } else if (part.type === "Literal") {
         regexStr += patternToRegex(part.value, operation.greedy, extglob);
       } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
@@ -571,7 +575,11 @@ export async function handleUnquotedPositionalPatternRemoval(
   if (operation.pattern) {
     for (const part of operation.pattern.parts) {
       if (part.type === "Glob") {
-        regexStr += patternToRegex(part.pattern, operation.greedy, extglob);
+        regexStr += patternToRegex(
+          await expandGlobPart(ctx, part, expandPart),
+          operation.greedy,
+          extglob,
+        );
       } else if (part.type === "Literal") {
         regexStr += patternToRegex(part.value, operation.greedy, extglob);
       } else if (part.type === "SingleQuoted" || part.type === "Escaped") {

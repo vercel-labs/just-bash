@@ -37,6 +37,18 @@ describe("CommandCollectorPlugin exec", () => {
     expect(result.metadata).toEqual({ commands: ["echo"] });
   });
 
+  it("collects commands from structured extglob alternatives", async () => {
+    const bash = new Bash();
+    bash.registerTransformPlugin(new CommandCollectorPlugin());
+    const result = bash.transform(
+      "echo x@(literal|$(from-dollar)|`from-tick`|@(nested|$(from-nested)))",
+    );
+
+    expect(result.metadata).toEqual({
+      commands: ["echo", "from-dollar", "from-nested", "from-tick"],
+    });
+  });
+
   it("collects commands from case statement", async () => {
     const bash = new Bash();
     bash.registerTransformPlugin(new CommandCollectorPlugin());

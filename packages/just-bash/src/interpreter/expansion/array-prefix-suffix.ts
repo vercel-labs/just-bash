@@ -18,7 +18,7 @@ import { createUserRegex } from "../../regex/index.js";
 import { getIfsSeparator } from "../helpers/ifs.js";
 import { escapeRegex } from "../helpers/regex.js";
 import type { InterpreterContext } from "../types.js";
-import { patternToRegex } from "./pattern.js";
+import { expandGlobPart, patternToRegex } from "./pattern.js";
 import { applyPatternRemoval } from "./pattern-removal.js";
 import { getArrayElements, getVariable, isVariableSet } from "./variable.js";
 
@@ -278,7 +278,11 @@ export async function handleArrayPatternWithPrefixSuffix(
     if (op.pattern) {
       for (const part of op.pattern.parts) {
         if (part.type === "Glob") {
-          regexStr += patternToRegex(part.pattern, op.greedy, extglob);
+          regexStr += patternToRegex(
+            await expandGlobPart(ctx, part, expandPart),
+            op.greedy,
+            extglob,
+          );
         } else if (part.type === "Literal") {
           regexStr += patternToRegex(part.value, op.greedy, extglob);
         } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
@@ -307,7 +311,7 @@ export async function handleArrayPatternWithPrefixSuffix(
       for (const part of op.pattern.parts) {
         if (part.type === "Glob") {
           regex += patternToRegex(
-            part.pattern,
+            await expandGlobPart(ctx, part, expandPart),
             true,
             ctx.state.shoptOptions.extglob,
           );

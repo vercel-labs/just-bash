@@ -10,6 +10,7 @@ import { type Token, TokenType } from "./lexer.js";
 export const MAX_INPUT_SIZE = 1_000_000; // 1MB max input
 export const MAX_TOKENS = 100_000; // Max tokens to parse
 const MAX_PARSE_ITERATIONS = 1_000_000; // Max iterations in parsing loops
+const MAX_EXTGLOB_SCAN_WORK = MAX_INPUT_SIZE * 4;
 export const MAX_PARSER_DEPTH = 200; // Max recursion depth for nested constructs
 
 export enum WordParseContext {
@@ -87,11 +88,13 @@ export class ParseException extends Error {
 export class ParseBudget {
   private iterations = 0;
   private tokens = 0;
+  private extglobScanWork = 0;
   private depth = 0;
 
   reset(): void {
     this.iterations = 0;
     this.tokens = 0;
+    this.extglobScanWork = 0;
     this.depth = 0;
   }
 
@@ -111,6 +114,17 @@ export class ParseBudget {
     if (this.tokens > MAX_TOKENS) {
       throw new ParseException(
         `Too many tokens: cumulative count exceeds limit of ${MAX_TOKENS}`,
+        line,
+        column,
+      );
+    }
+  }
+
+  chargeExtglobScanWork(count: number, line = 1, column = 1): void {
+    this.extglobScanWork += count;
+    if (this.extglobScanWork > MAX_EXTGLOB_SCAN_WORK) {
+      throw new ParseException(
+        `Maximum extglob scan work exceeded (${MAX_EXTGLOB_SCAN_WORK})`,
         line,
         column,
       );

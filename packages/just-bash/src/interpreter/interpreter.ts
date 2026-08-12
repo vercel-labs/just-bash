@@ -616,7 +616,9 @@ export class Interpreter {
       transaction?.finish();
       if (error instanceof GlobError) {
         // GlobError from failglob should return exit code 1 with error message
-        return failure(error.stderr);
+        const stderr = (this.ctx.state.expansionStderr || "") + error.stderr;
+        this.ctx.state.expansionStderr = "";
+        return failure(stderr);
       }
       // ArithmeticError in expansion (e.g., echo $((42x))) should terminate the script
       // Let the error propagate - it will be caught by the top-level error handler
@@ -1043,9 +1045,10 @@ export class Interpreter {
 
     // Include any stderr from expansion errors
     if (this.ctx.state.expansionStderr) {
+      const expansionStderr = this.ctx.state.expansionStderr;
       cmdResult = {
         ...cmdResult,
-        stderr: this.ctx.state.expansionStderr + cmdResult.stderr,
+        stderr: expansionStderr + cmdResult.stderr,
       };
       this.ctx.state.expansionStderr = "";
     }
@@ -1163,9 +1166,10 @@ export class Interpreter {
           );
           let bodyResult = testResult(arithResult !== 0);
           if (this.ctx.state.expansionStderr) {
+            const expansionStderr = this.ctx.state.expansionStderr;
             bodyResult = {
               ...bodyResult,
-              stderr: this.ctx.state.expansionStderr + bodyResult.stderr,
+              stderr: expansionStderr + bodyResult.stderr,
             };
             this.ctx.state.expansionStderr = "";
           }
@@ -1199,9 +1203,10 @@ export class Interpreter {
           );
           let bodyResult = testResult(condResult);
           if (this.ctx.state.expansionStderr) {
+            const expansionStderr = this.ctx.state.expansionStderr;
             bodyResult = {
               ...bodyResult,
-              stderr: this.ctx.state.expansionStderr + bodyResult.stderr,
+              stderr: expansionStderr + bodyResult.stderr,
             };
             this.ctx.state.expansionStderr = "";
           }

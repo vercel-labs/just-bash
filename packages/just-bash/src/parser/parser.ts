@@ -107,6 +107,20 @@ export class Parser {
     this.parseBudget.chargeIteration(token?.line ?? 1, token?.column ?? 1);
   }
 
+  chargeSyntheticTokens(count: number): void {
+    const token = this.current();
+    this.parseBudget.chargeTokens(count, token?.line ?? 1, token?.column ?? 1);
+  }
+
+  chargeExtglobScanWork(count: number): void {
+    const token = this.current();
+    this.parseBudget.chargeExtglobScanWork(
+      count,
+      token?.line ?? 1,
+      token?.column ?? 1,
+    );
+  }
+
   /**
    * Increment parse depth and check limit to prevent stack overflow
    * from deeply nested constructs. Returns a function to decrement depth.
@@ -143,7 +157,10 @@ export class Parser {
 
       this._input = input;
       this.processLineState = undefined;
-      const lexer = new Lexer(input, options);
+      const lexer = new Lexer(input, {
+        ...options,
+        extglobScanBudget: this.parseBudget,
+      });
       this.tokens = lexer.tokenize();
 
       // Check token count limit

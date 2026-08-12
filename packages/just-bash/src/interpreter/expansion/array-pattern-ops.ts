@@ -17,7 +17,7 @@ import type {
   ExpandPartFn,
   ExpandWordPartsAsyncFn,
 } from "./array-word-expansion.js";
-import { patternToRegex } from "./pattern.js";
+import { expandGlobPart, patternToRegex } from "./pattern.js";
 import { applyPatternRemoval } from "./pattern-removal.js";
 import { getArrayElements } from "./variable.js";
 
@@ -34,7 +34,7 @@ async function buildPatternRegex(
   for (const part of pattern.parts) {
     if (part.type === "Glob") {
       regex += patternToRegex(
-        part.pattern,
+        await expandGlobPart(ctx, part, expandPart),
         true,
         ctx.state.shoptOptions.extglob,
       );
@@ -220,7 +220,11 @@ export async function handleArrayPatternRemoval(
   if (operation.pattern) {
     for (const part of operation.pattern.parts) {
       if (part.type === "Glob") {
-        regexStr += patternToRegex(part.pattern, operation.greedy, extglob);
+        regexStr += patternToRegex(
+          await expandGlobPart(ctx, part, expandPart),
+          operation.greedy,
+          extglob,
+        );
       } else if (part.type === "Literal") {
         regexStr += patternToRegex(part.value, operation.greedy, extglob);
       } else if (part.type === "SingleQuoted" || part.type === "Escaped") {

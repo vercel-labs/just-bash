@@ -11,10 +11,12 @@
  */
 
 import type {
+  GlobPart,
   ParameterExpansionPart,
   WordNode,
   WordPart,
 } from "../ast/types.js";
+import { getCurrentExtglob } from "../ast/types.js";
 import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
 import { GlobExpander } from "../shell/glob.js";
@@ -54,7 +56,8 @@ import { getFileReadShorthand } from "./expansion/command-substitution.js";
 import {
   escapeGlobChars,
   escapeRegexChars,
-  hasGlobPattern,
+  hasEscapedGlobPattern,
+  unescapeGlobPattern,
 } from "./expansion/glob-escape.js";
 import {
   assignDefaultValue,
@@ -232,6 +235,13 @@ export async function expandWordForRegex(
       // and then '^a$' is escaped to '\^a\$' which matches the literal string
       const expanded = await expandPart(ctx, part);
       parts.push(escapeRegexChars(expanded));
+    } else if (part.type === "Glob") {
+      const extglob = getCurrentExtglob(part);
+      parts.push(
+        extglob
+          ? await expandStructuredExtglobForGlobbing(ctx, extglob)
+          : await expandPart(ctx, part),
+      );
     } else {
       // Other parts: expand normally
       parts.push(await expandPart(ctx, part));
@@ -267,6 +277,13 @@ export async function expandWordForPattern(
       // Double-quoted: expand contents and escape for literal matching
       const expanded = await expandWordPartsAsync(ctx, part.parts);
       parts.push(escapeGlobChars(expanded));
+    } else if (part.type === "Glob") {
+      const extglob = getCurrentExtglob(part);
+      parts.push(
+        extglob
+          ? await expandStructuredExtglobForGlobbing(ctx, extglob)
+          : await expandPart(ctx, part),
+      );
     } else {
       // Other parts: expand normally
       parts.push(await expandPart(ctx, part));
@@ -303,9 +320,10 @@ async function expandWordForGlobbing(
       const expanded = await expandWordPartsAsync(ctx, part.parts);
       parts.push(escapeGlobChars(expanded));
     } else if (part.type === "Glob") {
-      // Glob pattern: expand variables and command substitutions within extglob patterns
-      // e.g., @($var|$(echo foo)) needs both variable and command substitution expansion
-      if (patternHasCommandSubstitution(part.pattern)) {
+      const extglob = getCurrentExtglob(part);
+      if (extglob) {
+        parts.push(await expandStructuredExtglobForGlobbing(ctx, extglob));
+      } else if (patternHasCommandSubstitution(part.pattern)) {
         // Use async version for command substitutions
         parts.push(await expandVariablesInPatternAsync(ctx, part.pattern));
       } else {
@@ -321,6 +339,130 @@ async function expandWordForGlobbing(
     }
   }
   return parts.join("");
+}
+
+async function expandStructuredExtglobForGlobbing(
+  ctx: InterpreterContext,
+  extglob: NonNullable<GlobPart["extglob"]>,
+): Promise<string> {
+  const alternatives: string[] = [];
+  for (const alternative of extglob.alternatives) {
+    alternatives.push(await expandWordForGlobbing(ctx, alternative));
+  }
+  const result = `${extglob.operator}(${alternatives.join("|")})`;
+  checkStringLength(result, ctx.limits.maxStringLength, "word expansion");
+  return result;
+}
+
+async function expandStructuredExtglobValue(
+  ctx: InterpreterContext,
+  extglob: NonNullable<GlobPart["extglob"]>,
+): Promise<string> {
+  const alternatives: string[] = [];
+  for (const alternative of extglob.alternatives) {
+    alternatives.push(await expandWordAsync(ctx, alternative));
+  }
+  const result = `${extglob.operator}(${alternatives.join("|")})`;
+  checkStringLength(result, ctx.limits.maxStringLength, "word expansion");
+  return result;
+}
+
+async function expandWordWithStructuredExtglobs(
+  ctx: InterpreterContext,
+  word: WordNode,
+): Promise<string> {
+  const parts: string[] = [];
+  for (const part of word.parts) {
+    const extglob = part.type === "Glob" ? getCurrentExtglob(part) : undefined;
+    if (extglob) {
+      const alternatives: string[] = [];
+      for (const alternative of extglob.alternatives) {
+        alternatives.push(
+          await expandWordWithStructuredExtglobs(ctx, alternative),
+        );
+      }
+      parts.push(`${extglob.operator}(${alternatives.join("|")})`);
+    } else {
+      parts.push(await expandPart(ctx, part));
+    }
+  }
+  const result = parts.join("");
+  checkStringLength(result, ctx.limits.maxStringLength, "word expansion");
+  return result;
+}
+
+type RedirectWordExpansion = {
+  value: string;
+  globPattern: string;
+};
+
+async function expandStructuredExtglobForRedirect(
+  ctx: InterpreterContext,
+  extglob: NonNullable<GlobPart["extglob"]>,
+): Promise<RedirectWordExpansion> {
+  const alternatives: RedirectWordExpansion[] = [];
+  for (const alternative of extglob.alternatives) {
+    alternatives.push(await expandWordForRedirect(ctx, alternative));
+  }
+  const value = `${extglob.operator}(${alternatives.map((alternative) => alternative.value).join("|")})`;
+  const globPattern = `${extglob.operator}(${alternatives.map((alternative) => alternative.globPattern).join("|")})`;
+  checkStringLength(value, ctx.limits.maxStringLength, "word expansion");
+  checkStringLength(globPattern, ctx.limits.maxStringLength, "word expansion");
+  return { value, globPattern };
+}
+
+async function expandWordForRedirect(
+  ctx: InterpreterContext,
+  word: WordNode,
+): Promise<RedirectWordExpansion> {
+  const values: string[] = [];
+  const globPatterns: string[] = [];
+
+  for (const part of word.parts) {
+    if (part.type === "SingleQuoted") {
+      values.push(part.value);
+      globPatterns.push(escapeGlobChars(part.value));
+      continue;
+    }
+    if (part.type === "Escaped") {
+      values.push(part.value);
+      globPatterns.push(
+        "*?[]\\()|".includes(part.value) ? `\\${part.value}` : part.value,
+      );
+      continue;
+    }
+    if (part.type === "DoubleQuoted") {
+      const value = await expandWordPartsAsync(ctx, part.parts);
+      values.push(value);
+      globPatterns.push(escapeGlobChars(value));
+      continue;
+    }
+    if (part.type === "Glob") {
+      const extglob = getCurrentExtglob(part);
+      if (extglob) {
+        const expanded = await expandStructuredExtglobForRedirect(ctx, extglob);
+        values.push(expanded.value);
+        globPatterns.push(expanded.globPattern);
+        continue;
+      }
+      const globPattern = patternHasCommandSubstitution(part.pattern)
+        ? await expandVariablesInPatternAsync(ctx, part.pattern)
+        : expandVariablesInPattern(ctx, part.pattern);
+      values.push(unescapeGlobPattern(globPattern));
+      globPatterns.push(globPattern);
+      continue;
+    }
+
+    const value = await expandPart(ctx, part);
+    values.push(value);
+    globPatterns.push(value);
+  }
+
+  const value = values.join("");
+  const globPattern = globPatterns.join("");
+  checkStringLength(value, ctx.limits.maxStringLength, "word expansion");
+  checkStringLength(globPattern, ctx.limits.maxStringLength, "word expansion");
+  return { value, globPattern };
 }
 
 /**
@@ -510,6 +652,7 @@ function createWordGlobDeps(): WordGlobExpansionDeps {
   return {
     expandWordAsync,
     expandWordForGlobbing,
+    expandWordWithStructuredExtglobs,
     expandWordWithBracesAsync,
     expandWordPartsAsync,
     expandPart,
@@ -534,15 +677,28 @@ export async function expandWordWithGlob(
  * Get textual representation of a word for error messages
  */
 function getWordText(parts: WordPart[]): string {
-  for (const p of parts) {
-    if (p.type === "ParameterExpansion") {
-      return p.parameter;
-    }
-    if (p.type === "Literal") {
-      return p.value;
-    }
-  }
-  return "";
+  return parts
+    .map((part) => {
+      switch (part.type) {
+        case "Literal":
+          return part.value;
+        case "SingleQuoted":
+          return `'${part.value}'`;
+        case "DoubleQuoted":
+          return `"${getWordText(part.parts)}"`;
+        case "Escaped":
+          return `\\${part.value}`;
+        case "ParameterExpansion":
+          return /^[a-zA-Z_][a-zA-Z0-9_]*$|^[?#@*$!\-0-9]$/.test(part.parameter)
+            ? `$${part.parameter}`
+            : `\${${part.parameter}}`;
+        case "Glob":
+          return part.pattern;
+        default:
+          return "";
+      }
+    })
+    .join("");
 }
 
 export function hasQuotedMultiValueAt(
@@ -631,7 +787,7 @@ export async function expandRedirectTarget(
     // (value will be re-expanded below, but since there's only one value it's the same)
   }
 
-  const value = await expandWordAsync(ctx, word);
+  const { value, globPattern } = await expandWordForRedirect(ctx, word);
 
   // Check for word splitting producing multiple words - this is an ambiguous redirect
   // This only applies when the word has unquoted expansions (not all quoted)
@@ -649,7 +805,7 @@ export async function expandRedirectTarget(
     if (splitWords.length > 1) {
       // Word splitting produces multiple words - ambiguous redirect
       return {
-        error: `bash: $${getWordText(wordParts)}: ambiguous redirect\n`,
+        error: `bash: ${getWordText(wordParts)}: ambiguous redirect\n`,
       };
     }
   }
@@ -668,13 +824,8 @@ export async function expandRedirectTarget(
     return { target: value };
   }
 
-  // Build glob pattern using expandWordForGlobbing which preserves escaped glob chars
-  // For example: two-\* becomes two-\\* (escaped * is literal, not a glob)
-  // But: two-$star where star='*' becomes two-* (variable expansion is subject to glob)
-  const globPattern = await expandWordForGlobbing(ctx, word);
-
   // Skip if there are no glob patterns in the pattern
-  if (!hasGlobPattern(globPattern, ctx.state.shoptOptions.extglob)) {
+  if (!hasEscapedGlobPattern(globPattern, ctx.state.shoptOptions.extglob)) {
     return { target: value };
   }
 
@@ -748,6 +899,13 @@ async function expandPart(
   // Always use async expansion for ParameterExpansion
   if (part.type === "ParameterExpansion") {
     return expandParameterAsync(ctx, part, inDoubleQuotes);
+  }
+
+  if (part.type === "Glob") {
+    const extglob = getCurrentExtglob(part);
+    if (extglob) {
+      return expandStructuredExtglobValue(ctx, extglob);
+    }
   }
 
   // Try simple cases first (Literal, SingleQuoted, Escaped, TildeExpansion, Glob)
@@ -1300,6 +1458,7 @@ async function expandParameterAsync(
         operation,
         expandWordPartsAsync,
         expandParameterAsync,
+        expandPart,
       );
       checkStringLength(
         result,

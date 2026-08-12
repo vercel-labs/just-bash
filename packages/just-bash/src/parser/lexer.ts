@@ -10,7 +10,11 @@
  * - Escape sequences
  */
 
-import { readHeredocDelimiter } from "./parser-substitution.js";
+import { findExtglobClose } from "./extglob.js";
+import {
+  findCommandSubstitutionEnd,
+  readHeredocDelimiter,
+} from "./parser-substitution.js";
 
 // Default max heredoc size to prevent memory exhaustion (10MB)
 const DEFAULT_MAX_HEREDOC_SIZE = 10_485_760;
@@ -18,6 +22,13 @@ const DEFAULT_MAX_HEREDOC_SIZE = 10_485_760;
 export interface LexerOptions {
   /** Maximum heredoc size in bytes (default: 10MB) */
   maxHeredocSize?: number;
+  extglobScanBudget?: {
+    chargeExtglobScanWork: (
+      count: number,
+      line?: number,
+      column?: number,
+    ) => void;
+  };
 }
 
 export enum TokenType {
@@ -309,10 +320,12 @@ export class Lexer {
   // When > 0, we're inside (( )) and need to track nested parens
   private dparenDepth = 0;
   private maxHeredocSize: number;
+  private extglobScanBudget: LexerOptions["extglobScanBudget"];
 
   constructor(input: string, options?: LexerOptions) {
     this.input = input;
     this.maxHeredocSize = options?.maxHeredocSize ?? DEFAULT_MAX_HEREDOC_SIZE;
+    this.extglobScanBudget = options?.extglobScanBudget;
   }
 
   /**
@@ -1668,6 +1681,22 @@ export class Lexer {
         let doubleQuoteStartCol = col;
         while (depth > 0 && pos < len) {
           const c = input[pos];
+          if (c === "$" && input[pos + 1] === "(") {
+            const end = findCommandSubstitutionEnd(input, pos);
+            if (end !== -1) {
+              const substitution = input.slice(pos, end + 1);
+              value += substitution;
+              for (const substitutionCharacter of substitution) {
+                if (substitutionCharacter === "\n") {
+                  ln++;
+                  col = 0;
+                }
+                col++;
+              }
+              pos = end + 1;
+              continue;
+            }
+          }
           // Handle backslash-newline line continuation inside ${...}
           if (c === "\\" && pos + 1 < len && input[pos + 1] === "\n") {
             // Skip both the backslash and the newline
@@ -2154,6 +2183,15 @@ export class Lexer {
     while (pos < len) {
       const c = input[pos];
 
+      if (c === "(" && pos > start && "@*+?!".includes(input[pos - 1])) {
+        const extglob = this.scanExtglobPattern(pos);
+        if (extglob !== null) {
+          col += extglob.content.length;
+          pos = extglob.end;
+          continue;
+        }
+      }
+
       // Stop at word boundaries
       if (
         c === " " ||
@@ -2377,51 +2415,20 @@ export class Lexer {
   private scanExtglobPattern(
     startPos: number,
   ): { content: string; end: number } | null {
-    const input = this.input;
-    const len = input.length;
-    let pos = startPos + 1; // Skip the opening (
-    let depth = 1;
-
-    while (pos < len && depth > 0) {
-      const c = input[pos];
-
-      // Handle escapes
-      if (c === "\\" && pos + 1 < len) {
-        pos += 2;
-        continue;
-      }
-
-      // Handle nested extglob patterns
-      if ("@*+?!".includes(c) && pos + 1 < len && input[pos + 1] === "(") {
-        pos++; // Skip the extglob operator
-        depth++;
-        pos++; // Skip the (
-        continue;
-      }
-
-      if (c === "(") {
-        depth++;
-        pos++;
-      } else if (c === ")") {
-        depth--;
-        pos++;
-      } else if (c === "\n") {
-        // Newline inside extglob is not allowed (bash behavior)
-        return null;
-      } else {
-        pos++;
-      }
+    const close = findExtglobClose(this.input, startPos, false, (count) =>
+      this.extglobScanBudget?.chargeExtglobScanWork(
+        count,
+        this.line,
+        this.column,
+      ),
+    );
+    if (close === -1) {
+      return null;
     }
-
-    // Must have balanced parentheses
-    if (depth === 0) {
-      return {
-        content: input.slice(startPos, pos),
-        end: pos,
-      };
-    }
-
-    return null;
+    return {
+      content: this.input.slice(startPos, close + 1),
+      end: close + 1,
+    };
   }
 
   /**
