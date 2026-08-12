@@ -61,4 +61,51 @@ describe("command filesystem traversal budgets", () => {
       bash.exec("ls /root/a /root/b /root/c"),
     ).resolves.toMatchObject({ exitCode: 126 });
   });
+
+  // An operand is resolved once and listed once. Charging both spends two
+  // entries on one visit, so the limit bites at half the capacity it states.
+  it("charges an ls operand once, not once per stage", async () => {
+    const bash = new Bash({
+      files: { "/root/a": "a", "/root/b": "b" },
+      executionLimits: { maxTraversalEntries: 2 },
+    });
+
+    await expect(bash.exec("ls /root/a /root/b")).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "/root/a\n/root/b\n",
+      stderr: "",
+    });
+  });
+
+  // -d returns before the walk, which is exactly why it needs charging of its
+  // own: without it an arbitrarily long operand list stats unmetered.
+  it("bounds ls -d operands", async () => {
+    const bash = new Bash({
+      files: { "/root/a": "a", "/root/b": "b", "/root/c": "c" },
+      executionLimits: { maxTraversalEntries: 2 },
+    });
+
+    await expect(
+      bash.exec("ls -d /root/a /root/b /root/c"),
+    ).resolves.toMatchObject({ exitCode: 126 });
+  });
+
+  // -t and -S read metadata for every name before printing any of it, so the
+  // sort is charged up front rather than after the reads have happened.
+  it("bounds the metadata reads -t performs to sort a directory", async () => {
+    const files: Record<string, string> = {};
+    for (let index = 0; index < 40; index++) {
+      files[`/root/f${index}`] = "x";
+    }
+    const bash = new Bash({
+      files,
+      executionLimits: { maxTraversalWork: 8 },
+    });
+
+    await expect(bash.exec("ls -t /root")).resolves.toMatchObject({
+      exitCode: 126,
+    });
+    // The same listing in name order reads no metadata and stays under it.
+    await expect(bash.exec("ls /root")).resolves.toMatchObject({ exitCode: 0 });
+  });
 });

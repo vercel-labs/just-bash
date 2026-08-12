@@ -188,7 +188,16 @@ export const lsCommand: RuntimeCommand = {
     // With -d every operand names itself, so there is nothing to group: the
     // whole list is one block of names in sort order.
     if (directoryOnly) {
-      for (const path of await sortOperands(paths, ctx, sortKey, reverse)) {
+      for (const path of await sortOperands(
+        paths,
+        ctx,
+        sortKey,
+        reverse,
+        traversalBudget,
+      )) {
+        // -d never descends, but each operand is still a filesystem visit and
+        // is charged like one, so the limit bounds this list as it bounds a walk.
+        traversalBudget.visit(0);
         const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
         try {
           const stat = await ctx.fs.stat(fullPath);
@@ -236,6 +245,7 @@ export const lsCommand: RuntimeCommand = {
       // Each operand is a filesystem visit like any other, so it is charged
       // before the stat rather than after the walk starts. A long operand list
       // otherwise does all its work before the budget can refuse any of it.
+      // listPath is told not to charge it a second time.
       traversalBudget.visit(0);
       try {
         const stat = await ctx.fs.stat(ctx.fs.resolvePath(ctx.cwd, path));
@@ -270,6 +280,7 @@ export const lsCommand: RuntimeCommand = {
         traversalBudget,
         0,
         new Set(),
+        true,
       );
       stdout = appendLsOutput(ctx, stdout, result.stdout);
       stderr = appendLsOutput(ctx, stderr, result.stderr);
@@ -281,13 +292,20 @@ export const lsCommand: RuntimeCommand = {
       ctx,
       sortKey,
       reverse,
+      traversalBudget,
     )) {
       await listOperand(path, false);
     }
 
     // A lone directory operand is listed bare; anything else labels it.
     const labelDirectories = paths.length > 1;
-    for (const path of await sortOperands(dirOperands, ctx, sortKey, reverse)) {
+    for (const path of await sortOperands(
+      dirOperands,
+      ctx,
+      sortKey,
+      reverse,
+      traversalBudget,
+    )) {
       if (stdout) stdout = appendLsOutput(ctx, stdout, "\n");
       await listOperand(path, labelDirectories);
     }
@@ -327,6 +345,7 @@ async function sortOperands(
   ctx: RuntimeCommandContext,
   sortKey: SortKey,
   reverse: boolean,
+  traversalBudget?: FileTraversalBudget,
 ): Promise<string[]> {
   return await sortNames(
     paths,
@@ -334,6 +353,7 @@ async function sortOperands(
     ctx,
     sortKey,
     reverse,
+    traversalBudget,
   );
 }
 
@@ -342,6 +362,9 @@ async function sortOperands(
  * back to the name when two entries tie, so a listing never depends on the
  * order the filesystem happened to return. -r reverses the result, tiebreak
  * included.
+ *
+ * The key comes from lstat, so a symlink sorts on its own size and mtime
+ * rather than its target's, which is what ls does without -L.
  */
 async function sortNames(
   names: readonly string[],
@@ -349,16 +372,20 @@ async function sortNames(
   ctx: RuntimeCommandContext,
   sortKey: SortKey,
   reverse: boolean,
+  traversalBudget?: FileTraversalBudget,
 ): Promise<string[]> {
   const sorted = [...names];
 
   if (sortKey === "name") {
     sorted.sort();
   } else {
+    // One metadata read per name, charged before any of them run: a large
+    // directory would otherwise sort itself without the budget seeing the I/O.
+    traversalBudget?.checkpoint(sorted.length);
     const keys = new Map<string, number>();
     for (const name of sorted) {
       try {
-        const stat = await ctx.fs.stat(resolve(name));
+        const stat = await ctx.fs.lstat(resolve(name));
         keys.set(
           name,
           sortKey === "size"
@@ -401,12 +428,15 @@ async function listPath(
   }),
   traversalDepth = 0,
   ancestorIdentities: Set<string> = new Set(),
+  visitAlreadyCharged = false,
 ): Promise<ExecResult> {
   const showHidden = showAll || showAlmostAll;
   const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
 
   try {
-    traversalBudget.visit(traversalDepth);
+    // An operand is charged where it is resolved, before its stat, so charging
+    // it here as well would spend two entries on one visit.
+    if (!visitAlreadyCharged) traversalBudget.visit(traversalDepth);
     const stat = await ctx.fs.stat(fullPath);
 
     if (!stat.isDirectory) {
@@ -461,6 +491,7 @@ async function listPath(
       ctx,
       sortKey,
       false,
+      traversalBudget,
     );
 
     // Add . and .. entries for -a flag (but not for -A)
@@ -622,6 +653,7 @@ async function listPath(
         ctx,
         sortKey,
         reverse,
+        traversalBudget,
       );
       const dirRank = new Map(dirOrder.map((name, index) => [name, index]));
       dirEntries.sort(

@@ -123,3 +123,30 @@ describe("ls -R orders sections by the active sort key", () => {
     expect(result.stdout).toBe("/w:\naaa\nzzz\n\n/w/aaa:\nf\n\n/w/zzz:\nf\n");
   });
 });
+
+/**
+ * Without -L, ls reads the link itself. Verified on BSD ls (macOS 15): a
+ * symlink stamped 2026 whose target is stamped 2020 sorts first under -t.
+ */
+describe("ls -t reads the link, not its target", () => {
+  it("orders a symlink by its own mtime", async () => {
+    const bash = new Bash({ cwd: "/w", files: { "/w/.keep": "" } });
+    const setup = await bash.exec(
+      [
+        "printf 'x\\n' > /w/target.txt",
+        "touch -d 2020-01-01 /w/target.txt",
+        "printf 'y\\n' > /w/middle.txt",
+        "touch -d 2023-01-01 /w/middle.txt",
+        "ln -s target.txt /w/link",
+      ].join(" && "),
+    );
+    expect(setup.exitCode).toBe(0);
+
+    // Following the link would give it the target's 2020 stamp, putting it
+    // last behind middle.txt rather than first.
+    const result = await bash.exec("ls -1t");
+    expect(result.stdout).toBe("link\nmiddle.txt\ntarget.txt\n");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
+});
