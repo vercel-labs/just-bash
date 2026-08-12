@@ -114,6 +114,7 @@ export function resolveCanonicalPath(
           if (validatedTarget === null) {
             return null;
           }
+          return validatedTarget;
         }
       } catch {
         // lstatSync ENOENT: the leaf truly doesn't exist (not a symlink

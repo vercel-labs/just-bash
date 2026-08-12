@@ -126,7 +126,7 @@ The following components are **trusted** and outside the scope of just-bash's ru
 | Write to host FS | Persisting malicious files | OverlayFs writes to memory only | `src/fs/overlay-fs/overlay-fs.ts` |
 | /proc /sys access | Reading host process info | Virtual FS doesn't expose real /proc | `src/fs/overlay-fs/overlay-fs.ts` |
 | Broken symlink write | Write through broken symlink | Extra `lstat()` on leaf component | `src/fs/real-fs-utils.ts` |
-| Host-planted hard link | Content or metadata mutation reaches another name outside the root | `ReadWriteFs` replaces content entries and rejects shared-inode metadata changes | `src/fs/read-write-fs/read-write-fs.ts` |
+| Host-planted hard link | Content or metadata mutation reaches another name outside the root | `ReadWriteFs` copy-on-write replaces shared-inode content and metadata entries | `src/fs/read-write-fs/read-write-fs.ts` |
 | Real path disclosure | Error messages reveal host paths | `sanitizeError()` strips real paths from ErrnoException; `sanitizeSymlinkTarget()` strips absolute paths | `src/fs/overlay-fs/overlay-fs.ts`, `src/fs/real-fs-utils.ts` |
 
 ### 3.4 Network

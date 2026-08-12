@@ -53,16 +53,18 @@ describe("MountableFs host-planted hard-link containment", () => {
     expect(fs.readFileSync(outsideFile, "utf8")).toBe("outside");
   });
 
-  it("delegates metadata protection to the real filesystem", async () => {
+  it("delegates metadata copy-on-write to the real filesystem", async () => {
+    const originalMode = fs.statSync(outsideFile).mode & 0o777;
+    const originalMtime = fs.statSync(outsideFile).mtimeMs;
     const changed = new Date(fs.statSync(outsideFile).mtimeMs - 60_000);
 
-    await expect(mounted.chmod("/workspace/linked.txt", 0o700)).rejects.toThrow(
-      "multiple hard links",
-    );
-    await expect(
-      mounted.utimes("/workspace/linked.txt", changed, changed),
-    ).rejects.toThrow("multiple hard links");
+    await mounted.chmod("/workspace/linked.txt", 0o700);
+    await mounted.utimes("/workspace/linked.txt", changed, changed);
 
     expect(fs.readFileSync(outsideFile, "utf8")).toBe("outside");
+    expect(fs.statSync(outsideFile).mode & 0o777).toBe(originalMode);
+    expect(fs.statSync(outsideFile).mtimeMs).toBe(originalMtime);
+    expect(fs.statSync(linkedFile).mode & 0o777).toBe(0o700);
+    expect(fs.statSync(linkedFile).mtimeMs).toBeCloseTo(changed.getTime(), 2);
   });
 });

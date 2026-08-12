@@ -58,6 +58,20 @@ describe("ReadWriteFs host-planted hard-link containment", () => {
     expect(fs.statSync(linkedFile).ino).not.toBe(fs.statSync(outsideFile).ino);
   });
 
+  it("bounds copy-on-write append with maxFileReadSize", async () => {
+    const limited = new ReadWriteFs({
+      root: sandboxDir,
+      maxFileReadSize: 4,
+    });
+
+    await expect(limited.appendFile("/linked.txt", "-sandbox")).rejects.toThrow(
+      "EFBIG: file too large, append '/linked.txt' (7 bytes, max 4)",
+    );
+
+    expect(fs.readFileSync(linkedFile, "utf8")).toBe("outside");
+    expect(fs.readFileSync(outsideFile, "utf8")).toBe("outside");
+  });
+
   it("contains copy over a host-planted hard link", async () => {
     fs.writeFileSync(path.join(sandboxDir, "source.txt"), "copied");
 
@@ -109,26 +123,24 @@ describe("ReadWriteFs host-planted hard-link containment", () => {
     expect(fs.readFileSync(outsideFile, "utf8")).toBe("outside");
   });
 
-  it("refuses chmod on a multiply-linked file", async () => {
+  it("contains chmod on a multiply-linked file", async () => {
     const originalMode = fs.statSync(outsideFile).mode & 0o777;
 
-    await expect(rwfs.chmod("/linked.txt", 0o700)).rejects.toThrow(
-      "EACCES: permission denied, chmod '/linked.txt' has multiple hard links",
-    );
+    await rwfs.chmod("/linked.txt", 0o700);
 
     expect(fs.statSync(outsideFile).mode & 0o777).toBe(originalMode);
-    expect(fs.statSync(linkedFile).mode & 0o777).toBe(originalMode);
+    expect(fs.statSync(linkedFile).mode & 0o777).toBe(0o700);
+    expect(fs.statSync(linkedFile).ino).not.toBe(fs.statSync(outsideFile).ino);
   });
 
-  it("refuses utimes on a multiply-linked file", async () => {
+  it("contains utimes on a multiply-linked file", async () => {
     const originalMtime = fs.statSync(outsideFile).mtimeMs;
     const changed = new Date(originalMtime - 60_000);
 
-    await expect(rwfs.utimes("/linked.txt", changed, changed)).rejects.toThrow(
-      "EACCES: permission denied, utimes '/linked.txt' has multiple hard links",
-    );
+    await rwfs.utimes("/linked.txt", changed, changed);
 
     expect(fs.statSync(outsideFile).mtimeMs).toBe(originalMtime);
-    expect(fs.statSync(linkedFile).mtimeMs).toBe(originalMtime);
+    expect(fs.statSync(linkedFile).mtimeMs).toBeCloseTo(changed.getTime(), 2);
+    expect(fs.statSync(linkedFile).ino).not.toBe(fs.statSync(outsideFile).ino);
   });
 });

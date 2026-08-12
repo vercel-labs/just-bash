@@ -29,6 +29,17 @@ describe("ReadWriteFs hard-link containment through shell operations", () => {
     fs.rmSync(parentDir, { recursive: true, force: true });
   });
 
+  it("creates new files while defense-in-depth is active", async () => {
+    const result = await bash.exec("echo created > new-file.txt");
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+    expect(fs.readFileSync(path.join(sandboxDir, "new-file.txt"), "utf8")).toBe(
+      "created\n",
+    );
+  });
+
   it.each([
     [
       "append redirection",
@@ -62,13 +73,14 @@ describe("ReadWriteFs hard-link containment through shell operations", () => {
   it.each([
     ["chmod", "chmod 700 linked.txt"],
     ["touch", "touch -m -t 202001010000 linked.txt"],
-  ])("refuses %s metadata mutation", async (_name, script) => {
+  ])("contains %s metadata mutation", async (_name, script) => {
     const originalStat = fs.statSync(outsideFile);
 
     const result = await bash.exec(script);
 
     expect(result.stdout).toBe("");
-    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
     expect(fs.statSync(outsideFile).mode).toBe(originalStat.mode);
     expect(fs.statSync(outsideFile).mtimeMs).toBe(originalStat.mtimeMs);
   });

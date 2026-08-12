@@ -115,6 +115,26 @@ describe("ReadWriteFs", () => {
       );
     });
 
+    it("should overwrite a writable file without replacing its directory entry", async () => {
+      const dirPath = path.join(tempDir, "non-writable-dir");
+      const filePath = path.join(dirPath, "writable.txt");
+      fs.mkdirSync(dirPath);
+      fs.writeFileSync(filePath, "original");
+      fs.chmodSync(filePath, 0o666);
+      fs.chmodSync(dirPath, 0o555);
+      const originalInode = fs.statSync(filePath).ino;
+      const rwfs = new ReadWriteFs({ root: tempDir });
+
+      try {
+        await rwfs.writeFile("/non-writable-dir/writable.txt", "modified");
+
+        expect(fs.readFileSync(filePath, "utf8")).toBe("modified");
+        expect(fs.statSync(filePath).ino).toBe(originalInode);
+      } finally {
+        fs.chmodSync(dirPath, 0o755);
+      }
+    });
+
     it("should write binary content", async () => {
       const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       const data = new Uint8Array([0x00, 0x01, 0x02, 0xff]);
@@ -401,6 +421,20 @@ describe("ReadWriteFs", () => {
 
       await expect(rwfs.symlink("target", "/existing")).rejects.toThrow(
         "EEXIST",
+      );
+    });
+
+    it("should write through an allowed dangling symlink within the root", async () => {
+      fs.symlinkSync("target.txt", path.join(tempDir, "link.txt"));
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+      await rwfs.writeFile("/link.txt", "created");
+
+      expect(fs.readlinkSync(path.join(tempDir, "link.txt"))).toBe(
+        "target.txt",
+      );
+      expect(fs.readFileSync(path.join(tempDir, "target.txt"), "utf8")).toBe(
+        "created",
       );
     });
   });
