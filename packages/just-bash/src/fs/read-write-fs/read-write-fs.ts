@@ -203,19 +203,8 @@ export class ReadWriteFs implements IFileSystem {
       // replace a parent directory with a symlink between the initial
       // validation and mkdir.
       canonical = this.resolveAndValidate(realPath, path);
-      // When symlinks disabled, use O_NOFOLLOW to prevent symlink-swap
-      const noFollow = this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW;
-      const flags =
-        fs.constants.O_WRONLY |
-        fs.constants.O_CREAT |
-        fs.constants.O_TRUNC |
-        noFollow;
-      const fh = await fs.promises.open(canonical, flags, 0o666);
-      try {
-        await fh.writeFile(buffer);
-      } finally {
-        await fh.close();
-      }
+      const existingStat = await this.inspectWritableTarget(canonical);
+      await this.replaceFile(canonical, buffer, existingStat);
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
       if (err.code === "ELOOP") {
@@ -251,9 +240,27 @@ export class ReadWriteFs implements IFileSystem {
         noFollow;
       const fh = await fs.promises.open(canonical, flags, 0o666);
       try {
-        await fh.writeFile(buffer);
+        const stat = await fh.stat();
+        if (stat.nlink <= 1) {
+          await fh.writeFile(buffer);
+          return;
+        }
       } finally {
         await fh.close();
+      }
+
+      // Appending through a hard link would mutate every name for the inode,
+      // including names outside the sandbox. Copy the current contents into a
+      // private sibling and replace only the sandbox directory entry instead.
+      const readFlags = this.allowSymlinks
+        ? fs.constants.O_RDONLY
+        : fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW;
+      const source = await fs.promises.open(canonical, readFlags);
+      try {
+        const stat = await source.stat();
+        await this.replaceFile(canonical, buffer, stat, source);
+      } finally {
+        await source.close();
       }
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
@@ -261,6 +268,104 @@ export class ReadWriteFs implements IFileSystem {
         throw new Error(`EACCES: permission denied, '${path}' is a symlink`);
       }
       this.sanitizeError(e, path, "append");
+    }
+  }
+
+  /**
+   * Open an existing target without truncating it to preserve write
+   * permission checks and collect the mode used by replacement writes.
+   */
+  private async inspectWritableTarget(
+    canonical: string,
+  ): Promise<fs.Stats | null> {
+    const noFollow = this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW;
+    try {
+      const fh = await fs.promises.open(
+        canonical,
+        fs.constants.O_WRONLY | noFollow,
+      );
+      try {
+        return await fh.stat();
+      } finally {
+        await fh.close();
+      }
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw e;
+    }
+  }
+
+  /**
+   * Commit file contents by replacing a directory entry, never by mutating
+   * its existing inode. This prevents writes through host-planted hard links
+   * from changing files outside the sandbox.
+   */
+  private async replaceFile(
+    canonical: string,
+    content: Uint8Array,
+    existingStat: fs.Stats | null,
+    source?: fs.promises.FileHandle,
+  ): Promise<void> {
+    const dir = nodePath.dirname(canonical);
+    const tempDir = await fs.promises.mkdtemp(
+      nodePath.join(dir, ".just-bash-write-"),
+    );
+    const tempPath = nodePath.join(tempDir, "replacement");
+    let committed = false;
+
+    try {
+      const fh = await fs.promises.open(
+        tempPath,
+        fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL,
+        0o600,
+      );
+      try {
+        let position = 0;
+        const writeAt = async (data: Uint8Array): Promise<void> => {
+          let offset = 0;
+          while (offset < data.byteLength) {
+            const { bytesWritten } = await fh.write(
+              data,
+              offset,
+              data.byteLength - offset,
+              position + offset,
+            );
+            if (bytesWritten === 0) {
+              throw new Error("EIO: replacement write made no progress");
+            }
+            offset += bytesWritten;
+          }
+          position += offset;
+        };
+        if (source) {
+          const chunk = Buffer.allocUnsafe(64 * 1024);
+          while (true) {
+            const { bytesRead } = await source.read(
+              chunk,
+              0,
+              chunk.length,
+              position,
+            );
+            if (bytesRead === 0) break;
+            await writeAt(chunk.subarray(0, bytesRead));
+          }
+        }
+        await writeAt(content);
+        const mode = existingStat
+          ? existingStat.mode & 0o777
+          : 0o666 & ~process.umask();
+        await fh.chmod(mode);
+      } finally {
+        await fh.close();
+      }
+
+      await fs.promises.rename(tempPath, canonical);
+      committed = true;
+    } finally {
+      if (!committed) {
+        await fs.promises.rm(tempPath, { force: true }).catch(() => {});
+      }
+      await fs.promises.rmdir(tempDir).catch(() => {});
     }
   }
 
@@ -880,6 +985,12 @@ export class ReadWriteFs implements IFileSystem {
         : fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW;
       const fh = await fs.promises.open(canonical, flags);
       try {
+        const stat = await fh.stat();
+        if (!stat.isDirectory() && stat.nlink > 1) {
+          throw new Error(
+            `EACCES: permission denied, chmod '${path}' has multiple hard links`,
+          );
+        }
         await fh.chmod(mode);
       } finally {
         await fh.close();
@@ -1098,6 +1209,12 @@ export class ReadWriteFs implements IFileSystem {
         : fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW;
       const fh = await fs.promises.open(canonical, flags);
       try {
+        const stat = await fh.stat();
+        if (!stat.isDirectory() && stat.nlink > 1) {
+          throw new Error(
+            `EACCES: permission denied, utimes '${path}' has multiple hard links`,
+          );
+        }
         await fh.utimes(atime, mtime);
       } finally {
         await fh.close();
