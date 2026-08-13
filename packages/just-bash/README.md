@@ -242,14 +242,31 @@ await env.exec('echo "hello" > file.txt'); // writes to real filesystem
 
 Keep `ReadWriteFs` pointed at a workspace directory, not at the installed `just-bash` package or any other trusted runtime code. Guest-writable roots should stay separate from trusted code.
 
-`ReadWriteFs` commits file-content changes by replacing directory entries so a
-host-created hard link cannot carry writes beyond the configured root. The
-target's parent directory must therefore be writable even when overwriting an
-existing file. Source-preserving operations use `O_NOATIME` on Linux when the
-process owns the inode or has sufficient privileges, and otherwise use normal
-read semantics. On platforms without `O_NOATIME`, copying a shared inode can
-update access-time metadata visible through its other names; content and
-explicit metadata changes remain confined to the sandbox entry.
+`ReadWriteFs` uses normal in-place filesystem operations for private regular
+files. For multiply-linked regular files, it isolates append and metadata
+changes by copying the file and replacing only the sandbox directory entry, so
+a host-created hard link cannot carry those changes beyond the configured root.
+Implicit copies are limited by `maxCopyOnWriteSize` (100 MB by default; set it
+to `0` to disable the limit). Overwrite does not need to copy existing content.
+
+Shared-inode isolation has a few deliberate limitations:
+
+- Append, `chmod`, and `utimes` on a multiply-linked regular file require read
+  access to the file and write access to its parent directory. They fail with
+  `EFBIG` when the file exceeds `maxCopyOnWriteSize`.
+- On Linux, copies use `O_NOATIME` when permitted and retry with normal read
+  semantics otherwise. Platforms without `O_NOATIME` may update access-time
+  metadata visible through another hard link.
+- Do not mutate a `ReadWriteFs` root concurrently through direct host filesystem
+  APIs. Node.js does not expose the descriptor-relative operations needed to
+  make pathname validation atomic against an external actor. A concurrent host
+  append to a multiply-linked file may be lost when the isolated entry is
+  replaced.
+- Mutations in overlapping `ReadWriteFs` roots are serialized within the
+  process. Unrelated roots proceed independently. Blocking operations on a FIFO
+  or device can therefore delay mutations in the same or an overlapping root.
+- Multiply-linked special files are rejected because they cannot be isolated
+  without replacing and changing the special file type.
 
 **MountableFs** - Mount multiple filesystems at different paths. Combines read-only and read-write filesystems into a unified namespace:
 

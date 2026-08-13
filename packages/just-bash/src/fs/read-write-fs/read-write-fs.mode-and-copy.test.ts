@@ -114,4 +114,94 @@ describe("ReadWriteFs replacement mode and copy behavior", () => {
       fs.closeSync(fh);
     }
   });
+
+  it.skipIf(process.platform === "win32")(
+    "overwrites a private writable file in a non-writable directory",
+    async () => {
+      const directory = path.join(root, "locked-parent");
+      const target = path.join(directory, "target.txt");
+      fs.mkdirSync(directory);
+      fs.writeFileSync(target, "old");
+      fs.chmodSync(target, 0o600);
+      fs.chmodSync(directory, 0o500);
+
+      try {
+        await rwfs.writeFile("/locked-parent/target.txt", "new");
+        expect(fs.readFileSync(target, "utf8")).toBe("new");
+      } finally {
+        fs.chmodSync(directory, 0o700);
+      }
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "appends to a private write-only regular file",
+    async () => {
+      const target = path.join(root, "write-only.log");
+      fs.writeFileSync(target, "before");
+      fs.chmodSync(target, 0o200);
+
+      try {
+        await rwfs.appendFile("/write-only.log", "-after");
+        fs.chmodSync(target, 0o600);
+        expect(fs.readFileSync(target, "utf8")).toBe("before-after");
+      } finally {
+        fs.chmodSync(target, 0o600);
+      }
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "changes metadata on a private mode-000 regular file",
+    async () => {
+      const target = path.join(root, "private.txt");
+      const changed = new Date("2020-09-01T00:00:00.000Z");
+      fs.writeFileSync(target, "content");
+      fs.chmodSync(target, 0o000);
+
+      await rwfs.utimes("/private.txt", changed, changed);
+      await rwfs.chmod("/private.txt", 0o640);
+
+      const stat = fs.statSync(target);
+      expect(stat.mode & 0o777).toBe(0o640);
+      expect(stat.mtimeMs).toBe(changed.getTime());
+    },
+  );
+
+  it("bounds implicit copies of multiply-linked files", async () => {
+    const target = path.join(root, "shared.txt");
+    const alias = path.join(root, "shared-alias.txt");
+    fs.writeFileSync(target, "content");
+    fs.linkSync(target, alias);
+    const limited = new ReadWriteFs({ root, maxCopyOnWriteSize: 4 });
+    const changed = new Date("2020-10-01T00:00:00.000Z");
+
+    await expect(limited.appendFile("/shared.txt", "tail")).rejects.toThrow(
+      "file too large for copy-on-write append '/shared.txt' (7 bytes, max 4)",
+    );
+    await expect(limited.chmod("/shared.txt", 0o600)).rejects.toThrow(
+      "file too large for copy-on-write chmod '/shared.txt' (7 bytes, max 4)",
+    );
+    await expect(
+      limited.utimes("/shared.txt", changed, changed),
+    ).rejects.toThrow(
+      "file too large for copy-on-write utimes '/shared.txt' (7 bytes, max 4)",
+    );
+
+    expect(fs.readFileSync(target, "utf8")).toBe("content");
+    expect(fs.readFileSync(alias, "utf8")).toBe("content");
+  });
+
+  it("allows overwrite without copying a multiply-linked source", async () => {
+    const target = path.join(root, "shared.txt");
+    const alias = path.join(root, "shared-alias.txt");
+    fs.writeFileSync(target, "content");
+    fs.linkSync(target, alias);
+    const limited = new ReadWriteFs({ root, maxCopyOnWriteSize: 1 });
+
+    await limited.writeFile("/shared.txt", "replacement");
+
+    expect(fs.readFileSync(target, "utf8")).toBe("replacement");
+    expect(fs.readFileSync(alias, "utf8")).toBe("content");
+  });
 });

@@ -64,6 +64,13 @@ export interface ReadWriteFsOptions {
   maxFileReadSize?: number;
 
   /**
+   * Maximum file size in bytes that metadata operations and append may copy
+   * when isolating a multiply-linked regular file. Defaults to 100MB.
+   * Set to 0 to disable this limit.
+   */
+  maxCopyOnWriteSize?: number;
+
+  /**
    * Whether to allow following and creating symlinks.
    * When false (default), any path traversing a symlink is rejected
    * and symlink() throws EPERM.
@@ -72,22 +79,22 @@ export interface ReadWriteFsOptions {
 }
 
 export class ReadWriteFs implements IFileSystem {
-  // Node does not expose descriptor-relative openat/renameat operations. Keep
-  // every mutation issued through ReadWriteFs in one process-wide transaction
-  // so sandbox-controlled concurrent calls cannot replace a validated parent
-  // while a pathname-based operation is in flight. This is intentionally
-  // shared across instances because separate mounts can address the same host
-  // directory tree.
-  private static mutationTail: Promise<void> = Promise.resolve();
+  private static activeMutationRoots = new Set<string>();
+  private static pendingMutations: Array<{
+    root: string;
+    start: () => void;
+  }> = [];
   private readonly root: string;
   private readonly canonicalRoot: string;
   private readonly maxFileReadSize: number;
+  private readonly maxCopyOnWriteSize: number;
   private readonly allowSymlinks: boolean;
   private transactionId = 0;
 
   constructor(options: ReadWriteFsOptions) {
     this.root = nodePath.resolve(options.root);
     this.maxFileReadSize = options.maxFileReadSize ?? 10485760;
+    this.maxCopyOnWriteSize = options.maxCopyOnWriteSize ?? 104857600;
     this.allowSymlinks = options.allowSymlinks ?? false;
 
     // Verify root exists and is a directory
@@ -253,6 +260,11 @@ export class ReadWriteFs implements IFileSystem {
             await fh.writeFile(buffer);
             return;
           }
+          if (existingStat.nlink <= 1) {
+            await fh.truncate(0);
+            await fh.writeFile(buffer);
+            return;
+          }
         } finally {
           await fh.close();
         }
@@ -323,6 +335,10 @@ export class ReadWriteFs implements IFileSystem {
             await permissionHandle.writeFile(buffer);
             return;
           }
+          if (existingStat.nlink <= 1) {
+            await permissionHandle.writeFile(buffer);
+            return;
+          }
         } finally {
           await permissionHandle.close();
         }
@@ -334,6 +350,7 @@ export class ReadWriteFs implements IFileSystem {
         await this.replaceFile(canonical, buffer, null);
         return;
       }
+      this.assertCopyOnWriteSize(existingStat.size, "append", path);
       // Copy through a no-atime handle where the platform supports it. The
       // copy is limited to the size snapshot above, so concurrent growth
       // cannot make this loop unbounded.
@@ -359,16 +376,49 @@ export class ReadWriteFs implements IFileSystem {
   private async withFilesystemMutation<T>(
     operation: () => Promise<T>,
   ): Promise<T> {
-    const previous = ReadWriteFs.mutationTail;
-    let release!: () => void;
-    ReadWriteFs.mutationTail = new Promise<void>((resolve) => {
-      release = resolve;
+    return new Promise<T>((resolve, reject) => {
+      ReadWriteFs.pendingMutations.push({
+        root: this.canonicalRoot,
+        start: () => {
+          ReadWriteFs.activeMutationRoots.add(this.canonicalRoot);
+          void operation()
+            .then(resolve, reject)
+            .finally(() => {
+              ReadWriteFs.activeMutationRoots.delete(this.canonicalRoot);
+              ReadWriteFs.drainMutationQueue();
+            });
+        },
+      });
+      ReadWriteFs.drainMutationQueue();
     });
-    await previous;
-    try {
-      return await operation();
-    } finally {
-      release();
+  }
+
+  private static drainMutationQueue(): void {
+    for (let index = 0; index < ReadWriteFs.pendingMutations.length; ) {
+      const pending = ReadWriteFs.pendingMutations[index];
+      const overlapsActiveRoot = [...ReadWriteFs.activeMutationRoots].some(
+        (activeRoot) =>
+          isPathWithinRoot(pending.root, activeRoot) ||
+          isPathWithinRoot(activeRoot, pending.root),
+      );
+      if (overlapsActiveRoot) {
+        index++;
+        continue;
+      }
+      ReadWriteFs.pendingMutations.splice(index, 1);
+      pending.start();
+    }
+  }
+
+  private assertCopyOnWriteSize(
+    size: number,
+    operation: string,
+    virtualPath: string,
+  ): void {
+    if (this.maxCopyOnWriteSize > 0 && size > this.maxCopyOnWriteSize) {
+      throw new Error(
+        `EFBIG: file too large for copy-on-write ${operation} '${virtualPath}' (${size} bytes, max ${this.maxCopyOnWriteSize})`,
+      );
     }
   }
 
@@ -1255,6 +1305,11 @@ export class ReadWriteFs implements IFileSystem {
         await fs.promises.chmod(canonical, mode);
         return;
       }
+      if (initialStat.nlink <= 1) {
+        await fs.promises.chmod(canonical, mode);
+        return;
+      }
+      this.assertCopyOnWriteSize(initialStat.size, "chmod", path);
 
       const source = await this.openCopySource(canonical);
       try {
@@ -1516,6 +1571,11 @@ export class ReadWriteFs implements IFileSystem {
         await fs.promises.utimes(canonical, atime, mtime);
         return;
       }
+      if (initialStat.nlink <= 1) {
+        await fs.promises.utimes(canonical, atime, mtime);
+        return;
+      }
+      this.assertCopyOnWriteSize(initialStat.size, "utimes", path);
 
       const source = await this.openCopySource(canonical);
       try {

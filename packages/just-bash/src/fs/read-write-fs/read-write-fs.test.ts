@@ -115,7 +115,7 @@ describe("ReadWriteFs", () => {
       );
     });
 
-    it("should fail closed when an overwrite cannot replace its directory entry", async () => {
+    it("should overwrite a private writable file without replacing its directory entry", async () => {
       const dirPath = path.join(tempDir, "non-writable-dir");
       const filePath = path.join(dirPath, "writable.txt");
       fs.mkdirSync(dirPath);
@@ -125,11 +125,9 @@ describe("ReadWriteFs", () => {
       const rwfs = new ReadWriteFs({ root: tempDir });
 
       try {
-        await expect(
-          rwfs.writeFile("/non-writable-dir/writable.txt", "modified"),
-        ).rejects.toThrow();
+        await rwfs.writeFile("/non-writable-dir/writable.txt", "modified");
 
-        expect(fs.readFileSync(filePath, "utf8")).toBe("original");
+        expect(fs.readFileSync(filePath, "utf8")).toBe("modified");
       } finally {
         fs.chmodSync(dirPath, 0o755);
       }

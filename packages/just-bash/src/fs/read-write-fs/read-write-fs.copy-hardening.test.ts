@@ -124,4 +124,95 @@ describe("ReadWriteFs recursive copy and append hardening", () => {
       openSpy.mockRestore();
     }
   });
+
+  it("allows mutations in unrelated roots to proceed independently", async () => {
+    const otherRoot = path.join(parentDir, "other-sandbox");
+    fs.mkdirSync(otherRoot);
+    const canonicalSandboxDir = fs.realpathSync(sandboxDir);
+    const writer = new ReadWriteFs({ root: sandboxDir });
+    const unrelated = new ReadWriteFs({ root: otherRoot });
+    const originalOpen = fs.promises.open.bind(fs.promises);
+    let releaseStaging!: () => void;
+    const stagingGate = new Promise<void>((resolve) => {
+      releaseStaging = resolve;
+    });
+    let stagingReached!: () => void;
+    const reachedStaging = new Promise<void>((resolve) => {
+      stagingReached = resolve;
+    });
+    const openSpy = vi
+      .spyOn(fs.promises, "open")
+      .mockImplementation(async (filePath, flags, mode) => {
+        if (
+          String(filePath).startsWith(canonicalSandboxDir) &&
+          String(filePath).includes(".just-bash-write-")
+        ) {
+          stagingReached();
+          await stagingGate;
+        }
+        return originalOpen(filePath, flags, mode);
+      });
+
+    try {
+      const blockedWrite = writer.writeFile("/blocked.txt", "blocked");
+      await reachedStaging;
+
+      await unrelated.writeFile("/independent.txt", "completed");
+      expect(
+        fs.readFileSync(path.join(otherRoot, "independent.txt"), "utf8"),
+      ).toBe("completed");
+
+      releaseStaging();
+      await blockedWrite;
+    } finally {
+      releaseStaging();
+      openSpy.mockRestore();
+    }
+  });
+
+  it("serializes mutations in nested overlapping roots", async () => {
+    const nestedRoot = path.join(sandboxDir, "nested");
+    fs.mkdirSync(nestedRoot);
+    const outer = new ReadWriteFs({ root: sandboxDir });
+    const nested = new ReadWriteFs({ root: nestedRoot });
+    const originalOpen = fs.promises.open.bind(fs.promises);
+    let releaseStaging!: () => void;
+    const stagingGate = new Promise<void>((resolve) => {
+      releaseStaging = resolve;
+    });
+    let stagingReached!: () => void;
+    const reachedStaging = new Promise<void>((resolve) => {
+      stagingReached = resolve;
+    });
+    const openSpy = vi
+      .spyOn(fs.promises, "open")
+      .mockImplementation(async (filePath, flags, mode) => {
+        if (String(filePath).includes(".just-bash-write-")) {
+          stagingReached();
+          await stagingGate;
+        }
+        return originalOpen(filePath, flags, mode);
+      });
+
+    try {
+      const outerWrite = outer.writeFile("/outer.txt", "outer");
+      await reachedStaging;
+      let nestedFinished = false;
+      const nestedWrite = nested.writeFile("/nested.txt", "nested").then(() => {
+        nestedFinished = true;
+      });
+
+      await Promise.resolve();
+      expect(nestedFinished).toBe(false);
+
+      releaseStaging();
+      await Promise.all([outerWrite, nestedWrite]);
+      expect(fs.readFileSync(path.join(nestedRoot, "nested.txt"), "utf8")).toBe(
+        "nested",
+      );
+    } finally {
+      releaseStaging();
+      openSpy.mockRestore();
+    }
+  });
 });

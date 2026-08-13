@@ -35,6 +35,7 @@ The following components are **trusted** and outside the scope of just-bash's ru
 - **Host-provided `fs`, `fetch`, `customCommands`, and transform plugins**: These are supplied by the embedding application. A compromised or malicious host hook can bypass all sandboxing by design — just-bash protects untrusted *scripts*, not untrusted *hosts*.
 - **The Node.js runtime and underlying OS**: just-bash assumes the Node.js binary, V8, and OS kernel are not compromised. Exploits targeting V8 internals or kernel vulnerabilities are out of scope.
 - **Dependencies**: Supply-chain attacks via npm dependencies are a deployment-level concern (addressed by lockfiles, audits, etc.), not a runtime defense.
+- **Direct host filesystem access**: The embedding application and other host processes are trusted not to mutate a `ReadWriteFs` root concurrently with sandbox operations. Node.js does not expose portable descriptor-relative filesystem APIs, so `ReadWriteFs` cannot make pathname validation and replacement atomic against an external host actor. Mutations submitted through overlapping `ReadWriteFs` roots are serialized within the process.
 
 ---
 
