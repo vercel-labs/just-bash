@@ -95,6 +95,31 @@ describe("ReadWriteFs recursive copy and append hardening", () => {
     ).toBe(true);
   });
 
+  it("keeps a deep relative symlink inside the root when copied shallower", async () => {
+    const sourceDir = path.join(sandboxDir, "deep/nested/source");
+    const outsideCanary = path.join(outsideDir, "canary.txt");
+    fs.mkdirSync(sourceDir, { recursive: true });
+    fs.writeFileSync(path.join(sandboxDir, "inside.txt"), "inside");
+    fs.writeFileSync(outsideCanary, "outside");
+    fs.symlinkSync("../../../inside.txt", path.join(sourceDir, "link.txt"));
+    const rwfs = new ReadWriteFs({ root: sandboxDir, allowSymlinks: true });
+
+    await rwfs.cp("/deep/nested/source/link.txt", "/copied-link.txt");
+
+    const copiedLink = path.join(sandboxDir, "copied-link.txt");
+    const rawTarget = fs.readlinkSync(copiedLink);
+    const resolvedTarget = fs.realpathSync(copiedLink);
+    const canonicalRoot = fs.realpathSync(sandboxDir);
+    expect(rawTarget).toBe("inside.txt");
+    expect(resolvedTarget).toBe(path.join(canonicalRoot, "inside.txt"));
+    expect(
+      resolvedTarget === canonicalRoot ||
+        resolvedTarget.startsWith(`${canonicalRoot}${path.sep}`),
+    ).toBe(true);
+    expect(fs.readFileSync(copiedLink, "utf8")).toBe("inside");
+    expect(fs.readFileSync(outsideCanary, "utf8")).toBe("outside");
+  });
+
   it("rejects a regular file copied onto the same path", async () => {
     const source = path.join(sandboxDir, "same.txt");
     fs.writeFileSync(source, "content");
