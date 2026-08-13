@@ -1,5 +1,70 @@
 # just-bash
 
+## 3.3.0
+
+### Minor Changes
+
+- [#291](https://github.com/vercel-labs/just-bash/pull/291) [`47f604a`](https://github.com/vercel-labs/just-bash/commit/47f604a7f1e12730318e4c88c7872a5a35383056) Thanks [@trieloff](https://github.com/trieloff)! - jq: add external-argument flags (`--arg`, `--argjson`, `--rawfile`, `--slurpfile`, `--args`, `--jsonargs`) and the `$ARGS` object (`$ARGS.named` / `$ARGS.positional`), matching real jq 1.7.1 behavior including exit codes, error messages, and prototype-sensitive key handling.
+
+- [#336](https://github.com/vercel-labs/just-bash/pull/336) [`d97425d`](https://github.com/vercel-labs/just-bash/commit/d97425dff8f51cfd773d22bc009561a09235cd1b) Thanks [@trieloff](https://github.com/trieloff)! - Support user file descriptors (fd >= 3). `exec 3< file`, `N< file` / `N> file` / `N>> file` on any command, `read -u N`, `read <&N`, `>&N`, `N<&M`, and `N<&-` now go through a real descriptor table: a descriptor carries one shared read position, `exec` keeps it open until it is closed, and every other construct — including `done N< file` on a loop — gets it only for the duration of that command.
+
+- [#331](https://github.com/vercel-labs/just-bash/pull/331) [`6680247`](https://github.com/vercel-labs/just-bash/commit/66802470837cfac3a58a09e00d37b2070387ba7b) Thanks [@trieloff](https://github.com/trieloff)! - Treat a `-` FILE operand in `grep` as standard input, matching GNU. `grep PATTERN -` now reads stdin instead of failing with "No such file or directory", stdin is labelled `(standard input)` in the multi-file prefix and in `-l`/`-L`/`-c` output, repeated `-` operands see the stream drained by the first one, and `-` is exempt from `-r` recursion and `--include`/`--exclude` filtering.
+
+- [#325](https://github.com/vercel-labs/just-bash/pull/325) [`edc7f2f`](https://github.com/vercel-labs/just-bash/commit/edc7f2fac5337cebd19911c5756b76ed02e52090) Thanks [@trieloff](https://github.com/trieloff)! - Support process substitution `<(cmd)` and `>(cmd)`.
+
+  `<(cmd)` runs `cmd` and substitutes a readable `/dev/fd/N` path backed by an
+  in-memory file; `>(cmd)` substitutes a writable path whose contents are fed to
+  `cmd` once the outer command finishes. Descriptors are numbered from 63
+  downwards like bash and released when the command that opened them completes.
+  Process substitutions retain their surrounding word context in assignments,
+  conditionals, regular expressions, and heredoc delimiters. Previously any use
+  raised `Parse error: Expected redirection target`.
+
+- [#327](https://github.com/vercel-labs/just-bash/pull/327) [`eaedb5b`](https://github.com/vercel-labs/just-bash/commit/eaedb5bc34cffd2077b88bb1ccc48ea7e0545a48) Thanks [@trieloff](https://github.com/trieloff)! - Add `grep -f FILE` / `--file=FILE` to read patterns from a file (one per line). Patterns from `-f` OR-combine with `-e` patterns and with each other, `-f -` reads patterns from stdin, empty pattern lines match every line, and an empty pattern file selects nothing (exit 1). Newline-separated `PATTERNS` operands are now split into individual patterns, and `-x` groups alternatives correctly (`^(?:a|b)$`).
+
+### Patch Changes
+
+- [#358](https://github.com/vercel-labs/just-bash/pull/358) [`bd1df37`](https://github.com/vercel-labs/just-bash/commit/bd1df37f8ff836355f470e95dcaa004b769d1e61) Thanks [@privatenumber](https://github.com/privatenumber)! - Parse and serialize bare file descriptor variable redirections such as `{output}>output.log` and `{input}<<EOF`. Bare redirects create their target with a command-scoped descriptor, while named command forms keep the allocated descriptor available.
+
+- [#347](https://github.com/vercel-labs/just-bash/pull/347) [`abb904b`](https://github.com/vercel-labs/just-bash/commit/abb904b1e126d14aa437b05f006df83117f06db3) Thanks [@privatenumber](https://github.com/privatenumber)! - Fix escaped reserved words being parsed as shell syntax. Unquoted escapes now retain their provenance through lexing and word parsing, including when the word is serialized back to Bash.
+
+- [#332](https://github.com/vercel-labs/just-bash/pull/332) [`4f9bdec`](https://github.com/vercel-labs/just-bash/commit/4f9bdec02edb9eb72511546b759cb7e20bc2e27e) Thanks [@trieloff](https://github.com/trieloff)! - Fix `grep -L` exit status to match GNU grep. The status reports whether a line
+  was selected, not whether a filename was printed, so `grep -L` now exits 0 when
+  every file matched (printing nothing) and 1 when no file matched (printing every
+  name) — previously these were inverted.
+
+- [#339](https://github.com/vercel-labs/just-bash/pull/339) [`31d247f`](https://github.com/vercel-labs/just-bash/commit/31d247fe3a62f081b4462064da195552ab0a421c) Thanks [@mutewinter](https://github.com/mutewinter)! - network: restore private-range-enforced requests from the bundled build
+
+  Every request made with `denyPrivateRanges` enabled failed with `Network access denied: DNS pinning unavailable for private IP enforcement`, so `curl` could not reach any host at all. The published ESM bundle was affected; source consumers and the CommonJS bundle were not.
+
+  The pinned connection owner reads `Agent` and `fetch` off a dynamic `import("undici")`. Node's resolution of the package exposes those as named exports, but the ESM build inlines undici's CommonJS module into a chunk whose namespace carries it under `default` alone, so `Agent` was `undefined` and the `TypeError` from constructing it was reported as a runtime incapable of pinning.
+
+  The namespace is now normalized before the transport is read off it, which also covers a consumer that bundles just-bash further.
+
+- [#336](https://github.com/vercel-labs/just-bash/pull/336) [`d97425d`](https://github.com/vercel-labs/just-bash/commit/d97425dff8f51cfd773d22bc009561a09235cd1b) Thanks [@trieloff](https://github.com/trieloff)! - Stop command groups, function bodies and `eval` from rewinding stdin they never replaced, so `{ { read a; }; read b; }` gives `b` the second line instead of replaying the first.
+
+- [#348](https://github.com/vercel-labs/just-bash/pull/348) [`1a7940d`](https://github.com/vercel-labs/just-bash/commit/1a7940ddf91dec8f69125474a40cef1adebabee9) Thanks [@privatenumber](https://github.com/privatenumber)! - Reject unsupported command-leading reserved words in every parser context instead of discarding them or executing them as simple commands. Unknown command AST nodes now fail explicitly instead of returning a successful result.
+
+- [#345](https://github.com/vercel-labs/just-bash/pull/345) [`2208a34`](https://github.com/vercel-labs/just-bash/commit/2208a34e27d33a2fce712fbd024875ec60747553) Thanks [@privatenumber](https://github.com/privatenumber)! - Restore command groups and subshells after the process-substitution and stdin-ownership changes were combined without forwarding ownership through inner command dispatch.
+
+- [#336](https://github.com/vercel-labs/just-bash/pull/336) [`d97425d`](https://github.com/vercel-labs/just-bash/commit/d97425dff8f51cfd773d22bc009561a09235cd1b) Thanks [@trieloff](https://github.com/trieloff)! - Apply output redirections attached to `while` and `until` loops. `while true; do echo x; break; done >/dev/null` no longer leaks its output to the caller, and `> file`, `>>`, `2>`, `2>&1`, `&>` and `>|` now behave on loops the way they already did on `for` and `case`. `until` loops also gained the input-redirection handling `while` loops already had, so `until ! read l; do ...; done < file` reads from the file. A loop now only restores stdin it owns, so reading inside a loop no longer rewinds an enclosing group's read position: `printf 'a\nb\n' | { while read x; do break; done; read y; }` sees `y=b`.
+
+- [#328](https://github.com/vercel-labs/just-bash/pull/328) [`65dafd5`](https://github.com/vercel-labs/just-bash/commit/65dafd55afbfa7e62642ce485787f7d65fad4961) Thanks [@trieloff](https://github.com/trieloff)! - Stop pipelines from draining the enclosing shell's stdin, so `while read …; do … | …; done < file` runs once per line again.
+
+- [#349](https://github.com/vercel-labs/just-bash/pull/349) [`be55fec`](https://github.com/vercel-labs/just-bash/commit/be55fec4e23b3f5a42cf8eaeb6939b379f741ae1) Thanks [@privatenumber](https://github.com/privatenumber)! - Process redirections through policy-driven transactions that preserve Bash ordering, descriptor lifetimes, persistent `exec` routes, compound-command stdin, control-flow output routing, and shared read-write descriptor positions without duplicate expansion or opening.
+
+- [#368](https://github.com/vercel-labs/just-bash/pull/368) [`3ee215c`](https://github.com/vercel-labs/just-bash/commit/3ee215c2ad56c96ce0d88e2813050df9f15afa38) Thanks [@cramforce](https://github.com/cramforce)! - FS sym-link hardening
+
+- [#338](https://github.com/vercel-labs/just-bash/pull/338) [`19a02c2`](https://github.com/vercel-labs/just-bash/commit/19a02c297d110fde8a8a3376d6956c2c549d128e) Thanks [@mutewinter](https://github.com/mutewinter)! - sqlite3: report failed statements on stderr and exit non-zero without `-bail`
+
+  A statement that failed was written to **stdout** as `Error: ...` and the command still exited `0` unless `-bail` was passed. Real `sqlite3` writes the error to stderr and exits `1` in either mode; `-bail` only decides whether the remaining statements still run.
+
+  Two consequences for callers: `sqlite3 db "SELECT ..." > out.csv` silently wrote the error text into the data file, and `sqlite3 db "..." && next-step` ran `next-step` after the query had failed, so a shell script could not detect a bad query without opting into `-bail` and losing the ability to see later statements.
+
+  Errors now accumulate on stderr in statement order and the exit status is `1` whenever any statement failed. Successful runs are unchanged, `-bail` still stops at the first failure, and the partial stdout produced before a failure is still emitted. Writeback of a partially-successful script is also unchanged.
+
+- [#360](https://github.com/vercel-labs/just-bash/pull/360) [`1fbde34`](https://github.com/vercel-labs/just-bash/commit/1fbde341d74ff7f933d9cead9a390a6ab65b5df3) Thanks [@privatenumber](https://github.com/privatenumber)! - Preserve whether a here-document ended at its delimiter or at end-of-input. Unterminated final body lines now receive Bash's trailing newline, backslash-newline continuations are removed during expansion, and serialization rejects unterminated documents rather than manufacturing a closing delimiter.
+
 ## 3.2.0
 
 ### Minor Changes
