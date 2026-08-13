@@ -57,6 +57,24 @@ describe.skipIf(process.platform === "win32")(
       );
     });
 
+    it("rejects FIFO content writes without blocking later mutations", async () => {
+      const fifo = path.join(root, "events.fifo");
+      execFileSync("mkfifo", [fifo]);
+
+      await expect(rwfs.writeFile("/events.fifo", "data")).rejects.toThrow(
+        "cannot write special file",
+      );
+      await expect(rwfs.appendFile("/events.fifo", "data")).rejects.toThrow(
+        "cannot append special file",
+      );
+      await rwfs.writeFile("/after.txt", "completed");
+
+      expect(fs.lstatSync(fifo).isFIFO()).toBe(true);
+      expect(fs.readFileSync(path.join(root, "after.txt"), "utf8")).toBe(
+        "completed",
+      );
+    });
+
     it("refuses metadata mutation through a multiply-linked FIFO", async () => {
       const fifo = path.join(root, "events.fifo");
       const alias = path.join(root, "events-alias.fifo");
@@ -68,10 +86,10 @@ describe.skipIf(process.platform === "win32")(
         "cannot chmod multiply-linked special file",
       );
       await expect(rwfs.writeFile("/events.fifo", "data")).rejects.toThrow(
-        "cannot write multiply-linked special file",
+        "cannot write special file",
       );
       await expect(rwfs.appendFile("/events.fifo", "data")).rejects.toThrow(
-        "cannot append multiply-linked special file",
+        "cannot append special file",
       );
 
       expect(fs.lstatSync(fifo).isFIFO()).toBe(true);

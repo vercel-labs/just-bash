@@ -263,10 +263,19 @@ Shared-inode isolation has a few deliberate limitations:
   append to a multiply-linked file may be lost when the isolated entry is
   replaced.
 - Mutations in overlapping `ReadWriteFs` roots are serialized within the
-  process. Unrelated roots proceed independently. Blocking operations on a FIFO
-  or device can therefore delay mutations in the same or an overlapping root.
-- Multiply-linked special files are rejected because they cannot be isolated
-  without replacing and changing the special file type.
+  process. Unrelated roots proceed independently.
+- Content writes and appends to FIFOs, sockets, devices, and other special files
+  are rejected. This avoids indefinitely occupying an overlapping-root mutation
+  slot on a blocking special-file open. Metadata operations remain supported
+  for single-link special files; multiply-linked special files are rejected
+  because they cannot be isolated without changing their file type.
+- Private-file and single-link special-file metadata operations use pathname
+  APIs to preserve normal host permission semantics. They are not atomic
+  against a trusted host actor concurrently replacing that pathname with a
+  symlink. With `allowSymlinks: false`, symlinks present during normal path
+  validation are still rejected.
+- Copying a symlink preserves whether its guest target is absolute or relative.
+  Only symlinks whose resolved targets remain inside the root are copied.
 
 **MountableFs** - Mount multiple filesystems at different paths. Combines read-only and read-write filesystems into a unified namespace:
 

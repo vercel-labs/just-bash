@@ -36,6 +36,85 @@ describe("ReadWriteFs recursive copy and append hardening", () => {
     expect(fs.readFileSync(copiedLink, "utf8")).toBe("content");
   });
 
+  it("preserves an absolute virtual symlink target at a different depth", async () => {
+    fs.mkdirSync(path.join(sandboxDir, "source"));
+    fs.writeFileSync(path.join(sandboxDir, "target.txt"), "content");
+    const rwfs = new ReadWriteFs({ root: sandboxDir, allowSymlinks: true });
+    await rwfs.symlink("/target.txt", "/source/link.txt");
+
+    await rwfs.cp("/source/link.txt", "/deep/nested/link.txt");
+
+    expect(fs.readlinkSync(path.join(sandboxDir, "deep/nested/link.txt"))).toBe(
+      path.join(fs.realpathSync(sandboxDir), "target.txt"),
+    );
+    expect(await rwfs.readlink("/deep/nested/link.txt")).toBe(
+      "../../target.txt",
+    );
+    expect(
+      fs.readFileSync(path.join(sandboxDir, "deep/nested/link.txt"), "utf8"),
+    ).toBe("content");
+  });
+
+  it("preserves a relative symlink target when copying to a missing parent", async () => {
+    fs.mkdirSync(path.join(sandboxDir, "source"));
+    fs.writeFileSync(path.join(sandboxDir, "source/target.txt"), "content");
+    fs.symlinkSync("target.txt", path.join(sandboxDir, "source/link.txt"));
+    const rwfs = new ReadWriteFs({ root: sandboxDir, allowSymlinks: true });
+
+    await rwfs.cp("/source/link.txt", "/missing/parent/link.txt");
+
+    expect(
+      fs.readlinkSync(path.join(sandboxDir, "missing/parent/link.txt")),
+    ).toBe("target.txt");
+    expect(
+      fs
+        .lstatSync(path.join(sandboxDir, "missing/parent/link.txt"))
+        .isSymbolicLink(),
+    ).toBe(true);
+  });
+
+  it("rejects a regular file copied onto the same path", async () => {
+    const source = path.join(sandboxDir, "same.txt");
+    fs.writeFileSync(source, "content");
+    const originalStat = fs.statSync(source);
+    const rwfs = new ReadWriteFs({ root: sandboxDir });
+
+    await expect(rwfs.cp("/same.txt", "/same.txt")).rejects.toThrow(
+      "cannot copy '/same.txt' onto itself",
+    );
+
+    expect(fs.readFileSync(source, "utf8")).toBe("content");
+    expect(fs.statSync(source).ino).toBe(originalStat.ino);
+  });
+
+  it("rejects a regular file copied onto a hard-link alias", async () => {
+    const source = path.join(sandboxDir, "source.txt");
+    const alias = path.join(sandboxDir, "alias.txt");
+    fs.writeFileSync(source, "content");
+    fs.linkSync(source, alias);
+    const rwfs = new ReadWriteFs({ root: sandboxDir });
+
+    await expect(rwfs.cp("/source.txt", "/alias.txt")).rejects.toThrow(
+      "cannot copy '/source.txt' onto itself",
+    );
+
+    expect(fs.statSync(source).ino).toBe(fs.statSync(alias).ino);
+  });
+
+  it("rejects a symlink copied onto itself", async () => {
+    fs.writeFileSync(path.join(sandboxDir, "target.txt"), "content");
+    fs.symlinkSync("target.txt", path.join(sandboxDir, "link.txt"));
+    const rwfs = new ReadWriteFs({ root: sandboxDir, allowSymlinks: true });
+
+    await expect(rwfs.cp("/link.txt", "/link.txt")).rejects.toThrow(
+      "cannot copy '/link.txt' onto itself",
+    );
+
+    expect(fs.readlinkSync(path.join(sandboxDir, "link.txt"))).toBe(
+      "target.txt",
+    );
+  });
+
   it("rejects a nested destination directory symlink that escapes the root", async () => {
     fs.mkdirSync(path.join(sandboxDir, "source", "nested"), {
       recursive: true,
@@ -78,6 +157,42 @@ describe("ReadWriteFs recursive copy and append hardening", () => {
     expect(parts.slice(1).sort((a, b) => Number(a) - Number(b))).toEqual(
       appends.map((content) => content.slice(1)),
     );
+  });
+
+  it("fails closed if a shared append source changes before copying", async () => {
+    const target = path.join(sandboxDir, "shared.txt");
+    const alias = path.join(sandboxDir, "shared-alias.txt");
+    const substituted = path.join(sandboxDir, "substituted.txt");
+    fs.writeFileSync(target, "original");
+    fs.linkSync(target, alias);
+    fs.writeFileSync(substituted, "substituted");
+    const canonicalTarget = fs.realpathSync(target);
+    const originalOpen = fs.promises.open.bind(fs.promises);
+    const openSpy = vi
+      .spyOn(fs.promises, "open")
+      .mockImplementation(async (filePath, flags, mode) => {
+        if (
+          filePath === canonicalTarget &&
+          typeof flags === "number" &&
+          (flags & 0b11) === fs.constants.O_RDONLY
+        ) {
+          return originalOpen(substituted, fs.constants.O_RDONLY);
+        }
+        return originalOpen(filePath, flags, mode);
+      });
+    const rwfs = new ReadWriteFs({ root: sandboxDir });
+
+    try {
+      await expect(rwfs.appendFile("/shared.txt", "-append")).rejects.toThrow(
+        "file identity changed",
+      );
+    } finally {
+      openSpy.mockRestore();
+    }
+
+    expect(fs.readFileSync(target, "utf8")).toBe("original");
+    expect(fs.readFileSync(alias, "utf8")).toBe("original");
+    expect(fs.readFileSync(substituted, "utf8")).toBe("substituted");
   });
 
   it("holds parent-changing mutations until a replacement write commits", async () => {
