@@ -1,0 +1,82 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ReadWriteFs } from "./read-write-fs.js";
+
+describe("ReadWriteFs recursive copy and append hardening", () => {
+  let parentDir: string;
+  let sandboxDir: string;
+  let outsideDir: string;
+
+  beforeEach(() => {
+    parentDir = fs.mkdtempSync(path.join(os.tmpdir(), "rwfs-copy-hardening-"));
+    sandboxDir = path.join(parentDir, "sandbox");
+    outsideDir = path.join(parentDir, "outside");
+    fs.mkdirSync(sandboxDir);
+    fs.mkdirSync(outsideDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(parentDir, { recursive: true, force: true });
+  });
+
+  it("copies safe nested symlinks when symlinks are enabled", async () => {
+    const sourceDir = path.join(sandboxDir, "source");
+    fs.mkdirSync(sourceDir);
+    fs.writeFileSync(path.join(sourceDir, "target.txt"), "content");
+    fs.symlinkSync("target.txt", path.join(sourceDir, "link.txt"));
+    const rwfs = new ReadWriteFs({ root: sandboxDir, allowSymlinks: true });
+
+    await rwfs.cp("/source", "/destination", { recursive: true });
+
+    const copiedLink = path.join(sandboxDir, "destination", "link.txt");
+    expect(fs.lstatSync(copiedLink).isSymbolicLink()).toBe(true);
+    expect(await rwfs.readlink("/destination/link.txt")).toBe("target.txt");
+    expect(fs.readFileSync(copiedLink, "utf8")).toBe("content");
+  });
+
+  it("rejects a nested destination directory symlink that escapes the root", async () => {
+    fs.mkdirSync(path.join(sandboxDir, "source", "nested"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(sandboxDir, "source", "nested", "payload.txt"),
+      "sandbox",
+    );
+    fs.mkdirSync(path.join(sandboxDir, "destination"));
+    fs.symlinkSync(outsideDir, path.join(sandboxDir, "destination", "nested"));
+    const rwfs = new ReadWriteFs({ root: sandboxDir });
+
+    await expect(
+      rwfs.cp("/source", "/destination", { recursive: true }),
+    ).rejects.toThrow("resolves outside sandbox");
+
+    expect(fs.existsSync(path.join(outsideDir, "payload.txt"))).toBe(false);
+  });
+
+  it("serializes appends through aliases of the same canonical file", async () => {
+    fs.writeFileSync(path.join(sandboxDir, "target.txt"), "start");
+    fs.symlinkSync("target.txt", path.join(sandboxDir, "first.txt"));
+    fs.symlinkSync("target.txt", path.join(sandboxDir, "second.txt"));
+    const rwfs = new ReadWriteFs({ root: sandboxDir, allowSymlinks: true });
+    const appends = Array.from({ length: 20 }, (_, index) => `|${index}`);
+
+    await Promise.all(
+      appends.map((content, index) =>
+        rwfs.appendFile(
+          index % 2 === 0 ? "/first.txt" : "/second.txt",
+          content,
+        ),
+      ),
+    );
+
+    const parts = fs
+      .readFileSync(path.join(sandboxDir, "target.txt"), "utf8")
+      .split("|");
+    expect(parts[0]).toBe("start");
+    expect(parts.slice(1).sort((a, b) => Number(a) - Number(b))).toEqual(
+      appends.map((content) => content.slice(1)),
+    );
+  });
+});

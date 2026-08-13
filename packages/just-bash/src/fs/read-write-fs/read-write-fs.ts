@@ -243,8 +243,9 @@ export class ReadWriteFs implements IFileSystem {
     const realPath = this.toRealPath(path);
     const encoding = getEncoding(options);
     const buffer = toBuffer(content, encoding);
+    const mutationKey = this.resolveAndValidate(realPath, path);
 
-    await this.withMutationLock(realPath, async () => {
+    await this.withMutationLock(mutationKey, async () => {
       let canonical = this.resolveAndValidate(realPath, path);
       // Ensure parent directory exists
       const dir = nodePath.dirname(canonical);
@@ -632,7 +633,7 @@ export class ReadWriteFs implements IFileSystem {
     const srcReal = this.toRealPath(src);
     const destReal = this.toRealPath(dest);
     const srcCanonical = this.resolveAndValidate(srcReal, src);
-    let destCanonical = this.resolveAndValidate(destReal, dest);
+    const destCanonical = this.resolveAndValidate(destReal, dest);
     let srcStat: fs.Stats;
     try {
       srcStat = await fs.promises.lstat(srcCanonical);
@@ -664,7 +665,7 @@ export class ReadWriteFs implements IFileSystem {
         await fs.promises.mkdir(nodePath.dirname(destCanonical), {
           recursive: true,
         });
-        destCanonical = this.resolveAndValidate(destReal, dest);
+        this.resolveAndValidate(destReal, dest);
       } catch (e) {
         this.sanitizeError(e, dest, "cp");
       }
@@ -673,8 +674,9 @@ export class ReadWriteFs implements IFileSystem {
     try {
       await this.copyTreeEntry(
         srcCanonical,
-        destCanonical,
+        destReal,
         src,
+        dest,
         options?.recursive ?? false,
       );
     } catch (e) {
@@ -691,12 +693,17 @@ export class ReadWriteFs implements IFileSystem {
 
   private async copyTreeEntry(
     source: string,
-    destination: string,
+    destinationReal: string,
     virtualSource: string,
+    virtualDestination: string,
     recursive: boolean,
   ): Promise<void> {
     const stat = await fs.promises.lstat(source);
     if (stat.isFile()) {
+      const destination = this.resolveAndValidate(
+        destinationReal,
+        virtualDestination,
+      );
       const sourceHandle = await this.openCopySource(
         source,
         stat,
@@ -713,16 +720,37 @@ export class ReadWriteFs implements IFileSystem {
       }
       return;
     }
+    if (stat.isSymbolicLink()) {
+      if (!this.allowSymlinks) {
+        throw new Error(
+          `EACCES: permission denied, cp '${virtualSource}' contains a symlink`,
+        );
+      }
+      const target = await this.readlink(virtualSource);
+      await this.replaceSymlink(destinationReal, virtualDestination, target);
+      return;
+    }
     if (stat.isDirectory()) {
       if (!recursive) {
         throw new Error(`EISDIR: is a directory, cp '${virtualSource}'`);
       }
+      let destination = this.resolveAndValidate(
+        destinationReal,
+        virtualDestination,
+      );
       await fs.promises.mkdir(destination, { recursive: true });
+      // A pre-existing child symlink, or a parent swap during mkdir, must not
+      // redirect subsequent recursive entries outside the sandbox.
+      destination = this.resolveAndValidate(
+        destinationReal,
+        virtualDestination,
+      );
       for (const entry of await fs.promises.readdir(source)) {
         await this.copyTreeEntry(
           nodePath.join(source, entry),
-          nodePath.join(destination, entry),
-          virtualSource,
+          nodePath.join(destinationReal, entry),
+          nodePath.join(virtualSource, entry),
+          nodePath.join(virtualDestination, entry),
           true,
         );
       }
@@ -730,6 +758,61 @@ export class ReadWriteFs implements IFileSystem {
       return;
     }
     throw new Error(`EINVAL: unsupported file type, cp '${virtualSource}'`);
+  }
+
+  private async replaceSymlink(
+    destinationReal: string,
+    virtualDestination: string,
+    target: string,
+  ): Promise<void> {
+    const destination = this.validateParent(
+      destinationReal,
+      virtualDestination,
+    );
+    const virtualDir = nodePath.dirname(normalizePath(virtualDestination));
+    let tempVirtual = "";
+    let tempReal = "";
+    let tempCanonical = "";
+    let tempIdentity: fs.Stats | null = null;
+
+    for (let attempts = 0; attempts < 100; attempts++) {
+      const tempName = `.just-bash-copy-link-${this.transactionId++}`;
+      tempVirtual =
+        virtualDir === "/" ? `/${tempName}` : `${virtualDir}/${tempName}`;
+      tempReal = this.toRealPath(tempVirtual);
+      try {
+        await this.symlink(target, tempVirtual);
+        tempCanonical = this.validateParent(tempReal, tempVirtual);
+        tempIdentity = await fs.promises.lstat(tempCanonical);
+        break;
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code !== "EEXIST" && !err.message.startsWith("EEXIST:")) {
+          throw e;
+        }
+      }
+    }
+    if (!tempIdentity) {
+      throw new Error(`EEXIST: replacement symlink '${virtualDestination}'`);
+    }
+
+    let committed = false;
+    try {
+      const stagedIdentity = await fs.promises.lstat(tempCanonical);
+      if (
+        !stagedIdentity.isSymbolicLink() ||
+        stagedIdentity.dev !== tempIdentity.dev ||
+        stagedIdentity.ino !== tempIdentity.ino
+      ) {
+        throw new Error("EACCES: replacement symlink entry changed");
+      }
+      await fs.promises.rename(tempCanonical, destination);
+      committed = true;
+    } finally {
+      if (!committed && tempCanonical) {
+        await fs.promises.rm(tempCanonical, { force: true }).catch(() => {});
+      }
+    }
   }
 
   private async preflightCopyTree(
@@ -763,7 +846,7 @@ export class ReadWriteFs implements IFileSystem {
       for (const entry of entries) {
         await this.preflightCopyTree(
           nodePath.join(source, entry),
-          virtualSource,
+          nodePath.join(virtualSource, entry),
           visited,
         );
       }
