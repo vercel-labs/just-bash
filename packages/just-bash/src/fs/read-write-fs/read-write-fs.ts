@@ -228,12 +228,31 @@ export class ReadWriteFs implements IFileSystem {
       const noFollow = this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW;
       let existingStat: fs.Stats | null = null;
       try {
+        const pathStat = await fs.promises.lstat(canonical);
+        if (
+          !pathStat.isFile() &&
+          !pathStat.isDirectory() &&
+          pathStat.nlink > 1
+        ) {
+          throw new Error(
+            `EACCES: cannot write multiply-linked special file '${path}'`,
+          );
+        }
         const fh = await fs.promises.open(
           canonical,
           fs.constants.O_WRONLY | noFollow,
         );
         try {
           existingStat = await fh.stat();
+          if (!existingStat.isFile()) {
+            if (!existingStat.isDirectory() && existingStat.nlink > 1) {
+              throw new Error(
+                `EACCES: cannot write multiply-linked special file '${path}'`,
+              );
+            }
+            await fh.writeFile(buffer);
+            return;
+          }
         } finally {
           await fh.close();
         }
@@ -279,12 +298,31 @@ export class ReadWriteFs implements IFileSystem {
       const noFollow = this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW;
       let existingStat: fs.Stats | null = null;
       try {
+        const pathStat = await fs.promises.lstat(canonical);
+        if (
+          !pathStat.isFile() &&
+          !pathStat.isDirectory() &&
+          pathStat.nlink > 1
+        ) {
+          throw new Error(
+            `EACCES: cannot append multiply-linked special file '${path}'`,
+          );
+        }
         const permissionHandle = await fs.promises.open(
           canonical,
-          fs.constants.O_WRONLY | noFollow,
+          fs.constants.O_WRONLY | fs.constants.O_APPEND | noFollow,
         );
         try {
           existingStat = await permissionHandle.stat();
+          if (!existingStat.isFile()) {
+            if (!existingStat.isDirectory() && existingStat.nlink > 1) {
+              throw new Error(
+                `EACCES: cannot append multiply-linked special file '${path}'`,
+              );
+            }
+            await permissionHandle.writeFile(buffer);
+            return;
+          }
         } finally {
           await permissionHandle.close();
         }
@@ -296,24 +334,10 @@ export class ReadWriteFs implements IFileSystem {
         await this.replaceFile(canonical, buffer, null);
         return;
       }
-      if (
-        this.maxFileReadSize > 0 &&
-        existingStat.size > this.maxFileReadSize
-      ) {
-        throw new Error(
-          `EFBIG: file too large, append '${path}' (${existingStat.size} bytes, max ${this.maxFileReadSize})`,
-        );
-      }
-
       // Copy through a no-atime handle where the platform supports it. The
       // copy is limited to the size snapshot above, so concurrent growth
       // cannot make this loop unbounded.
-      const source = await this.openCopySource(
-        canonical,
-        existingStat,
-        "append",
-        path,
-      );
+      const source = await this.openCopySource(canonical);
       try {
         const stat = await source.stat();
         await this.replaceFile(canonical, buffer, stat, {
@@ -348,26 +372,25 @@ export class ReadWriteFs implements IFileSystem {
     }
   }
 
-  /** Open a copy source without updating atime on Linux. */
+  /** Open a bounded copy source, avoiding atime updates where permitted. */
   private async openCopySource(
     canonical: string,
-    stat: fs.Stats,
-    operation: string,
-    virtualPath: string,
   ): Promise<fs.promises.FileHandle> {
     const noFollow = this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW;
-    // Node does not expose O_NOATIME on every platform. Linux defines it as
-    // octal 01000000; elsewhere reads use the platform's normal atime policy.
-    if (process.platform !== "linux" && stat.nlink > 1) {
-      throw new Error(
-        `ENOTSUP: ${operation} '${virtualPath}' cannot copy a shared inode without changing atime on this platform`,
-      );
+    const flags = fs.constants.O_RDONLY | noFollow;
+    if (process.platform !== "linux") {
+      return fs.promises.open(canonical, flags);
     }
-    const noAtime = process.platform === "linux" ? 0o1000000 : 0;
-    return fs.promises.open(
-      canonical,
-      fs.constants.O_RDONLY | noFollow | noAtime,
-    );
+
+    // Node does not expose O_NOATIME. Linux defines it as octal 01000000,
+    // but rejects it with EPERM when the process does not own the inode and
+    // lacks CAP_FOWNER. In that case preserve normal readable-file behavior.
+    try {
+      return await fs.promises.open(canonical, flags | 0o1000000);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EPERM") throw e;
+      return fs.promises.open(canonical, flags);
+    }
   }
 
   /**
@@ -381,6 +404,7 @@ export class ReadWriteFs implements IFileSystem {
     existingStat: Pick<fs.Stats, "mode" | "atime" | "mtime"> | null,
     source?: { handle: fs.promises.FileHandle; size: number },
     times?: { atime: Date; mtime: Date },
+    preserveSpecialModeBits = false,
   ): Promise<void> {
     const dir = nodePath.dirname(canonical);
     let tempPath = "";
@@ -443,7 +467,9 @@ export class ReadWriteFs implements IFileSystem {
         }
         await writeAt(content);
         if (existingStat !== null) {
-          await tempHandle.chmod(existingStat.mode & 0o7777);
+          await tempHandle.chmod(
+            existingStat.mode & (preserveSpecialModeBits ? 0o7777 : 0o777),
+          );
         }
         if (times) {
           await tempHandle.utimes(times.atime, times.mtime);
@@ -741,12 +767,7 @@ export class ReadWriteFs implements IFileSystem {
         destinationReal,
         virtualDestination,
       );
-      const sourceHandle = await this.openCopySource(
-        source,
-        stat,
-        "cp",
-        virtualSource,
-      );
+      const sourceHandle = await this.openCopySource(source);
       try {
         await this.replaceFile(destination, new Uint8Array(0), stat, {
           handle: sourceHandle,
@@ -1221,39 +1242,36 @@ export class ReadWriteFs implements IFileSystem {
     const canonical = this.resolveAndValidate(realPath, path);
 
     try {
-      // Use open(O_NOFOLLOW) + fh.chmod() to close a TOCTOU gap: if the
-      // file at `canonical` is replaced with a symlink between
-      // resolveAndValidate() and this call, O_NOFOLLOW makes it fail with
-      // ELOOP instead of following it.
-      const flags = this.allowSymlinks
-        ? fs.constants.O_RDONLY
-        : fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW;
-      const fh = await fs.promises.open(canonical, flags);
-      try {
-        const stat = await fh.stat();
-        if (!stat.isDirectory()) {
-          const source = await this.openCopySource(
-            canonical,
-            stat,
-            "chmod",
-            path,
+      const initialStat = await fs.promises.lstat(canonical);
+      // Copy-on-write is meaningful only for regular files. Opening a FIFO
+      // for reading can block indefinitely, and replacing any special inode
+      // would silently change its file type.
+      if (!initialStat.isFile()) {
+        if (!initialStat.isDirectory() && initialStat.nlink > 1) {
+          throw new Error(
+            `EACCES: cannot chmod multiply-linked special file '${path}'`,
           );
-          try {
-            await this.replaceFile(
-              canonical,
-              new Uint8Array(0),
-              { mode, atime: stat.atime, mtime: stat.mtime },
-              { handle: source, size: stat.size },
-              { atime: stat.atime, mtime: stat.mtime },
-            );
-          } finally {
-            await source.close();
-          }
-          return;
         }
-        await fh.chmod(mode);
+        await fs.promises.chmod(canonical, mode);
+        return;
+      }
+
+      const source = await this.openCopySource(canonical);
+      try {
+        const stat = await source.stat();
+        if (!stat.isFile()) {
+          throw new Error(`EACCES: file type changed, chmod '${path}'`);
+        }
+        await this.replaceFile(
+          canonical,
+          new Uint8Array(0),
+          { mode, atime: stat.atime, mtime: stat.mtime },
+          { handle: source, size: stat.size },
+          { atime: stat.atime, mtime: stat.mtime },
+          true,
+        );
       } finally {
-        await fh.close();
+        await source.close();
       }
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
@@ -1488,39 +1506,33 @@ export class ReadWriteFs implements IFileSystem {
     const canonical = this.resolveAndValidate(realPath, path);
 
     try {
-      // Use open(O_NOFOLLOW) + fh.utimes() to close a TOCTOU gap: if the
-      // file at `canonical` is replaced with a symlink between
-      // resolveAndValidate() and this call, O_NOFOLLOW makes it fail with
-      // ELOOP instead of following it.
-      const flags = this.allowSymlinks
-        ? fs.constants.O_RDONLY
-        : fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW;
-      const fh = await fs.promises.open(canonical, flags);
-      try {
-        const stat = await fh.stat();
-        if (!stat.isDirectory()) {
-          const source = await this.openCopySource(
-            canonical,
-            stat,
-            "utimes",
-            path,
+      const initialStat = await fs.promises.lstat(canonical);
+      if (!initialStat.isFile()) {
+        if (!initialStat.isDirectory() && initialStat.nlink > 1) {
+          throw new Error(
+            `EACCES: cannot change times on multiply-linked special file '${path}'`,
           );
-          try {
-            await this.replaceFile(
-              canonical,
-              new Uint8Array(0),
-              stat,
-              { handle: source, size: stat.size },
-              { atime, mtime },
-            );
-          } finally {
-            await source.close();
-          }
-          return;
         }
-        await fh.utimes(atime, mtime);
+        await fs.promises.utimes(canonical, atime, mtime);
+        return;
+      }
+
+      const source = await this.openCopySource(canonical);
+      try {
+        const stat = await source.stat();
+        if (!stat.isFile()) {
+          throw new Error(`EACCES: file type changed, utimes '${path}'`);
+        }
+        await this.replaceFile(
+          canonical,
+          new Uint8Array(0),
+          stat,
+          { handle: source, size: stat.size },
+          { atime, mtime },
+          true,
+        );
       } finally {
-        await fh.close();
+        await source.close();
       }
     } catch (e) {
       const err = e as NodeJS.ErrnoException;

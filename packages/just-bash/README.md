@@ -245,9 +245,11 @@ Keep `ReadWriteFs` pointed at a workspace directory, not at the installed `just-
 `ReadWriteFs` commits file-content changes by replacing directory entries so a
 host-created hard link cannot carry writes beyond the configured root. The
 target's parent directory must therefore be writable even when overwriting an
-existing file. On Linux, source-preserving operations use `O_NOATIME`; on other
-platforms they reject already-shared inodes when copying would change metadata
-visible through another hard link.
+existing file. Source-preserving operations use `O_NOATIME` on Linux when the
+process owns the inode or has sufficient privileges, and otherwise use normal
+read semantics. On platforms without `O_NOATIME`, copying a shared inode can
+update access-time metadata visible through its other names; content and
+explicit metadata changes remain confined to the sandbox entry.
 
 **MountableFs** - Mount multiple filesystems at different paths. Combines read-only and read-write filesystems into a unified namespace:
 

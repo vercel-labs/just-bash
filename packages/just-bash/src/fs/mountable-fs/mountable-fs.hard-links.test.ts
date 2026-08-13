@@ -62,15 +62,6 @@ describe("MountableFs host-planted hard-link containment", () => {
     const originalMtime = fs.statSync(outsideFile).mtimeMs;
     const changed = new Date("2020-04-03T00:00:00.000Z");
 
-    if (process.platform !== "linux") {
-      await expect(
-        mounted.chmod("/workspace/linked.txt", 0o700),
-      ).rejects.toThrow("ENOTSUP");
-      expect(fs.statSync(outsideFile).mode & 0o777).toBe(originalMode);
-      expect(fs.statSync(outsideFile).mtimeMs).toBe(originalMtime);
-      return;
-    }
-
     await mounted.chmod("/workspace/linked.txt", 0o700);
     await mounted.utimes("/workspace/linked.txt", changed, changed);
 

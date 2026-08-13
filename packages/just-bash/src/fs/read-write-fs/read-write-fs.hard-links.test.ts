@@ -55,34 +55,25 @@ describe("ReadWriteFs host-planted hard-link containment", () => {
     const oldMtime = new Date("2020-01-02T00:00:00.000Z");
     fs.utimesSync(outsideFile, oldAtime, oldMtime);
 
-    if (process.platform !== "linux") {
-      await expect(rwfs.appendFile("/linked.txt", "-sandbox")).rejects.toThrow(
-        "ENOTSUP",
-      );
-      expect(fs.statSync(outsideFile).atimeMs).toBe(oldAtime.getTime());
-      expect(fs.readFileSync(linkedFile, "utf8")).toBe("outside");
-      return;
-    }
-
     await rwfs.appendFile("/linked.txt", "-sandbox");
 
-    expect(fs.statSync(outsideFile).atimeMs).toBe(oldAtime.getTime());
+    if (process.platform === "linux") {
+      expect(fs.statSync(outsideFile).atimeMs).toBe(oldAtime.getTime());
+    }
     expect(fs.readFileSync(linkedFile, "utf8")).toBe("outside-sandbox");
     expect(fs.readFileSync(outsideFile, "utf8")).toBe("outside");
     expect(fs.statSync(linkedFile).ino).not.toBe(fs.statSync(outsideFile).ino);
   });
 
-  it("bounds copy-on-write append with maxFileReadSize", async () => {
+  it("does not apply the read-size limit to copy-on-write append", async () => {
     const limited = new ReadWriteFs({
       root: sandboxDir,
       maxFileReadSize: 4,
     });
 
-    await expect(limited.appendFile("/linked.txt", "-sandbox")).rejects.toThrow(
-      "EFBIG: file too large, append '/linked.txt' (7 bytes, max 4)",
-    );
+    await limited.appendFile("/linked.txt", "-sandbox");
 
-    expect(fs.readFileSync(linkedFile, "utf8")).toBe("outside");
+    expect(fs.readFileSync(linkedFile, "utf8")).toBe("outside-sandbox");
     expect(fs.readFileSync(outsideFile, "utf8")).toBe("outside");
   });
 
@@ -160,14 +151,6 @@ describe("ReadWriteFs host-planted hard-link containment", () => {
     const originalStat = fs.statSync(outsideFile);
     const originalMode = originalStat.mode & 0o7777;
 
-    if (process.platform !== "linux") {
-      await expect(rwfs.chmod("/linked.txt", 0o4755)).rejects.toThrow(
-        "ENOTSUP",
-      );
-      expect(fs.statSync(outsideFile).mode & 0o7777).toBe(originalMode);
-      return;
-    }
-
     await rwfs.chmod("/linked.txt", 0o4755);
 
     expect(fs.statSync(outsideFile).mode & 0o7777).toBe(originalMode);
@@ -184,14 +167,6 @@ describe("ReadWriteFs host-planted hard-link containment", () => {
     fs.utimesSync(outsideFile, originalAtime, originalMtimeDate);
     const originalMtime = fs.statSync(outsideFile).mtimeMs;
     const changed = new Date("2020-03-03T00:00:00.000Z");
-
-    if (process.platform !== "linux") {
-      await expect(
-        rwfs.utimes("/linked.txt", changed, changed),
-      ).rejects.toThrow("ENOTSUP");
-      expect(fs.statSync(outsideFile).mtimeMs).toBe(originalMtime);
-      return;
-    }
 
     await rwfs.utimes("/linked.txt", changed, changed);
 
