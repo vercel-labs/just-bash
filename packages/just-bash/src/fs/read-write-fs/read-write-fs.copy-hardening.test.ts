@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ReadWriteFs } from "./read-write-fs.js";
 
 describe("ReadWriteFs recursive copy and append hardening", () => {
@@ -78,5 +78,50 @@ describe("ReadWriteFs recursive copy and append hardening", () => {
     expect(parts.slice(1).sort((a, b) => Number(a) - Number(b))).toEqual(
       appends.map((content) => content.slice(1)),
     );
+  });
+
+  it("holds parent-changing mutations until a replacement write commits", async () => {
+    fs.mkdirSync(path.join(sandboxDir, "parent"));
+    const writer = new ReadWriteFs({ root: sandboxDir });
+    const replacer = new ReadWriteFs({ root: sandboxDir });
+    const originalOpen = fs.promises.open.bind(fs.promises);
+    let releaseStaging!: () => void;
+    const stagingGate = new Promise<void>((resolve) => {
+      releaseStaging = resolve;
+    });
+    let stagingReached!: () => void;
+    const reachedStaging = new Promise<void>((resolve) => {
+      stagingReached = resolve;
+    });
+    const openSpy = vi
+      .spyOn(fs.promises, "open")
+      .mockImplementation(async (filePath, flags, mode) => {
+        if (String(filePath).includes(".just-bash-write-")) {
+          stagingReached();
+          await stagingGate;
+        }
+        return originalOpen(filePath, flags, mode);
+      });
+
+    try {
+      const write = writer.writeFile("/parent/victim.txt", "sandbox");
+      await reachedStaging;
+      let removalFinished = false;
+      const removeParent = replacer
+        .rm("/parent", { recursive: true })
+        .then(() => {
+          removalFinished = true;
+        });
+
+      await Promise.resolve();
+      expect(removalFinished).toBe(false);
+
+      releaseStaging();
+      await Promise.all([write, removeParent]);
+      expect(fs.existsSync(path.join(sandboxDir, "parent"))).toBe(false);
+    } finally {
+      releaseStaging();
+      openSpy.mockRestore();
+    }
   });
 });

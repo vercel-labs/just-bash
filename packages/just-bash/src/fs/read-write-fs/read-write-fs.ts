@@ -72,11 +72,17 @@ export interface ReadWriteFsOptions {
 }
 
 export class ReadWriteFs implements IFileSystem {
+  // Node does not expose descriptor-relative openat/renameat operations. Keep
+  // every mutation issued through ReadWriteFs in one process-wide transaction
+  // so sandbox-controlled concurrent calls cannot replace a validated parent
+  // while a pathname-based operation is in flight. This is intentionally
+  // shared across instances because separate mounts can address the same host
+  // directory tree.
+  private static mutationTail: Promise<void> = Promise.resolve();
   private readonly root: string;
   private readonly canonicalRoot: string;
   private readonly maxFileReadSize: number;
   private readonly allowSymlinks: boolean;
-  private readonly mutationQueues = new Map<string, Promise<void>>();
   private transactionId = 0;
 
   constructor(options: ReadWriteFsOptions) {
@@ -195,6 +201,16 @@ export class ReadWriteFs implements IFileSystem {
     content: FileContent,
     options?: WriteFileOptions | BufferEncoding,
   ): Promise<void> {
+    await this.withFilesystemMutation(() =>
+      this.writeFileUnlocked(path, content, options),
+    );
+  }
+
+  private async writeFileUnlocked(
+    path: string,
+    content: FileContent,
+    options?: WriteFileOptions | BufferEncoding,
+  ): Promise<void> {
     validatePath(path, "write");
     const realPath = this.toRealPath(path);
     let canonical = this.resolveAndValidate(realPath, path);
@@ -239,96 +255,96 @@ export class ReadWriteFs implements IFileSystem {
     content: FileContent,
     options?: WriteFileOptions | BufferEncoding,
   ): Promise<void> {
+    await this.withFilesystemMutation(() =>
+      this.appendFileUnlocked(path, content, options),
+    );
+  }
+
+  private async appendFileUnlocked(
+    path: string,
+    content: FileContent,
+    options?: WriteFileOptions | BufferEncoding,
+  ): Promise<void> {
     validatePath(path, "append");
     const realPath = this.toRealPath(path);
     const encoding = getEncoding(options);
     const buffer = toBuffer(content, encoding);
-    const mutationKey = this.resolveAndValidate(realPath, path);
-
-    await this.withMutationLock(mutationKey, async () => {
-      let canonical = this.resolveAndValidate(realPath, path);
-      // Ensure parent directory exists
-      const dir = nodePath.dirname(canonical);
+    let canonical = this.resolveAndValidate(realPath, path);
+    // Ensure parent directory exists
+    const dir = nodePath.dirname(canonical);
+    try {
+      await fs.promises.mkdir(dir, { recursive: true });
+      // Re-validate after mkdir to catch TOCTOU parent-swap attacks
+      canonical = this.resolveAndValidate(realPath, path);
+      const noFollow = this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW;
+      let existingStat: fs.Stats | null = null;
       try {
-        await fs.promises.mkdir(dir, { recursive: true });
-        // Re-validate after mkdir to catch TOCTOU parent-swap attacks
-        canonical = this.resolveAndValidate(realPath, path);
-        const noFollow = this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW;
-        let existingStat: fs.Stats | null = null;
-        try {
-          const permissionHandle = await fs.promises.open(
-            canonical,
-            fs.constants.O_WRONLY | noFollow,
-          );
-          try {
-            existingStat = await permissionHandle.stat();
-          } finally {
-            await permissionHandle.close();
-          }
-        } catch (e) {
-          if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
-        }
-
-        if (!existingStat) {
-          await this.replaceFile(canonical, buffer, null);
-          return;
-        }
-        if (
-          this.maxFileReadSize > 0 &&
-          existingStat.size > this.maxFileReadSize
-        ) {
-          throw new Error(
-            `EFBIG: file too large, append '${path}' (${existingStat.size} bytes, max ${this.maxFileReadSize})`,
-          );
-        }
-
-        // Copy through a no-atime handle where the platform supports it. The
-        // copy is limited to the size snapshot above, so concurrent growth
-        // cannot make this loop unbounded.
-        const source = await this.openCopySource(
+        const permissionHandle = await fs.promises.open(
           canonical,
-          existingStat,
-          "append",
-          path,
+          fs.constants.O_WRONLY | noFollow,
         );
         try {
-          const stat = await source.stat();
-          await this.replaceFile(canonical, buffer, stat, {
-            handle: source,
-            size: existingStat.size,
-          });
+          existingStat = await permissionHandle.stat();
         } finally {
-          await source.close();
+          await permissionHandle.close();
         }
       } catch (e) {
-        const err = e as NodeJS.ErrnoException;
-        if (err.code === "ELOOP") {
-          throw new Error(`EACCES: permission denied, '${path}' is a symlink`);
-        }
-        this.sanitizeError(e, path, "append");
+        if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
       }
-    });
+
+      if (!existingStat) {
+        await this.replaceFile(canonical, buffer, null);
+        return;
+      }
+      if (
+        this.maxFileReadSize > 0 &&
+        existingStat.size > this.maxFileReadSize
+      ) {
+        throw new Error(
+          `EFBIG: file too large, append '${path}' (${existingStat.size} bytes, max ${this.maxFileReadSize})`,
+        );
+      }
+
+      // Copy through a no-atime handle where the platform supports it. The
+      // copy is limited to the size snapshot above, so concurrent growth
+      // cannot make this loop unbounded.
+      const source = await this.openCopySource(
+        canonical,
+        existingStat,
+        "append",
+        path,
+      );
+      try {
+        const stat = await source.stat();
+        await this.replaceFile(canonical, buffer, stat, {
+          handle: source,
+          size: existingStat.size,
+        });
+      } finally {
+        await source.close();
+      }
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code === "ELOOP") {
+        throw new Error(`EACCES: permission denied, '${path}' is a symlink`);
+      }
+      this.sanitizeError(e, path, "append");
+    }
   }
 
-  private async withMutationLock<T>(
-    key: string,
+  private async withFilesystemMutation<T>(
     operation: () => Promise<T>,
   ): Promise<T> {
-    const previous = this.mutationQueues.get(key) ?? Promise.resolve();
+    const previous = ReadWriteFs.mutationTail;
     let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
+    ReadWriteFs.mutationTail = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const tail = previous.then(() => gate);
-    this.mutationQueues.set(key, tail);
     await previous;
     try {
       return await operation();
     } finally {
       release();
-      if (this.mutationQueues.get(key) === tail) {
-        this.mutationQueues.delete(key);
-      }
     }
   }
 
@@ -535,6 +551,13 @@ export class ReadWriteFs implements IFileSystem {
   }
 
   async mkdir(path: string, options?: MkdirOptions): Promise<void> {
+    await this.withFilesystemMutation(() => this.mkdirUnlocked(path, options));
+  }
+
+  private async mkdirUnlocked(
+    path: string,
+    options?: MkdirOptions,
+  ): Promise<void> {
     validatePath(path, "mkdir");
     const realPath = this.toRealPath(path);
     const canonical = this.resolveAndValidate(realPath, path);
@@ -598,6 +621,10 @@ export class ReadWriteFs implements IFileSystem {
   }
 
   async rm(path: string, options?: RmOptions): Promise<void> {
+    await this.withFilesystemMutation(() => this.rmUnlocked(path, options));
+  }
+
+  private async rmUnlocked(path: string, options?: RmOptions): Promise<void> {
     validatePath(path, "rm");
     const realPath = this.toRealPath(path);
     // Deletion is entry-oriented: authorize the parent, but do not resolve the
@@ -628,6 +655,16 @@ export class ReadWriteFs implements IFileSystem {
   }
 
   async cp(src: string, dest: string, options?: CpOptions): Promise<void> {
+    await this.withFilesystemMutation(() =>
+      this.cpUnlocked(src, dest, options),
+    );
+  }
+
+  private async cpUnlocked(
+    src: string,
+    dest: string,
+    options?: CpOptions,
+  ): Promise<void> {
     validatePath(src, "cp");
     validatePath(dest, "cp");
     const srcReal = this.toRealPath(src);
@@ -781,7 +818,7 @@ export class ReadWriteFs implements IFileSystem {
         virtualDir === "/" ? `/${tempName}` : `${virtualDir}/${tempName}`;
       tempReal = this.toRealPath(tempVirtual);
       try {
-        await this.symlink(target, tempVirtual);
+        await this.symlinkUnlocked(target, tempVirtual);
         tempCanonical = this.validateParent(tempReal, tempVirtual);
         tempIdentity = await fs.promises.lstat(tempCanonical);
         break;
@@ -856,6 +893,10 @@ export class ReadWriteFs implements IFileSystem {
   }
 
   async mv(src: string, dest: string): Promise<void> {
+    await this.withFilesystemMutation(() => this.mvUnlocked(src, dest));
+  }
+
+  private async mvUnlocked(src: string, dest: string): Promise<void> {
     validatePath(src, "mv");
     validatePath(dest, "mv");
     const srcReal = this.toRealPath(src);
@@ -1053,7 +1094,7 @@ export class ReadWriteFs implements IFileSystem {
     try {
       // cp performs the complete traversal and symlink policy checks before any
       // visible destination name is changed.
-      await this.cp(src, stage, { recursive: true });
+      await this.cpUnlocked(src, stage, { recursive: true });
       if (this.findEscapingSymlinks(stageReal).length > 0) {
         throw new Error(
           `EACCES: permission denied, mv '${src}' -> '${dest}' would create symlinks escaping sandbox`,
@@ -1171,6 +1212,10 @@ export class ReadWriteFs implements IFileSystem {
   }
 
   async chmod(path: string, mode: number): Promise<void> {
+    await this.withFilesystemMutation(() => this.chmodUnlocked(path, mode));
+  }
+
+  private async chmodUnlocked(path: string, mode: number): Promise<void> {
     validatePath(path, "chmod");
     const realPath = this.toRealPath(path);
     const canonical = this.resolveAndValidate(realPath, path);
@@ -1224,6 +1269,15 @@ export class ReadWriteFs implements IFileSystem {
   }
 
   async symlink(target: string, linkPath: string): Promise<void> {
+    await this.withFilesystemMutation(() =>
+      this.symlinkUnlocked(target, linkPath),
+    );
+  }
+
+  private async symlinkUnlocked(
+    target: string,
+    linkPath: string,
+  ): Promise<void> {
     if (!this.allowSymlinks) {
       throw new Error(`EPERM: operation not permitted, symlink '${linkPath}'`);
     }
@@ -1268,6 +1322,15 @@ export class ReadWriteFs implements IFileSystem {
   }
 
   async link(existingPath: string, newPath: string): Promise<void> {
+    await this.withFilesystemMutation(() =>
+      this.linkUnlocked(existingPath, newPath),
+    );
+  }
+
+  private async linkUnlocked(
+    existingPath: string,
+    newPath: string,
+  ): Promise<void> {
     validatePath(existingPath, "link");
     validatePath(newPath, "link");
     const realExisting = this.toRealPath(existingPath);
@@ -1410,6 +1473,16 @@ export class ReadWriteFs implements IFileSystem {
    * @param mtime - Modification time
    */
   async utimes(path: string, atime: Date, mtime: Date): Promise<void> {
+    await this.withFilesystemMutation(() =>
+      this.utimesUnlocked(path, atime, mtime),
+    );
+  }
+
+  private async utimesUnlocked(
+    path: string,
+    atime: Date,
+    mtime: Date,
+  ): Promise<void> {
     validatePath(path, "utimes");
     const realPath = this.toRealPath(path);
     const canonical = this.resolveAndValidate(realPath, path);
