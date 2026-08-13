@@ -55,6 +55,28 @@ describe("ReadWriteFs recursive copy and append hardening", () => {
     ).toBe("content");
   });
 
+  it("copies an absolute symlink through a symlink-spelled root", async () => {
+    const realRoot = path.join(parentDir, "real-root");
+    const rootAlias = path.join(parentDir, "root-alias");
+    fs.mkdirSync(realRoot);
+    fs.symlinkSync(realRoot, rootAlias, "dir");
+    fs.mkdirSync(path.join(realRoot, "source"));
+    fs.writeFileSync(path.join(realRoot, "target.txt"), "content");
+    fs.symlinkSync(
+      path.join(rootAlias, "target.txt"),
+      path.join(realRoot, "source/link.txt"),
+    );
+    const rwfs = new ReadWriteFs({ root: rootAlias, allowSymlinks: true });
+
+    await rwfs.cp("/source/link.txt", "/copied/link.txt");
+
+    const copied = path.join(realRoot, "copied/link.txt");
+    expect(fs.readlinkSync(copied)).toBe(
+      path.join(fs.realpathSync(realRoot), "target.txt"),
+    );
+    expect(fs.readFileSync(copied, "utf8")).toBe("content");
+  });
+
   it("preserves a relative symlink target when copying to a missing parent", async () => {
     fs.mkdirSync(path.join(sandboxDir, "source"));
     fs.writeFileSync(path.join(sandboxDir, "source/target.txt"), "content");

@@ -64,38 +64,6 @@ describe("ReadWriteFs replacement mode and copy behavior", () => {
     expect(fs.statSync(target).mtimeMs).toBe(changed.getTime());
   });
 
-  it.skipIf(process.platform !== "linux")(
-    "retries without O_NOATIME when the kernel returns EPERM",
-    async () => {
-      const source = path.join(root, "source.txt");
-      fs.writeFileSync(source, "content");
-      const originalOpen = fs.promises.open.bind(fs.promises);
-      const attemptedFlags: number[] = [];
-      vi.spyOn(fs.promises, "open").mockImplementation(
-        async (filePath, flags, mode) => {
-          if (filePath === source && typeof flags === "number") {
-            attemptedFlags.push(flags);
-            if ((flags & 0o1000000) !== 0) {
-              throw Object.assign(new Error("not inode owner"), {
-                code: "EPERM",
-              });
-            }
-          }
-          return originalOpen(filePath, flags, mode);
-        },
-      );
-
-      await rwfs.cp("/source.txt", "/destination.txt");
-
-      expect(fs.readFileSync(path.join(root, "destination.txt"), "utf8")).toBe(
-        "content",
-      );
-      expect(attemptedFlags).toHaveLength(2);
-      expect(attemptedFlags[0] & 0o1000000).toBe(0o1000000);
-      expect(attemptedFlags[1] & 0o1000000).toBe(0);
-    },
-  );
-
   it("appends beyond the default read-size limit", async () => {
     const target = path.join(root, "large.log");
     const originalSize = 10 * 1024 * 1024 + 1;

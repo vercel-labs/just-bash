@@ -248,22 +248,29 @@ changes by copying the file and replacing only the sandbox directory entry, so
 a host-created hard link cannot carry those changes beyond the configured root.
 Implicit copies are limited by `maxCopyOnWriteSize` (100 MB by default; set it
 to `0` to disable the limit). Overwrite does not need to copy existing content.
+Explicit `cp` copies are independently limited by `maxCopySize` (100 MB by
+default; set it to `0` to disable the limit). This also bounds allocation when
+copying sparse files, whose holes may be materialized by the portable copy
+path.
 
 Shared-inode isolation has a few deliberate limitations:
 
 - Append, `chmod`, and `utimes` on a multiply-linked regular file require read
   access to the file and write access to its parent directory. They fail with
   `EFBIG` when the file exceeds `maxCopyOnWriteSize`.
-- On Linux, copies use `O_NOATIME` when permitted and retry with normal read
-  semantics otherwise. Platforms without `O_NOATIME` may update access-time
-  metadata visible through another hard link.
+- Copies use `O_NOATIME` when the Node.js runtime exposes it and retry with
+  normal read semantics if the kernel returns `EPERM`. Runtimes and platforms
+  without `O_NOATIME` may update access-time metadata visible through another
+  hard link.
 - Do not mutate a `ReadWriteFs` root concurrently through direct host filesystem
   APIs. Node.js does not expose the descriptor-relative operations needed to
   make pathname validation atomic against an external actor. A concurrent host
   append to a multiply-linked file may be lost when the isolated entry is
   replaced.
 - Mutations in overlapping `ReadWriteFs` roots are serialized within the
-  process. Unrelated roots proceed independently.
+  process. Unrelated roots proceed independently. The queue is not cancellable
+  or bounded, so a large mutation can delay later operations in overlapping
+  roots even if the requesting script is subsequently aborted.
 - Content writes and appends to FIFOs, sockets, devices, and other special files
   are rejected. This avoids indefinitely occupying an overlapping-root mutation
   slot on a blocking special-file open. Metadata operations remain supported
@@ -276,6 +283,10 @@ Shared-inode isolation has a few deliberate limitations:
   validation are still rejected.
 - Copying a symlink preserves whether its guest target is absolute or relative.
   Only symlinks whose resolved targets remain inside the root are copied.
+- Regular-file copies replace the destination entry to prevent writes through
+  hard links. Existing destinations must still be writable, and their parent
+  directory must be writable so the isolated entry can be committed. Thus a
+  writable destination in a non-writable directory cannot be copied over.
 
 **MountableFs** - Mount multiple filesystems at different paths. Combines read-only and read-write filesystems into a unified namespace:
 

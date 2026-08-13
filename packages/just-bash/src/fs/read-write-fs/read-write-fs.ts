@@ -71,6 +71,13 @@ export interface ReadWriteFsOptions {
   maxCopyOnWriteSize?: number;
 
   /**
+   * Maximum regular file size in bytes that cp may copy. This bounds disk
+   * allocation when copying sparse or otherwise very large files. Defaults
+   * to 100MB. Set to 0 to disable this limit.
+   */
+  maxCopySize?: number;
+
+  /**
    * Whether to allow following and creating symlinks.
    * When false (default), any path traversing a symlink is rejected
    * and symlink() throws EPERM.
@@ -88,6 +95,7 @@ export class ReadWriteFs implements IFileSystem {
   private readonly canonicalRoot: string;
   private readonly maxFileReadSize: number;
   private readonly maxCopyOnWriteSize: number;
+  private readonly maxCopySize: number;
   private readonly allowSymlinks: boolean;
   private transactionId = 0;
 
@@ -95,6 +103,7 @@ export class ReadWriteFs implements IFileSystem {
     this.root = nodePath.resolve(options.root);
     this.maxFileReadSize = options.maxFileReadSize ?? 10485760;
     this.maxCopyOnWriteSize = options.maxCopyOnWriteSize ?? 104857600;
+    this.maxCopySize = options.maxCopySize ?? 104857600;
     this.allowSymlinks = options.allowSymlinks ?? false;
 
     // Verify root exists and is a directory
@@ -408,21 +417,32 @@ export class ReadWriteFs implements IFileSystem {
     }
   }
 
+  private assertCopySize(size: number, virtualPath: string): void {
+    if (this.maxCopySize > 0 && size > this.maxCopySize) {
+      throw new Error(
+        `EFBIG: file too large to copy '${virtualPath}' (${size} bytes, max ${this.maxCopySize})`,
+      );
+    }
+  }
+
   /** Open a bounded copy source, avoiding atime updates where permitted. */
   private async openCopySource(
     canonical: string,
   ): Promise<fs.promises.FileHandle> {
     const noFollow = this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW;
     const flags = fs.constants.O_RDONLY | noFollow;
-    if (process.platform !== "linux") {
+    const noAtime = (
+      fs.constants as typeof fs.constants & { O_NOATIME?: number }
+    ).O_NOATIME;
+    if (process.platform !== "linux" || noAtime === undefined) {
       return fs.promises.open(canonical, flags);
     }
 
-    // Node does not expose O_NOATIME. Linux defines it as octal 01000000,
-    // but rejects it with EPERM when the process does not own the inode and
-    // lacks CAP_FOWNER. In that case preserve normal readable-file behavior.
+    // O_NOATIME can be exposed by a Node runtime, but the kernel rejects it
+    // with EPERM when the process does not own the inode and lacks CAP_FOWNER.
+    // In that case preserve normal readable-file behavior.
     try {
-      return await fs.promises.open(canonical, flags | 0o1000000);
+      return await fs.promises.open(canonical, flags | noAtime);
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EPERM") throw e;
       return fs.promises.open(canonical, flags);
@@ -829,10 +849,12 @@ export class ReadWriteFs implements IFileSystem {
   ): Promise<void> {
     const stat = await fs.promises.lstat(source);
     if (stat.isFile()) {
+      this.assertCopySize(stat.size, virtualSource);
       const destination = this.resolveAndValidate(
         destinationReal,
         virtualDestination,
       );
+      await this.assertCopyDestinationWritable(destination, virtualDestination);
       const sourceHandle = await this.openCopySource(source);
       try {
         const sourceStat = await sourceHandle.stat();
@@ -862,7 +884,7 @@ export class ReadWriteFs implements IFileSystem {
       }
       const rawTarget = await fs.promises.readlink(source);
       const target = nodePath.isAbsolute(rawTarget)
-        ? this.toVirtualAbsoluteSymlinkTarget(rawTarget, virtualSource)
+        ? await this.toVirtualAbsoluteSymlinkTarget(rawTarget, virtualSource)
         : rawTarget;
       await this.replaceSymlink(destinationReal, virtualDestination, target);
       return;
@@ -895,6 +917,40 @@ export class ReadWriteFs implements IFileSystem {
       return;
     }
     throw new Error(`EINVAL: unsupported file type, cp '${virtualSource}'`);
+  }
+
+  private async assertCopyDestinationWritable(
+    destination: string,
+    virtualDestination: string,
+  ): Promise<void> {
+    let entryStat: fs.Stats;
+    try {
+      entryStat = await fs.promises.lstat(destination);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw e;
+    }
+    if (!entryStat.isFile()) return;
+
+    const noFollow = this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW;
+    const handle = await fs.promises.open(
+      destination,
+      fs.constants.O_WRONLY | fs.constants.O_NONBLOCK | noFollow,
+    );
+    try {
+      const openedStat = await handle.stat();
+      if (
+        !openedStat.isFile() ||
+        openedStat.dev !== entryStat.dev ||
+        openedStat.ino !== entryStat.ino
+      ) {
+        throw new Error(
+          `EACCES: destination changed, cp '${virtualDestination}'`,
+        );
+      }
+    } finally {
+      await handle.close();
+    }
   }
 
   private async replaceSymlink(
@@ -952,17 +1008,17 @@ export class ReadWriteFs implements IFileSystem {
     }
   }
 
-  private toVirtualAbsoluteSymlinkTarget(
+  private async toVirtualAbsoluteSymlinkTarget(
     rawTarget: string,
     virtualSource: string,
-  ): string {
-    const normalizedTarget = nodePath.resolve(rawTarget);
-    if (!isPathWithinRoot(normalizedTarget, this.canonicalRoot)) {
+  ): Promise<string> {
+    const canonicalTarget = await fs.promises.realpath(rawTarget);
+    if (!isPathWithinRoot(canonicalTarget, this.canonicalRoot)) {
       throw new Error(
         `EACCES: permission denied, cp '${virtualSource}' contains an unsafe symlink`,
       );
     }
-    const relative = normalizedTarget.slice(this.canonicalRoot.length);
+    const relative = canonicalTarget.slice(this.canonicalRoot.length);
     return relative || "/";
   }
 
@@ -1345,10 +1401,14 @@ export class ReadWriteFs implements IFileSystem {
             `EACCES: cannot chmod multiply-linked special file '${path}'`,
           );
         }
+        // Path-based metadata calls preserve directory and special-file
+        // permission semantics. They are not atomic against direct host path
+        // replacement, which is outside ReadWriteFs's trusted-host boundary.
         await fs.promises.chmod(canonical, mode);
         return;
       }
       if (initialStat.nlink <= 1) {
+        // See the trusted-host concurrency limitation documented above.
         await fs.promises.chmod(canonical, mode);
         return;
       }
@@ -1610,10 +1670,14 @@ export class ReadWriteFs implements IFileSystem {
             `EACCES: cannot change times on multiply-linked special file '${path}'`,
           );
         }
+        // Path-based metadata calls preserve directory and special-file
+        // permission semantics. They are not atomic against direct host path
+        // replacement, which is outside ReadWriteFs's trusted-host boundary.
         await fs.promises.utimes(canonical, atime, mtime);
         return;
       }
       if (initialStat.nlink <= 1) {
+        // See the trusted-host concurrency limitation documented above.
         await fs.promises.utimes(canonical, atime, mtime);
         return;
       }
