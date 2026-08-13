@@ -248,10 +248,11 @@ changes by copying the file and replacing only the sandbox directory entry, so
 a host-created hard link cannot carry those changes beyond the configured root.
 Implicit copies are limited by `maxCopyOnWriteSize` (100 MB by default; set it
 to `0` to disable the limit). Overwrite does not need to copy existing content.
-Explicit `cp` copies are independently limited by `maxCopySize` (100 MB by
-default; set it to `0` to disable the limit). This also bounds allocation when
-copying sparse files, whose holes may be materialized by the portable copy
-path.
+Explicit `cp` copies can be limited with the opt-in `maxCopySize` option
+(unlimited by default). Sparse files are independently limited by
+`maxSparseCopySize` (100 MB by default; set it to `0` to disable), because the
+portable copy path may materialize their holes and allocate their full logical
+size.
 
 Shared-inode isolation has a few deliberate limitations:
 
@@ -287,6 +288,7 @@ Shared-inode isolation has a few deliberate limitations:
   hard links. Existing destinations must still be writable, and their parent
   directory must be writable so the isolated entry can be committed. Thus a
   writable destination in a non-writable directory cannot be copied over.
+  Copying over a FIFO, socket, device, or other special entry is rejected.
 
 **MountableFs** - Mount multiple filesystems at different paths. Combines read-only and read-write filesystems into a unified namespace:
 

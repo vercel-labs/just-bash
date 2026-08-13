@@ -71,11 +71,17 @@ export interface ReadWriteFsOptions {
   maxCopyOnWriteSize?: number;
 
   /**
-   * Maximum regular file size in bytes that cp may copy. This bounds disk
-   * allocation when copying sparse or otherwise very large files. Defaults
-   * to 100MB. Set to 0 to disable this limit.
+   * Maximum regular file size in bytes that cp may copy. Defaults to 0
+   * (unlimited) for compatibility with normal filesystem copy behavior.
    */
   maxCopySize?: number;
+
+  /**
+   * Maximum logical size in bytes of a sparse regular file that cp may copy.
+   * The portable copy path can materialize holes, so this independently
+   * bounds that disk expansion. Defaults to 100MB. Set to 0 to disable.
+   */
+  maxSparseCopySize?: number;
 
   /**
    * Whether to allow following and creating symlinks.
@@ -96,6 +102,7 @@ export class ReadWriteFs implements IFileSystem {
   private readonly maxFileReadSize: number;
   private readonly maxCopyOnWriteSize: number;
   private readonly maxCopySize: number;
+  private readonly maxSparseCopySize: number;
   private readonly allowSymlinks: boolean;
   private transactionId = 0;
 
@@ -103,7 +110,8 @@ export class ReadWriteFs implements IFileSystem {
     this.root = nodePath.resolve(options.root);
     this.maxFileReadSize = options.maxFileReadSize ?? 10485760;
     this.maxCopyOnWriteSize = options.maxCopyOnWriteSize ?? 104857600;
-    this.maxCopySize = options.maxCopySize ?? 104857600;
+    this.maxCopySize = options.maxCopySize ?? 0;
+    this.maxSparseCopySize = options.maxSparseCopySize ?? 104857600;
     this.allowSymlinks = options.allowSymlinks ?? false;
 
     // Verify root exists and is a directory
@@ -417,10 +425,22 @@ export class ReadWriteFs implements IFileSystem {
     }
   }
 
-  private assertCopySize(size: number, virtualPath: string): void {
-    if (this.maxCopySize > 0 && size > this.maxCopySize) {
+  private assertCopySize(stat: fs.Stats, virtualPath: string): void {
+    if (this.maxCopySize > 0 && stat.size > this.maxCopySize) {
       throw new Error(
-        `EFBIG: file too large to copy '${virtualPath}' (${size} bytes, max ${this.maxCopySize})`,
+        `EFBIG: file too large to copy '${virtualPath}' (${stat.size} bytes, max ${this.maxCopySize})`,
+      );
+    }
+    const allocatedBytes = stat.blocks * 512;
+    const isObservablySparse =
+      Number.isFinite(allocatedBytes) && allocatedBytes < stat.size;
+    if (
+      isObservablySparse &&
+      this.maxSparseCopySize > 0 &&
+      stat.size > this.maxSparseCopySize
+    ) {
+      throw new Error(
+        `EFBIG: sparse file too large to copy '${virtualPath}' (${stat.size} bytes, max ${this.maxSparseCopySize})`,
       );
     }
   }
@@ -849,7 +869,7 @@ export class ReadWriteFs implements IFileSystem {
   ): Promise<void> {
     const stat = await fs.promises.lstat(source);
     if (stat.isFile()) {
-      this.assertCopySize(stat.size, virtualSource);
+      this.assertCopySize(stat, virtualSource);
       const destination = this.resolveAndValidate(
         destinationReal,
         virtualDestination,
@@ -930,7 +950,12 @@ export class ReadWriteFs implements IFileSystem {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") return;
       throw e;
     }
-    if (!entryStat.isFile()) return;
+    if (!entryStat.isFile()) {
+      if (entryStat.isDirectory()) return;
+      throw new Error(
+        `EACCES: cannot copy over special file '${virtualDestination}'`,
+      );
+    }
 
     const noFollow = this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW;
     const handle = await fs.promises.open(
@@ -1265,7 +1290,11 @@ export class ReadWriteFs implements IFileSystem {
       // cp performs the complete traversal and symlink policy checks before any
       // visible destination name is changed.
       await this.cpUnlocked(src, stage, { recursive: true });
-      if (this.findEscapingSymlinks(stageReal).length > 0) {
+      const stagedStat = await fs.promises.lstat(stageReal);
+      if (
+        stagedStat.isDirectory() &&
+        this.findEscapingSymlinks(stageReal).length > 0
+      ) {
         throw new Error(
           `EACCES: permission denied, mv '${src}' -> '${dest}' would create symlinks escaping sandbox`,
         );

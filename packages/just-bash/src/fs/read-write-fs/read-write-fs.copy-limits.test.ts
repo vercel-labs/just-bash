@@ -68,9 +68,44 @@ describe("ReadWriteFs copy limits and permissions", () => {
     const rwfs = new ReadWriteFs({ root });
 
     await expect(rwfs.cp("/sparse.img", "/copy.img")).rejects.toThrow(
-      "file too large to copy '/sparse.img'",
+      "sparse file too large to copy '/sparse.img'",
     );
 
+    expect(fs.existsSync(path.join(root, "copy.img"))).toBe(false);
+  });
+
+  it("keeps ordinary copies unlimited by default", async () => {
+    const source = path.join(root, "source.txt");
+    fs.writeFileSync(source, "content");
+    const canonicalSource = fs.realpathSync(source);
+    const actualLstat = fs.promises.lstat.bind(fs.promises);
+    vi.spyOn(fs.promises, "lstat").mockImplementation(async (target) => {
+      const stat = await actualLstat(target);
+      if (target !== canonicalSource) return stat;
+      const largeStat = Object.create(stat) as fs.Stats;
+      Object.defineProperties(largeStat, {
+        blocks: { value: 300_000 },
+        size: { value: 101 * 1024 * 1024 },
+      });
+      return largeStat;
+    });
+
+    await new ReadWriteFs({ root }).cp("/source.txt", "/copy.txt");
+
+    expect(fs.readFileSync(path.join(root, "copy.txt"), "utf8")).toBe(
+      "content",
+    );
+  });
+
+  it("honors a configured sparse copy limit", async () => {
+    const source = path.join(root, "sparse.img");
+    fs.writeFileSync(source, "");
+    fs.truncateSync(source, 8192);
+    const rwfs = new ReadWriteFs({ root, maxSparseCopySize: 4 });
+
+    await expect(rwfs.cp("/sparse.img", "/copy.img")).rejects.toThrow(
+      "sparse file too large to copy '/sparse.img' (8192 bytes, max 4)",
+    );
     expect(fs.existsSync(path.join(root, "copy.img"))).toBe(false);
   });
 

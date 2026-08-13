@@ -75,6 +75,34 @@ describe.skipIf(process.platform === "win32")(
       );
     });
 
+    it("rejects copying over a FIFO without replacing it", async () => {
+      const fifo = path.join(root, "events.fifo");
+      execFileSync("mkfifo", [fifo]);
+      fs.writeFileSync(path.join(root, "source.txt"), "data");
+
+      await expect(rwfs.cp("/source.txt", "/events.fifo")).rejects.toThrow(
+        "cannot copy over special file '/events.fifo'",
+      );
+
+      expect(fs.lstatSync(fifo).isFIFO()).toBe(true);
+    });
+
+    it("rejects a recursive copy onto a nested FIFO", async () => {
+      fs.mkdirSync(path.join(root, "source"));
+      fs.mkdirSync(path.join(root, "destination"));
+      fs.writeFileSync(path.join(root, "source/payload.txt"), "data");
+      const fifo = path.join(root, "destination/payload.txt");
+      execFileSync("mkfifo", [fifo]);
+
+      await expect(
+        rwfs.cp("/source", "/destination", { recursive: true }),
+      ).rejects.toThrow(
+        "cannot copy over special file '/destination/payload.txt'",
+      );
+
+      expect(fs.lstatSync(fifo).isFIFO()).toBe(true);
+    });
+
     it("refuses metadata mutation through a multiply-linked FIFO", async () => {
       const fifo = path.join(root, "events.fifo");
       const alias = path.join(root, "events-alias.fifo");

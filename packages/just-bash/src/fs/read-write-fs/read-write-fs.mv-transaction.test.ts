@@ -68,6 +68,39 @@ describe("ReadWriteFs mv transaction", () => {
     expect(fs.readdirSync(root)).toEqual(["dest"]);
   });
 
+  it("keeps large EXDEV move fallbacks unlimited by default", async () => {
+    const source = path.join(root, "source.txt");
+    fs.writeFileSync(source, "content");
+    const canonicalSource = fs.realpathSync(source);
+    const actualLstat = fs.promises.lstat.bind(fs.promises);
+    vi.spyOn(fs.promises, "lstat").mockImplementation(async (target) => {
+      const stat = await actualLstat(target);
+      if (target !== canonicalSource) return stat;
+      const largeStat = Object.create(stat) as fs.Stats;
+      Object.defineProperties(largeStat, {
+        blocks: { value: 300_000 },
+        size: { value: 101 * 1024 * 1024 },
+      });
+      return largeStat;
+    });
+    const actualRename = fs.promises.rename.bind(fs.promises);
+    let first = true;
+    vi.spyOn(fs.promises, "rename").mockImplementation(async (from, to) => {
+      if (first) {
+        first = false;
+        throw errno("EXDEV", String(from));
+      }
+      return actualRename(from, to);
+    });
+
+    await adapter.mv("/source.txt", "/dest.txt");
+
+    expect(fs.existsSync(source)).toBe(false);
+    expect(fs.readFileSync(path.join(root, "dest.txt"), "utf8")).toBe(
+      "content",
+    );
+  });
+
   it("restores source and destination when staged source deletion fails", async () => {
     fs.mkdirSync(path.join(root, "source"));
     fs.writeFileSync(path.join(root, "source", "new.txt"), "new");
