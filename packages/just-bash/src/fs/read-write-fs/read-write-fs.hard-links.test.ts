@@ -51,25 +51,22 @@ describe("ReadWriteFs host-planted hard-link containment", () => {
   });
 
   it("contains append by copying and replacing the sandbox entry", async () => {
-    const originalStat = fs.statSync(outsideFile);
-    const oldAtime = new Date(originalStat.atimeMs - 60_000);
-    fs.utimesSync(outsideFile, oldAtime, originalStat.mtime);
+    const oldAtime = new Date("2020-01-01T00:00:00.000Z");
+    const oldMtime = new Date("2020-01-02T00:00:00.000Z");
+    fs.utimesSync(outsideFile, oldAtime, oldMtime);
 
     if (process.platform !== "linux") {
       await expect(rwfs.appendFile("/linked.txt", "-sandbox")).rejects.toThrow(
         "ENOTSUP",
       );
-      expect(fs.statSync(outsideFile).atimeMs).toBeCloseTo(
-        oldAtime.getTime(),
-        2,
-      );
+      expect(fs.statSync(outsideFile).atimeMs).toBe(oldAtime.getTime());
       expect(fs.readFileSync(linkedFile, "utf8")).toBe("outside");
       return;
     }
 
     await rwfs.appendFile("/linked.txt", "-sandbox");
 
-    expect(fs.statSync(outsideFile).atimeMs).toBeCloseTo(oldAtime.getTime(), 2);
+    expect(fs.statSync(outsideFile).atimeMs).toBe(oldAtime.getTime());
     expect(fs.readFileSync(linkedFile, "utf8")).toBe("outside-sandbox");
     expect(fs.readFileSync(outsideFile, "utf8")).toBe("outside");
     expect(fs.statSync(linkedFile).ino).not.toBe(fs.statSync(outsideFile).ino);
@@ -87,6 +84,22 @@ describe("ReadWriteFs host-planted hard-link containment", () => {
 
     expect(fs.readFileSync(linkedFile, "utf8")).toBe("outside");
     expect(fs.readFileSync(outsideFile, "utf8")).toBe("outside");
+  });
+
+  it("serializes concurrent appends without losing updates", async () => {
+    const target = path.join(sandboxDir, "concurrent.txt");
+    fs.writeFileSync(target, "start");
+    const appends = Array.from({ length: 20 }, (_, index) => `|${index}`);
+
+    await Promise.all(
+      appends.map((content) => rwfs.appendFile("/concurrent.txt", content)),
+    );
+
+    const parts = fs.readFileSync(target, "utf8").split("|");
+    expect(parts[0]).toBe("start");
+    expect(parts.slice(1).sort((a, b) => Number(a) - Number(b))).toEqual(
+      appends.map((content) => content.slice(1)),
+    );
   });
 
   it("contains copy over a host-planted hard link", async () => {
@@ -141,6 +154,9 @@ describe("ReadWriteFs host-planted hard-link containment", () => {
   });
 
   it("contains chmod on a multiply-linked file", async () => {
+    const preservedAtime = new Date("2020-02-01T00:00:00.000Z");
+    const preservedMtime = new Date("2020-02-02T00:00:00.000Z");
+    fs.utimesSync(outsideFile, preservedAtime, preservedMtime);
     const originalStat = fs.statSync(outsideFile);
     const originalMode = originalStat.mode & 0o7777;
 
@@ -157,20 +173,17 @@ describe("ReadWriteFs host-planted hard-link containment", () => {
     expect(fs.statSync(outsideFile).mode & 0o7777).toBe(originalMode);
     expect(fs.statSync(outsideFile).mtimeMs).toBe(originalStat.mtimeMs);
     expect(fs.statSync(linkedFile).mode & 0o7777).toBe(0o4755);
-    expect(fs.statSync(linkedFile).atimeMs).toBeCloseTo(
-      originalStat.atimeMs,
-      2,
-    );
-    expect(fs.statSync(linkedFile).mtimeMs).toBeCloseTo(
-      originalStat.mtimeMs,
-      2,
-    );
+    expect(fs.statSync(linkedFile).atimeMs).toBe(preservedAtime.getTime());
+    expect(fs.statSync(linkedFile).mtimeMs).toBe(preservedMtime.getTime());
     expect(fs.statSync(linkedFile).ino).not.toBe(fs.statSync(outsideFile).ino);
   });
 
   it("contains utimes on a multiply-linked file", async () => {
+    const originalAtime = new Date("2020-03-01T00:00:00.000Z");
+    const originalMtimeDate = new Date("2020-03-02T00:00:00.000Z");
+    fs.utimesSync(outsideFile, originalAtime, originalMtimeDate);
     const originalMtime = fs.statSync(outsideFile).mtimeMs;
-    const changed = new Date(originalMtime - 60_000);
+    const changed = new Date("2020-03-03T00:00:00.000Z");
 
     if (process.platform !== "linux") {
       await expect(
@@ -183,7 +196,7 @@ describe("ReadWriteFs host-planted hard-link containment", () => {
     await rwfs.utimes("/linked.txt", changed, changed);
 
     expect(fs.statSync(outsideFile).mtimeMs).toBe(originalMtime);
-    expect(fs.statSync(linkedFile).mtimeMs).toBeCloseTo(changed.getTime(), 2);
+    expect(fs.statSync(linkedFile).mtimeMs).toBe(changed.getTime());
     expect(fs.statSync(linkedFile).ino).not.toBe(fs.statSync(outsideFile).ino);
   });
 });

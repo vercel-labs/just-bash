@@ -408,6 +408,20 @@ describe("ReadWriteFs", () => {
 
       expect(fs.statSync(filePath).mode & 0o7777).toBe(0o4755);
     });
+
+    it("should allow metadata operations above maxFileReadSize", async () => {
+      const filePath = path.join(tempDir, "large-metadata.txt");
+      fs.writeFileSync(filePath, "content larger than four bytes");
+      const changed = new Date("2020-05-01T00:00:00.000Z");
+      const rwfs = new ReadWriteFs({ root: tempDir, maxFileReadSize: 4 });
+
+      await rwfs.chmod("/large-metadata.txt", 0o700);
+      await rwfs.utimes("/large-metadata.txt", changed, changed);
+
+      const stat = fs.statSync(filePath);
+      expect(stat.mode & 0o777).toBe(0o700);
+      expect(stat.mtimeMs).toBe(changed.getTime());
+    });
   });
 
   describe("symlink", () => {

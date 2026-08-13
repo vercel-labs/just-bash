@@ -55,9 +55,12 @@ describe("MountableFs host-planted hard-link containment", () => {
   });
 
   it("delegates metadata copy-on-write to the real filesystem", async () => {
+    const originalAtime = new Date("2020-04-01T00:00:00.000Z");
+    const originalMtimeDate = new Date("2020-04-02T00:00:00.000Z");
+    fs.utimesSync(outsideFile, originalAtime, originalMtimeDate);
     const originalMode = fs.statSync(outsideFile).mode & 0o777;
     const originalMtime = fs.statSync(outsideFile).mtimeMs;
-    const changed = new Date(fs.statSync(outsideFile).mtimeMs - 60_000);
+    const changed = new Date("2020-04-03T00:00:00.000Z");
 
     if (process.platform !== "linux") {
       await expect(
@@ -75,6 +78,6 @@ describe("MountableFs host-planted hard-link containment", () => {
     expect(fs.statSync(outsideFile).mode & 0o777).toBe(originalMode);
     expect(fs.statSync(outsideFile).mtimeMs).toBe(originalMtime);
     expect(fs.statSync(linkedFile).mode & 0o777).toBe(0o700);
-    expect(fs.statSync(linkedFile).mtimeMs).toBeCloseTo(changed.getTime(), 2);
+    expect(fs.statSync(linkedFile).mtimeMs).toBe(changed.getTime());
   });
 });
