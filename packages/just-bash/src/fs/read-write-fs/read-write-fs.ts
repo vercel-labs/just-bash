@@ -11,6 +11,7 @@
  * New methods must use these gates — never access the real FS directly.
  */
 
+import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { type ByteString, unsafeBytesFromLatin1 } from "../../encoding.js";
@@ -77,13 +78,6 @@ export interface ReadWriteFsOptions {
   maxCopySize?: number;
 
   /**
-   * Maximum logical size in bytes of a sparse regular file that cp may copy.
-   * The portable copy path can materialize holes, so this independently
-   * bounds that disk expansion. Defaults to 100MB. Set to 0 to disable.
-   */
-  maxSparseCopySize?: number;
-
-  /**
    * Whether to allow following and creating symlinks.
    * When false (default), any path traversing a symlink is rejected
    * and symlink() throws EPERM.
@@ -102,16 +96,13 @@ export class ReadWriteFs implements IFileSystem {
   private readonly maxFileReadSize: number;
   private readonly maxCopyOnWriteSize: number;
   private readonly maxCopySize: number;
-  private readonly maxSparseCopySize: number;
   private readonly allowSymlinks: boolean;
-  private transactionId = 0;
 
   constructor(options: ReadWriteFsOptions) {
     this.root = nodePath.resolve(options.root);
     this.maxFileReadSize = options.maxFileReadSize ?? 10485760;
     this.maxCopyOnWriteSize = options.maxCopyOnWriteSize ?? 104857600;
     this.maxCopySize = options.maxCopySize ?? 0;
-    this.maxSparseCopySize = options.maxSparseCopySize ?? 104857600;
     this.allowSymlinks = options.allowSymlinks ?? false;
 
     // Verify root exists and is a directory
@@ -431,18 +422,10 @@ export class ReadWriteFs implements IFileSystem {
         `EFBIG: file too large to copy '${virtualPath}' (${stat.size} bytes, max ${this.maxCopySize})`,
       );
     }
-    const allocatedBytes = stat.blocks * 512;
-    const isObservablySparse =
-      Number.isFinite(allocatedBytes) && allocatedBytes < stat.size;
-    if (
-      isObservablySparse &&
-      this.maxSparseCopySize > 0 &&
-      stat.size > this.maxSparseCopySize
-    ) {
-      throw new Error(
-        `EFBIG: sparse file too large to copy '${virtualPath}' (${stat.size} bytes, max ${this.maxSparseCopySize})`,
-      );
-    }
+  }
+
+  private randomTransactionToken(): string {
+    return randomBytes(16).toString("hex");
   }
 
   /** Open a bounded copy source, avoiding atime updates where permitted. */
@@ -450,7 +433,7 @@ export class ReadWriteFs implements IFileSystem {
     canonical: string,
   ): Promise<fs.promises.FileHandle> {
     const noFollow = this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW;
-    const flags = fs.constants.O_RDONLY | noFollow;
+    const flags = fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | noFollow;
     const noAtime = (
       fs.constants as typeof fs.constants & { O_NOATIME?: number }
     ).O_NOATIME;
@@ -486,8 +469,11 @@ export class ReadWriteFs implements IFileSystem {
     let tempPath = "";
     let fh: fs.promises.FileHandle | null = null;
     const createMode = existingStat === null ? 0o666 : 0o600;
-    for (let attempts = 0; attempts < 100; attempts++) {
-      tempPath = nodePath.join(dir, `.just-bash-write-${this.transactionId++}`);
+    for (let attempts = 0; attempts < 16; attempts++) {
+      tempPath = nodePath.join(
+        dir,
+        `.just-bash-write-${this.randomTransactionToken()}`,
+      );
       try {
         fh = await fs.promises.open(
           tempPath,
@@ -662,7 +648,12 @@ export class ReadWriteFs implements IFileSystem {
   ): Promise<void> {
     validatePath(path, "mkdir");
     const realPath = this.toRealPath(path);
-    const canonical = this.resolveAndValidate(realPath, path);
+    // mkdir creates the final directory entry. Validate its parent without
+    // following a dangling symlink already occupying the requested name.
+    const canonical =
+      realPath === this.root
+        ? this.resolveAndValidate(realPath, path)
+        : this.validateParent(realPath, path);
 
     try {
       await fs.promises.mkdir(canonical, { recursive: options?.recursive });
@@ -874,7 +865,10 @@ export class ReadWriteFs implements IFileSystem {
         destinationReal,
         virtualDestination,
       );
-      await this.assertCopyDestinationWritable(destination, virtualDestination);
+      const destinationStat = await this.assertCopyDestinationWritable(
+        destination,
+        virtualDestination,
+      );
       const sourceHandle = await this.openCopySource(source);
       try {
         const sourceStat = await sourceHandle.stat();
@@ -887,10 +881,12 @@ export class ReadWriteFs implements IFileSystem {
             `EACCES: file identity changed, cp '${virtualSource}'`,
           );
         }
-        await this.replaceFile(destination, new Uint8Array(0), stat, {
-          handle: sourceHandle,
-          size: stat.size,
-        });
+        await this.replaceFile(
+          destination,
+          new Uint8Array(0),
+          destinationStat ?? stat,
+          { handle: sourceHandle, size: stat.size },
+        );
       } finally {
         await sourceHandle.close();
       }
@@ -942,16 +938,16 @@ export class ReadWriteFs implements IFileSystem {
   private async assertCopyDestinationWritable(
     destination: string,
     virtualDestination: string,
-  ): Promise<void> {
+  ): Promise<fs.Stats | null> {
     let entryStat: fs.Stats;
     try {
       entryStat = await fs.promises.lstat(destination);
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === "ENOENT") return;
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw e;
     }
     if (!entryStat.isFile()) {
-      if (entryStat.isDirectory()) return;
+      if (entryStat.isDirectory()) return entryStat;
       throw new Error(
         `EACCES: cannot copy over special file '${virtualDestination}'`,
       );
@@ -976,6 +972,7 @@ export class ReadWriteFs implements IFileSystem {
     } finally {
       await handle.close();
     }
+    return entryStat;
   }
 
   private async replaceSymlink(
@@ -993,8 +990,8 @@ export class ReadWriteFs implements IFileSystem {
     let tempCanonical = "";
     let tempIdentity: fs.Stats | null = null;
 
-    for (let attempts = 0; attempts < 100; attempts++) {
-      const tempName = `.just-bash-copy-link-${this.transactionId++}`;
+    for (let attempts = 0; attempts < 16; attempts++) {
+      const tempName = `.just-bash-copy-link-${this.randomTransactionToken()}`;
       tempVirtual =
         virtualDir === "/" ? `/${tempName}` : `${virtualDir}/${tempName}`;
       tempReal = this.toRealPath(tempVirtual);
@@ -1037,13 +1034,24 @@ export class ReadWriteFs implements IFileSystem {
     rawTarget: string,
     virtualSource: string,
   ): Promise<string> {
-    const canonicalTarget = await fs.promises.realpath(rawTarget);
-    if (!isPathWithinRoot(canonicalTarget, this.canonicalRoot)) {
+    const resolvedTarget = nodePath.resolve(rawTarget);
+    const canonicalTarget = await fs.promises.realpath(resolvedTarget);
+    const canonicalTargetParent = await fs.promises.realpath(
+      nodePath.dirname(resolvedTarget),
+    );
+    const preservedTarget = nodePath.join(
+      canonicalTargetParent,
+      nodePath.basename(resolvedTarget),
+    );
+    if (
+      !isPathWithinRoot(canonicalTarget, this.canonicalRoot) ||
+      !isPathWithinRoot(preservedTarget, this.canonicalRoot)
+    ) {
       throw new Error(
         `EACCES: permission denied, cp '${virtualSource}' contains an unsafe symlink`,
       );
     }
-    const relative = canonicalTarget.slice(this.canonicalRoot.length);
+    const relative = preservedTarget.slice(this.canonicalRoot.length);
     return relative || "/";
   }
 
@@ -1235,11 +1243,10 @@ export class ReadWriteFs implements IFileSystem {
     purpose: "stage" | "backup" | "source",
   ): Promise<string> {
     const parent = nodePath.posix.dirname(path);
-    for (let attempts = 0; attempts < 100; attempts++) {
-      const id = this.transactionId++;
+    for (let attempts = 0; attempts < 16; attempts++) {
       const candidate = nodePath.posix.join(
         parent,
-        `.just-bash-mv-${purpose}-${id}`,
+        `.just-bash-mv-${purpose}-${this.randomTransactionToken()}`,
       );
       if (!(await this.exists(candidate))) return candidate;
     }
@@ -1543,7 +1550,12 @@ export class ReadWriteFs implements IFileSystem {
       realExisting,
       existingPath,
     );
-    const canonicalNew = this.resolveAndValidate(realNew, newPath);
+    // link creates the final directory entry and must not follow a dangling
+    // symlink already occupying that name.
+    const canonicalNew =
+      realNew === this.root
+        ? this.resolveAndValidate(realNew, newPath)
+        : this.validateParent(realNew, newPath);
 
     try {
       await fs.promises.link(canonicalExisting, canonicalNew);

@@ -249,10 +249,9 @@ a host-created hard link cannot carry those changes beyond the configured root.
 Implicit copies are limited by `maxCopyOnWriteSize` (100 MB by default; set it
 to `0` to disable the limit). Overwrite does not need to copy existing content.
 Explicit `cp` copies can be limited with the opt-in `maxCopySize` option
-(unlimited by default). Sparse files are independently limited by
-`maxSparseCopySize` (100 MB by default; set it to `0` to disable), because the
-portable copy path may materialize their holes and allocate their full logical
-size.
+(unlimited by default). The portable copy path may materialize sparse-file
+holes, so embeddings that require a disk-allocation bound should configure
+`maxCopySize`.
 
 Shared-inode isolation has a few deliberate limitations:
 
