@@ -139,6 +139,8 @@ interface DefenseContext {
   executionId: string;
   /** When true, blocking is suspended (trusted infrastructure code) */
   trusted?: boolean;
+  /** When true, blocking is enforced even inside an outer trusted scope. */
+  forceUntrusted?: boolean;
 }
 
 // AsyncLocalStorage instance to track whether current async context is within bash.exec()
@@ -372,6 +374,14 @@ export class DefenseInDepthBox {
     if (!executionId) return false;
     const depth = DefenseInDepthBox.trustedExecutionDepth.get(executionId);
     return (depth ?? 0) > 0;
+  }
+
+  private static isTrustedContext(store: DefenseContext | undefined): boolean {
+    if (!store || store.forceUntrusted) return false;
+    return (
+      store.trusted === true ||
+      DefenseInDepthBox.isTrustedScopeActive(store.executionId)
+    );
   }
 
   /**
@@ -698,27 +708,30 @@ export class DefenseInDepthBox {
     const current = executionContext.getStore();
     if (!current) return fn();
     const { executionId } = current;
-    return executionContext.run({ ...current, trusted: true }, () => {
-      DefenseInDepthBox.enterTrustedScope(executionId);
-      try {
-        const result = fn();
-        if (
-          typeof result === "object" &&
-          result !== null &&
-          "finally" in result &&
-          typeof result.finally === "function"
-        ) {
-          return result.finally(() => {
-            DefenseInDepthBox.leaveTrustedScope(executionId);
-          });
+    return executionContext.run(
+      { ...current, trusted: true, forceUntrusted: false },
+      () => {
+        DefenseInDepthBox.enterTrustedScope(executionId);
+        try {
+          const result = fn();
+          if (
+            typeof result === "object" &&
+            result !== null &&
+            "finally" in result &&
+            typeof result.finally === "function"
+          ) {
+            return result.finally(() => {
+              DefenseInDepthBox.leaveTrustedScope(executionId);
+            });
+          }
+          DefenseInDepthBox.leaveTrustedScope(executionId);
+          return result;
+        } catch (error) {
+          DefenseInDepthBox.leaveTrustedScope(executionId);
+          throw error;
         }
-        DefenseInDepthBox.leaveTrustedScope(executionId);
-        return result;
-      } catch (error) {
-        DefenseInDepthBox.leaveTrustedScope(executionId);
-        throw error;
-      }
-    });
+      },
+    );
   }
 
   /**
@@ -729,14 +742,30 @@ export class DefenseInDepthBox {
     const current = executionContext.getStore();
     if (!current) return fn();
     const { executionId } = current;
-    return executionContext.run({ ...current, trusted: true }, async () => {
-      DefenseInDepthBox.enterTrustedScope(executionId);
-      try {
-        return await fn();
-      } finally {
-        DefenseInDepthBox.leaveTrustedScope(executionId);
-      }
-    });
+    return executionContext.run(
+      { ...current, trusted: true, forceUntrusted: false },
+      async () => {
+        DefenseInDepthBox.enterTrustedScope(executionId);
+        try {
+          return await fn();
+        } finally {
+          DefenseInDepthBox.leaveTrustedScope(executionId);
+        }
+      },
+    );
+  }
+
+  /**
+   * Restore blocking for an untrusted operation nested inside trusted host code.
+   */
+  static async runUntrustedAsync<T>(fn: () => Promise<T>): Promise<T> {
+    if (!executionContext) return fn();
+    const current = executionContext.getStore();
+    if (!current) return fn();
+    return executionContext.run(
+      { ...current, trusted: false, forceUntrusted: true },
+      fn,
+    );
   }
 
   /**
@@ -753,10 +782,7 @@ export class DefenseInDepthBox {
       return false;
     }
     // Trusted infrastructure code (runTrusted) bypasses blocking
-    if (
-      store.trusted ||
-      DefenseInDepthBox.isTrustedScopeActive(store.executionId)
-    ) {
+    if (DefenseInDepthBox.isTrustedContext(store)) {
       return false;
     }
     return true;
@@ -768,8 +794,7 @@ export class DefenseInDepthBox {
     const store = executionContext.getStore();
     return (
       store?.sandboxActive === true &&
-      store.trusted !== true &&
-      !DefenseInDepthBox.isTrustedScopeActive(store.executionId)
+      !DefenseInDepthBox.isTrustedContext(store)
     );
   }
 
@@ -1525,7 +1550,8 @@ export class DefenseInDepthBox {
 
           const store = executionContext.getStore();
           const executionId =
-            store?.sandboxActive === true && store.trusted !== true
+            store?.sandboxActive === true &&
+            !DefenseInDepthBox.isTrustedContext(store)
               ? store.executionId
               : undefined;
 
@@ -2018,8 +2044,7 @@ export class DefenseInDepthBox {
         return (
           box.config.auditMode === true &&
           store?.sandboxActive === true &&
-          store.trusted !== true &&
-          !DefenseInDepthBox.isTrustedScopeActive(store.executionId)
+          !DefenseInDepthBox.isTrustedContext(store)
         );
       };
 

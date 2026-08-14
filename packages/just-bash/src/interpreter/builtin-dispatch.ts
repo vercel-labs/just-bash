@@ -914,18 +914,46 @@ export async function executeExternalCommand(
     jsBootstrapCode: ctx.jsBootstrapCode,
     invokeTool: ctx.invokeTool,
   };
-  let originalCommandContext = cmdCtx;
   const originalCommand = (cmd as RuntimeCommand).internalOriginalCommand;
+  let revokeOriginalCommandContext = () => {};
   if (originalCommand) {
-    cmdCtx.origCommand = (originalArgs) =>
-      originalCommand.execute(originalArgs, originalCommandContext);
+    const originalContextDescriptors = Object.getOwnPropertyDescriptors(cmdCtx);
+    originalContextDescriptors.executionScope = {
+      value: ctx.executionScope,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    };
+    const originalCmdCtx = Object.defineProperties(
+      Object.create(Object.getPrototypeOf(cmdCtx)),
+      originalContextDescriptors,
+    ) as RuntimeCommandContext;
+    const originalRevocable = createRevocableCommandContext(
+      originalCmdCtx,
+      originalCommand.name,
+    );
+    const guardedOriginalCmdCtx = createDefenseAwareCommandContext(
+      originalRevocable.context,
+      originalCommand.name,
+    );
+    revokeOriginalCommandContext = originalRevocable.revoke;
+    cmdCtx.origCommand = (originalArgs) => {
+      const executeOriginal = () =>
+        originalCommand.execute(originalArgs, guardedOriginalCmdCtx);
+      return originalCommand.trusted
+        ? DefenseInDepthBox.runTrustedAsync(executeOriginal)
+        : DefenseInDepthBox.runUntrustedAsync(executeOriginal);
+    };
   }
   const revocable = createRevocableCommandContext(cmdCtx, commandName);
   const guardedCmdCtx = createDefenseAwareCommandContext(
     revocable.context,
     commandName,
   );
-  originalCommandContext = guardedCmdCtx;
+  const revokeCommandContexts = () => {
+    revocable.revoke();
+    revokeOriginalCommandContext();
+  };
 
   try {
     const runCommand = (): Promise<ExecResult> =>
@@ -940,7 +968,7 @@ export async function executeExternalCommand(
       runWithExecutionDeadline(
         runCommand,
         guardedCmdCtx,
-        revocable.revoke,
+        revokeCommandContexts,
         commandName,
         ctx.executionScope,
         ctx.state.signal,
