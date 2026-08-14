@@ -5,6 +5,7 @@ import {
   DefenseInDepthBox,
   SecurityViolationError,
 } from "./security/defense-in-depth-box.js";
+import { _setTimeout } from "./timers.js";
 import type { RuntimeCommand } from "./types.js";
 
 describe("custom command overrides", () => {
@@ -73,17 +74,24 @@ describe("custom command overrides", () => {
     const originalCat = commands.get("cat");
     if (!originalCat) throw new Error("missing bundled cat command");
     originalCat.execute = async () => {
-      let blocked = false;
-      try {
-        new Function("return 1");
-      } catch (error) {
-        blocked = error instanceof SecurityViolationError;
-      }
+      const isFunctionBlocked = () => {
+        try {
+          new Function("return 1");
+          return false;
+        } catch (error) {
+          return error instanceof SecurityViolationError;
+        }
+      };
+      const directlyBlocked = isFunctionBlocked();
+      const promiseBlocked = await Promise.resolve().then(isFunctionBlocked);
+      const timerBlocked = await new Promise<boolean>((resolve) => {
+        _setTimeout(() => resolve(isFunctionBlocked()), 0);
+      });
       const trustedValue = await DefenseInDepthBox.runTrustedAsync(async () =>
         new Function("return 2")(),
       );
       return {
-        stdout: `${blocked}:${trustedValue}\n`,
+        stdout: `${directlyBlocked}:${promiseBlocked}:${timerBlocked}:${trustedValue}\n`,
         stderr: "",
         exitCode: 0,
       };
@@ -96,7 +104,7 @@ describe("custom command overrides", () => {
     );
 
     expect(await bash.exec("cat")).toMatchObject({
-      stdout: "true:2\n",
+      stdout: "true:true:true:2\n",
       stderr: "",
       exitCode: 0,
     });

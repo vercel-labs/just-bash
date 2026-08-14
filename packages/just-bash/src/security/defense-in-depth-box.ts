@@ -426,10 +426,15 @@ export class DefenseInDepthBox {
     if (!executionId) return fn;
 
     const box = DefenseInDepthBox.instance;
-    const captured = box?.getCachedContext(executionId) ?? {
+    const baseContext = box?.getCachedContext(executionId) ?? {
       sandboxActive: true as const,
       executionId,
     };
+    // Trusted mode remains tightly scoped, but an explicit untrusted boundary
+    // must survive infrastructure callback rebinding.
+    const captured = current?.forceUntrusted
+      ? { ...baseContext, forceUntrusted: true }
+      : baseContext;
     return ((...args: TArgs): TResult => {
       const activeBox = DefenseInDepthBox.instance;
       if (activeBox && !activeBox.isExecutionIdActive(executionId)) {
@@ -1550,8 +1555,7 @@ export class DefenseInDepthBox {
 
           const store = executionContext.getStore();
           const executionId =
-            store?.sandboxActive === true &&
-            !DefenseInDepthBox.isTrustedContext(store)
+            store?.sandboxActive === true && store.trusted !== true
               ? store.executionId
               : undefined;
 
@@ -1559,7 +1563,10 @@ export class DefenseInDepthBox {
             return Reflect.apply(originalThen, this, [onFulfilled, onRejected]);
           }
 
-          const captured = box.getCachedContext(executionId);
+          const baseContext = box.getCachedContext(executionId);
+          const captured = store?.forceUntrusted
+            ? { ...baseContext, forceUntrusted: true }
+            : baseContext;
 
           const wrapCallback = (
             cb: unknown,
