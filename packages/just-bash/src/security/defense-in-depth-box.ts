@@ -139,8 +139,6 @@ interface DefenseContext {
   executionId: string;
   /** When true, blocking is suspended (trusted infrastructure code) */
   trusted?: boolean;
-  /** Identifies the exact trusted scope that produced a rebound callback. */
-  trustedScopeToken?: symbol;
   /** When true, blocking is enforced even inside an outer trusted scope. */
   forceUntrusted?: boolean;
 }
@@ -270,8 +268,6 @@ export class DefenseInDepthBox {
    * way into Node.js internals (e.g. dynamic import resolution hooks).
    */
   private static trustedExecutionDepth = new Map<string, number>();
-  /** Tokens that still belong to a live, explicitly trusted async scope. */
-  private static activeTrustedScopeTokens = new Set<symbol>();
 
   private config: ResolvedDefenseConfig;
   private refCount = 0;
@@ -338,7 +334,6 @@ export class DefenseInDepthBox {
       DefenseInDepthBox.instance = null;
     }
     DefenseInDepthBox.trustedExecutionDepth.clear();
-    DefenseInDepthBox.activeTrustedScopeTokens.clear();
   }
 
   /**
@@ -357,21 +352,13 @@ export class DefenseInDepthBox {
     return executionContext?.getStore()?.executionId;
   }
 
-  private static enterTrustedScope(
-    executionId: string,
-    trustedScopeToken: symbol,
-  ): void {
+  private static enterTrustedScope(executionId: string): void {
     const current =
       DefenseInDepthBox.trustedExecutionDepth.get(executionId) ?? 0;
     DefenseInDepthBox.trustedExecutionDepth.set(executionId, current + 1);
-    DefenseInDepthBox.activeTrustedScopeTokens.add(trustedScopeToken);
   }
 
-  private static leaveTrustedScope(
-    executionId: string,
-    trustedScopeToken: symbol,
-  ): void {
-    DefenseInDepthBox.activeTrustedScopeTokens.delete(trustedScopeToken);
+  private static leaveTrustedScope(executionId: string): void {
     const current = DefenseInDepthBox.trustedExecutionDepth.get(executionId);
     if (!current) return;
     if (current === 1) {
@@ -392,19 +379,8 @@ export class DefenseInDepthBox {
   private static isTrustedContext(store: DefenseContext | undefined): boolean {
     if (!store || store.forceUntrusted) return false;
     return (
-      DefenseInDepthBox.isExplicitTrustedContext(store) ||
+      store.trusted === true ||
       DefenseInDepthBox.isTrustedScopeActive(store.executionId)
-    );
-  }
-
-  private static isExplicitTrustedContext(
-    store: DefenseContext | undefined,
-  ): boolean {
-    if (!store || store.forceUntrusted || !store.trustedScopeToken) {
-      return false;
-    }
-    return DefenseInDepthBox.activeTrustedScopeTokens.has(
-      store.trustedScopeToken,
     );
   }
 
@@ -458,9 +434,7 @@ export class DefenseInDepthBox {
     // must survive infrastructure callback rebinding.
     const captured = current?.forceUntrusted
       ? { ...baseContext, forceUntrusted: true }
-      : DefenseInDepthBox.isExplicitTrustedContext(current)
-        ? { ...baseContext, trustedScopeToken: current?.trustedScopeToken }
-        : baseContext;
+      : baseContext;
     return ((...args: TArgs): TResult => {
       const activeBox = DefenseInDepthBox.instance;
       if (activeBox && !activeBox.isExecutionIdActive(executionId)) {
@@ -739,16 +713,10 @@ export class DefenseInDepthBox {
     const current = executionContext.getStore();
     if (!current) return fn();
     const { executionId } = current;
-    const trustedScopeToken = Symbol("trusted-scope");
     return executionContext.run(
-      {
-        ...current,
-        trusted: true,
-        trustedScopeToken,
-        forceUntrusted: false,
-      },
+      { ...current, trusted: true, forceUntrusted: false },
       () => {
-        DefenseInDepthBox.enterTrustedScope(executionId, trustedScopeToken);
+        DefenseInDepthBox.enterTrustedScope(executionId);
         try {
           const result = fn();
           if (
@@ -758,16 +726,13 @@ export class DefenseInDepthBox {
             typeof result.finally === "function"
           ) {
             return result.finally(() => {
-              DefenseInDepthBox.leaveTrustedScope(
-                executionId,
-                trustedScopeToken,
-              );
+              DefenseInDepthBox.leaveTrustedScope(executionId);
             });
           }
-          DefenseInDepthBox.leaveTrustedScope(executionId, trustedScopeToken);
+          DefenseInDepthBox.leaveTrustedScope(executionId);
           return result;
         } catch (error) {
-          DefenseInDepthBox.leaveTrustedScope(executionId, trustedScopeToken);
+          DefenseInDepthBox.leaveTrustedScope(executionId);
           throw error;
         }
       },
@@ -777,25 +742,19 @@ export class DefenseInDepthBox {
   /**
    * Async version of runTrusted.
    */
-  static runTrustedAsync<T>(fn: () => Promise<T>): Promise<T> {
+  static async runTrustedAsync<T>(fn: () => Promise<T>): Promise<T> {
     if (!executionContext) return fn();
     const current = executionContext.getStore();
     if (!current) return fn();
     const { executionId } = current;
-    const trustedScopeToken = Symbol("trusted-scope");
     return executionContext.run(
-      {
-        ...current,
-        trusted: true,
-        trustedScopeToken,
-        forceUntrusted: false,
-      },
+      { ...current, trusted: true, forceUntrusted: false },
       async () => {
-        DefenseInDepthBox.enterTrustedScope(executionId, trustedScopeToken);
+        DefenseInDepthBox.enterTrustedScope(executionId);
         try {
           return await fn();
         } finally {
-          DefenseInDepthBox.leaveTrustedScope(executionId, trustedScopeToken);
+          DefenseInDepthBox.leaveTrustedScope(executionId);
         }
       },
     );
@@ -804,17 +763,12 @@ export class DefenseInDepthBox {
   /**
    * Restore blocking for an untrusted operation nested inside trusted host code.
    */
-  static runUntrustedAsync<T>(fn: () => Promise<T>): Promise<T> {
+  static async runUntrustedAsync<T>(fn: () => Promise<T>): Promise<T> {
     if (!executionContext) return fn();
     const current = executionContext.getStore();
     if (!current) return fn();
     return executionContext.run(
-      {
-        ...current,
-        trusted: false,
-        trustedScopeToken: undefined,
-        forceUntrusted: true,
-      },
+      { ...current, trusted: false, forceUntrusted: true },
       fn,
     );
   }
@@ -1601,8 +1555,7 @@ export class DefenseInDepthBox {
 
           const store = executionContext.getStore();
           const executionId =
-            store?.sandboxActive === true &&
-            !DefenseInDepthBox.isExplicitTrustedContext(store)
+            store?.sandboxActive === true && store.trusted !== true
               ? store.executionId
               : undefined;
 
