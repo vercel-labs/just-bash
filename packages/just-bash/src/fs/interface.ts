@@ -59,6 +59,11 @@ export interface LazyFileEntry {
   lazy: () => string | Uint8Array | Promise<string | Uint8Array>;
   mode: number;
   mtime: Date;
+  /**
+   * Optional declared byte length. When present, stat/lstat can report size
+   * without materializing lazy content.
+   */
+  size?: number;
 }
 
 export type FsEntry = FileEntry | LazyFileEntry | DirectoryEntry | SymlinkEntry;
@@ -307,11 +312,24 @@ export type LazyFileProvider = () =>
   | Promise<string | Uint8Array>;
 
 /**
+ * Lazy file initialization options with optional metadata.
+ *
+ * `size` is the declared byte length used by stat/lstat before the file is
+ * materialized. Once read, stat/lstat report the actual materialized size.
+ */
+export interface LazyFileInit {
+  lazy: LazyFileProvider;
+  size?: number;
+  mode?: number;
+  mtime?: Date;
+}
+
+/**
  * Initial files can be simple content, extended options with metadata, or lazy providers
  */
 export type InitialFiles = Record<
   string,
-  FileContent | FileInit | LazyFileProvider
+  FileContent | FileInit | LazyFileProvider | LazyFileInit
 >;
 
 /**
