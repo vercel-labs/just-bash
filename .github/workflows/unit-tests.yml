@@ -10,6 +10,9 @@ on:
 permissions:
   contents: read
 
+permissions:
+  contents: read
+
 jobs:
   unit-tests:
     if: github.event.action != 'edited' || github.event.changes.base.ref.from
