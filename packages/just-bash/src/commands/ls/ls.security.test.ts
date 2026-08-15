@@ -17,10 +17,21 @@ describe("ls path and recursive error boundaries", () => {
       cwd: "/foo",
       files: { "/foo/bar-safe": "", "/foobar/secret": "" },
     });
-    const result = await bash.exec("ls 'bar*'");
+    const result = await bash.exec("ls bar*");
     expect(result.stdout).toBe("bar-safe\n");
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);
+  });
+
+  it("cannot reach a prefix-sharing sibling through an unexpanded pattern", async () => {
+    const bash = new Bash({
+      cwd: "/foo",
+      files: { "/foo/bar-safe": "", "/foobar/secret": "" },
+    });
+    const result = await bash.exec("ls 'bar*'");
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("ls: bar*: No such file or directory\n");
+    expect(result.exitCode).toBe(2);
   });
 
   it("retains recursive child errors and a nonzero aggregate status", async () => {

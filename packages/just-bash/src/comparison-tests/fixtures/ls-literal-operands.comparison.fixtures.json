@@ -1,0 +1,39 @@
+{
+  "05412bda58791830": {
+    "command": "ls -1 *.pdf",
+    "files": {
+      "report [1].pdf": "body\n",
+      "notes.txt": "body\n"
+    },
+    "stdout": "report [1].pdf\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "48879a8012c929aa": {
+    "command": "ls 'report [1].pdf'",
+    "files": {
+      "report [1].pdf": "body\n"
+    },
+    "stdout": "report [1].pdf\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a3300d6f8ce99160": {
+    "command": "ls 'star*x.txt'",
+    "files": {
+      "star*x.txt": "body\n"
+    },
+    "stdout": "star*x.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bcdf8306df9f792f": {
+    "command": "ls 'q?mark.txt'",
+    "files": {
+      "q?mark.txt": "body\n"
+    },
+    "stdout": "q?mark.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

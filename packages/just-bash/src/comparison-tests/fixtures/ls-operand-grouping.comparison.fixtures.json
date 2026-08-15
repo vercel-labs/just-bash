@@ -1,0 +1,63 @@
+{
+  "1183cc16b6d79c4f": {
+    "command": "ls -1 dir1",
+    "files": {
+      "dir1/x.txt": "c\n"
+    },
+    "stdout": "x.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "16e694ac506690c1": {
+    "command": "ls -1 *.pdf",
+    "files": {
+      "a.pdf": "a\n",
+      "b.pdf": "b\n",
+      "c.pdf": "c\n"
+    },
+    "stdout": "a.pdf\nb.pdf\nc.pdf\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "218323ad2d22b78f": {
+    "command": "ls -1d dir2 f1.txt dir1",
+    "files": {
+      "f1.txt": "a\n",
+      "dir1/x.txt": "c\n",
+      "dir2/y.txt": "d\n"
+    },
+    "stdout": "dir1\ndir2\nf1.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "73d31d2f72dc9838": {
+    "command": "ls -1 f1.txt f2.txt",
+    "files": {
+      "f1.txt": "a\n",
+      "f2.txt": "b\n"
+    },
+    "stdout": "f1.txt\nf2.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b0a91b9a9b7d3156": {
+    "command": "ls -1 dir1 f1.txt",
+    "files": {
+      "f1.txt": "a\n",
+      "dir1/x.txt": "c\n"
+    },
+    "stdout": "f1.txt\n\ndir1:\nx.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bf9e4bf5d5a6701a": {
+    "command": "ls -1 dir1 dir2",
+    "files": {
+      "dir1/x.txt": "c\n",
+      "dir2/y.txt": "d\n"
+    },
+    "stdout": "dir1:\nx.txt\n\ndir2:\ny.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
