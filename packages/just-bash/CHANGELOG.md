@@ -1,5 +1,11 @@
 # just-bash
 
+## 3.4.0
+
+### Minor Changes
+
+- [#303](https://github.com/vercel-labs/just-bash/pull/303) [`c5a2a4a`](https://github.com/vercel-labs/just-bash/commit/c5a2a4a35c7490276befa716acae3fe880c1fe89) Thanks [@boramuyar](https://github.com/boramuyar)! - Provide the shadowed bundled command to custom command overrides through `CommandContext.origCommand`.
+
 ## 3.3.0
 
 ### Minor Changes
