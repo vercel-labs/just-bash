@@ -363,6 +363,14 @@ function detectTextType(content: string, filename: string): FileType {
   return { description: `ASCII text${lineEnding}`, mime: "text/plain" };
 }
 
+// gzip magic plus the deflate compression method, matching the header check
+// file-type uses to enter its nested gzip probe
+const GZIP_HEADER = [0x1f, 0x8b, 0x08];
+
+function isGzip(buffer: Uint8Array): boolean {
+  return GZIP_HEADER.every((byte, index) => buffer[index] === byte);
+}
+
 async function detectFileType(
   filename: string,
   buffer: Uint8Array,
@@ -370,6 +378,17 @@ async function detectFileType(
   // Empty file
   if (buffer.length === 0) {
     return { description: "empty", mime: "inode/x-empty" };
+  }
+
+  // file-type inflates gzip members to look for an inner tar, which decompresses
+  // up to 16 MB of untrusted input and cancels a Node-backed DecompressionStream
+  // whose synthesized AbortError escapes this call. file reports the container
+  // without decompressing, so answer from the header instead.
+  if (isGzip(buffer)) {
+    return {
+      description: generateDescription("gz", "application/gzip"),
+      mime: "application/gzip",
+    };
   }
 
   // Use file-type for binary detection (needs raw bytes)
