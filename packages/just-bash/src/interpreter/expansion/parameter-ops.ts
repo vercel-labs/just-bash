@@ -73,6 +73,12 @@ export type ExpandParameterAsyncFn = (
   inDoubleQuotes?: boolean,
 ) => Promise<string>;
 
+export type AssignDefaultValueFn = (
+  ctx: InterpreterContext,
+  parameter: string,
+  value: string,
+) => Promise<void>;
+
 /**
  * Context with computed values used across multiple operation handlers
  */
@@ -114,6 +120,7 @@ export async function handleAssignDefault(
   operation: { word?: WordNode; checkEmpty?: boolean },
   opCtx: ParameterOpContext,
   expandWordPartsAsync: ExpandWordPartsAsyncFn,
+  writeDefaultValue: AssignDefaultValueFn = assignDefaultValue,
 ): Promise<string> {
   ctx.coverage?.hit("bash:expansion:assign_default");
   const useDefault = opCtx.isUnset || (operation.checkEmpty && opCtx.isEmpty);
@@ -123,33 +130,39 @@ export async function handleAssignDefault(
       operation.word.parts,
       opCtx.inDoubleQuotes,
     );
-    // Handle array subscript assignment (e.g., arr[0]=x)
-    const arrayMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
-    if (arrayMatch) {
-      const [, arrayName, subscriptExpr] = arrayMatch;
-      // Evaluate subscript as arithmetic expression
-      let index: number;
-      if (/^\d+$/.test(subscriptExpr)) {
-        index = Number.parseInt(subscriptExpr, 10);
-      } else {
-        try {
-          const parser = new Parser();
-          const arithAst = parseArithmeticExpression(parser, subscriptExpr);
-          index = await evaluateArithmetic(ctx, arithAst.expression);
-        } catch {
-          const varValue = ctx.state.env.get(subscriptExpr);
-          index = varValue ? Number.parseInt(varValue, 10) : 0;
-        }
-        if (Number.isNaN(index)) index = 0;
-      }
-      // Set array element
-      setArrayElement(ctx, arrayName, index, defaultValue);
-    } else {
-      ctx.state.env.set(parameter, defaultValue);
-    }
+    await writeDefaultValue(ctx, parameter, defaultValue);
     return defaultValue;
   }
   return opCtx.effectiveValue;
+}
+
+export async function assignDefaultValue(
+  ctx: InterpreterContext,
+  parameter: string,
+  value: string,
+): Promise<void> {
+  const arrayMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
+  if (!arrayMatch) {
+    ctx.state.env.set(parameter, value);
+    return;
+  }
+
+  const [, arrayName, subscriptExpr] = arrayMatch;
+  let index: number;
+  if (/^\d+$/.test(subscriptExpr)) {
+    index = Number.parseInt(subscriptExpr, 10);
+  } else {
+    try {
+      const parser = new Parser();
+      const arithAst = parseArithmeticExpression(parser, subscriptExpr);
+      index = await evaluateArithmetic(ctx, arithAst.expression);
+    } catch {
+      const variableValue = ctx.state.env.get(subscriptExpr);
+      index = variableValue ? Number.parseInt(variableValue, 10) : 0;
+    }
+    if (Number.isNaN(index)) index = 0;
+  }
+  setArrayElement(ctx, arrayName, index, value);
 }
 
 /**

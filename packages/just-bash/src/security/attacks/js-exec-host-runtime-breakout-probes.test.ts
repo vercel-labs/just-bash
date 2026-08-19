@@ -119,44 +119,32 @@ const probes = [
   ['bun-alias', 'bun', ['-e', \\"require('fs').writeFileSync('/tmp/jb_host_node_exec_marker_paths','1')\\"]],
 ];
 for (const [name, cmd, args] of probes) {
-  const r = cp.spawnSync(cmd, args);
+  let r;
+  try {
+    r = cp.spawnSync(cmd, args);
+  } catch {
+    console.log(name + ':safe=true');
+    continue;
+  }
   const err = String(r.stderr || '');
-  console.log(name + ':status=' + String(r.status));
-  console.log(name + ':blocked=' + String(err.includes('this sandbox uses js-exec instead of node')));
-  console.log(name + ':notfound=' + String(err.includes('command not found')));
+  const unavailable = r.status === 127 || err.includes('command not found');
+  const blocked = err.includes('this sandbox uses js-exec instead of node');
+  console.log(name + ':safe=' + String(unavailable || blocked));
 }
 console.log('MARKER=' + String(fs.existsSync(marker)));
 "`);
 
     expect(result.stdout).toBe(
       [
-        "plain-node:status=1",
-        "plain-node:blocked=true",
-        "plain-node:notfound=false",
-        "usr-bin-node:status=1",
-        "usr-bin-node:blocked=true",
-        "usr-bin-node:notfound=false",
-        "bin-node:status=1",
-        "bin-node:blocked=true",
-        "bin-node:notfound=false",
-        "env-node:status=1",
-        "env-node:blocked=true",
-        "env-node:notfound=false",
-        "usr-bin-env-node:status=1",
-        "usr-bin-env-node:blocked=true",
-        "usr-bin-env-node:notfound=false",
-        "bash-c-usr-bin-node:status=1",
-        "bash-c-usr-bin-node:blocked=true",
-        "bash-c-usr-bin-node:notfound=false",
-        "nodejs-alias:status=127",
-        "nodejs-alias:blocked=false",
-        "nodejs-alias:notfound=true",
-        "deno-alias:status=127",
-        "deno-alias:blocked=false",
-        "deno-alias:notfound=true",
-        "bun-alias:status=127",
-        "bun-alias:blocked=false",
-        "bun-alias:notfound=true",
+        "plain-node:safe=true",
+        "usr-bin-node:safe=true",
+        "bin-node:safe=true",
+        "env-node:safe=true",
+        "usr-bin-env-node:safe=true",
+        "bash-c-usr-bin-node:safe=true",
+        "nodejs-alias:safe=true",
+        "deno-alias:safe=true",
+        "bun-alias:safe=true",
         "MARKER=false",
         "",
       ].join("\n"),

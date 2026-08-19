@@ -110,6 +110,60 @@ export function isArray(ctx: InterpreterContext, name: string): boolean {
   return hasArray(ctx, name);
 }
 
+export async function evaluateIndexedArraySubscript(
+  ctx: InterpreterContext,
+  arrayName: string,
+  subscript: string,
+  reportBadSubscript: boolean,
+): Promise<number | undefined> {
+  let index: number;
+  if (/^-?\d+$/.test(subscript)) {
+    index = Number.parseInt(subscript, 10);
+  } else {
+    try {
+      const parser = new Parser();
+      const arithAst = parseArithmeticExpression(parser, subscript);
+      index = await evaluateArithmetic(ctx, arithAst.expression);
+    } catch {
+      const value = ctx.state.env.get(subscript);
+      index = value ? Number.parseInt(value, 10) : 0;
+      if (Number.isNaN(index)) index = 0;
+    }
+  }
+
+  if (index >= 0) {
+    return index;
+  }
+
+  const elements = getArrayElements(ctx, arrayName);
+  const lineNum = ctx.state.currentLine;
+  if (elements.length === 0) {
+    if (reportBadSubscript) {
+      ctx.state.expansionStderr =
+        (ctx.state.expansionStderr || "") +
+        `bash: line ${lineNum}: ${arrayName}: bad array subscript\n`;
+    }
+    return undefined;
+  }
+
+  const maxIndex = Math.max(
+    ...elements.map(([elementIndex]) =>
+      typeof elementIndex === "number" ? elementIndex : 0,
+    ),
+  );
+  index = maxIndex + 1 + index;
+  if (index >= 0) {
+    return index;
+  }
+
+  if (reportBadSubscript) {
+    ctx.state.expansionStderr =
+      (ctx.state.expansionStderr || "") +
+      `bash: line ${lineNum}: ${arrayName}: bad array subscript\n`;
+  }
+  return undefined;
+}
+
 /**
  * Get the value of a variable, optionally checking nounset.
  * @param ctx - The interpreter context
@@ -322,55 +376,13 @@ export async function getVariable(
       return value || "";
     }
 
-    // Evaluate subscript as arithmetic expression for indexed arrays
-    // This handles: a[0], a[x], a[x+1], a[a[0]], a[b=2], etc.
-    let index: number;
-    if (/^-?\d+$/.test(subscript)) {
-      // Simple numeric subscript - no need for full arithmetic parsing
-      index = Number.parseInt(subscript, 10);
-    } else {
-      // Parse and evaluate as arithmetic expression
-      try {
-        const parser = new Parser();
-        const arithAst = parseArithmeticExpression(parser, subscript);
-        index = await evaluateArithmetic(ctx, arithAst.expression);
-      } catch {
-        // Fall back to simple variable lookup for backwards compatibility
-        const evalValue = ctx.state.env.get(subscript);
-        index = evalValue ? Number.parseInt(evalValue, 10) : 0;
-        if (Number.isNaN(index)) index = 0;
-      }
-    }
-
-    // Handle negative indices - bash counts from max_index + 1
-    // So a[-1] = a[max_index], a[-2] = a[max_index - 1], etc.
-    if (index < 0) {
-      const elements = getArrayElements(ctx, arrayName);
-      const lineNum = ctx.state.currentLine;
-      if (elements.length === 0) {
-        // Empty array with negative index - output error to stderr and return empty
-        ctx.state.expansionStderr =
-          (ctx.state.expansionStderr || "") +
-          `bash: line ${lineNum}: ${arrayName}: bad array subscript\n`;
-        return "";
-      }
-      // Find the maximum index
-      const maxIndex = Math.max(
-        ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
-      );
-      // Convert negative index to actual index
-      const actualIdx = maxIndex + 1 + index;
-      if (actualIdx < 0) {
-        // Out of bounds negative index - output error to stderr and return empty
-        ctx.state.expansionStderr =
-          (ctx.state.expansionStderr || "") +
-          `bash: line ${lineNum}: ${arrayName}: bad array subscript\n`;
-        return "";
-      }
-      // Look up by actual index, not position
-      const value = getArrayElement(ctx, arrayName, actualIdx);
-      return value || "";
-    }
+    const index = await evaluateIndexedArraySubscript(
+      ctx,
+      arrayName,
+      subscript,
+      true,
+    );
+    if (index === undefined) return "";
 
     const value = getArrayElement(ctx, arrayName, index);
     if (value !== undefined) {
@@ -548,34 +560,13 @@ export async function isVariableSet(
       return hasArrayElement(ctx, arrayName, key);
     }
 
-    // Evaluate subscript as arithmetic expression for indexed arrays
-    let index: number;
-    if (/^-?\d+$/.test(subscript)) {
-      index = Number.parseInt(subscript, 10);
-    } else {
-      try {
-        const parser = new Parser();
-        const arithAst = parseArithmeticExpression(parser, subscript);
-        index = await evaluateArithmetic(ctx, arithAst.expression);
-      } catch {
-        const evalValue = ctx.state.env.get(subscript);
-        index = evalValue ? Number.parseInt(evalValue, 10) : 0;
-        if (Number.isNaN(index)) index = 0;
-      }
-    }
-
-    // Handle negative indices
-    if (index < 0) {
-      const elements = getArrayElements(ctx, arrayName);
-      if (elements.length === 0) return false;
-      const maxIndex = Math.max(
-        ...elements.map(([idx]) => (typeof idx === "number" ? idx : 0)),
-      );
-      const actualIdx = maxIndex + 1 + index;
-      if (actualIdx < 0) return false;
-      return hasArrayElement(ctx, arrayName, actualIdx);
-    }
-
+    const index = await evaluateIndexedArraySubscript(
+      ctx,
+      arrayName,
+      subscript,
+      false,
+    );
+    if (index === undefined) return false;
     return hasArrayElement(ctx, arrayName, index);
   }
 

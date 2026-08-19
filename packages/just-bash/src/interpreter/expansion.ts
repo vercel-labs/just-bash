@@ -57,6 +57,7 @@ import {
   hasGlobPattern,
 } from "./expansion/glob-escape.js";
 import {
+  assignDefaultValue,
   computeIsEmpty,
   handleArrayKeys,
   handleAssignDefault,
@@ -78,19 +79,30 @@ import {
   patternHasCommandSubstitution,
 } from "./expansion/pattern-expansion.js";
 import { applyTildeExpansion } from "./expansion/tilde.js";
-import { getVariable, isVariableSet } from "./expansion/variable.js";
+import {
+  evaluateIndexedArraySubscript,
+  getVariable,
+  isVariableSet,
+} from "./expansion/variable.js";
 import {
   expandWordWithGlobImpl,
   type WordGlobExpansionDeps,
 } from "./expansion/word-glob-expansion.js";
-import { smartWordSplit } from "./expansion/word-split.js";
+import {
+  type PreparedMixedParameter,
+  smartWordSplit,
+} from "./expansion/word-split.js";
 import {
   buildIfsCharClassPattern,
   getIfs,
   isIfsEmpty,
   splitByIfsForExpansion,
 } from "./helpers/ifs.js";
-import { isNameref, resolveNameref } from "./helpers/nameref.js";
+import {
+  isNameref,
+  resolveNameref,
+  resolveNamerefForAssignment,
+} from "./helpers/nameref.js";
 import { getLiteralValue, isQuotedPart } from "./helpers/word-parts.js";
 import { openProcessSubstitution } from "./process-substitution.js";
 import type { InterpreterContext } from "./types.js";
@@ -502,6 +514,8 @@ function createWordGlobDeps(): WordGlobExpansionDeps {
     expandWordPartsAsync,
     expandPart,
     expandParameterAsync,
+    prepareMixedParameter,
+    assignPreparedDefault: assignParameterDefaultValue,
     hasBraceExpansion,
     evaluateArithmetic,
     buildIfsCharClassPattern,
@@ -938,6 +952,160 @@ async function expandPart(
   }
 }
 
+async function resolveIndexedParameter(
+  ctx: InterpreterContext,
+  parameter: string,
+): Promise<{ parameter: string; invalidSubscript: boolean }> {
+  let target = parameter;
+  let bracketMatch = target.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
+  if (!bracketMatch && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(target)) {
+    const resolved = resolveNameref(ctx, target);
+    if (resolved && resolved !== target) {
+      target = resolved;
+      bracketMatch = target.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
+    }
+  }
+
+  if (!bracketMatch) {
+    return { parameter, invalidSubscript: false };
+  }
+
+  let arrayName = bracketMatch[1];
+  const subscript = bracketMatch[2];
+  if (
+    arrayName === "FUNCNAME" ||
+    arrayName === "BASH_LINENO" ||
+    arrayName === "BASH_SOURCE" ||
+    subscript === "@" ||
+    subscript === "*" ||
+    ctx.state.associativeArrays?.has(arrayName)
+  ) {
+    return { parameter: target, invalidSubscript: false };
+  }
+
+  if (isNameref(ctx, arrayName)) {
+    const resolved = resolveNameref(ctx, arrayName);
+    if (!resolved || resolved.includes("[")) {
+      return { parameter: target, invalidSubscript: false };
+    }
+    arrayName = resolved;
+  }
+
+  if (ctx.state.associativeArrays?.has(arrayName)) {
+    return { parameter: `${arrayName}[${subscript}]`, invalidSubscript: false };
+  }
+
+  const index = await evaluateIndexedArraySubscript(
+    ctx,
+    arrayName,
+    subscript,
+    true,
+  );
+  if (index === undefined) {
+    return { parameter: target, invalidSubscript: true };
+  }
+  return { parameter: `${arrayName}[${index}]`, invalidSubscript: false };
+}
+
+async function assignParameterDefaultValue(
+  ctx: InterpreterContext,
+  parameter: string,
+  value: string,
+): Promise<void> {
+  const assignmentParameter = resolveNamerefForAssignment(
+    ctx,
+    parameter,
+    value,
+  );
+  if (assignmentParameter === null) return;
+  if (assignmentParameter === undefined) {
+    throw new BadSubstitutionError(parameter);
+  }
+
+  const resolvedParameter = await resolveIndexedParameter(
+    ctx,
+    assignmentParameter,
+  );
+  if (resolvedParameter.invalidSubscript) return;
+  await assignDefaultValue(ctx, resolvedParameter.parameter, value);
+}
+
+async function prepareMixedParameter(
+  ctx: InterpreterContext,
+  part: ParameterExpansionPart,
+): Promise<PreparedMixedParameter | null> {
+  const operation = part.operation;
+  if (
+    !operation ||
+    (operation.type !== "DefaultValue" &&
+      operation.type !== "AssignDefault" &&
+      operation.type !== "UseAlternative") ||
+    !operation.word ||
+    operation.word.parts.length <= 1 ||
+    part.parameter.includes("$")
+  ) {
+    return null;
+  }
+
+  const hasQuotedParts = operation.word.parts.some(
+    (part) => part.type === "DoubleQuoted" || part.type === "SingleQuoted",
+  );
+  const hasUnquotedParts = operation.word.parts.some(
+    (part) =>
+      part.type === "Literal" ||
+      part.type === "ParameterExpansion" ||
+      part.type === "CommandSubstitution" ||
+      part.type === "ArithmeticExpansion",
+  );
+  if (!hasQuotedParts || !hasUnquotedParts) {
+    return null;
+  }
+  const hasQuotedMultiWordExpansion = operation.word.parts.some(
+    (part) =>
+      part.type === "DoubleQuoted" &&
+      part.parts.some(
+        (inner) =>
+          inner.type === "ParameterExpansion" &&
+          (inner.parameter === "@" ||
+            inner.parameter === "*" ||
+            /^[a-zA-Z_][a-zA-Z0-9_]*\[[@*]\]$/.test(inner.parameter)),
+      ),
+  );
+  if (hasQuotedMultiWordExpansion) {
+    return null;
+  }
+
+  const resolvedParameter = await resolveIndexedParameter(ctx, part.parameter);
+  const value = resolvedParameter.invalidSubscript
+    ? ""
+    : await getVariable(ctx, resolvedParameter.parameter, false);
+  const { isEmpty, effectiveValue } = computeIsEmpty(
+    ctx,
+    resolvedParameter.parameter,
+    value,
+    false,
+  );
+  const isUnset =
+    resolvedParameter.invalidSubscript ||
+    (!operation.checkEmpty &&
+      !(await isVariableSet(ctx, resolvedParameter.parameter)));
+  const useOperationWord =
+    operation.type === "UseAlternative"
+      ? !isUnset && !(operation.checkEmpty && isEmpty)
+      : isUnset || (operation.checkEmpty && isEmpty);
+
+  if (!useOperationWord) {
+    return { type: "value", value: effectiveValue };
+  }
+
+  return {
+    type: "operationWord",
+    wordParts: operation.word.parts,
+    assignmentParameter:
+      operation.type === "AssignDefault" ? part.parameter : undefined,
+  };
+}
+
 // Async version of expandParameter for parameter expansions that contain command substitution
 async function expandParameterAsync(
   ctx: InterpreterContext,
@@ -946,6 +1114,18 @@ async function expandParameterAsync(
 ): Promise<string> {
   let { parameter } = part;
   const { operation } = part;
+
+  if (operation?.type === "Indirection" && isNameref(ctx, parameter)) {
+    return handleIndirection(
+      ctx,
+      parameter,
+      "",
+      false,
+      operation,
+      expandParameterAsync,
+      inDoubleQuotes,
+    );
+  }
 
   // Handle subscript expansion for array access: ${a[...]}
   // We need to expand the subscript before calling getVariable
@@ -1001,6 +1181,10 @@ async function expandParameterAsync(
     }
   }
 
+  const assignmentParameter = parameter;
+  const resolvedParameter = await resolveIndexedParameter(ctx, parameter);
+  parameter = resolvedParameter.parameter;
+
   // Operations that handle unset variables should not trigger nounset
   const skipNounset =
     operation &&
@@ -1009,13 +1193,25 @@ async function expandParameterAsync(
       operation.type === "UseAlternative" ||
       operation.type === "ErrorIfUnset");
 
-  const value = await getVariable(ctx, parameter, !skipNounset);
+  const value = resolvedParameter.invalidSubscript
+    ? ""
+    : await getVariable(ctx, parameter, !skipNounset);
 
   if (!operation) {
     return value;
   }
 
-  const isUnset = !(await isVariableSet(ctx, parameter));
+  const needsUnsetCheck =
+    operation.type === "Transform" ||
+    operation.type === "Indirection" ||
+    ((operation.type === "DefaultValue" ||
+      operation.type === "AssignDefault" ||
+      operation.type === "ErrorIfUnset" ||
+      operation.type === "UseAlternative") &&
+      !operation.checkEmpty);
+  const isUnset =
+    resolvedParameter.invalidSubscript ||
+    (needsUnsetCheck && !(await isVariableSet(ctx, parameter)));
   // Compute isEmpty and effectiveValue using extracted helper
   const { isEmpty, effectiveValue } = computeIsEmpty(
     ctx,
@@ -1038,10 +1234,11 @@ async function expandParameterAsync(
     case "AssignDefault":
       return handleAssignDefault(
         ctx,
-        parameter,
+        assignmentParameter,
         operation,
         opCtx,
         expandWordPartsAsync,
+        assignParameterDefaultValue,
       );
 
     case "ErrorIfUnset":

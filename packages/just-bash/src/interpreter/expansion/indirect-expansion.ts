@@ -23,6 +23,7 @@ import { evaluateArithmetic } from "../arithmetic.js";
 import { ArithmeticError } from "../errors.js";
 import { setArrayElement } from "../helpers/array.js";
 import { getIfsSeparator } from "../helpers/ifs.js";
+import { isNameref } from "../helpers/nameref.js";
 import type { InterpreterContext } from "../types.js";
 import { getArrayElements, getVariable, isVariableSet } from "./variable.js";
 import { getVariableAttributes } from "./variable-attrs.js";
@@ -87,6 +88,10 @@ export async function handleIndirectArrayExpansion(
     type: "Indirection";
     innerOp?: InnerParameterOperation;
   };
+
+  if (isNameref(ctx, paramPart.parameter)) {
+    return null;
+  }
 
   // Get the value of the reference variable (e.g., ref='arr[@]')
   const refValue = await getVariable(ctx, paramPart.parameter);
