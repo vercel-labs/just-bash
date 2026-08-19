@@ -20,14 +20,28 @@
  *   fully supported - variable expansion happens at parse time, not runtime.
  */
 
-import type { ArithExpr } from "../ast/types.js";
+import type {
+  ArithCommandSubstNode,
+  ArithExpr,
+  ArithmeticExpressionNode,
+} from "../ast/types.js";
 import {
   parseArithExpr,
+  parseArithmeticExpression,
   parseArithNumber,
 } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
+import {
+  scanBacktickSubstitutionEnd,
+  scanCommandSubstitutionEnd,
+} from "../parser/parser-substitution.js";
 import { ArithmeticError, NounsetError } from "./errors.js";
-import { getArrayElements, getVariable } from "./expansion.js";
+import { expandDollarVarsInArithText } from "./expansion/arith-text-expansion.js";
+import {
+  executeCommandSubstitution,
+  getArrayElements,
+  getVariable,
+} from "./expansion.js";
 import { getArrayElement, hasArray, setArrayElement } from "./helpers/array.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -36,8 +50,331 @@ interface ArithmeticResolutionContext {
   depth: number;
 }
 
+interface ArithmeticCommandSubstitution {
+  readonly start: number;
+  readonly end: number;
+  readonly command: string;
+  readonly legacy: boolean;
+}
+
 function createArithmeticResolutionContext(): ArithmeticResolutionContext {
   return { visited: new Set(), depth: 0 };
+}
+
+function isArithExpr(value: unknown): value is ArithExpr {
+  if (typeof value !== "object" || value === null || !("type" in value)) {
+    return false;
+  }
+  const { type } = value as { type?: unknown };
+  return typeof type === "string" && type.startsWith("Arith");
+}
+
+function collectArithCommandSubstitutions(
+  expr: ArithExpr,
+): ArithCommandSubstNode[] {
+  const substitutions: ArithCommandSubstNode[] = [];
+
+  const collect = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        collect(item);
+      }
+      return;
+    }
+    if (!isArithExpr(value)) {
+      return;
+    }
+    if (value.type === "ArithCommandSubst") {
+      substitutions.push(value);
+      return;
+    }
+    for (const child of Object.values(value)) {
+      collect(child);
+    }
+  };
+
+  collect(expr);
+  return substitutions;
+}
+
+export function hasArithCommandSubstitutions(expr: ArithExpr): boolean {
+  return collectArithCommandSubstitutions(expr).length > 0;
+}
+
+function hasShellSyntax(text: string): boolean {
+  return /[$`'"\\]/.test(text);
+}
+
+const throwIfShellSyntax = (text: string): void => {
+  if (hasShellSyntax(text)) {
+    throw new ArithmeticError(
+      "syntax error in arithmetic command substitution",
+    );
+  }
+};
+
+const throwArithmeticScanError = (message: string): never => {
+  throw new ArithmeticError(message);
+};
+
+async function expandArithLiteral(
+  ctx: InterpreterContext,
+  text: string,
+): Promise<string> {
+  let result = "";
+  let position = 0;
+  let literalStart = 0;
+  let inSingleQuote = false;
+  let inDoubleQuotes = false;
+
+  while (position < text.length) {
+    const character = text[position];
+    if (character === "\\" && position + 1 < text.length) {
+      position += 2;
+      continue;
+    }
+    if (character === "'" && !inDoubleQuotes) {
+      inSingleQuote = !inSingleQuote;
+      position += 1;
+      continue;
+    }
+    if (character === '"' && !inSingleQuote) {
+      inDoubleQuotes = !inDoubleQuotes;
+      position += 1;
+      continue;
+    }
+    if (!inSingleQuote && character === "$" && text[position + 1] === "{") {
+      let depth = 1;
+      let end = position + 2;
+      while (end < text.length && depth > 0) {
+        if (text[end] === "{") depth += 1;
+        else if (text[end] === "}") depth -= 1;
+        end += 1;
+      }
+      if (depth > 0) {
+        break;
+      }
+      result += await expandDollarVarsInArithText(
+        ctx,
+        text.slice(literalStart, position),
+        throwIfShellSyntax,
+      );
+      const expanded = await expandBracedContent(
+        ctx,
+        text.slice(position + 2, end - 1),
+      );
+      throwIfShellSyntax(expanded);
+      result += expanded;
+      position = end;
+      literalStart = end;
+      continue;
+    }
+    position += 1;
+  }
+
+  return (
+    result +
+    (await expandDollarVarsInArithText(
+      ctx,
+      text.slice(literalStart),
+      throwIfShellSyntax,
+    ))
+  );
+}
+
+async function executeArithCommandSubstitution(
+  ctx: InterpreterContext,
+  expr: ArithCommandSubstNode,
+): Promise<string> {
+  if (expr.body) {
+    return executeCommandSubstitution(ctx, expr.body);
+  }
+  if (ctx.execFn) {
+    const result = await ctx.execFn(expr.command, {
+      signal: ctx.state.signal,
+    });
+    if (result.stderr) {
+      ctx.state.expansionStderr =
+        (ctx.state.expansionStderr || "") + result.stderr;
+    }
+    return result.stdout.trim();
+  }
+  return "0";
+}
+
+function scanArithCommandSubstitutions(
+  text: string,
+): ArithmeticCommandSubstitution[] {
+  const substitutions: ArithmeticCommandSubstitution[] = [];
+  let position = 0;
+  let inDoubleQuotes = false;
+
+  while (position < text.length) {
+    const character = text[position];
+    if (character === "\\" && position + 1 < text.length) {
+      position += 2;
+      continue;
+    }
+    if (character === "'") {
+      const end = text.indexOf("'", position + 1);
+      if (end === -1) break;
+      position = end + 1;
+      continue;
+    }
+    if (character === '"') {
+      inDoubleQuotes = !inDoubleQuotes;
+      position += 1;
+      continue;
+    }
+    if (character === "$" && text[position + 1] === "{") {
+      let depth = 1;
+      position += 2;
+      while (position < text.length && depth > 0) {
+        if (text[position] === "{") depth += 1;
+        else if (text[position] === "}") depth -= 1;
+        position += 1;
+      }
+      continue;
+    }
+    if (
+      character === "$" &&
+      text[position + 1] === "(" &&
+      text[position + 2] !== "("
+    ) {
+      const end = scanCommandSubstitutionEnd(
+        text,
+        position,
+        throwArithmeticScanError,
+      );
+      substitutions.push({
+        start: position,
+        end,
+        command: text.slice(position + 2, end - 1),
+        legacy: false,
+      });
+      position = end;
+      continue;
+    }
+    if (character === "`") {
+      const end = scanBacktickSubstitutionEnd(
+        text,
+        position,
+        inDoubleQuotes,
+        throwArithmeticScanError,
+      );
+      substitutions.push({
+        start: position,
+        end,
+        command: text.slice(position + 1, end - 1),
+        legacy: true,
+      });
+      position = end;
+      continue;
+    }
+    position += 1;
+  }
+
+  return substitutions;
+}
+
+function validateArithCommandSubstitutions(
+  descriptors: ArithmeticCommandSubstitution[],
+  substitutions: ArithCommandSubstNode[],
+): void {
+  if (descriptors.length !== substitutions.length) {
+    throw new ArithmeticError(
+      "syntax error in arithmetic command substitution",
+    );
+  }
+
+  for (let index = 0; index < descriptors.length; index += 1) {
+    const descriptor = descriptors[index];
+    const substitution = substitutions[index];
+    if (
+      !substitution?.body ||
+      descriptor.command !== substitution.command ||
+      descriptor.legacy !== Boolean(substitution.legacy)
+    ) {
+      throw new ArithmeticError(
+        "syntax error in arithmetic command substitution",
+      );
+    }
+  }
+}
+
+async function expandArithCommandSubstitutions(
+  ctx: InterpreterContext,
+  text: string,
+  substitutions: ArithCommandSubstNode[],
+): Promise<string> {
+  const descriptors = scanArithCommandSubstitutions(text);
+  validateArithCommandSubstitutions(descriptors, substitutions);
+
+  let result = "";
+  let position = 0;
+  for (let index = 0; index < descriptors.length; index += 1) {
+    const descriptor = descriptors[index];
+    const substitution = substitutions[index];
+    result += await expandArithLiteral(
+      ctx,
+      text.slice(position, descriptor.start),
+    );
+    const output = await executeArithCommandSubstitution(ctx, substitution);
+    throwIfShellSyntax(output);
+    result += output;
+    position = descriptor.end;
+  }
+
+  return result + (await expandArithLiteral(ctx, text.slice(position)));
+}
+
+async function evaluateArithmeticExpression(
+  ctx: InterpreterContext,
+  expression: ArithmeticExpressionNode,
+  isExpansionContext: boolean,
+): Promise<number> {
+  const { originalText } = expression;
+  if (!originalText) {
+    return evaluateArithmeticInternal(
+      ctx,
+      expression.expression,
+      isExpansionContext,
+      createArithmeticResolutionContext(),
+    );
+  }
+
+  const substitutions = collectArithCommandSubstitutions(expression.expression);
+  if (substitutions.some((substitution) => !substitution.body)) {
+    return evaluateArithmeticInternal(
+      ctx,
+      expression.expression,
+      isExpansionContext,
+      createArithmeticResolutionContext(),
+    );
+  }
+
+  if (substitutions.length === 0) {
+    return evaluateArithmeticInternal(
+      ctx,
+      expression.expression,
+      isExpansionContext,
+      createArithmeticResolutionContext(),
+    );
+  }
+
+  const text = await expandArithCommandSubstitutions(
+    ctx,
+    originalText,
+    substitutions,
+  );
+  const parser = new Parser();
+  const parsed = parseArithmeticExpression(parser, text);
+  return evaluateArithmeticInternal(
+    ctx,
+    parsed.expression,
+    isExpansionContext,
+    createArithmeticResolutionContext(),
+  );
 }
 
 /**
@@ -400,9 +737,12 @@ async function expandBracedContent(
 
 export async function evaluateArithmetic(
   ctx: InterpreterContext,
-  expr: ArithExpr,
+  expr: ArithExpr | ArithmeticExpressionNode,
   isExpansionContext = false,
 ): Promise<number> {
+  if (expr.type === "ArithmeticExpression") {
+    return evaluateArithmeticExpression(ctx, expr, isExpansionContext);
+  }
   return evaluateArithmeticInternal(
     ctx,
     expr,
@@ -450,20 +790,8 @@ async function evaluateArithmeticInternal(
       return await evaluate(expr.expression);
 
     case "ArithCommandSubst": {
-      // Execute the command and parse the result as a number
-      if (ctx.execFn) {
-        const result = await ctx.execFn(expr.command, {
-          signal: ctx.state.signal,
-        });
-        // Command substitution stderr should go to the shell's stderr at expansion time
-        if (result.stderr) {
-          ctx.state.expansionStderr =
-            (ctx.state.expansionStderr || "") + result.stderr;
-        }
-        const output = result.stdout.trim();
-        return Number.parseInt(output, 10) || 0;
-      }
-      return 0;
+      const output = await executeArithCommandSubstitution(ctx, expr);
+      return Number.parseInt(output, 10) || 0;
     }
 
     case "ArithBracedExpansion": {
@@ -960,13 +1288,7 @@ async function evalConcatPartToStringAsync(
     case "ArithBracedExpansion":
       return await expandBracedContent(ctx, expr.content);
     case "ArithCommandSubst": {
-      if (ctx.execFn) {
-        const result = await ctx.execFn(expr.command, {
-          signal: ctx.state.signal,
-        });
-        return result.stdout.trim();
-      }
-      return "0";
+      return executeArithCommandSubstitution(ctx, expr);
     }
     case "ArithConcat": {
       let result = "";

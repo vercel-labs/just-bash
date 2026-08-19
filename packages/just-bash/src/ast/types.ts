@@ -732,7 +732,12 @@ export interface ArithNestedNode extends ASTNode {
 /** Command substitution within arithmetic context: $(cmd) or `cmd` */
 export interface ArithCommandSubstNode extends ASTNode {
   type: "ArithCommandSubst";
+  /** Original command text retained for AST compatibility. */
   command: string;
+  /** Parsed substitution body for nodes produced by the parser. */
+  body?: ScriptNode;
+  /** Legacy backtick syntax. */
+  legacy?: boolean;
 }
 
 // =============================================================================

@@ -1159,7 +1159,7 @@ export class Interpreter {
         try {
           const arithResult = await evaluateArithmetic(
             this.ctx,
-            node.expression.expression,
+            node.expression,
           );
           let bodyResult = testResult(arithResult !== 0);
           if (this.ctx.state.expansionStderr) {

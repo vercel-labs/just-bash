@@ -250,7 +250,7 @@ export async function handleLocal(
       try {
         const parser = new Parser();
         const arithAst = parseArithmeticExpression(parser, indexExpr);
-        index = await evaluateArithmetic(ctx, arithAst.expression);
+        index = await evaluateArithmetic(ctx, arithAst);
       } catch {
         // If parsing fails, try to parse as simple number
         const num = parseInt(indexExpr, 10);

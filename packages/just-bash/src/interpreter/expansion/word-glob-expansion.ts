@@ -10,6 +10,7 @@
 
 import type {
   ArithExpr,
+  ArithmeticExpressionNode,
   ParameterExpansionPart,
   WordNode,
   WordPart,
@@ -98,7 +99,7 @@ export interface WordGlobExpansionDeps {
   hasBraceExpansion: (parts: WordPart[]) => boolean;
   evaluateArithmetic: (
     ctx: InterpreterContext,
-    expr: ArithExpr,
+    expr: ArithExpr | ArithmeticExpressionNode,
     isExpansionContext?: boolean,
   ) => Promise<number>;
   buildIfsCharClassPattern: (ifsChars: string) => string;

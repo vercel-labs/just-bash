@@ -51,7 +51,7 @@ export async function evaluateVariableTest(
     try {
       const parser = new Parser();
       const arithAst = parseArithmeticExpression(parser, indexExpr);
-      index = await evaluateArithmetic(ctx, arithAst.expression);
+      index = await evaluateArithmetic(ctx, arithAst);
     } catch {
       // If parsing fails, try simple numeric
       if (/^-?\d+$/.test(indexExpr)) {

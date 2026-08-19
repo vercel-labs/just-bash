@@ -484,6 +484,46 @@ function findSubstitutionBodyEnd(
   return i;
 }
 
+/** Find the exclusive end of a `$(...)` substitution without parsing its body. */
+export function scanCommandSubstitutionEnd(
+  value: string,
+  start: number,
+  error: ErrorFn,
+): number {
+  return findSubstitutionBodyEnd(value, start + 2, error) + 1;
+}
+
+/** Find the exclusive end of a backtick substitution without parsing its body. */
+export function scanBacktickSubstitutionEnd(
+  value: string,
+  start: number,
+  inDoubleQuotes: boolean,
+  error: ErrorFn,
+): number {
+  let i = start + 1;
+
+  while (i < value.length && value[i] !== "`") {
+    if (value[i] === "\\") {
+      const next = value[i + 1];
+      const isSpecial =
+        next === "$" ||
+        next === "`" ||
+        next === "\\" ||
+        next === "\n" ||
+        (inDoubleQuotes && next === '"');
+      i += isSpecial ? 2 : 1;
+      continue;
+    }
+    i += 1;
+  }
+
+  if (i >= value.length) {
+    error("unexpected EOF while looking for matching ``'");
+  }
+
+  return i + 1;
+}
+
 /**
  * Parse a command substitution starting at the given position.
  * Handles $(...) syntax with proper depth tracking for nested substitutions.
@@ -500,18 +540,16 @@ export function parseCommandSubstitutionFromString(
   createParser: ParserFactory,
   error: ErrorFn,
 ): { part: CommandSubstitutionPart; endIndex: number } {
-  // Skip $(
   const cmdStart = start + 2;
-  const i = findSubstitutionBodyEnd(value, cmdStart, error);
-
-  const cmdStr = value.slice(cmdStart, i);
+  const endIndex = scanCommandSubstitutionEnd(value, start, error);
+  const cmdStr = value.slice(cmdStart, endIndex - 1);
   // Use a new Parser instance to avoid overwriting the caller's parser's tokens
   const nestedParser = createParser();
   const body = nestedParser.parse(cmdStr);
 
   return {
     part: AST.commandSubstitution(body, false),
-    endIndex: i + 1,
+    endIndex,
   };
 }
 
@@ -554,12 +592,19 @@ export function parseBacktickSubstitutionFromString(
   const cmdStart = start + 1;
   let i = cmdStart;
   let cmdStr = "";
+  const endIndex = scanBacktickSubstitutionEnd(
+    value,
+    start,
+    inDoubleQuotes,
+    error,
+  );
 
   // Process backtick escaping rules:
   // \$ \` \\ \<newline> have backslash removed
   // \" has backslash removed ONLY inside double quotes
-  // \x for other chars keeps the backslash
-  while (i < value.length && value[i] !== "`") {
+  // \x for other chars keeps the backslash. This runs only when constructing
+  // the parsed body; callers that only need the boundary use the scanner above.
+  while (i < endIndex - 1) {
     if (value[i] === "\\") {
       const next = value[i + 1];
       // In unquoted context: only \$ \` \\ \newline are special
@@ -587,17 +632,12 @@ export function parseBacktickSubstitutionFromString(
     }
   }
 
-  // Check for unclosed backtick substitution
-  if (i >= value.length) {
-    error("unexpected EOF while looking for matching ``'");
-  }
-
   // Use a new Parser instance to avoid overwriting the caller's parser's tokens
   const nestedParser = createParser();
   const body = nestedParser.parse(cmdStr);
 
   return {
     part: AST.commandSubstitution(body, true),
-    endIndex: i + 1,
+    endIndex,
   };
 }

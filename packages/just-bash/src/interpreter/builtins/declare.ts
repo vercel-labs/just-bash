@@ -143,7 +143,7 @@ async function evaluateIntegerValue(
   try {
     const parser = new Parser();
     const arithAst = parseArithmeticExpression(parser, value);
-    const result = await evaluateArithmetic(ctx, arithAst.expression);
+    const result = await evaluateArithmetic(ctx, arithAst);
     return String(result);
   } catch {
     // If parsing fails, return 0 (bash behavior for invalid expressions)
@@ -541,7 +541,7 @@ export async function handleDeclare(
                 try {
                   const parser = new Parser();
                   const arithAst = parseArithmeticExpression(parser, indexExpr);
-                  index = await evaluateArithmetic(ctx, arithAst.expression);
+                  index = await evaluateArithmetic(ctx, arithAst);
                 } catch {
                   // If parsing fails, treat as 0 (like unset variable)
                   index = 0;
@@ -619,7 +619,7 @@ export async function handleDeclare(
       try {
         const parser = new Parser();
         const arithAst = parseArithmeticExpression(parser, indexExpr);
-        index = await evaluateArithmetic(ctx, arithAst.expression);
+        index = await evaluateArithmetic(ctx, arithAst);
       } catch {
         // If parsing fails, try to parse as simple number
         const num = parseInt(indexExpr, 10);

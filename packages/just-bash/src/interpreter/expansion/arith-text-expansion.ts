@@ -16,6 +16,7 @@ import { getVariable } from "./variable.js";
 export async function expandDollarVarsInArithText(
   ctx: InterpreterContext,
   text: string,
+  validateExpandedValue?: (value: string) => void,
 ): Promise<string> {
   let result = "";
   let i = 0;
@@ -57,6 +58,7 @@ export async function expandDollarVarsInArithText(
         }
         const varName = text.slice(i + 1, j);
         const value = await getVariable(ctx, varName);
+        validateExpandedValue?.(value);
         result += value;
         i = j;
         continue;
@@ -69,6 +71,7 @@ export async function expandDollarVarsInArithText(
         }
         const varName = text.slice(i + 1, j);
         const value = await getVariable(ctx, varName);
+        validateExpandedValue?.(value);
         result += value;
         i = j;
         continue;
@@ -77,6 +80,7 @@ export async function expandDollarVarsInArithText(
       if (/[*@#?\-!$]/.test(text[i + 1] || "")) {
         const varName = text[i + 1];
         const value = await getVariable(ctx, varName);
+        validateExpandedValue?.(value);
         result += value;
         i += 2;
         continue;
@@ -96,6 +100,7 @@ export async function expandDollarVarsInArithText(
           }
           const varName = text.slice(i + 1, j);
           const value = await getVariable(ctx, varName);
+          validateExpandedValue?.(value);
           result += value;
           i = j;
         } else if (text[i] === "\\") {

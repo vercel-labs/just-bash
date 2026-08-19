@@ -1,0 +1,30 @@
+{
+  "122686ff5d989f96": {
+    "command": "echo $(( $(set -u; shopt -s nullglob; printf 1) ))\necho $((missing + 1))\nprintf '<%s>\\n' no-match-*",
+    "files": {},
+    "stdout": "1\n1\n<no-match-*>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "50d0ab5c5115df00": {
+    "command": "values=(zero one two three)\nset -- zero one two three\necho \"indexed=${values[$(printf '1 + 1')]}\"\nprintf 'quoted-pos:<%s>\\n' \"${@:$(printf '1 + 1'):$(printf '1 + 1')}\"\nprintf 'unquoted-pos:<%s>\\n' ${@:$(printf '1 + 1'):$(printf '1 + 1')}\nprintf 'array:<%s>\\n' \"${values[@]:$(printf '1 + 1'):$(printf '1 + 1')}\"",
+    "files": {},
+    "stdout": "indexed=two\nquoted-pos:<one>\nquoted-pos:<two>\nunquoted-pos:<one>\nunquoted-pos:<two>\narray:<two>\narray:<three>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "acbddfa0190aa4a4": {
+    "command": "number=4\nadd() { printf '%s' \"$number + 2\"; }\necho $(( $(add) * 3 ))\necho $(( `printf '1 + 2'` * 3 ))\nunset number\necho $(( ${number:=2} + $(printf \"$number\") ))\necho \"$number\"\nfalse\necho $(( $? + $(printf 1) ))\necho $(( $(printf \")\" >&2; printf 1) + 1 ))\nmkdir nested\ncd nested\necho $(( $(pwd | grep -c '/nested') ))\nnumber=5\necho $(( $(number=9; printf 1) + number ))\necho \"$number\"\nrm -f marker\necho $(( 0 && $(echo touched > marker; printf 1) ))\nif [ -f marker ]; then echo present; else echo absent; fi\nouter() { printf outer; }\necho $(( $(outer() { printf inner; }; printf 1) + 1 ))\necho \"$(outer)\"\n(( $(printf '2 + 1') * 2 ))\necho \"$?\"\nfor ((i=$(printf 0); i < $(printf 2); i += $(printf 1))); do echo \"$i\"; done\nvalue=abcd\necho \"${value:$(printf '1 + 1'):1}\"",
+    "files": {},
+    "stdout": "10\n7\n4\n2\n2\n2\n1\n6\n5\n0\npresent\n2\nouter\n0\n0\n1\nc\n",
+    "stderr": ")",
+    "exitCode": 0
+  },
+  "bbcfeca63a238ad7": {
+    "command": "arr=(4); echo $(( ${arr[$(printf 0)]} + $(printf 1) ))",
+    "files": {},
+    "stdout": "5\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

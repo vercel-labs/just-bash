@@ -522,7 +522,7 @@ async function processIndexedArrayWithKeysAssignment(
       try {
         const parser = new Parser();
         const arithAst = parseArithmeticExpression(parser, pending.indexExpr);
-        index = await evaluateArithmetic(ctx, arithAst.expression, false);
+        index = await evaluateArithmetic(ctx, arithAst, false);
       } catch {
         if (/^-?\d+$/.test(pending.indexExpr)) {
           index = Number.parseInt(pending.indexExpr, 10);
@@ -744,7 +744,7 @@ export async function computeIndexedArrayIndex(
     try {
       const parser = new Parser();
       const arithAst = parseArithmeticExpression(parser, evalExpr);
-      index = await evaluateArithmetic(ctx, arithAst.expression, false);
+      index = await evaluateArithmetic(ctx, arithAst, false);
     } catch (e) {
       if (e instanceof ExitError) throw e;
       if (e instanceof ArithmeticError) {
@@ -867,10 +867,10 @@ async function processScalarAssignment(
         const currentVal = ctx.state.env.get(targetName) || "0";
         const expr = `(${currentVal}) + (${value})`;
         const arithAst = parseArithmeticExpression(parser, expr);
-        finalValue = String(await evaluateArithmetic(ctx, arithAst.expression));
+        finalValue = String(await evaluateArithmetic(ctx, arithAst));
       } else {
         const arithAst = parseArithmeticExpression(parser, value);
-        finalValue = String(await evaluateArithmetic(ctx, arithAst.expression));
+        finalValue = String(await evaluateArithmetic(ctx, arithAst));
       }
     } catch {
       finalValue = "0";
@@ -941,7 +941,7 @@ async function computeNamerefArrayKey(
     try {
       const parser = new Parser();
       const arithAst = parseArithmeticExpression(parser, subscriptExpr);
-      index = await evaluateArithmetic(ctx, arithAst.expression, false);
+      index = await evaluateArithmetic(ctx, arithAst, false);
     } catch {
       const varValue = ctx.state.env.get(subscriptExpr);
       index = varValue ? Number.parseInt(varValue, 10) : 0;

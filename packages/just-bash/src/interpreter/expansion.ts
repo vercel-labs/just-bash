@@ -12,19 +12,23 @@
 
 import type {
   ParameterExpansionPart,
+  ScriptNode,
   WordNode,
   WordPart,
 } from "../ast/types.js";
 import { parseArithmeticExpression } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
 import { GlobExpander } from "../shell/glob.js";
-import { evaluateArithmetic } from "./arithmetic.js";
+import {
+  evaluateArithmetic,
+  hasArithCommandSubstitutions,
+} from "./arithmetic.js";
 import {
   BadSubstitutionError,
   ExecutionLimitError,
   ExitError,
 } from "./errors.js";
-import { cloneArrays } from "./helpers/array.js";
+import { beginIsolatedShellState } from "./state-transaction.js";
 
 /**
  * Check if a string exceeds the maximum allowed length.
@@ -751,159 +755,32 @@ async function expandPart(
       return parts.join("");
     }
 
-    case "CommandSubstitution": {
-      // Check for the special $(<file) shorthand pattern
-      // This is equivalent to $(cat file) but reads the file directly
-      const fileReadShorthand = getFileReadShorthand(part.body);
-      if (fileReadShorthand) {
-        try {
-          // Expand the file path (handles $VAR, etc.)
-          const filePath = await expandWord(ctx, fileReadShorthand.target);
-          // Resolve relative paths
-          const resolvedPath = filePath.startsWith("/")
-            ? filePath
-            : `${ctx.state.cwd}/${filePath}`;
-          // Read the file
-          const content = await ctx.fs.readFile(resolvedPath);
-          ctx.state.lastExitCode = 0;
-          ctx.state.env.set("?", "0");
-          // Strip trailing newlines (like command substitution does)
-          const result = content.replace(/\n+$/, "");
-          // Check string length limit
-          checkStringLength(
-            result,
-            ctx.limits.maxStringLength,
-            "command substitution",
-          );
-          return result;
-        } catch (error) {
-          // ExecutionLimitError must propagate
-          if (error instanceof ExecutionLimitError) {
-            throw error;
-          }
-          // File not found or read error - return empty string, set exit code
-          ctx.state.lastExitCode = 1;
-          ctx.state.env.set("?", "1");
-          return "";
-        }
-      }
-
-      // Command substitution runs in a subshell-like context
-      // ExitError should NOT terminate the main script, just this substitution
-      // But ExecutionLimitError MUST propagate to protect against infinite recursion
-      // Check command substitution nesting depth limit
-      const currentDepth = ctx.substitutionDepth ?? 0;
-      const maxDepth = ctx.limits.maxSubstitutionDepth;
-      if (currentDepth >= maxDepth) {
-        throw new ExecutionLimitError(
-          `Command substitution nesting limit exceeded (${maxDepth})`,
-          "substitution_depth",
-        );
-      }
-      // Increment depth for nested substitutions
-      const savedDepth = ctx.substitutionDepth;
-      ctx.substitutionDepth = currentDepth + 1;
-
-      // Command substitutions get a new BASHPID (unlike $$ which stays the same)
-      const savedBashPid = ctx.state.bashPid;
-      ctx.state.bashPid = ctx.state.nextVirtualPid++;
-      // Save environment - command substitutions run in a subshell and should not
-      // modify parent environment (e.g., aliases defined inside $() should not leak)
-      const savedEnv = new Map(ctx.state.env);
-      const savedArrays = cloneArrays(ctx.state.arrays);
-      const savedCwd = ctx.state.cwd;
-      // Suppress verbose mode (set -v) inside command substitutions
-      // bash only prints verbose output for the main script
-      const savedSuppressVerbose = ctx.state.suppressVerbose;
-      ctx.state.suppressVerbose = true;
-      try {
-        const result = await ctx.executeScript(part.body);
-        // Restore environment but preserve exit code
-        const exitCode = result.exitCode;
-        ctx.state.env = savedEnv;
-        ctx.state.arrays = savedArrays;
-        ctx.state.cwd = savedCwd;
-        ctx.state.suppressVerbose = savedSuppressVerbose;
-        // Store the exit code for $?
-        ctx.state.lastExitCode = exitCode;
-        ctx.state.env.set("?", String(exitCode));
-        // Command substitution stderr should go to the shell's stderr at expansion time,
-        // NOT be affected by later redirections on the outer command
-        if (result.stderr) {
-          ctx.state.expansionStderr =
-            (ctx.state.expansionStderr || "") + result.stderr;
-        }
-        ctx.state.bashPid = savedBashPid;
-        ctx.substitutionDepth = savedDepth;
-        const output = result.stdout.replace(/\n+$/, "");
-        // Check string length limit for command substitution output
-        checkStringLength(
-          output,
-          ctx.limits.maxStringLength,
-          "command substitution",
-        );
-        return output;
-      } catch (error) {
-        // Restore environment on error as well
-        ctx.state.env = savedEnv;
-        ctx.state.arrays = savedArrays;
-        ctx.state.cwd = savedCwd;
-        ctx.state.bashPid = savedBashPid;
-        ctx.substitutionDepth = savedDepth;
-        ctx.state.suppressVerbose = savedSuppressVerbose;
-        // ExecutionLimitError must always propagate - these are safety limits
-        if (error instanceof ExecutionLimitError) {
-          throw error;
-        }
-        if (error instanceof ExitError) {
-          // Catch exit in command substitution - return output so far
-          ctx.state.lastExitCode = error.exitCode;
-          ctx.state.env.set("?", String(error.exitCode));
-          // Also forward stderr from the exit
-          if (error.stderr) {
-            ctx.state.expansionStderr =
-              (ctx.state.expansionStderr || "") + error.stderr;
-          }
-          const exitOutput = error.stdout.replace(/\n+$/, "");
-          // Check string length limit for command substitution output
-          checkStringLength(
-            exitOutput,
-            ctx.limits.maxStringLength,
-            "command substitution",
-          );
-          return exitOutput;
-        }
-        throw error;
-      }
-    }
+    case "CommandSubstitution":
+      return executeCommandSubstitution(ctx, part.body);
 
     case "ProcessSubstitution":
       return openProcessSubstitution(ctx, part);
 
     case "ArithmeticExpansion": {
-      // If original text is available and contains $var patterns (not ${...}),
-      // we need to do text substitution before parsing to maintain operator precedence.
-      // E.g., $(( $x * 3 )) where x='1 + 2' should expand to $(( 1 + 2 * 3 )) = 7
-      // not $(( (1+2) * 3 )) = 9
-      const originalText = part.expression.originalText;
-      const hasDollarVars =
-        originalText && /\$[a-zA-Z_][a-zA-Z0-9_]*(?![{[(])/.test(originalText);
-      if (hasDollarVars) {
-        // Expand $var patterns in the text
-        const expandedText = await expandDollarVarsInArithText(
-          ctx,
-          originalText,
-        );
-        // Re-parse the expanded expression
-        const parser = new Parser();
-        const newExpr = parseArithmeticExpression(parser, expandedText);
-        // true = expansion context, single quotes cause error
-        return String(await evaluateArithmetic(ctx, newExpr.expression, true));
+      if (!hasArithCommandSubstitutions(part.expression.expression)) {
+        const originalText = part.expression.originalText;
+        const hasDollarVars =
+          originalText &&
+          /\$[a-zA-Z_][a-zA-Z0-9_]*(?![{[(])/.test(originalText);
+        if (hasDollarVars) {
+          const expandedText = await expandDollarVarsInArithText(
+            ctx,
+            originalText,
+          );
+          const parser = new Parser();
+          const newExpr = parseArithmeticExpression(parser, expandedText);
+          return String(
+            await evaluateArithmetic(ctx, newExpr.expression, true),
+          );
+        }
       }
       // true = expansion context, single quotes cause error
-      return String(
-        await evaluateArithmetic(ctx, part.expression.expression, true),
-      );
+      return String(await evaluateArithmetic(ctx, part.expression, true));
     }
 
     case "BraceExpansion": {
@@ -935,6 +812,111 @@ async function expandPart(
 
     default:
       return "";
+  }
+}
+
+/** Execute a parsed command-substitution body with current-shell subshell semantics. */
+export async function executeCommandSubstitution(
+  ctx: InterpreterContext,
+  body: ScriptNode,
+): Promise<string> {
+  // Check for the special $(<file) shorthand pattern
+  // This is equivalent to $(cat file) but reads the file directly
+  const fileReadShorthand = getFileReadShorthand(body);
+  if (fileReadShorthand) {
+    try {
+      // Expand the file path (handles $VAR, etc.)
+      const filePath = await expandWord(ctx, fileReadShorthand.target);
+      // Resolve relative paths
+      const resolvedPath = filePath.startsWith("/")
+        ? filePath
+        : `${ctx.state.cwd}/${filePath}`;
+      // Read the file
+      const content = await ctx.fs.readFile(resolvedPath);
+      ctx.state.lastExitCode = 0;
+      ctx.state.env.set("?", "0");
+      // Strip trailing newlines (like command substitution does)
+      const result = content.replace(/\n+$/, "");
+      // Check string length limit
+      checkStringLength(
+        result,
+        ctx.limits.maxStringLength,
+        "command substitution",
+      );
+      return result;
+    } catch (error) {
+      // ExecutionLimitError must propagate
+      if (error instanceof ExecutionLimitError) {
+        throw error;
+      }
+      // File not found or read error - return empty string, set exit code
+      ctx.state.lastExitCode = 1;
+      ctx.state.env.set("?", "1");
+      return "";
+    }
+  }
+
+  // Command substitutions get a new BASHPID (unlike $$ which stays the same).
+  const currentDepth = ctx.substitutionDepth ?? 0;
+  const maxDepth = ctx.limits.maxSubstitutionDepth;
+  if (currentDepth >= maxDepth) {
+    throw new ExecutionLimitError(
+      `Command substitution nesting limit exceeded (${maxDepth})`,
+      "substitution_depth",
+    );
+  }
+  const savedDepth = ctx.substitutionDepth;
+  ctx.substitutionDepth = currentDepth + 1;
+  const restoreState = beginIsolatedShellState(ctx.state);
+  ctx.state.bashPid = ctx.state.nextVirtualPid++;
+  // Bash suppresses verbose mode (set -v) inside command substitutions.
+  ctx.state.suppressVerbose = true;
+  try {
+    const result = await ctx.executeScript(body);
+    // Restore the parent state while retaining the substitution's status.
+    const exitCode = result.exitCode;
+    restoreState();
+    ctx.state.lastExitCode = exitCode;
+    ctx.state.env.set("?", String(exitCode));
+    // Command substitution stderr is emitted during expansion, before outer redirects.
+    if (result.stderr) {
+      ctx.state.expansionStderr =
+        (ctx.state.expansionStderr || "") + result.stderr;
+    }
+    ctx.substitutionDepth = savedDepth;
+    const output = result.stdout.replace(/\n+$/, "");
+    checkStringLength(
+      output,
+      ctx.limits.maxStringLength,
+      "command substitution",
+    );
+    return output;
+  } catch (error) {
+    // Restore the parent state when executing the substitution fails as well.
+    restoreState();
+    ctx.substitutionDepth = savedDepth;
+    // ExecutionLimitError must always propagate - these are safety limits.
+    if (error instanceof ExecutionLimitError) {
+      throw error;
+    }
+    if (error instanceof ExitError) {
+      // Catch exit in command substitution - return output so far.
+      ctx.state.lastExitCode = error.exitCode;
+      ctx.state.env.set("?", String(error.exitCode));
+      // Also forward stderr from the exit.
+      if (error.stderr) {
+        ctx.state.expansionStderr =
+          (ctx.state.expansionStderr || "") + error.stderr;
+      }
+      const exitOutput = error.stdout.replace(/\n+$/, "");
+      checkStringLength(
+        exitOutput,
+        ctx.limits.maxStringLength,
+        "command substitution",
+      );
+      return exitOutput;
+    }
+    throw error;
   }
 }
 

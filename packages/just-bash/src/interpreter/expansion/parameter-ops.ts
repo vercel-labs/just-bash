@@ -135,7 +135,7 @@ export async function handleAssignDefault(
         try {
           const parser = new Parser();
           const arithAst = parseArithmeticExpression(parser, subscriptExpr);
-          index = await evaluateArithmetic(ctx, arithAst.expression);
+          index = await evaluateArithmetic(ctx, arithAst);
         } catch {
           const varValue = ctx.state.env.get(subscriptExpr);
           index = varValue ? Number.parseInt(varValue, 10) : 0;
@@ -373,9 +373,9 @@ export async function handleSubstring(
   operation: SubstringOp,
 ): Promise<string> {
   ctx.coverage?.hit("bash:expansion:substring");
-  const offset = await evaluateArithmetic(ctx, operation.offset.expression);
+  const offset = await evaluateArithmetic(ctx, operation.offset);
   const length = operation.length
-    ? await evaluateArithmetic(ctx, operation.length.expression)
+    ? await evaluateArithmetic(ctx, operation.length)
     : undefined;
 
   // Handle special case for ${@:offset} and ${*:offset}

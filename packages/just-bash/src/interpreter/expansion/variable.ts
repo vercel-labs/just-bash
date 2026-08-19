@@ -333,7 +333,7 @@ export async function getVariable(
       try {
         const parser = new Parser();
         const arithAst = parseArithmeticExpression(parser, subscript);
-        index = await evaluateArithmetic(ctx, arithAst.expression);
+        index = await evaluateArithmetic(ctx, arithAst);
       } catch {
         // Fall back to simple variable lookup for backwards compatibility
         const evalValue = ctx.state.env.get(subscript);
@@ -556,7 +556,7 @@ export async function isVariableSet(
       try {
         const parser = new Parser();
         const arithAst = parseArithmeticExpression(parser, subscript);
-        index = await evaluateArithmetic(ctx, arithAst.expression);
+        index = await evaluateArithmetic(ctx, arithAst);
       } catch {
         const evalValue = ctx.state.env.get(subscript);
         index = evalValue ? Number.parseInt(evalValue, 10) : 0;
