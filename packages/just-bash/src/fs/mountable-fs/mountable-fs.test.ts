@@ -95,6 +95,28 @@ describe("MountableFs", () => {
       );
     });
 
+    it("should allow nested mounts with allowNestedMounts (new inside existing)", () => {
+      const fs = new MountableFs({ allowNestedMounts: true });
+      const mounted1 = new InMemoryFs();
+      const mounted2 = new InMemoryFs();
+
+      fs.mount("/mnt", mounted1);
+      fs.mount("/mnt/sub", mounted2);
+
+      expect(fs.getMounts()).toHaveLength(2);
+    });
+
+    it("should allow nested mounts with allowNestedMounts (existing inside new)", () => {
+      const fs = new MountableFs({ allowNestedMounts: true });
+      const mounted1 = new InMemoryFs();
+      const mounted2 = new InMemoryFs();
+
+      fs.mount("/mnt/sub", mounted1);
+      fs.mount("/mnt", mounted2);
+
+      expect(fs.getMounts()).toHaveLength(2);
+    });
+
     it("should allow sibling mounts", () => {
       const fs = new MountableFs();
       const mounted1 = new InMemoryFs();
@@ -660,6 +682,161 @@ describe("MountableFs", () => {
       // Base fs is empty but mount parent should still work
       const entries = await fs.readdir("/mnt");
       expect(entries).toContain("data");
+    });
+  });
+
+  describe("nested mounts", () => {
+    const makeNested = () => {
+      const outer = new InMemoryFs({
+        "/notes.txt": "outer notes",
+        "/private/secret.txt": "outer secret",
+      });
+      const inner = new InMemoryFs({ "/key.txt": "inner key" });
+      const fs = new MountableFs({ allowNestedMounts: true });
+      fs.mount("/data", outer);
+      fs.mount("/data/private", inner);
+      return { fs, inner, outer };
+    };
+
+    it("should route to the deepest mount owning a path", async () => {
+      const { fs } = makeNested();
+
+      expect(await fs.readFile("/data/notes.txt")).toBe("outer notes");
+      expect(await fs.readFile("/data/private/key.txt")).toBe("inner key");
+    });
+
+    it("should route regardless of mount order", async () => {
+      const outer = new InMemoryFs({ "/notes.txt": "outer notes" });
+      const inner = new InMemoryFs({ "/key.txt": "inner key" });
+      const fs = new MountableFs({ allowNestedMounts: true });
+      // Inner first: routing must not depend on insertion order.
+      fs.mount("/data/private", inner);
+      fs.mount("/data", outer);
+
+      expect(await fs.readFile("/data/notes.txt")).toBe("outer notes");
+      expect(await fs.readFile("/data/private/key.txt")).toBe("inner key");
+    });
+
+    it("should shadow what the outer filesystem holds under the mount point", async () => {
+      const { fs } = makeNested();
+
+      await expect(fs.readFile("/data/private/secret.txt")).rejects.toThrow();
+      expect(await fs.readdir("/data/private")).toEqual(["key.txt"]);
+    });
+
+    it("should resolve a traversal into the nested mount", async () => {
+      const { fs } = makeNested();
+
+      expect(await fs.readFile("/data/notes/../private/key.txt")).toBe(
+        "inner key",
+      );
+    });
+
+    it("should keep the nested mount out of writes to the outer filesystem", async () => {
+      const { fs, inner, outer } = makeNested();
+
+      await fs.writeFile("/data/private/new.txt", "written");
+
+      expect(await inner.readFile("/new.txt")).toBe("written");
+      await expect(outer.readFile("/private/new.txt")).rejects.toThrow();
+    });
+
+    it("should list the nested mount point once in the parent", async () => {
+      const { fs } = makeNested();
+
+      const entries = await fs.readdir("/data");
+      expect(entries).toEqual(["notes.txt", "private"]);
+    });
+
+    it("should refuse to remove a directory containing a nested mount", async () => {
+      const { fs } = makeNested();
+
+      await expect(fs.rm("/data/private", { recursive: true })).rejects.toThrow(
+        "EBUSY",
+      );
+    });
+
+    it("should exclude shadowed paths from getAllPaths", async () => {
+      const { fs } = makeNested();
+
+      const paths = fs.getAllPaths();
+      expect(paths).toContain("/data/notes.txt");
+      expect(paths).toContain("/data/private/key.txt");
+      expect(paths).not.toContain("/data/private/secret.txt");
+    });
+
+    it("should reconstruct realpath against the deepest mount", async () => {
+      const { fs } = makeNested();
+
+      expect(await fs.realpath("/data/private/key.txt")).toBe(
+        "/data/private/key.txt",
+      );
+    });
+
+    it("should copy the nested mount's contents when both sides share a filesystem", async () => {
+      // Source and destination both route to `outer`, which is what makes this
+      // eligible for the same-filesystem fast path that would bypass the mount.
+      const outer = new InMemoryFs({
+        "/src/notes.txt": "outer notes",
+        "/src/private/secret.txt": "outer secret",
+      });
+      const inner = new InMemoryFs({ "/key.txt": "inner key" });
+      const fs = new MountableFs({ allowNestedMounts: true });
+      fs.mount("/data", outer);
+      fs.mount("/data/src/private", inner);
+
+      await fs.cp("/data/src", "/data/copy", { recursive: true });
+
+      expect(await fs.readFile("/data/copy/private/key.txt")).toBe("inner key");
+      await expect(
+        fs.readFile("/data/copy/private/secret.txt"),
+      ).rejects.toThrow();
+    });
+
+    it("should copy the nested mount's contents, not the shadowed ones", async () => {
+      const { fs } = makeNested();
+
+      await fs.cp("/data", "/copy", { recursive: true });
+
+      expect(await fs.readFile("/copy/private/key.txt")).toBe("inner key");
+      await expect(fs.readFile("/copy/private/secret.txt")).rejects.toThrow();
+    });
+
+    it("should refuse to move a directory containing a nested mount", async () => {
+      const { fs } = makeNested();
+
+      await expect(fs.mv("/data", "/moved")).rejects.toThrow("EBUSY");
+    });
+
+    it("should move into a nested mount rather than under it", async () => {
+      // Moving onto `/data/y` lands part of the source beneath `/data/y/private`.
+      // Delegating to `outer` would put those files where the mount shadows
+      // them, so they would silently vanish from the namespace.
+      const outer = new InMemoryFs({
+        "/x/note.txt": "plain",
+        "/x/private/hidden.txt": "must stay reachable",
+      });
+      const inner = new InMemoryFs({ "/key.txt": "inner key" });
+      const fs = new MountableFs({ allowNestedMounts: true });
+      fs.mount("/data", outer);
+      fs.mount("/data/y/private", inner);
+
+      await fs.mv("/data/x", "/data/y");
+
+      expect(await fs.readFile("/data/y/note.txt")).toBe("plain");
+      expect(await fs.readFile("/data/y/private/hidden.txt")).toBe(
+        "must stay reachable",
+      );
+    });
+
+    it("should restore the outer filesystem's view after unmount", async () => {
+      const { fs } = makeNested();
+
+      fs.unmount("/data/private");
+
+      expect(await fs.readFile("/data/private/secret.txt")).toBe(
+        "outer secret",
+      );
     });
   });
 });
