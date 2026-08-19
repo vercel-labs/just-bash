@@ -1,5 +1,11 @@
 # just-bash
 
+## 3.4.1
+
+### Patch Changes
+
+- [#373](https://github.com/vercel-labs/just-bash/pull/373) [`2c1831c`](https://github.com/vercel-labs/just-bash/commit/2c1831cc832d4b09ee4e1823526afb6ccca77942) Thanks [@cramforce](https://github.com/cramforce)! - Prevent defense-in-depth violation reporting from recursively overflowing the call stack in host runtimes that wrap `Date.now()`, honor configured main-thread violation exclusions, include actionable exclusion guidance for configurable violations, and keep constructor-execution protections non-excludable.
+
 ## 3.4.0
 
 ### Minor Changes
