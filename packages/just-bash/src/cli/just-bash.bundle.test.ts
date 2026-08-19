@@ -195,6 +195,7 @@ describe("just-bash CJS bundle", () => {
     const require = createRequire(import.meta.url);
     const mod = require(cjsBundlePath);
     expect(mod.Bash).toBeDefined();
+    expect(mod.isBashParseError).toBeDefined();
     const bash = new mod.Bash();
     const result = await bash.exec("echo hello from cjs");
     expect(result.stdout).toBe("hello from cjs\n");
@@ -212,6 +213,7 @@ describe("just-bash ESM bundle", () => {
     const esmBundlePath = resolve(__dirname, "../../dist/bundle/index.js");
     const mod = await import(esmBundlePath);
     expect(mod.Bash).toBeDefined();
+    expect(mod.isBashParseError).toBeDefined();
     const fs = new mod.InMemoryFs();
     await fs.writeFile("/x.txt", "hello\n");
     const bash = new mod.Bash({ fs, cwd: "/" });
