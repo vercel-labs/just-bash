@@ -320,18 +320,19 @@ export const curlCommand: RuntimeCommand = {
         return { stdout: "", stderr, exitCode: 22 };
       }
 
-      let output = buildOutput(options, result, url);
+      // When the body goes to a file and we're not verbose, stdout stays empty,
+      // so building it would stringify the whole response body just to throw the
+      // string away — a full UTF-16 copy of the payload on top of the bytes we
+      // write out. Skip buildOutput entirely on that path.
+      const writesToFile = Boolean(options.outputFile || options.useRemoteName);
+      const skipStdoutBody = writesToFile && !options.verbose;
+      let output = skipStdoutBody ? "" : buildOutput(options, result, url);
 
       // Write to file
-      if (options.outputFile || options.useRemoteName) {
+      if (writesToFile) {
         const filename = options.outputFile || extractFilename(url);
         const filePath = ctx.fs.resolvePath(ctx.cwd, filename);
         await ctx.fs.writeFile(filePath, options.headOnly ? "" : result.body);
-
-        // When writing to file, don't output body to stdout unless verbose
-        if (!options.verbose) {
-          output = "";
-        }
 
         // Add write-out after file write
         if (options.writeOut) {
