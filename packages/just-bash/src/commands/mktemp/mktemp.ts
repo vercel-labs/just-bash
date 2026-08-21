@@ -1,3 +1,4 @@
+import { createExclusiveOn } from "../../fs/create-exclusive.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import type {
@@ -196,52 +197,6 @@ async function pathIsTaken(
   }
 }
 
-/**
- * Create the temporary entry so that it cannot already exist and is born with
- * private permissions.
- *
- * The filesystem's atomic exclusive create does both in one operation. A
- * check-then-create sequence would be a TOCTOU race (a concurrent creator can
- * win in between, and a plain write would truncate its entry), and a
- * create-then-chmod sequence would publish the entry with the backend default
- * mode (0644/0755) first — on a real-filesystem-backed root, long enough for
- * another local process to open it and keep the descriptor.
- *
- * External IFileSystem implementations predating createExclusive fall back to
- * a best-effort sequence, which is weaker but still refuses a name that an
- * lstat shows as taken.
- */
-async function createExclusively(
-  ctx: RuntimeCommandContext,
-  path: string,
-  directory: boolean,
-): Promise<void> {
-  const mode = directory ? DIR_MODE : FILE_MODE;
-
-  if (ctx.fs.createExclusive) {
-    await ctx.fs.createExclusive(path, { mode, directory });
-    return;
-  }
-
-  if (await pathIsTaken(ctx, path)) {
-    throw new Error(`EEXIST: file already exists, open '${path}'`);
-  }
-  if (directory) {
-    await ctx.fs.mkdir(path);
-  } else {
-    await ctx.fs.writeFile(path, "");
-  }
-  try {
-    await ctx.fs.chmod(path, mode);
-  } catch (error) {
-    // Never leave a loose-mode entry behind when the mode could not be applied.
-    await ctx.fs
-      .rm(path, { recursive: directory, force: true })
-      .catch(() => {});
-    throw error;
-  }
-}
-
 function isExecResult(value: unknown): value is ExecResult {
   return typeof value === "object" && value !== null && "exitCode" in value;
 }
@@ -343,7 +298,10 @@ export const mktempCommand: RuntimeCommand = {
           // counts as taken, where a following stat would see through it.
           if (await pathIsTaken(ctx, fullPath)) continue;
         } else {
-          await createExclusively(ctx, fullPath, flags.directory);
+          await createExclusiveOn(ctx.fs, fullPath, {
+            mode: flags.directory ? DIR_MODE : FILE_MODE,
+            directory: flags.directory,
+          });
         }
       } catch (error) {
         const message = getErrorMessage(error);

@@ -184,6 +184,20 @@ function wrapFileSystem(
     );
   }
 
+  // createExclusive is optional on IFileSystem, and dropping it here would be
+  // silent and security-relevant: callers such as mktemp fall back to a
+  // weaker non-atomic create when the method is absent, so an unwrapped
+  // method would quietly disable the atomic private-create path under
+  // defense-in-depth — the configuration where it matters most.
+  if (fs.createExclusive) {
+    wrappedFs.createExclusive = wrapFunction(
+      fs.createExclusive.bind(fs),
+      requireDefenseContext,
+      component,
+      "fs.createExclusive",
+    );
+  }
+
   return wrappedFs;
 }
 
