@@ -297,6 +297,57 @@ describe("mktemp", () => {
     expect(stat.stdout).toBe("600 0\n");
   });
 
+  it("should consume --help as the value of -p rather than printing help", async () => {
+    // -u so the run turns purely on option parsing, not on the directory
+    // existing: --help must be taken as -p's value, not as a help request.
+    const env = new Bash();
+    const result = await env.exec("mktemp -u -p --help");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(/^--help\/tmp\.[0-9A-Za-z]{10}\n$/);
+  });
+
+  it("should consume --version as the value of --suffix", async () => {
+    const env = new Bash();
+    const result = await env.exec("mktemp --suffix --version /tmp/fileXXXXXX");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(/^\/tmp\/file[0-9A-Za-z]{6}--version\n$/);
+  });
+
+  it("should work when the temporary directory is a symlink", async () => {
+    // A symlinked TMPDIR is a common host setup. The entry must be reachable
+    // through the path mktemp printed.
+    const env = new Bash();
+    const result = await env.exec(
+      "mkdir -p /real && ln -s /real /link && TMPDIR=/link mktemp",
+    );
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+    const path = result.stdout.trim();
+    expect(path).toMatch(/^\/link\/tmp\./);
+
+    const check = await env.exec(`test -f ${path} && echo reachable`);
+    expect(check.stdout).toBe("reachable\n");
+
+    // And it is the same entry through the resolved directory.
+    const viaReal = await env.exec(`ls /real | wc -l`);
+    expect(viaReal.stdout).toBe("1\n");
+  });
+
+  it("should handle a template whose X run exceeds one CSPRNG buffer", async () => {
+    // Web Crypto rejects getRandomValues buffers over 65536 bytes, so the
+    // random part must be drawn in chunks rather than one call.
+    const env = new Bash();
+    const result = await env.exec(
+      'x=$(printf "X%.0s" $(seq 1 70000)); mktemp -u "/tmp/big$x" | wc -c',
+    );
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+    // "/tmp/big" (8) + 70000 random characters + newline
+    expect(result.stdout).toBe("70009\n");
+  });
+
   it("should show help", async () => {
     const env = new Bash();
     const result = await env.exec("mktemp --help");

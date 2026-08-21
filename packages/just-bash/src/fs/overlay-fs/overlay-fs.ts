@@ -1053,6 +1053,14 @@ export class OverlayFs implements IFileSystem {
       );
     }
 
+    // Everything from here down is synchronous. The awaits above yield, so
+    // two concurrent calls can both observe absence; claiming the name
+    // without an intervening await is what makes the create exclusive
+    // between them.
+    if (this.memory.has(normalized)) {
+      throw new Error(`EEXIST: file already exists, ${syscall} '${path}'`);
+    }
+
     this.setMemoryEntry(
       normalized,
       options.directory
@@ -1064,6 +1072,10 @@ export class OverlayFs implements IFileSystem {
             mtime: new Date(),
           },
     );
+    // Clear any tombstone, as the adjacent mkdir/writeFile paths do. Without
+    // this, recreating a path that was removed from the real layer succeeds
+    // while staying invisible to stat/exists/readdir.
+    this.deleted.delete(normalized);
   }
 
   async readdir(path: string): Promise<string[]> {

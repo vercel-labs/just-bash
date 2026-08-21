@@ -65,6 +65,20 @@ describe("IFileSystem contract", () => {
     expect(await fs.readFile("/tmp/victim.txt")).toBe("untouched");
   });
 
+  it("resolves symlinked parents but not the final component", async () => {
+    const fs = new InMemoryFs();
+    await fs.mkdir("/real", { recursive: true });
+    await fs.symlink("/real", "/link");
+
+    await fs.createExclusive("/link/file.txt", { mode: 0o600 });
+
+    // Reachable through both the symlink and the resolved directory: the
+    // entry must not be stored under the unresolved key.
+    expect(await fs.exists("/link/file.txt")).toBe(true);
+    expect(await fs.exists("/real/file.txt")).toBe(true);
+    expect(await fs.readdir("/real")).toEqual(["file.txt"]);
+  });
+
   it("copies and moves files without changing file contents", async () => {
     const fs = new InMemoryFs();
 

@@ -630,24 +630,41 @@ export class InMemoryFs implements IFileSystem {
     path: string,
     options: CreateExclusiveOptions,
   ): Promise<void> {
+    const syscall = options.directory ? "mkdir" : "open";
     validatePath(path, options.directory ? "mkdir" : "write");
     const normalized = normalizePath(path);
 
-    if (this.data.has(normalized)) {
-      throw new Error(
-        `EEXIST: file already exists, ${options.directory ? "mkdir" : "open"} '${path}'`,
-      );
+    // Resolve symlinks in the parent, but never in the final component: a
+    // symlinked temp directory must work, while a symlink occupying the name
+    // itself is a collision rather than a target to create through. Storing
+    // under the unresolved key would create an entry that every subsequent
+    // lookup — which does resolve — could not find.
+    const parent = dirname(normalized);
+    const resolvedParent =
+      parent === "/" ? "/" : this.resolvePathWithSymlinks(parent);
+    const target = joinPath(
+      resolvedParent,
+      normalized.slice(normalized.lastIndexOf("/") + 1),
+    );
+
+    if (this.data.has(target)) {
+      throw new Error(`EEXIST: file already exists, ${syscall} '${path}'`);
     }
 
-    const parent = dirname(normalized);
-    if (parent !== "/" && !this.data.has(parent)) {
-      throw new Error(
-        `ENOENT: no such file or directory, ${options.directory ? "mkdir" : "open"} '${path}'`,
-      );
+    if (resolvedParent !== "/") {
+      const parentEntry = this.data.get(resolvedParent);
+      if (!parentEntry) {
+        throw new Error(
+          `ENOENT: no such file or directory, ${syscall} '${path}'`,
+        );
+      }
+      if (parentEntry.type !== "directory") {
+        throw new Error(`ENOTDIR: not a directory, ${syscall} '${path}'`);
+      }
     }
 
     if (options.directory) {
-      this.setEntry(normalized, {
+      this.setEntry(target, {
         type: "directory",
         mode: options.mode,
         mtime: new Date(),
@@ -655,8 +672,8 @@ export class InMemoryFs implements IFileSystem {
       return;
     }
 
-    this.assertCanAllocate(normalized, 0);
-    this.setEntry(normalized, {
+    this.assertCanAllocate(target, 0);
+    this.setEntry(target, {
       type: "file",
       content: new Uint8Array(0),
       mode: options.mode,

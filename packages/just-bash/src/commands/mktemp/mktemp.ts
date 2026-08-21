@@ -7,7 +7,7 @@ import type {
   RuntimeCommandContext,
 } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
-import { hasHelpFlag, showHelp } from "../help.js";
+import { showHelp } from "../help.js";
 
 /**
  * Version reported by `mktemp --version`. just-bash emulates the GNU coreutils
@@ -82,43 +82,74 @@ const argDefs = {
 };
 
 /**
- * `--tmpdir` takes an optional argument, which the shared parser cannot
- * express: a bare `--tmpdir` means "use the default directory" and must not
- * swallow the following template. Rewrite it to `--tmpdir=` before parsing,
- * skipping tokens that are values of a preceding option.
+ * Walk argv the way the parser will, reporting for each token whether it sits
+ * in an option position — that is, before any `--` terminator and not being
+ * consumed as the value of the preceding option.
+ *
+ * Both callers below need this. Scanning argv naively would misread
+ * `mktemp -p --help` (where `--help` is the directory) and `mktemp -- --help`
+ * (where it is the template) as requests for help.
  */
-function normalizeTmpdirFlag(args: string[]): string[] {
-  const out: string[] = [];
+function eachArg(
+  args: string[],
+  visit: (arg: string, isOption: boolean) => void,
+): void {
   let expectValue = false;
   let stopParsing = false;
 
   for (const arg of args) {
     if (stopParsing || expectValue) {
-      out.push(arg);
+      visit(arg, false);
       expectValue = false;
       continue;
     }
     if (arg === "--") {
       stopParsing = true;
-      out.push(arg);
-      continue;
-    }
-    if (arg === "--tmpdir") {
-      out.push("--tmpdir=");
+      visit(arg, false);
       continue;
     }
     // Long or short options whose value comes as the next argument.
-    if (arg === "--suffix" || /^-[a-z]*p$/.test(arg)) {
-      expectValue = true;
+    if (arg === "--suffix" || arg === "--tmpdir" || /^-[a-z]*p$/.test(arg)) {
+      expectValue = arg !== "--tmpdir";
     }
-    out.push(arg);
+    visit(arg, true);
   }
+}
 
+/** True when `flag` appears in an option position, not as a value or operand. */
+function hasOption(args: string[], flag: string): boolean {
+  let found = false;
+  eachArg(args, (arg, isOption) => {
+    if (isOption && arg === flag) found = true;
+  });
+  return found;
+}
+
+/**
+ * `--tmpdir` takes an optional argument, which the shared parser cannot
+ * express: a bare `--tmpdir` means "use the default directory" and must not
+ * swallow the following template. Rewrite it to `--tmpdir=` before parsing.
+ */
+function normalizeTmpdirFlag(args: string[]): string[] {
+  const out: string[] = [];
+  eachArg(args, (arg, isOption) => {
+    out.push(isOption && arg === "--tmpdir" ? "--tmpdir=" : arg);
+  });
   return out;
 }
 
+/**
+ * Web Crypto rejects getRandomValues buffers larger than this. It is a fixed
+ * platform limit, not a policy ceiling: raising it would simply make the call
+ * throw, and lowering it would only change how many chunks are drawn.
+ */
+// @banned-pattern-ignore: platform constant from the Web Crypto spec, not a tunable limit
+const MAX_RANDOM_BYTES = 65536;
+
 function randomChars(count: number): string {
-  const bytes = new Uint8Array(count);
+  // A template's run of X can be arbitrarily long, so draw in bounded chunks
+  // rather than asking for `count` bytes in one call.
+  const bytes = new Uint8Array(Math.min(count, MAX_RANDOM_BYTES));
   let result = "";
   while (result.length < count) {
     crypto.getRandomValues(bytes);
@@ -208,15 +239,13 @@ export const mktempCommand: RuntimeCommand = {
     args: string[],
     ctx: RuntimeCommandContext,
   ): Promise<ExecResult> {
-    // `--` terminates options, so `mktemp -- --help` treats --help as a
-    // template rather than printing help, as GNU option parsing requires.
-    const terminator = args.indexOf("--");
-    const optionArgs = terminator === -1 ? args : args.slice(0, terminator);
-
-    if (hasHelpFlag(optionArgs) || optionArgs.includes("-h")) {
+    // Only in an option position: `mktemp -- --help` treats --help as a
+    // template and `mktemp -p --help` treats it as the directory, as GNU
+    // option parsing requires.
+    if (hasOption(args, "--help") || hasOption(args, "-h")) {
       return showHelp(mktempHelp);
     }
-    if (optionArgs.includes("--version")) {
+    if (hasOption(args, "--version")) {
       return { stdout: MKTEMP_VERSION, stderr: "", exitCode: 0 };
     }
 

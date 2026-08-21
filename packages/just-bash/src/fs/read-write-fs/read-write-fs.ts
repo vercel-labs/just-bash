@@ -661,6 +661,46 @@ export class ReadWriteFs implements IFileSystem {
     );
   }
 
+  /**
+   * Confirm that what was just created is the entry the validated path still
+   * denotes, and that it is still inside the root.
+   *
+   * O_EXCL and O_NOFOLLOW only bind the final component. A concurrent host
+   * process can swap an *intermediate* directory for a symlink between the
+   * parent validation and the create, which would place the new entry outside
+   * the sandbox. Re-resolving afterwards detects that, and comparing
+   * device/inode detects a swap of the entry itself. On failure the entry is
+   * removed on a best-effort basis before the error surfaces, so a swap does
+   * not leave a stray file behind.
+   */
+  private async assertCreatedInsideRoot(
+    canonical: string,
+    realPath: string,
+    virtualPath: string,
+    syscall: string,
+    createdStat?: fs.Stats,
+  ): Promise<void> {
+    let ok = false;
+    try {
+      const revalidated = this.resolveAndValidate(realPath, virtualPath);
+      const current = await fs.promises.lstat(revalidated);
+      ok =
+        revalidated === canonical &&
+        (createdStat === undefined ||
+          (current.dev === createdStat.dev && current.ino === createdStat.ino));
+    } catch {
+      ok = false;
+    }
+    if (ok) return;
+
+    await fs.promises
+      .rm(canonical, { recursive: true, force: true })
+      .catch(() => {});
+    throw new Error(
+      `EACCES: permission denied, '${virtualPath}' resolves outside sandbox during ${syscall}`,
+    );
+  }
+
   private async createExclusiveUnlocked(
     path: string,
     options: CreateExclusiveOptions,
@@ -677,6 +717,7 @@ export class ReadWriteFs implements IFileSystem {
     try {
       if (options.directory) {
         await fs.promises.mkdir(canonical, { mode: options.mode });
+        await this.assertCreatedInsideRoot(canonical, realPath, path, syscall);
         return;
       }
       const noFollow = this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW;
@@ -688,7 +729,17 @@ export class ReadWriteFs implements IFileSystem {
           noFollow,
         options.mode,
       );
-      await handle.close();
+      try {
+        await this.assertCreatedInsideRoot(
+          canonical,
+          realPath,
+          path,
+          syscall,
+          await handle.stat(),
+        );
+      } finally {
+        await handle.close();
+      }
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
       if (err.code === "EEXIST") {

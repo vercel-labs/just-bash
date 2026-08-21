@@ -26,8 +26,17 @@ export async function createExclusiveOn(
   options: CreateExclusiveOptions,
 ): Promise<void> {
   if (fs.createExclusive) {
-    await fs.createExclusive(path, options);
-    return;
+    try {
+      await fs.createExclusive(path, options);
+      return;
+    } catch (error) {
+      // A wrapper such as MountableFs always defines the method but reports
+      // ENOSYS when the backend it routes to does not implement it. Treat
+      // that as "not supported" and degrade, rather than failing the caller.
+      if (!String((error as Error)?.message).includes("ENOSYS")) {
+        throw error;
+      }
+    }
   }
 
   let taken = true;
