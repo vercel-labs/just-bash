@@ -18,6 +18,53 @@ describe("IFileSystem contract", () => {
     expect(await fs.exists("/docs/readme.md")).toBe(false);
   });
 
+  it("creates entries exclusively and privately via createExclusive", async () => {
+    const fs = new InMemoryFs();
+    await fs.mkdir("/tmp", { recursive: true });
+
+    await fs.createExclusive("/tmp/private.txt", { mode: 0o600 });
+    await fs.createExclusive("/tmp/private-dir", {
+      mode: 0o700,
+      directory: true,
+    });
+
+    const file = await fs.stat("/tmp/private.txt");
+    expect(file.isFile).toBe(true);
+    expect(file.mode & 0o777).toBe(0o600);
+    expect(await fs.readFile("/tmp/private.txt")).toBe("");
+
+    const dir = await fs.stat("/tmp/private-dir");
+    expect(dir.isDirectory).toBe(true);
+    expect(dir.mode & 0o777).toBe(0o700);
+  });
+
+  it("refuses createExclusive on an occupied name and keeps its contents", async () => {
+    const fs = new InMemoryFs();
+    await fs.mkdir("/tmp", { recursive: true });
+    await fs.writeFile("/tmp/taken.txt", "original");
+
+    await expect(
+      fs.createExclusive("/tmp/taken.txt", { mode: 0o600 }),
+    ).rejects.toThrow("EEXIST");
+    expect(await fs.readFile("/tmp/taken.txt")).toBe("original");
+
+    await expect(
+      fs.createExclusive("/tmp/missing/file.txt", { mode: 0o600 }),
+    ).rejects.toThrow("ENOENT");
+  });
+
+  it("treats a symlink occupying a createExclusive name as a collision", async () => {
+    const fs = new InMemoryFs();
+    await fs.mkdir("/tmp", { recursive: true });
+    await fs.writeFile("/tmp/victim.txt", "untouched");
+    await fs.symlink("/tmp/victim.txt", "/tmp/link.txt");
+
+    await expect(
+      fs.createExclusive("/tmp/link.txt", { mode: 0o600 }),
+    ).rejects.toThrow("EEXIST");
+    expect(await fs.readFile("/tmp/victim.txt")).toBe("untouched");
+  });
+
   it("copies and moves files without changing file contents", async () => {
     const fs = new InMemoryFs();
 

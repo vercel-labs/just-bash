@@ -7,6 +7,7 @@ import { fromBuffer, getEncoding, toBuffer } from "../encoding.js";
 import type {
   BufferEncoding,
   CpOptions,
+  CreateExclusiveOptions,
   DirectoryEntry,
   DirentEntry,
   FileContent,
@@ -617,6 +618,50 @@ export class InMemoryFs implements IFileSystem {
 
   async mkdir(path: string, options?: MkdirOptions): Promise<void> {
     this.mkdirSync(path, options);
+  }
+
+  /**
+   * Atomically create a private file or directory that must not already
+   * exist. Execution is single-threaded, so the existence check and the
+   * insert cannot be interleaved; `this.data` is keyed by normalized path, so
+   * a symlink occupying the name is seen as a collision rather than followed.
+   */
+  async createExclusive(
+    path: string,
+    options: CreateExclusiveOptions,
+  ): Promise<void> {
+    validatePath(path, options.directory ? "mkdir" : "write");
+    const normalized = normalizePath(path);
+
+    if (this.data.has(normalized)) {
+      throw new Error(
+        `EEXIST: file already exists, ${options.directory ? "mkdir" : "open"} '${path}'`,
+      );
+    }
+
+    const parent = dirname(normalized);
+    if (parent !== "/" && !this.data.has(parent)) {
+      throw new Error(
+        `ENOENT: no such file or directory, ${options.directory ? "mkdir" : "open"} '${path}'`,
+      );
+    }
+
+    if (options.directory) {
+      this.setEntry(normalized, {
+        type: "directory",
+        mode: options.mode,
+        mtime: new Date(),
+      });
+      return;
+    }
+
+    this.assertCanAllocate(normalized, 0);
+    this.setEntry(normalized, {
+      type: "file",
+      content: new Uint8Array(0),
+      mode: options.mode,
+      mtime: new Date(),
+    });
   }
 
   /**

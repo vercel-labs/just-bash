@@ -23,6 +23,7 @@ import {
 } from "../encoding.js";
 import type {
   CpOptions,
+  CreateExclusiveOptions,
   DirentEntry,
   FsStat,
   IFileSystem,
@@ -640,6 +641,66 @@ export class ReadWriteFs implements IFileSystem {
 
   async mkdir(path: string, options?: MkdirOptions): Promise<void> {
     await this.withFilesystemMutation(() => this.mkdirUnlocked(path, options));
+  }
+
+  /**
+   * Atomically create a private file or directory that must not already
+   * exist. `O_CREAT|O_EXCL` (and `mkdir`) are exclusive in the kernel, so a
+   * concurrent host process cannot win a race between a check and the create,
+   * and the mode is applied by the creating syscall rather than a later
+   * chmod — the entry is never on disk with the default 0644/0755. POSIX
+   * requires `O_EXCL` to fail on a symlink at the final component, so a
+   * pre-planted link is a collision instead of a write-through target.
+   */
+  async createExclusive(
+    path: string,
+    options: CreateExclusiveOptions,
+  ): Promise<void> {
+    await this.withFilesystemMutation(() =>
+      this.createExclusiveUnlocked(path, options),
+    );
+  }
+
+  private async createExclusiveUnlocked(
+    path: string,
+    options: CreateExclusiveOptions,
+  ): Promise<void> {
+    const syscall = options.directory ? "mkdir" : "open";
+    validatePath(path, syscall);
+    const realPath = this.toRealPath(path);
+    // Validate the parent without following a symlink occupying the name.
+    const canonical =
+      realPath === this.root
+        ? this.resolveAndValidate(realPath, path)
+        : this.validateParent(realPath, path);
+
+    try {
+      if (options.directory) {
+        await fs.promises.mkdir(canonical, { mode: options.mode });
+        return;
+      }
+      const noFollow = this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW;
+      const handle = await fs.promises.open(
+        canonical,
+        fs.constants.O_WRONLY |
+          fs.constants.O_CREAT |
+          fs.constants.O_EXCL |
+          noFollow,
+        options.mode,
+      );
+      await handle.close();
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code === "EEXIST") {
+        throw new Error(`EEXIST: file already exists, ${syscall} '${path}'`);
+      }
+      if (err.code === "ENOENT") {
+        throw new Error(
+          `ENOENT: no such file or directory, ${syscall} '${path}'`,
+        );
+      }
+      this.sanitizeError(e, path, syscall);
+    }
   }
 
   private async mkdirUnlocked(

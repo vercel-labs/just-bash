@@ -22,6 +22,7 @@ import {
 } from "../encoding.js";
 import type {
   CpOptions,
+  CreateExclusiveOptions,
   DirentEntry,
   FsStat,
   IFileSystem,
@@ -1023,6 +1024,46 @@ export class OverlayFs implements IFileSystem {
       // No symlink was followed, let readdirCore handle the ENOENT
       return { normalized, outsideOverlay: false };
     }
+  }
+
+  /**
+   * Atomically create a private file or directory that must not already
+   * exist. Overlay writes land in the in-memory layer, and JS execution is
+   * single-threaded, so the existence check and the insert cannot interleave.
+   * The new entry shadows anything on the real filesystem underneath, so a
+   * symlink already occupying the name is never written through.
+   */
+  async createExclusive(
+    path: string,
+    options: CreateExclusiveOptions,
+  ): Promise<void> {
+    const syscall = options.directory ? "mkdir" : "open";
+    validatePath(path, syscall);
+    this.assertWritable(`${syscall} '${path}'`);
+    const normalized = normalizePath(path);
+
+    if (await this.existsInOverlay(normalized)) {
+      throw new Error(`EEXIST: file already exists, ${syscall} '${path}'`);
+    }
+
+    const parent = dirname(normalized);
+    if (parent !== "/" && !(await this.existsInOverlay(parent))) {
+      throw new Error(
+        `ENOENT: no such file or directory, ${syscall} '${path}'`,
+      );
+    }
+
+    this.setMemoryEntry(
+      normalized,
+      options.directory
+        ? { type: "directory", mode: options.mode, mtime: new Date() }
+        : {
+            type: "file",
+            content: new Uint8Array(0),
+            mode: options.mode,
+            mtime: new Date(),
+          },
+    );
   }
 
   async readdir(path: string): Promise<string[]> {

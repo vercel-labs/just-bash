@@ -179,6 +179,69 @@ function splitTemplate(
   return { stem, xCount, suffix };
 }
 
+/**
+ * True when anything already occupies `path`. Uses lstat rather than exists()
+ * so a symlink — including a dangling one, which exists() reports as absent —
+ * counts as taken instead of being followed to its target.
+ */
+async function pathIsTaken(
+  ctx: RuntimeCommandContext,
+  path: string,
+): Promise<boolean> {
+  try {
+    await ctx.fs.lstat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Create the temporary entry so that it cannot already exist and is born with
+ * private permissions.
+ *
+ * The filesystem's atomic exclusive create does both in one operation. A
+ * check-then-create sequence would be a TOCTOU race (a concurrent creator can
+ * win in between, and a plain write would truncate its entry), and a
+ * create-then-chmod sequence would publish the entry with the backend default
+ * mode (0644/0755) first — on a real-filesystem-backed root, long enough for
+ * another local process to open it and keep the descriptor.
+ *
+ * External IFileSystem implementations predating createExclusive fall back to
+ * a best-effort sequence, which is weaker but still refuses a name that an
+ * lstat shows as taken.
+ */
+async function createExclusively(
+  ctx: RuntimeCommandContext,
+  path: string,
+  directory: boolean,
+): Promise<void> {
+  const mode = directory ? DIR_MODE : FILE_MODE;
+
+  if (ctx.fs.createExclusive) {
+    await ctx.fs.createExclusive(path, { mode, directory });
+    return;
+  }
+
+  if (await pathIsTaken(ctx, path)) {
+    throw new Error(`EEXIST: file already exists, open '${path}'`);
+  }
+  if (directory) {
+    await ctx.fs.mkdir(path);
+  } else {
+    await ctx.fs.writeFile(path, "");
+  }
+  try {
+    await ctx.fs.chmod(path, mode);
+  } catch (error) {
+    // Never leave a loose-mode entry behind when the mode could not be applied.
+    await ctx.fs
+      .rm(path, { recursive: directory, force: true })
+      .catch(() => {});
+    throw error;
+  }
+}
+
 function isExecResult(value: unknown): value is ExecResult {
   return typeof value === "object" && value !== null && "exitCode" in value;
 }
@@ -190,10 +253,15 @@ export const mktempCommand: RuntimeCommand = {
     args: string[],
     ctx: RuntimeCommandContext,
   ): Promise<ExecResult> {
-    if (hasHelpFlag(args) || args.includes("-h")) {
+    // `--` terminates options, so `mktemp -- --help` treats --help as a
+    // template rather than printing help, as GNU option parsing requires.
+    const terminator = args.indexOf("--");
+    const optionArgs = terminator === -1 ? args : args.slice(0, terminator);
+
+    if (hasHelpFlag(optionArgs) || optionArgs.includes("-h")) {
       return showHelp(mktempHelp);
     }
-    if (args.includes("--version")) {
+    if (optionArgs.includes("--version")) {
       return { stdout: MKTEMP_VERSION, stderr: "", exitCode: 0 };
     }
 
@@ -245,19 +313,23 @@ export const mktempCommand: RuntimeCommand = {
     });
 
     // Some filesystems create missing parents on write; GNU mktemp does not,
-    // so reject a destination directory that is missing up front.
-    const slash = prefix.lastIndexOf("/");
-    const parentDir = ctx.fs.resolvePath(
-      ctx.cwd,
-      slash === -1 ? "." : prefix.slice(0, slash) || "/",
-    );
-    try {
-      const parentStat = await ctx.fs.stat(parentDir);
-      if (!parentStat.isDirectory) {
-        return creationFailure("Not a directory");
+    // so reject a destination directory that is missing up front. --dry-run
+    // never touches the filesystem, so GNU still prints a candidate for a
+    // missing directory and this check must not run.
+    if (!flags.dryRun) {
+      const slash = prefix.lastIndexOf("/");
+      const parentDir = ctx.fs.resolvePath(
+        ctx.cwd,
+        slash === -1 ? "." : prefix.slice(0, slash) || "/",
+      );
+      try {
+        const parentStat = await ctx.fs.stat(parentDir);
+        if (!parentStat.isDirectory) {
+          return creationFailure("Not a directory");
+        }
+      } catch {
+        return creationFailure("No such file or directory");
       }
-    } catch {
-      return creationFailure("No such file or directory");
     }
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -265,15 +337,13 @@ export const mktempCommand: RuntimeCommand = {
       const fullPath = ctx.fs.resolvePath(ctx.cwd, name);
 
       try {
-        if (await ctx.fs.exists(fullPath)) continue;
-        if (!flags.dryRun) {
-          if (flags.directory) {
-            await ctx.fs.mkdir(fullPath);
-            await ctx.fs.chmod(fullPath, DIR_MODE);
-          } else {
-            await ctx.fs.writeFile(fullPath, "");
-            await ctx.fs.chmod(fullPath, FILE_MODE);
-          }
+        if (flags.dryRun) {
+          // -u reports a name without creating anything. Probe with lstat,
+          // like gnulib's GT_NOCREATE path: a symlink occupying the name
+          // counts as taken, where a following stat would see through it.
+          if (await pathIsTaken(ctx, fullPath)) continue;
+        } else {
+          await createExclusively(ctx, fullPath, flags.directory);
         }
       } catch (error) {
         const message = getErrorMessage(error);

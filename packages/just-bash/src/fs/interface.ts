@@ -98,6 +98,21 @@ export interface MkdirOptions {
 }
 
 /**
+ * Options for createExclusive operation
+ */
+export interface CreateExclusiveOptions {
+  /**
+   * Permission bits applied at creation time, e.g. 0o600 for a private file
+   * or 0o700 for a private directory. Applied by the creating syscall itself
+   * (subject to umask) so the entry is never briefly visible with the
+   * backend's default mode.
+   */
+  mode: number;
+  /** Create a directory instead of an empty regular file. */
+  directory?: boolean;
+}
+
+/**
  * Options for rm operation
  */
 export interface RmOptions {
@@ -192,6 +207,31 @@ export interface IFileSystem {
    * @throws Error if parent doesn't exist (unless recursive) or path exists
    */
   mkdir(path: string, options?: MkdirOptions): Promise<void>;
+
+  /**
+   * Atomically create a file or directory that must not already exist, with
+   * `options.mode` applied by the creating operation itself.
+   *
+   * This is the primitive `mktemp`-style callers need: a plain
+   * `exists()`-then-`writeFile()` sequence is a TOCTOU race (a concurrent
+   * creator can win between the two calls and have its entry truncated), and
+   * a `writeFile()`-then-`chmod()` sequence exposes the entry with the
+   * backend's default mode (typically 0644/0755) until the chmod lands.
+   *
+   * The final path component is never followed: a symlink already occupying
+   * the name is a collision, not a target to write through.
+   *
+   * Optional for backwards compatibility with external `IFileSystem`
+   * implementations written before this method existed; all built-in
+   * filesystems implement it. Callers must handle its absence.
+   *
+   * @throws Error with an `EEXIST:` message if the path already exists
+   * @throws Error with an `ENOENT:` message if the parent does not exist
+   */
+  createExclusive?(
+    path: string,
+    options: CreateExclusiveOptions,
+  ): Promise<void>;
 
   /**
    * Read directory contents

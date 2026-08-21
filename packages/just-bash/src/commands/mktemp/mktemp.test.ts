@@ -237,6 +237,66 @@ describe("mktemp", () => {
     expect(result.exitCode).toBe(1);
   });
 
+  it("should print a candidate for -u even when the directory is missing", async () => {
+    // GNU mktemp -u touches the filesystem not at all, so a missing
+    // destination directory is not an error.
+    const env = new Bash();
+    const path = await run(env, "mktemp -u -p /missing fooXXXXXX");
+    expect(path).toMatch(/^\/missing\/foo[0-9A-Za-z]{6}$/);
+
+    const test = await env.exec("test -e /missing");
+    expect(test.exitCode).toBe(1);
+  });
+
+  it("should treat --help after -- as a template", async () => {
+    const env = new Bash();
+    const result = await env.exec("mktemp -- --help");
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("mktemp: too few X's in template '--help'\n");
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("should treat --version after -- as a template", async () => {
+    const env = new Bash();
+    const result = await env.exec("mktemp -- --version");
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("mktemp: too few X's in template '--version'\n");
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("should expand a template given after --", async () => {
+    const env = new Bash();
+    const path = await run(env, "mktemp -- /tmp/afterXXXXXX");
+    expect(path).toMatch(/^\/tmp\/after[0-9A-Za-z]{6}$/);
+  });
+
+  it("should never hand back a path that already holds data", async () => {
+    // End-to-end uniqueness: each iteration writes a marker into the path it
+    // was given, so a repeat or a clobber shows up as a wrong marker.
+    const env = new Bash();
+    const script = `
+      for i in $(seq 1 50); do
+        f=$(mktemp)
+        if [ -s "$f" ]; then echo "REUSED $f"; fi
+        echo "marker-$i" > "$f"
+      done
+      ls /tmp | wc -l
+      cat /tmp/* | sort -u | wc -l
+    `;
+    const result = await env.exec(script);
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+    // 50 distinct paths, 50 distinct markers, and no reuse reported.
+    expect(result.stdout).toBe("50\n50\n");
+  });
+
+  it("should create the file empty and private", async () => {
+    const env = new Bash();
+    const path = await run(env, "mktemp");
+    const stat = await env.exec(`stat -c '%a %s' ${path}`);
+    expect(stat.stdout).toBe("600 0\n");
+  });
+
   it("should show help", async () => {
     const env = new Bash();
     const result = await env.exec("mktemp --help");
