@@ -678,7 +678,7 @@ export class ReadWriteFs implements IFileSystem {
     realPath: string,
     virtualPath: string,
     syscall: string,
-    createdStat?: fs.Stats,
+    createdStat: fs.Stats,
   ): Promise<void> {
     let ok = false;
     try {
@@ -686,16 +686,21 @@ export class ReadWriteFs implements IFileSystem {
       const current = await fs.promises.lstat(revalidated);
       ok =
         revalidated === canonical &&
-        (createdStat === undefined ||
-          (current.dev === createdStat.dev && current.ino === createdStat.ino));
+        current.dev === createdStat.dev &&
+        current.ino === createdStat.ino;
     } catch {
       ok = false;
     }
     if (ok) return;
 
-    await fs.promises
-      .rm(canonical, { recursive: true, force: true })
-      .catch(() => {});
+    // Deliberately no cleanup. This branch means the path no longer denotes
+    // what was created — an intermediate component was swapped, or the entry
+    // itself was replaced — so every pathname available here is exactly the
+    // one just proven untrustworthy. Removing it would follow the swapped
+    // component and delete an attacker-chosen target, which is a worse
+    // outcome than the stray entry it would tidy up: that entry is empty and
+    // 0600 at a path the attacker already controls. Node exposes no way to
+    // unlink by descriptor, so there is no safe removal to perform.
     throw new Error(
       `EACCES: permission denied, '${virtualPath}' resolves outside sandbox during ${syscall}`,
     );
@@ -717,7 +722,26 @@ export class ReadWriteFs implements IFileSystem {
     try {
       if (options.directory) {
         await fs.promises.mkdir(canonical, { mode: options.mode });
-        await this.assertCreatedInsideRoot(canonical, realPath, path, syscall);
+        // Open the new directory without following symlinks and identify it
+        // by descriptor, so a concurrent replacement at the same pathname is
+        // caught by the comparison below rather than silently accepted.
+        const dirHandle = await fs.promises.open(
+          canonical,
+          fs.constants.O_RDONLY |
+            (fs.constants.O_DIRECTORY ?? 0) |
+            (this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW),
+        );
+        try {
+          await this.assertCreatedInsideRoot(
+            canonical,
+            realPath,
+            path,
+            syscall,
+            await dirHandle.stat(),
+          );
+        } finally {
+          await dirHandle.close();
+        }
         return;
       }
       const noFollow = this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW;

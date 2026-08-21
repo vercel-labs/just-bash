@@ -35,6 +35,7 @@ import {
   DEFAULT_DIR_MODE,
   DEFAULT_FILE_MODE,
   dirname,
+  joinPath,
   MAX_SYMLINK_DEPTH,
   resolveSymlinkTarget,
   resolvePath as resolveVPath,
@@ -1046,23 +1047,49 @@ export class OverlayFs implements IFileSystem {
       throw new Error(`EEXIST: file already exists, ${syscall} '${path}'`);
     }
 
+    // Resolve symlinks in the parent, but never in the final component, and
+    // require the parent to be a directory. Storing under an unresolved key
+    // would create an entry that later lookups — which do resolve — could not
+    // find, and an unchecked parent would allow a child beneath a file.
     const parent = dirname(normalized);
-    if (parent !== "/" && !(await this.existsInOverlay(parent))) {
-      throw new Error(
-        `ENOENT: no such file or directory, ${syscall} '${path}'`,
+    let target = normalized;
+    if (parent !== "/") {
+      let resolvedParent: string;
+      try {
+        resolvedParent = await this.realpath(parent);
+      } catch {
+        throw new Error(
+          `ENOENT: no such file or directory, ${syscall} '${path}'`,
+        );
+      }
+      const parentStat = await this.stat(resolvedParent).catch(() => null);
+      if (!parentStat) {
+        throw new Error(
+          `ENOENT: no such file or directory, ${syscall} '${path}'`,
+        );
+      }
+      if (!parentStat.isDirectory) {
+        throw new Error(`ENOTDIR: not a directory, ${syscall} '${path}'`);
+      }
+      target = joinPath(
+        resolvedParent,
+        normalized.slice(normalized.lastIndexOf("/") + 1),
       );
+      if (target !== normalized && (await this.existsInOverlay(target))) {
+        throw new Error(`EEXIST: file already exists, ${syscall} '${path}'`);
+      }
     }
 
     // Everything from here down is synchronous. The awaits above yield, so
     // two concurrent calls can both observe absence; claiming the name
     // without an intervening await is what makes the create exclusive
     // between them.
-    if (this.memory.has(normalized)) {
+    if (this.memory.has(target)) {
       throw new Error(`EEXIST: file already exists, ${syscall} '${path}'`);
     }
 
     this.setMemoryEntry(
-      normalized,
+      target,
       options.directory
         ? { type: "directory", mode: options.mode, mtime: new Date() }
         : {
@@ -1075,7 +1102,7 @@ export class OverlayFs implements IFileSystem {
     // Clear any tombstone, as the adjacent mkdir/writeFile paths do. Without
     // this, recreating a path that was removed from the real layer succeeds
     // while staying invisible to stat/exists/readdir.
-    this.deleted.delete(normalized);
+    this.deleted.delete(target);
   }
 
   async readdir(path: string): Promise<string[]> {

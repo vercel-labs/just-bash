@@ -1,6 +1,25 @@
 import type { CreateExclusiveOptions, IFileSystem } from "./interface.js";
 
 /**
+ * Thrown by a delegating filesystem whose target backend does not implement
+ * `createExclusive`, so callers can degrade deliberately.
+ *
+ * This is a type rather than an error message because backend errors embed
+ * the caller-supplied path: matching text would let a template containing the
+ * literal "ENOSYS" turn a genuine EEXIST into a spurious "unsupported" and
+ * silently downgrade to the weaker create — precisely under the racing
+ * conditions that make the atomic path matter.
+ */
+export class ExclusiveCreateUnsupportedError extends Error {
+  readonly code = "ENOSYS";
+
+  constructor(path: string, syscall: string) {
+    super(`ENOSYS: exclusive create not supported, ${syscall} '${path}'`);
+    this.name = "ExclusiveCreateUnsupportedError";
+  }
+}
+
+/**
  * Create a file or directory that must not already exist, with `mode` applied
  * at creation time.
  *
@@ -33,7 +52,7 @@ export async function createExclusiveOn(
       // A wrapper such as MountableFs always defines the method but reports
       // ENOSYS when the backend it routes to does not implement it. Treat
       // that as "not supported" and degrade, rather than failing the caller.
-      if (!String((error as Error)?.message).includes("ENOSYS")) {
+      if (!(error instanceof ExclusiveCreateUnsupportedError)) {
         throw error;
       }
     }
@@ -53,6 +72,15 @@ export async function createExclusiveOn(
     await fs.mkdir(path);
   } else {
     await fs.writeFile(path, "");
+  }
+
+  // The create above is not exclusive, so confirm what now sits at the path
+  // is the kind of entry that was created. This does not close the race — it
+  // cannot be closed without an atomic primitive — but it stops a path that
+  // turned into a symlink from being reported as a private temporary file.
+  const created = await fs.lstat(path);
+  if (options.directory ? !created.isDirectory : !created.isFile) {
+    throw new Error(`EEXIST: file already exists, open '${path}'`);
   }
 
   try {

@@ -212,6 +212,19 @@ function splitTemplate(
 }
 
 /**
+ * True when `error` reports the given errno.
+ *
+ * Backends throw either a Node `ErrnoException` carrying `code` or an Error
+ * whose message starts with `"<CODE>: "`. The path is interpolated after that
+ * prefix, so anchoring at the start keeps a crafted template from
+ * impersonating an errno.
+ */
+function isErrno(error: unknown, code: string): boolean {
+  if ((error as NodeJS.ErrnoException)?.code === code) return true;
+  return getErrorMessage(error).startsWith(`${code}:`);
+}
+
+/**
  * True when anything already occupies `path`. Uses lstat rather than exists()
  * so a symlink — including a dangling one, which exists() reports as absent —
  * counts as taken instead of being followed to its target.
@@ -273,7 +286,9 @@ export const mktempCommand: RuntimeCommand = {
           `invalid template, '${template}', contains directory separator`,
         );
       }
-      destDir = flags.tmpdir ? flags.tmpdir : defaultTmpdir;
+      // GNU prefers a non-empty $TMPDIR over -p for the deprecated -t form,
+      // unlike every other branch, where -p wins.
+      destDir = envTmpdir ? envTmpdir : flags.tmpdir ? flags.tmpdir : "/tmp";
     } else if (flags.tmpdir !== undefined || positional.length === 0) {
       if (template.startsWith("/")) {
         return fail(
@@ -333,12 +348,13 @@ export const mktempCommand: RuntimeCommand = {
           });
         }
       } catch (error) {
-        const message = getErrorMessage(error);
-        // Another entry appeared between the check and the create: retry.
-        if (message.includes("EEXIST") || message.includes("already exists")) {
-          continue;
+        // Match the errno, not the message body: diagnostics embed the
+        // caller-supplied path, so a template containing "EEXIST" would make
+        // unrelated failures look like collisions and be retried silently.
+        if (isErrno(error, "EEXIST")) {
+          continue; // name was taken between candidates: try another
         }
-        return creationFailure(sanitizeErrorMessage(message));
+        return creationFailure(sanitizeErrorMessage(getErrorMessage(error)));
       }
 
       return { stdout: `${name}\n`, stderr: "", exitCode: 0 };

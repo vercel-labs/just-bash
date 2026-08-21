@@ -1,4 +1,5 @@
 import { type ByteString, readBytesFrom } from "../../encoding.js";
+import { ExclusiveCreateUnsupportedError } from "../create-exclusive.js";
 import { InMemoryFs } from "../in-memory-fs/in-memory-fs.js";
 import type {
   BufferEncoding,
@@ -437,9 +438,7 @@ export class MountableFs implements IFileSystem {
 
     const { fs, relativePath } = this.routePath(path);
     if (!fs.createExclusive) {
-      throw new Error(
-        `ENOSYS: exclusive create not supported, ${syscall} '${path}'`,
-      );
+      throw new ExclusiveCreateUnsupportedError(path, syscall);
     }
     return fs.createExclusive(relativePath, options);
   }

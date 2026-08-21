@@ -348,6 +348,38 @@ describe("mktemp", () => {
     expect(result.stdout).toBe("70009\n");
   });
 
+  it("should prefer a non-empty TMPDIR over -p for the legacy -t form", async () => {
+    // GNU treats -t as the deprecated form where $TMPDIR wins over -p; every
+    // other branch prefers -p.
+    const env = new Bash();
+    const result = await env.exec(
+      "TMPDIR=/var/tmp mktemp -u -t -p /custom fooXXXXXX",
+    );
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toMatch(/^\/var\/tmp\/foo[0-9A-Za-z]{6}\n$/);
+  });
+
+  it("should fall back to -p for -t when TMPDIR is empty", async () => {
+    const env = new Bash();
+    const result = await env.exec("TMPDIR= mktemp -u -t -p /custom fooXXXXXX");
+    expect(result.stdout).toMatch(/^\/custom\/foo[0-9A-Za-z]{6}\n$/);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("should not treat a template containing EEXIST as a collision", async () => {
+    // Diagnostics embed the template, so matching the message body rather
+    // than the errno would retry unrelated failures 100 times and report
+    // them as "File exists".
+    const env = new Bash();
+    const result = await env.exec("mktemp /nope/EEXIST-XXXXXX");
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "mktemp: failed to create file via template '/nope/EEXIST-XXXXXX': No such file or directory\n",
+    );
+    expect(result.exitCode).toBe(1);
+  });
+
   it("should show help", async () => {
     const env = new Bash();
     const result = await env.exec("mktemp --help");

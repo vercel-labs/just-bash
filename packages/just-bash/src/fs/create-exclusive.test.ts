@@ -50,6 +50,37 @@ describe("createExclusiveOn", () => {
   });
 });
 
+it("does not mistake a path containing ENOSYS for an unsupported backend", async () => {
+  // Diagnostics embed the caller-supplied path, so message matching would
+  // turn this genuine collision into a silent downgrade to the weaker path.
+  const fs = new InMemoryFs();
+  await fs.writeFile("/ENOSYS-name.txt", "original");
+
+  await expect(
+    createExclusiveOn(fs, "/ENOSYS-name.txt", { mode: 0o600 }),
+  ).rejects.toThrow("EEXIST");
+  expect(await fs.readFile("/ENOSYS-name.txt")).toBe("original");
+});
+
+it("refuses to report a symlink as the entry it created in the fallback", async () => {
+  const backing = new InMemoryFs();
+  await backing.writeFile("/victim.txt", "untouched");
+  const legacy = Object.create(backing) as IFileSystem;
+  legacy.createExclusive = undefined;
+  // Simulate a link appearing between the probe and the create.
+  const originalWriteFile = backing.writeFile.bind(backing);
+  legacy.writeFile = async (p: string) => {
+    await originalWriteFile(p, "");
+    await backing.rm(p as string);
+    await backing.symlink("/victim.txt", p as string);
+  };
+
+  await expect(
+    createExclusiveOn(legacy, "/racy.txt", { mode: 0o600 }),
+  ).rejects.toThrow("EEXIST");
+  expect(await backing.readFile("/victim.txt")).toBe("untouched");
+});
+
 describe("OverlayFs createExclusive", () => {
   it("clears a tombstone so the new entry is visible", async () => {
     const fs = new OverlayFs({ root: process.cwd() });
@@ -63,6 +94,28 @@ describe("OverlayFs createExclusive", () => {
     expect(await fs.exists("/tomb.txt")).toBe(true);
     expect((await fs.stat("/tomb.txt")).mode & 0o777).toBe(0o600);
     expect(await fs.readFile("/tomb.txt")).toBe("");
+  });
+
+  it("rejects a parent that is not a directory", async () => {
+    const fs = new OverlayFs({ root: process.cwd() });
+    await fs.writeFile("/afile", "data");
+
+    await expect(
+      fs.createExclusive("/afile/child", { mode: 0o600 }),
+    ).rejects.toThrow("ENOTDIR");
+  });
+
+  it("resolves a symlinked parent instead of creating beside it", async () => {
+    // Symlinks are blocked by default, so this only arises for embedders that
+    // opt in; it still must not produce an entry nothing can look up.
+    const fs = new OverlayFs({ root: process.cwd(), allowSymlinks: true });
+    await fs.mkdir("/real", { recursive: true });
+    await fs.symlink("/real", "/link");
+
+    await fs.createExclusive("/link/file.txt", { mode: 0o600 });
+
+    expect(await fs.exists("/real/file.txt")).toBe(true);
+    expect(await fs.readdir("/real")).toContain("file.txt");
   });
 
   it("is exclusive between interleaved concurrent calls", async () => {
