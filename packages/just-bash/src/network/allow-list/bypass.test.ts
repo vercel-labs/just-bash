@@ -232,12 +232,13 @@ describe("allow-list bypass attempts", () => {
       const env = createBashEnvAdapter({
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
-      // Port 443 is the default HTTPS port, so https://host:443 should match https://host
-      // The URL class normalizes this, so it should be allowed
-      // Mock returns 404 since it's keyed on URL without explicit port
+      // Port 443 is the default HTTPS port, so https://host:443 should match
+      // https://host. The URL class normalizes this, so it should be allowed.
+      // guarded-fetch normalizes the URL (dropping the default port) before
+      // calling fetch, so the mock returns the matching response body.
       const result = await env.exec('curl "https://api.example.com:443/data"');
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toBe("Not Found");
+      expect(result.stdout).toBe(MOCK_SUCCESS_BODY);
       expect(result.stderr).toBe("");
     });
 
@@ -274,12 +275,12 @@ describe("allow-list bypass attempts", () => {
       const env = createBashEnvAdapter({
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
-      // URL class normalizes hostname to lowercase for allow-list check
-      // But fetch is called with original URL, so mock doesn't match
-      // This passes the allow-list but returns 404 from mock
+      // The URL class normalizes the hostname to lowercase for the allow-list
+      // check. guarded-fetch also normalizes the hostname before calling
+      // fetch, so the mock (keyed on the lowercase URL) matches.
       const result = await env.exec('curl "https://API.EXAMPLE.COM/data"');
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toBe("Not Found");
+      expect(result.stdout).toBe(MOCK_SUCCESS_BODY);
       expect(result.stderr).toBe("");
     });
 

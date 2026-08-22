@@ -14,10 +14,12 @@ import { originalFetch } from "./shared.js";
 function extractHeaders(init?: RequestInit): Record<string, string> {
   const result: Record<string, string> = Object.create(null);
   if (!init?.headers) return result;
-  // Handle both Headers instances and plain objects
+  // guarded-fetch passes headers as undici Headers instances; both undici's
+  // and the global Headers expose forEach, so prefer that over instanceof
+  // to handle either implementation.
   const h = init.headers;
-  if (h instanceof Headers) {
-    h.forEach((v, k) => {
+  if (h && typeof (h as Headers).forEach === "function") {
+    (h as Headers).forEach((v: string, k: string) => {
       result[k] = v;
     });
   } else {
@@ -198,8 +200,10 @@ describe("firewall header transforms", () => {
     });
 
     expect(calls).toHaveLength(1);
-    // No firewall headers for this host, so user headers pass through with original casing
-    expect(calls[0].headers["X-Custom"]).toBe("value");
+    // No firewall headers for this host, so user headers pass through.
+    // guarded-fetch normalizes header keys to lowercase via Headers, so the
+    // captured key is lowercase regardless of the caller's original casing.
+    expect(calls[0].headers["x-custom"]).toBe("value");
     expect(calls[0].headers.authorization).toBeUndefined();
     expect(calls[0].headers.Authorization).toBeUndefined();
   });

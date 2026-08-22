@@ -29,7 +29,7 @@ export type PinnedConnectionOwnerFactory = (
   pinned: PinnedAddress,
 ) => Promise<PinnedConnectionOwner>;
 
-export class DnsPinningUnavailableError extends Error {
+class DnsPinningUnavailableError extends Error {
   constructor() {
     super("DNS pinning is unavailable in this runtime");
     this.name = "DnsPinningUnavailableError";

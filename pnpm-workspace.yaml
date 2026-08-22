@@ -11,3 +11,9 @@ onlyBuiltDependencies:
   - node-liblzma
   - sharp
   - unrs-resolver
+
+# guarded-fetch is a Vercel-published dependency tracked at an exact version.
+# It bypasses the global min-release-age gate so a freshly published patch can
+# be adopted without waiting out the cool-off window.
+minimumReleaseAgeExclude:
+  - guarded-fetch

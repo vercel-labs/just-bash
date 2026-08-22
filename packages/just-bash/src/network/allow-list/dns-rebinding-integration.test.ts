@@ -103,9 +103,11 @@ describe("DNS rebinding integration (real DNS)", () => {
     );
     expect(result.exitCode).toBe(7);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe(
-      "curl: (7) Network access denied: DNS resolution failed for private IP check: https://this-domain-does-not-exist-xyz123.example/data\n",
-    );
+    // guarded-fetch classifies DNS resolution failures as hostname_unsafe
+    // (fail-closed), which the adapter maps to NetworkAccessDeniedError with
+    // a private/loopback message — the domain did not resolve to a safe
+    // public address.
+    expect(result.stderr).toContain("Network access denied");
     expect(mockFetch.mock.calls).toHaveLength(callsBefore);
   });
 

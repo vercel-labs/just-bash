@@ -375,14 +375,15 @@ function runAllowListTests(name: string, createAdapter: AdapterFactory) {
           network: {
             dangerouslyAllowFullInternetAccess: true,
             denyPrivateRanges: true,
-            _dnsResolve: async () => [{ address: "93.184.216.34", family: 4 }],
           },
         });
 
-        // Public URL should still be allowed
-        const r1 = await env.exec("curl https://api.example.com/data");
+        // Public URL should still be allowed. evil.com resolves to a public IP
+        // in real DNS, so guarded-fetch's SSRF check passes; the mock fetch
+        // supplies the response body.
+        const r1 = await env.exec("curl https://evil.com/data");
         expect(r1.exitCode).toBe(0);
-        expect(r1.stdout).toBe(MOCK_SUCCESS_BODY);
+        expect(r1.stdout).toBe(MOCK_EVIL_BODY);
         expect(r1.stderr).toBe("");
 
         // Private IPs should be blocked even with full access
