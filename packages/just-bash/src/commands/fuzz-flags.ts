@@ -74,6 +74,7 @@ import { flagsForFuzzing as md5sum } from "./md5sum/md5sum.js";
 import { flagsForFuzzing as sha1sum } from "./md5sum/sha1sum.js";
 import { flagsForFuzzing as sha256sum } from "./md5sum/sha256sum.js";
 import { flagsForFuzzing as mkdir } from "./mkdir/mkdir.js";
+import { flagsForFuzzing as mktemp } from "./mktemp/mktemp.js";
 import { flagsForFuzzing as mv } from "./mv/mv.js";
 import { flagsForFuzzing as nl } from "./nl/nl.js";
 import { flagsForFuzzing as od } from "./od/od.js";
@@ -126,6 +127,7 @@ const allFuzzInfo: CommandFuzzInfo[] = [
   printf,
   ls,
   mkdir,
+  mktemp,
   rmdir,
   touch,
   rm,

@@ -82,7 +82,7 @@ duplicating internal defaults.
 
 ### File Operations
 
-`cat`, `cp`, `file`, `ln`, `ls`, `mkdir`, `mv`, `readlink`, `rm`, `rmdir`, `split`, `stat`, `touch`, `tree`
+`cat`, `cp`, `file`, `ln`, `ls`, `mkdir`, `mktemp`, `mv`, `readlink`, `rm`, `rmdir`, `split`, `stat`, `touch`, `tree`
 
 ### Text Processing
 

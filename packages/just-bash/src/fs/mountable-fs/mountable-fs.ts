@@ -1,8 +1,10 @@
 import { type ByteString, readBytesFrom } from "../../encoding.js";
+import { ExclusiveCreateUnsupportedError } from "../create-exclusive.js";
 import { InMemoryFs } from "../in-memory-fs/in-memory-fs.js";
 import type {
   BufferEncoding,
   CpOptions,
+  CreateExclusiveOptions,
   FileContent,
   FsStat,
   IFileSystem,
@@ -413,6 +415,32 @@ export class MountableFs implements IFileSystem {
 
     const { fs, relativePath } = this.routePath(path);
     return fs.mkdir(relativePath, options);
+  }
+
+  /**
+   * Atomically create a private file or directory on the owning filesystem.
+   * Mount points are existing directories, so a create targeting one is a
+   * collision. Delegated exclusivity is only as strong as the target
+   * filesystem provides; an external implementation predating
+   * `createExclusive` reports ENOSYS so callers can pick a fallback rather
+   * than silently getting non-exclusive creation.
+   */
+  async createExclusive(
+    path: string,
+    options: CreateExclusiveOptions,
+  ): Promise<void> {
+    const normalized = normalizePath(path);
+    const syscall = options.directory ? "mkdir" : "open";
+
+    if (this.mounts.has(normalized)) {
+      throw new Error(`EEXIST: file already exists, ${syscall} '${path}'`);
+    }
+
+    const { fs, relativePath } = this.routePath(path);
+    if (!fs.createExclusive) {
+      throw new ExclusiveCreateUnsupportedError(path, syscall);
+    }
+    return fs.createExclusive(relativePath, options);
   }
 
   async readdir(path: string): Promise<string[]> {
