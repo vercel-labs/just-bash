@@ -265,7 +265,10 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
       if (denyPrivateRanges) {
         // No host allowlist; guarded-fetch's SSRF check is the sole gate and
         // private/loopback/link-local addresses are rejected by it.
-        return { allowedHosts: undefined, skipSsrfCheckForAllowedHosts: undefined };
+        return {
+          allowedHosts: undefined,
+          skipSsrfCheckForAllowedHosts: undefined,
+        };
       }
       // No private-range denial: skip DNS entirely by trusting the request's
       // own hostname, matching the bespoke implementation.
