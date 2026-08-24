@@ -98,7 +98,6 @@ if (typeof __BROWSER__ !== "undefined" && __BROWSER__) {
   // Eager load at module-evaluation time. The dynamic import() here runs
   // during module initialization (before any untrusted script executes),
   // so the defense-in-depth loader hook does not intercept it.
-  // @banned-pattern-ignore: audited eager import of the SSRF transport; folded out of the browser build by __BROWSER__
   guardedFetchPromise = import("guarded-fetch");
 }
 
@@ -266,7 +265,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
       if (denyPrivateRanges) {
         // No host allowlist; guarded-fetch's SSRF check is the sole gate and
         // private/loopback/link-local addresses are rejected by it.
-        return {};
+        return { allowedHosts: undefined, skipSsrfCheckForAllowedHosts: undefined };
       }
       // No private-range denial: skip DNS entirely by trusting the request's
       // own hostname, matching the bespoke implementation.
@@ -503,7 +502,6 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
           // that dispatcher option — so DNS-rebinding protection is preserved
           // in production. Test mocks (vi.fn) ignore the dispatcher, which is
           // correct for unit tests.
-          // @banned-pattern-ignore: guarded-fetch supplies its own guarded dispatcher via fetchInit; globalThis.fetch (Node's undici fetch) honors it, preserving connect-time IP pinning
           fetchOptions.fetch = globalThis.fetch as typeof fetch;
 
           try {
