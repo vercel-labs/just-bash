@@ -504,6 +504,25 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
           // correct for unit tests.
           fetchOptions.fetch = globalThis.fetch as typeof fetch;
 
+          if (!denyPrivateRanges) {
+            // `denyPrivateRanges: false` is the explicit compatibility opt-out:
+            // historically this allowed even private IP literals. guarded-fetch
+            // always rejects literal private IPs, even when its host allowlist
+            // skip is enabled, so use the ambient fetch directly in this
+            // intentionally unguarded mode. The path-prefix allow-list and
+            // firewall transforms above still apply.
+            const directInit: RequestInit = {
+              method: fetchOptions.method,
+              headers: fetchOptions.headers,
+              signal: fetchOptions.signal,
+              redirect: "manual",
+            };
+            if (fetchOptions.body !== undefined) {
+              directInit.body = fetchOptions.body;
+            }
+            return await globalThis.fetch(currentUrl, directInit);
+          }
+
           try {
             return await gfModule.guardedFetch(currentUrl, fetchOptions);
           } catch (error) {
