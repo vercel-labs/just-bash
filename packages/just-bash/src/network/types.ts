@@ -133,13 +133,19 @@ export interface NetworkConfig {
 
   /**
    * @internal Override DNS resolution for testing.
-   * When set, used instead of the default `dns.lookup` for the
-   * denyPrivateRanges DNS rebinding check.
+   *
+   * @deprecated No longer consumed by the guarded-fetch adapter; guarded-fetch
+   * resolves DNS internally. Retained for type compatibility with existing
+   * embedders. Passing it has no effect.
    */
   _dnsResolve?: (hostname: string) => Promise<DnsLookupResult[]>;
 
   /**
    * @internal Override request-owned connection binding for testing.
+   *
+   * @deprecated No longer consumed by the guarded-fetch adapter; guarded-fetch
+   * provides connect-time IP pinning via its guarded dispatcher. Retained for
+   * type compatibility with existing embedders. Passing it has no effect.
    */
   _createConnectionOwner?: PinnedConnectionOwnerFactory;
 }

@@ -1,16 +1,17 @@
 /**
- * Secure fetch connection-binding behavior tests
+ * Secure fetch behavior tests
  *
- * The bespoke implementation used a request-owned undici Agent to pin the
- * DNS-reviewed address to the actual connection, with `_createConnectionOwner`
- * and `_dnsResolve` injection seams for testing. guarded-fetch handles DNS
- * pinning internally via a shared guarded dispatcher whose `connect.lookup`
- * re-validates the resolved IP inside the socket connect, closing the
- * DNS-rebinding TOCTOU window.
+ * guarded-fetch handles DNS pinning internally via a shared guarded dispatcher
+ * whose `connect.lookup` re-validates the resolved IP inside the socket connect,
+ * closing the DNS-rebinding TOCTOU window. The adapter routes through
+ * `globalThis.fetch`, and guarded-fetch passes its guarded dispatcher into
+ * `fetchInit.dispatcher` — Node's built-in fetch honors that option, so
+ * connect-time IP pinning is preserved in production. Tests mock
+ * `globalThis.fetch` to avoid real network calls.
  *
  * These tests verify the observable behavior of the public `createSecureFetch`
- * surface: that responses are returned correctly, redirects are followed with
- * re-validation, timeouts are enforced, and parent abort signals propagate.
+ * surface: responses, redirects, timeouts, abort propagation, size limits, and
+ * credential stripping on cross-origin redirects.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,15 +24,24 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function mockFetch(
+  responder: (url: string, init: RequestInit) => Promise<Response> | Response,
+): typeof fetch {
+  return vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    const u = typeof url === "string" ? url : url.toString();
+    return responder(u, init ?? {});
+  }) as unknown as typeof fetch;
+}
+
 describe("secureFetch behavior", () => {
   it("returns a FetchResult with status, headers, and raw body bytes", async () => {
-    globalThis.fetch = vi.fn(
+    globalThis.fetch = mockFetch(
       async () =>
         new Response("hello world", {
           status: 200,
           headers: { "content-type": "text/plain" },
         }),
-    ) as typeof fetch;
+    );
 
     const secureFetch = createSecureFetch({
       allowedUrlPrefixes: ["https://example.com"],
@@ -48,7 +58,7 @@ describe("secureFetch behavior", () => {
 
   it("follows redirects and returns the final response", async () => {
     let calls = 0;
-    globalThis.fetch = vi.fn(async () => {
+    globalThis.fetch = mockFetch(async () => {
       calls++;
       if (calls === 1) {
         return new Response("", {
@@ -57,7 +67,7 @@ describe("secureFetch behavior", () => {
         });
       }
       return new Response("final", { status: 200 });
-    }) as typeof fetch;
+    });
 
     const secureFetch = createSecureFetch({
       allowedUrlPrefixes: ["https://example.com"],
@@ -72,13 +82,13 @@ describe("secureFetch behavior", () => {
   });
 
   it("respects maxRedirects cap", async () => {
-    globalThis.fetch = vi.fn(
+    globalThis.fetch = mockFetch(
       async () =>
         new Response("", {
           status: 302,
           headers: { location: "https://example.com/hop" },
         }),
-    ) as typeof fetch;
+    );
 
     const secureFetch = createSecureFetch({
       allowedUrlPrefixes: ["https://example.com"],
@@ -93,15 +103,16 @@ describe("secureFetch behavior", () => {
 
   it("propagates parent abort signal", async () => {
     const controller = new AbortController();
-    globalThis.fetch = vi.fn(async (_url, init) => {
-      return new Promise<Response>((_resolve, reject) => {
-        init.signal?.addEventListener(
-          "abort",
-          () => reject(init.signal?.reason),
-          { once: true },
-        );
-      });
-    }) as typeof fetch;
+    globalThis.fetch = mockFetch(
+      async (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener(
+            "abort",
+            () => reject(init.signal?.reason),
+            { once: true },
+          );
+        }),
+    );
 
     const secureFetch = createSecureFetch({
       allowedUrlPrefixes: ["https://example.com"],
@@ -118,7 +129,7 @@ describe("secureFetch behavior", () => {
 
   it("enforces timeout across redirect hops", async () => {
     let calls = 0;
-    globalThis.fetch = vi.fn(async (_url, init) => {
+    globalThis.fetch = mockFetch(async (_url, init) => {
       calls++;
       await new Promise<void>((resolve, reject) => {
         const id = setTimeout(resolve, 50);
@@ -135,7 +146,7 @@ describe("secureFetch behavior", () => {
         status: 302,
         headers: { location: `/hop-${calls}` },
       });
-    }) as typeof fetch;
+    });
 
     const secureFetch = createSecureFetch({
       allowedUrlPrefixes: ["https://example.com"],
@@ -144,13 +155,11 @@ describe("secureFetch behavior", () => {
     });
 
     await expect(secureFetch("https://example.com/start")).rejects.toThrow();
-    // At least one redirect hop started before the timeout fired.
     expect(calls).toBeGreaterThanOrEqual(1);
   });
 
   it("blocks redirect to disallowed URL", async () => {
-    globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
-      const u = typeof url === "string" ? url : url.toString();
+    globalThis.fetch = mockFetch(async (u) => {
       if (u === "https://example.com/start") {
         return new Response("", {
           status: 302,
@@ -158,7 +167,7 @@ describe("secureFetch behavior", () => {
         });
       }
       return new Response("ok", { status: 200 });
-    }) as typeof fetch;
+    });
 
     const secureFetch = createSecureFetch({
       allowedUrlPrefixes: ["https://example.com"],
@@ -171,13 +180,13 @@ describe("secureFetch behavior", () => {
   });
 
   it("returns 3xx response when followRedirects is false", async () => {
-    globalThis.fetch = vi.fn(
+    globalThis.fetch = mockFetch(
       async () =>
         new Response("", {
           status: 302,
           headers: { location: "https://example.com/final" },
         }),
-    ) as typeof fetch;
+    );
 
     const secureFetch = createSecureFetch({
       allowedUrlPrefixes: ["https://example.com"],
@@ -192,9 +201,9 @@ describe("secureFetch behavior", () => {
 
   it("enforces maxResponseSize", async () => {
     const bigBody = "x".repeat(1024);
-    globalThis.fetch = vi.fn(
+    globalThis.fetch = mockFetch(
       async () => new Response(bigBody, { status: 200 }),
-    ) as typeof fetch;
+    );
 
     const secureFetch = createSecureFetch({
       allowedUrlPrefixes: ["https://example.com"],
@@ -205,5 +214,72 @@ describe("secureFetch behavior", () => {
     await expect(secureFetch("https://example.com/data")).rejects.toThrow(
       "Response body too large",
     );
+  });
+
+  it("strips Authorization on cross-origin redirect", async () => {
+    const seenHeaders: Record<string, string>[] = [];
+    globalThis.fetch = mockFetch(async (u, init) => {
+      const h: Record<string, string> = {};
+      const headers = init.headers;
+      if (headers && typeof (headers as Headers).forEach === "function") {
+        (headers as Headers).forEach((v: string, k: string) => {
+          h[k] = v;
+        });
+      }
+      seenHeaders.push(h);
+      if (u === "https://example.com/start") {
+        return new Response("", {
+          status: 302,
+          headers: { location: "https://other.com/data" },
+        });
+      }
+      return new Response("ok", { status: 200 });
+    });
+
+    const secureFetch = createSecureFetch({
+      allowedUrlPrefixes: ["https://example.com", "https://other.com"],
+      denyPrivateRanges: false,
+    });
+
+    await secureFetch("https://example.com/start", {
+      headers: { Authorization: "Bearer secret", "X-Custom": "keep" },
+    });
+
+    // First hop: both headers present
+    expect(seenHeaders[0].authorization).toBe("Bearer secret");
+    expect(seenHeaders[0]["x-custom"]).toBe("keep");
+    // Second hop (cross-origin): Authorization stripped, X-Custom kept
+    expect(seenHeaders[1].authorization).toBeUndefined();
+    expect(seenHeaders[1]["x-custom"]).toBe("keep");
+  });
+
+  it("changes method to GET on 301/302/303 redirect and drops body", async () => {
+    const seenMethods: string[] = [];
+    const seenBodies: (string | undefined)[] = [];
+    globalThis.fetch = mockFetch(async (u, init) => {
+      seenMethods.push(init.method ?? "GET");
+      seenBodies.push(init.body as string | undefined);
+      if (u === "https://example.com/start") {
+        return new Response("", {
+          status: 302,
+          headers: { location: "https://example.com/final" },
+        });
+      }
+      return new Response("ok", { status: 200 });
+    });
+
+    const secureFetch = createSecureFetch({
+      allowedUrlPrefixes: ["https://example.com"],
+      denyPrivateRanges: false,
+      allowedMethods: ["GET", "HEAD", "POST"],
+    });
+
+    await secureFetch("https://example.com/start", {
+      method: "POST",
+      body: "post-data",
+    });
+
+    expect(seenMethods).toEqual(["POST", "GET"]);
+    expect(seenBodies).toEqual(["post-data", undefined]);
   });
 });

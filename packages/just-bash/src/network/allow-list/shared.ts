@@ -121,17 +121,13 @@ export interface EnvAdapter {
   readFile(path: string): Promise<string>;
 }
 
-function withMockConnectionOwner(
+function withMockFetch(
   network: BashOptions["network"],
 ): BashOptions["network"] {
-  // guarded-fetch resolves DNS internally for SSRF protection and does not
-  // expose a connection-owner injection seam. When the suite mocks
-  // `global.fetch` (via createMockFetch) we route guarded-fetch through that
-  // mock by passing `fetch: globalThis.fetch` at call time in the adapter.
-  // The bespoke `_createConnectionOwner` and `_dnsResolve` hooks are no
-  // longer bridged; denyPrivateRanges suites that depended on fake DNS now
-  // rely on guarded-fetch's real DNS resolution or are marked against the
-  // public surface.
+  // The adapter routes through globalThis.fetch (which guarded-fetch passes
+  // its guarded dispatcher to). Test suites set global.fetch = mockFetch
+  // beforeAll, so the adapter picks up the mock automatically. No explicit
+  // _fetchImpl injection is needed.
   return network;
 }
 
@@ -141,7 +137,7 @@ function withMockConnectionOwner(
 export function createBashEnvAdapter(options: BashOptions): EnvAdapter {
   const env = new Bash({
     ...options,
-    network: withMockConnectionOwner(options.network),
+    network: withMockFetch(options.network),
   });
   return {
     exec: (cmd) => env.exec(cmd),
@@ -156,7 +152,7 @@ export async function createSandboxAdapter(
   options: BashOptions,
 ): Promise<EnvAdapter> {
   const sandbox = await Sandbox.create({
-    network: withMockConnectionOwner(options.network),
+    network: withMockFetch(options.network),
   });
   return {
     exec: async (cmd) => {

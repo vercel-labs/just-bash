@@ -2,14 +2,14 @@
 "just-bash": minor
 ---
 
-Replace bespoke `secureFetch` with `guarded-fetch` 0.1.3 for the SSRF/DNS-rebinding/redirect/transport layer
+Replace bespoke `secureFetch` with `guarded-fetch` 0.1.3 for the SSRF/DNS-rebinding/transport layer
 
 ## Summary
 
 The network module's bespoke `createSecureFetch` implementation is replaced by an
-adapter that delegates the SSRF, DNS-rebinding, redirect re-validation, and
-connect-time IP-pinning layer to the [`guarded-fetch`](https://www.npmjs.com/package/guarded-fetch)
-package (0.1.3, published by Vercel, Apache-2.0, backed by undici).
+adapter that delegates the SSRF, DNS-rebinding, and transport layer to the
+[`guarded-fetch`](https://www.npmjs.com/package/guarded-fetch) package (0.1.3,
+published by Vercel, Apache-2.0, backed by undici).
 
 just-bash's public `createSecureFetch` / `SecureFetch` / `SecureFetchOptions` /
 `FetchResult` contract is preserved unchanged, so all consumers (Bash, curl,
@@ -17,56 +17,56 @@ worker-bridge HTTP requests) continue to work without caller-side changes.
 
 ## What changed
 
-- **New dependency**: `guarded-fetch@0.1.3` (depends on `undici` and
-  `ipaddr.js`, both already in the tree or compatible).
-- **`src/network/fetch.ts`** is rewritten as an adapter:
-  - Delegates SSRF/private-IP/DNS-rebinding protection, protocol allow-listing,
-    connect-time IP pinning, and redirect re-validation to `guardedFetch`.
-  - Retains just-bash's path-prefix allow-list (guarded-fetch is hostname-only),
-    firewall header transforms (credentials brokering at the fetch boundary),
-    response-size limits, and `FetchResult` translation.
-  - Drives redirects manually (rather than relying on guarded-fetch's built-in
-    redirect following) so firewall headers are re-applied per hop and path-scoped
-    allow-listing is re-checked.
-  - Maps `GuardedFetchError` codes onto just-bash's domain error types
-    (`NetworkAccessDeniedError`, `RedirectNotAllowedError`, etc.).
-- **Build**: `guarded-fetch` is externalized in the lib (ESM/CJS) and browser
-  esbuild bundles.
-- **`pnpm-workspace.yaml`**: `guarded-fetch` added to `minimumReleaseAgeExclude`
-  to bypass the global min-release-age gate for this freshly published version.
+### `src/network/fetch.ts` (rewritten as adapter)
+- **Delegated to guarded-fetch**: SSRF/private-IP blocking, DNS-rebinding
+  protection (connect-time IP pinning via guarded dispatcher passed to
+  `globalThis.fetch`, which Node's built-in undici fetch honors), protocol
+  allow-listing, per-request URL safety validation.
+- **Retained by just-bash**: path-prefix allow-list (guarded-fetch is
+  hostname-only), firewall header transforms (credentials brokering),
+  response-size limits, `FetchResult` translation, `GuardedFetchError` →
+  domain error mapping.
+- **Manual redirect following** with per-hop: path-prefix allow-list re-check,
+  RFC 7231 method/body rewriting (301/302/303 → GET + drop body), and
+  cross-origin credential stripping (user-supplied Authorization/Cookie
+  dropped when the redirect changes origin; firewall-injected credentials
+  are re-applied per hop).
+- **Browser build**: guarded-fetch is loaded via `__BROWSER__`-folded dynamic
+  import that runs eagerly at module-init time on Node (so the defense-in-depth
+  loader hook doesn't block guarded-fetch's internal `node:dns/promises`
+  import). The browser bundle contains zero references to `guarded-fetch`.
+- **Defense-in-depth**: `guardedFetch` runs inside `DefenseInDepthBox.runTrustedAsync`
+  (matching the bespoke pattern) so Agent/FinalizationRegistry creation is
+  trusted. Preflight checks are inside the `try/finally` so denied requests
+  clean up their timeout timer and abort listeners (matching the bespoke
+  implementation).
+
+### Build
+- `guarded-fetch` externalized in `build:lib` (ESM), `build:lib:cjs`, and
+  `build:browser` esbuild bundles.
+- Node engine floor raised from `>=20.18.1` to `>=20.19` (guarded-fetch
+  requires `>=20.19`).
+
+### Config
+- `guarded-fetch` added to `minimumReleaseAgeExclude` in `pnpm-workspace.yaml`.
+
+## NOT delegated (intentionally disabled)
+- **Header sanitization** (`sanitizeHeaders: false`): just-bash's firewall-header
+  system is its own sanitization layer. The sandbox can set cookies/Host via
+  curl; guarded-fetch's blanket stripping would break that contract.
+- **guarded-fetch's built-in redirect following** (`followRedirects: false`):
+  redirects are driven here so firewall headers are re-applied per hop and
+  path-scoped allow-listing is re-checked.
 
 ## Behavioral notes
-
-- Header keys are now normalized to lowercase via `Headers` (guarded-fetch uses
-  undici `Headers` internally). The bespoke implementation preserved original
-  caller casing for pass-through headers. This is standard `Headers` behavior and
-  does not affect security; a small number of test assertions were updated.
-- `_dnsResolve` and `_createConnectionOwner` test-injection hooks on
-  `NetworkConfig` are no longer consumed by the adapter (guarded-fetch resolves
-  DNS internally without an injection seam). The fields remain on
-  `NetworkConfig` for type compatibility but are ignored at runtime.
-- `dns-pin.ts` (request-owned undici Agent) is retained for its pure utility
-  tests but is no longer in the fetch hot path; guarded-fetch's shared guarded
-  dispatcher now provides connect-time IP pinning.
-
-## Test changes
-
-- `firewall.test.ts`: `extractHeaders` updated to use `forEach` (handles both
-  undici and global `Headers`); one assertion updated for lowercase header keys.
-- `dns-pin-fetch.test.ts`: rewritten from bespoke connection-owner internals to
-  public `createSecureFetch` behavior (responses, redirects, timeouts, abort).
-- `dns-rebinding.test.ts`: rewritten to test through the public surface (lexical
-  private-IP blocking, `denyPrivateRanges=false` skip, error mapping) since the
-  `_dnsResolve` fake-DNS seam is no longer available.
-- `e2e.test.ts`: one test updated to use a real-resolvable domain
-  (`evil.com`) for the `denyPrivateRanges: true` full-internet case.
-- `bypass.test.ts`: two assertions updated for URL normalization (default port
-  stripping and hostname lowercasing) now applied by guarded-fetch.
-- Removed unused test helpers `expectBlockedDnsPrivate` / `expectBlockedDnsFailure`
-  from `shared.ts` (they asserted bespoke error messages that no longer match).
+- Header keys are normalized to lowercase via `Headers` (guarded-fetch uses
+  undici `Headers` internally). A small number of test assertions were updated.
+- `_dnsResolve` and `_createConnectionOwner` on `NetworkConfig` are deprecated
+  and no longer consumed (guarded-fetch resolves DNS internally). Retained for
+  type compatibility.
 
 ## Verification
-
-- `pnpm typecheck`, `pnpm lint:fix`, `pnpm knip` — all clean.
-- `pnpm test:run src/network/ src/commands/worker-bridge/ src/commands/curl/` —
-  all 530 tests pass.
+- `pnpm typecheck`, `pnpm lint:fix`, `pnpm knip`, `pnpm build` — all clean.
+- Browser bundle: zero `guarded-fetch` references.
+- 532/532 tests pass across `src/network/`, `src/commands/worker-bridge/`,
+  `src/commands/curl/`.
