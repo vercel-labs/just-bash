@@ -499,31 +499,37 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
           Object.assign(fetchOptions, buildHostPolicy(currentUrl));
 
           // Route through the ambient globalThis.fetch so test mocks and
-          // browser shims are honored. guarded-fetch always passes its guarded
-          // undici dispatcher (which performs connect-time IP pinning) into
-          // fetchInit.dispatcher, and Node's built-in globalThis.fetch honors
-          // that dispatcher option — so DNS-rebinding protection is preserved
-          // in production. Test mocks (vi.fn) ignore the dispatcher, which is
-          // correct for unit tests.
+          // browser shims are honored. In the guarded path, guarded-fetch
+          // passes its dispatcher into fetchInit.dispatcher and Node's fetch
+          // honors it, preserving connect-time IP pinning.
           fetchOptions.fetch = globalThis.fetch as typeof fetch;
 
           if (!denyPrivateRanges) {
-            // `denyPrivateRanges: false` is the explicit compatibility opt-out:
-            // historically this allowed even private IP literals. guarded-fetch
-            // always rejects literal private IPs, even when its host allowlist
-            // skip is enabled, so use the ambient fetch directly in this
-            // intentionally unguarded mode. The path-prefix allow-list and
-            // firewall transforms above still apply.
-            const directInit: RequestInit = {
-              method: fetchOptions.method,
-              headers: fetchOptions.headers,
-              signal: fetchOptions.signal,
-              redirect: "manual",
-            };
-            if (fetchOptions.body !== undefined) {
-              directInit.body = fetchOptions.body;
+            // The explicit opt-out permits private/loopback literals, but
+            // guarded-fetch still rejects those lexically even with
+            // skipSsrfCheckForAllowedHosts. Only those literal opt-out cases
+            // use the ambient fetch directly. Public hosts still go through
+            // guarded-fetch with dispatcher:null, making the opt-out explicit
+            // without retaining a broad unguarded transport branch.
+            let privateLiteral = false;
+            try {
+              privateLiteral = isPrivateIp(new URL(currentUrl).hostname);
+            } catch {
+              // URL validation is handled by the surrounding policy checks.
             }
-            return await globalThis.fetch(currentUrl, directInit);
+            if (privateLiteral) {
+              const directInit: RequestInit = {
+                method: fetchOptions.method,
+                headers: fetchOptions.headers,
+                signal: fetchOptions.signal,
+                redirect: "manual",
+              };
+              if (fetchOptions.body !== undefined) {
+                directInit.body = fetchOptions.body;
+              }
+              return await globalThis.fetch(currentUrl, directInit);
+            }
+            fetchOptions.dispatcher = null;
           }
 
           try {
