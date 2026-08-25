@@ -37,19 +37,23 @@ const DEFAULT_ALLOWED_METHODS: HttpMethod[] = ["GET", "HEAD"];
 /** Load guarded-fetch before the defense-in-depth loader hook is active. */
 type GuardedFetchModule = typeof import("guarded-fetch");
 
-let guardedFetchPromise: Promise<GuardedFetchModule>;
+/**
+ * The guarded transport, or `null` in the browser build: guarded-fetch is
+ * undici-backed and Node-only. The browser keeps the ambient-fetch path the
+ * bespoke implementation used, and still fails closed when private-range
+ * enforcement is on (see the transport block in `secureFetch`).
+ */
+let guardedFetchPromise: Promise<GuardedFetchModule> | null;
 
 // Keep the browser branch statically foldable for esbuild.
 if (typeof __BROWSER__ !== "undefined" && __BROWSER__) {
-  guardedFetchPromise = Promise.reject(
-    new NetworkAccessDeniedError(
-      "",
-      "network access is unavailable in the browser build",
-    ),
-  );
+  guardedFetchPromise = null;
 } else {
   // Load before the defense-in-depth loader hook activates.
   guardedFetchPromise = import("guarded-fetch");
+  // Handle the rejection here so a failed import surfaces on the request that
+  // awaits it rather than as a module-init unhandled rejection.
+  void guardedFetchPromise.catch(() => undefined);
 }
 
 /**
@@ -98,6 +102,27 @@ export type SecureFetch = (
  */
 export function createSecureFetch(config: NetworkConfig): SecureFetch {
   const entries: AllowedUrlEntry[] = config.allowedUrlPrefixes ?? [];
+
+  // These hooks used to drive the bespoke resolver and pinned transport.
+  // guarded-fetch resolves and pins internally and exposes no seam for them,
+  // so accepting them would silently downgrade an embedder's own policy.
+  if (config._dnsResolve) {
+    throw new Error(
+      "NetworkConfig._dnsResolve is no longer supported: DNS resolution is " +
+        "performed by guarded-fetch and cannot be overridden",
+    );
+  }
+  if (config._createConnectionOwner) {
+    throw new Error(
+      "NetworkConfig._createConnectionOwner is no longer supported: " +
+        "connect-time IP pinning is performed by guarded-fetch and cannot " +
+        "be overridden",
+    );
+  }
+
+  // Test-only transport override. Never consulted for anything else: the
+  // guarded path must not depend on a caller-supplied transport in production.
+  const injectedFetch = config._fetch;
 
   // Fail fast on invalid allow-list entries
   if (!config.dangerouslyAllowFullInternetAccess) {
@@ -229,6 +254,39 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     };
   }
 
+  /** Whether the URL's host is a private/loopback IP literal. */
+  function isPrivateLiteral(requestUrl: string): boolean {
+    try {
+      return isPrivateIp(new URL(requestUrl).hostname);
+    } catch {
+      // Malformed URLs are rejected by the surrounding policy checks.
+      return false;
+    }
+  }
+
+  /**
+   * Ambient-`fetch` transport for the two audited unguarded paths (browser
+   * build, private IP literal). Both are reachable only while private-range
+   * enforcement is off, so no pinning is promised here.
+   */
+  async function unguardedFetch(
+    requestUrl: string,
+    fetchOptions: GuardedFetchOptions,
+  ): Promise<Response> {
+    const init: RequestInit = {
+      method: fetchOptions.method,
+      headers: fetchOptions.headers,
+      signal: fetchOptions.signal,
+      redirect: "manual",
+    };
+    if (fetchOptions.body !== undefined) {
+      init.body = fetchOptions.body;
+    }
+    // @banned-pattern-ignore: audited unguarded transport, reachable only when private-range enforcement is disabled
+    const ambientFetch = injectedFetch ?? globalThis.fetch;
+    return await ambientFetch(requestUrl, init);
+  }
+
   /**
    * Checks if a URL is allowed by the path-prefix allow-list.
    *
@@ -291,6 +349,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     error: unknown,
     url: string,
     mod: GuardedFetchModule,
+    context: { onRedirectHop: boolean; subReason?: string },
   ): Error {
     if (!mod.isGuardedFetchError(error)) return error as Error;
     const gfError = error as {
@@ -298,16 +357,27 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
       hostname?: string;
       message: string;
     };
+    const { onRedirectHop, subReason } = context;
     switch (gfError.code) {
       case "host_not_allowed":
       case "protocol_not_allowed":
-        return new NetworkAccessDeniedError(url);
+        // A hop rejected on its own address reads as a refused redirect, the
+        // way the bespoke implementation reported it.
+        return onRedirectHop
+          ? new RedirectNotAllowedError(url)
+          : new NetworkAccessDeniedError(url);
       case "hostname_unsafe":
-        // guarded-fetch uses one error code for private IP results.
-        return new NetworkAccessDeniedError(
-          url,
-          "hostname resolves to private/loopback IP address",
-        );
+        // guarded-fetch reports every DNS/SSRF rejection under one code; the
+        // sub-reason separates "could not resolve" from "resolved to a private
+        // address", which the bespoke implementation reported separately.
+        return onRedirectHop
+          ? new RedirectNotAllowedError(url)
+          : new NetworkAccessDeniedError(
+              url,
+              subReason === "dns_resolution_failed"
+                ? "DNS resolution failed for private IP check"
+                : "hostname resolves to private/loopback IP address",
+            );
       case "redirect_to_unsafe_host":
         return new RedirectNotAllowedError(url);
       case "too_many_redirects":
@@ -366,8 +436,9 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
       checkPrivateLiteral(url);
       checkMethodAllowed(method);
 
-      // The module was loaded at initialization and is cached.
-      const gfModule = await guardedFetchPromise;
+      // The module was loaded at initialization and is cached; `null` in the
+      // browser build, where the unguarded ambient path is used instead.
+      const gfModule = guardedFetchPromise ? await guardedFetchPromise : null;
 
       let currentUrl = url;
       let redirectCount = 0;
@@ -418,38 +489,55 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
 
           Object.assign(fetchOptions, buildHostPolicy(currentUrl));
 
-          // Use the ambient fetch for mocks and browser shims.
-          fetchOptions.fetch = globalThis.fetch as typeof fetch;
+          // Two cases have no guarded transport: the browser build (undici is
+          // Node-only) and private IP literals, which guarded-fetch rejects
+          // even with its host-allowlist skip. Both are permitted only as the
+          // explicit private-range opt-out; with enforcement on they fail
+          // closed, as the bespoke implementation did when pinning was
+          // unavailable.
+          if (!gfModule || isPrivateLiteral(currentUrl)) {
+            if (denyPrivateRanges) {
+              throw new NetworkAccessDeniedError(
+                currentUrl,
+                "DNS pinning unavailable for private IP enforcement",
+              );
+            }
+            return await unguardedFetch(currentUrl, fetchOptions);
+          }
 
-          if (!denyPrivateRanges) {
-            // guarded-fetch rejects private literals even with its host skip;
-            // use ambient fetch only for that explicit opt-out case. Public
-            // hosts use guarded-fetch with dispatcher:null.
-            let privateLiteral = false;
-            try {
-              privateLiteral = isPrivateIp(new URL(currentUrl).hostname);
-            } catch {
-              // URL validation is handled by the surrounding policy checks.
+          if (denyPrivateRanges) {
+            // Pinning is promised here, so the transport stays guarded-fetch's
+            // own undici `fetch`: it is the only one guaranteed to honor the
+            // guarded `dispatcher` that re-validates the resolved IP inside
+            // the socket connect. A host-wrapped `globalThis.fetch` (framework
+            // fetch cache, APM instrumentation, request mocking) can rebuild
+            // the init object and drop the non-standard `dispatcher` option,
+            // silently reopening the DNS-rebinding window.
+            if (injectedFetch) {
+              fetchOptions.fetch = injectedFetch;
             }
-            if (privateLiteral) {
-              const directInit: RequestInit = {
-                method: fetchOptions.method,
-                headers: fetchOptions.headers,
-                signal: fetchOptions.signal,
-                redirect: "manual",
-              };
-              if (fetchOptions.body !== undefined) {
-                directInit.body = fetchOptions.body;
-              }
-              return await globalThis.fetch(currentUrl, directInit);
-            }
+          } else {
+            // Enforcement is off, so no pinning is promised: use the ambient
+            // fetch, keeping host shims and test mocks working.
+            // @banned-pattern-ignore: audited no-pin path, reachable only when private-range enforcement is disabled
+            fetchOptions.fetch = injectedFetch ?? globalThis.fetch;
             fetchOptions.dispatcher = null;
           }
+
+          // guarded-fetch reports why it blocked a URL only through this hook,
+          // and the reason decides which message the caller sees.
+          let blockedSubReason: string | undefined;
+          fetchOptions.onUrlBlocked = (event) => {
+            blockedSubReason = event.subReason;
+          };
 
           try {
             return await gfModule.guardedFetch(currentUrl, fetchOptions);
           } catch (error) {
-            throw mapGuardedFetchError(error, currentUrl, gfModule);
+            throw mapGuardedFetchError(error, currentUrl, gfModule, {
+              onRedirectHop: redirectCount > 0,
+              subReason: blockedSubReason,
+            });
           }
         });
 
@@ -485,14 +573,21 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
             throw error;
           }
 
-          // 301/302/303 become GET without a body; 307/308 preserve both.
-          const statusChangesMethod =
-            response.status === 301 ||
-            response.status === 302 ||
-            response.status === 303;
-          if (statusChangesMethod && currentMethod.toUpperCase() !== "HEAD") {
+          // Method rewriting follows the fetch standard, which is also what
+          // curl does: 301/302 rewrite POST only, 303 rewrites every method
+          // except GET/HEAD, and 307/308 preserve method and body.
+          const status = response.status;
+          const rewriteToGet =
+            ((status === 301 || status === 302) && currentMethod === "POST") ||
+            (status === 303 &&
+              currentMethod !== "GET" &&
+              currentMethod !== "HEAD");
+          if (rewriteToGet) {
             currentMethod = "GET";
             currentBody = undefined;
+            // The rewritten method is a new request, so it has to satisfy the
+            // configured method policy rather than inherit the original's.
+            checkMethodAllowed(currentMethod);
           }
 
           // Do not forward user credentials across origins.

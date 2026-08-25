@@ -590,10 +590,30 @@ const BANNED_PATTERNS = [
     pattern: /(?<![.\w])fetch\s*\(/,
     filePattern: /src\/network\/fetch\.ts$/,
     message:
-      "A secured network request must use the request-owned reviewed-address\n" +
-      "connection owner whenever private-range enforcement is active.",
+      "A secured network request must use the guarded transport whenever\n" +
+      "private-range enforcement is active.",
     solutions: [
-      "Use the pinned connection owner's fetch method",
+      "Call guardedFetch so DNS validation and connect-time IP pinning apply",
+      "Annotate only the audited branch where private-range enforcement is disabled",
+    ],
+  },
+  {
+    name: "Ambient fetch reference in secured network path",
+    // Catches `globalThis.fetch` and friends, whether called directly or
+    // aliased/handed to guarded-fetch as its transport. The `.`-prefixed form
+    // is invisible to the raw-fetch rule above.
+    // Skip comment lines.
+    pattern:
+      /^(?!\s*(?:\/\/|\/?\*)).*(?<![.\w])(?:globalThis|global|window|self)\s*\.\s*fetch\b/,
+    filePattern: /src\/network\/fetch\.ts$/,
+    message:
+      "The ambient fetch is mutable host state: a wrapper installed by a\n" +
+      "framework, APM agent, or mocking library can rebuild the request init\n" +
+      "and drop guarded-fetch's non-standard `dispatcher`, silently disabling\n" +
+      "connect-time IP pinning.",
+    solutions: [
+      "Let guarded-fetch use its own undici transport on the pinned path",
+      "Inject a transport via NetworkConfig._fetch for tests",
       "Annotate only the audited branch where private-range enforcement is disabled",
     ],
   },

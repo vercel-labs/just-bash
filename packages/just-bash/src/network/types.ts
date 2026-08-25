@@ -134,20 +134,33 @@ export interface NetworkConfig {
   /**
    * @internal Override DNS resolution for testing.
    *
-   * @deprecated No longer consumed by the guarded-fetch adapter; guarded-fetch
-   * resolves DNS internally. Retained for type compatibility with existing
-   * embedders. Passing it has no effect.
+   * @deprecated Not supported since the move to guarded-fetch, which resolves
+   * DNS internally and exposes no seam for a custom resolver. Retained so
+   * existing embedders get a clear error instead of a silently weaker policy:
+   * `createSecureFetch` throws when this is set.
    */
   _dnsResolve?: (hostname: string) => Promise<DnsLookupResult[]>;
 
   /**
    * @internal Override request-owned connection binding for testing.
    *
-   * @deprecated No longer consumed by the guarded-fetch adapter; guarded-fetch
-   * provides connect-time IP pinning via its guarded dispatcher. Retained for
-   * type compatibility with existing embedders. Passing it has no effect.
+   * @deprecated Not supported since the move to guarded-fetch, which performs
+   * connect-time IP pinning through its own guarded dispatcher. Retained so
+   * existing embedders get a clear error instead of a silently weaker policy:
+   * `createSecureFetch` throws when this is set.
    */
   _createConnectionOwner?: PinnedConnectionOwnerFactory;
+
+  /**
+   * @internal Override the HTTP transport for testing.
+   *
+   * Tests that must intercept requests on the private-range-enforcing path
+   * set this instead of patching `globalThis.fetch`: that path deliberately
+   * uses guarded-fetch's own undici transport, the only one guaranteed to
+   * honor the guarded dispatcher that closes the DNS-rebinding window.
+   * DNS resolution and IP validation still run — only the transport changes.
+   */
+  _fetch?: typeof fetch;
 }
 
 /**
