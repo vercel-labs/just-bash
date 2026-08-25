@@ -119,7 +119,15 @@ const probes = [
   ['bun-alias', 'bun', ['-e', \\"require('fs').writeFileSync('/tmp/jb_host_node_exec_marker_paths','1')\\"]],
 ];
 for (const [name, cmd, args] of probes) {
-  const r = cp.spawnSync(cmd, args);
+  // A probe that throws must not swallow the ones after it: an aborted loop
+  // used to surface as silently missing lines, which says nothing about why.
+  let r;
+  try {
+    r = cp.spawnSync(cmd, args);
+  } catch (e) {
+    console.log(name + ':threw=' + String(e && e.message ? e.message : e));
+    continue;
+  }
   const err = String(r.stderr || '');
   console.log(name + ':status=' + String(r.status));
   console.log(name + ':blocked=' + String(err.includes('this sandbox uses js-exec instead of node')));
@@ -127,6 +135,12 @@ for (const [name, cmd, args] of probes) {
 }
 console.log('MARKER=' + String(fs.existsSync(marker)));
 "`);
+
+    // Check the transport before the payload: if js-exec itself failed (deadline
+    // exceeded, worker torn down), these name the cause, whereas a truncated
+    // stdout diff does not.
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
 
     expect(result.stdout).toBe(
       [
@@ -161,8 +175,6 @@ console.log('MARKER=' + String(fs.existsSync(marker)));
         "",
       ].join("\n"),
     );
-    expect(result.stderr).toBe("");
-    expect(result.exitCode).toBe(0);
     assertExecResultSafe(result);
   });
 });
