@@ -124,10 +124,6 @@ export interface EnvAdapter {
 function withMockFetch(
   network: BashOptions["network"],
 ): BashOptions["network"] {
-  // The adapter routes through globalThis.fetch (which guarded-fetch passes
-  // its guarded dispatcher to). Test suites set global.fetch = mockFetch
-  // beforeAll, so the adapter picks up the mock automatically. No explicit
-  // _fetchImpl injection is needed.
   return network;
 }
 

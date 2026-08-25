@@ -1,44 +1,8 @@
 /**
- * Secure fetch wrapper backed by guarded-fetch
+ * Secure fetch adapter.
  *
- * This module preserves just-bash's public secure-fetch contract
- * (`createSecureFetch`, `SecureFetch`, `SecureFetchOptions`, `FetchResult`)
- * and its path-prefix allow-list + firewall header transforms, while
- * delegating the SSRF/DNS-rebinding/transport layer to the
- * `guarded-fetch` package.
- *
- * Responsibilities retained here:
- * 1. Path-prefix allow-list enforcement (guarded-fetch is hostname-only).
- * 2. Firewall header transforms — credentials brokering at the fetch boundary
- *    so secrets never enter the sandbox, re-applied per redirect hop.
- * 3. Manual redirect following with per-hop path-prefix allow-list re-check,
- *    RFC 7231 method/body rewriting (301/302/303 → GET + drop body), and
- *    cross-origin credential stripping (Authorization/Cookie dropped when
- *    the redirect changes origin). guarded-fetch's built-in redirect
- *    following is disabled so these just-bash-specific checks can run.
- * 4. Translation of the Response returned by guarded-fetch into the
- *    `FetchResult` shape (null-prototype headers, raw bytes) that just-bash
- *    commands consume.
- * 5. Mapping guarded-fetch's `GuardedFetchError` codes onto just-bash's
- *    domain error types so existing callers/tests keep working.
- *
- * Responsibilities delegated to guarded-fetch:
- * - Private/loopback/link-local IP rejection (lexical + DNS-resolved).
- * - DNS-rebinding protection via connect-time IP pinning (guarded dispatcher
- *   passed to the fetch implementation; Node's globalThis.fetch honors the
- *   dispatcher option, so pinning is preserved in production).
- * - Protocol allow-listing (http/https only).
- * - Per-request URL safety validation (assertUrlIsSafeToFetch) on the
- *   initial URL. Redirect-hop SSRF re-validation is performed here since
- *   we drive redirects manually.
- *
- * NOT delegated (intentionally disabled):
- * - Header sanitization (sanitizeHeaders: false) — just-bash's firewall-header
- *   system is its own sanitization layer. The sandbox can set cookies/Host
- *   via curl; guarded-fetch's blanket Cookie/Host stripping would break that.
- * - guarded-fetch's built-in redirect following (followRedirects: false) —
- *   redirects are driven here so firewall headers are re-applied per hop and
- *   path-scoped allow-listing is re-checked.
+ * just-bash retains path allow-listing, firewall headers, response conversion,
+ * and redirect policy; guarded-fetch handles SSRF and transport safety.
  */
 
 import type { GuardedFetchOptions } from "guarded-fetch";
@@ -70,23 +34,12 @@ const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_MAX_RESPONSE_SIZE = 10485760; // 10MB
 const DEFAULT_ALLOWED_METHODS: HttpMethod[] = ["GET", "HEAD"];
 
-/**
- * guarded-fetch is Node-only (depends on undici and node:dns). The browser
- * build folds the import away via __BROWSER__. On Node, the module is loaded
- * eagerly at module-load time (NOT during script execution) so the
- * defense-in-depth loader hook does not block guarded-fetch's internal
- * `import("node:dns/promises")`.
- *
- * The bespoke dns-pin.ts used the same pattern: a static top-level
- * `import { lookup } from "node:dns"` that loaded before any script ran.
- */
+/** Load guarded-fetch before the defense-in-depth loader hook is active. */
 type GuardedFetchModule = typeof import("guarded-fetch");
 
 let guardedFetchPromise: Promise<GuardedFetchModule>;
 
-// Use __BROWSER__ directly (not IS_BROWSER) so esbuild's --define folding
-// eliminates the import("guarded-fetch") branch entirely in the browser build.
-// IS_BROWSER involves a typeof check that esbuild cannot statically fold.
+// Keep the browser branch statically foldable for esbuild.
 if (typeof __BROWSER__ !== "undefined" && __BROWSER__) {
   guardedFetchPromise = Promise.reject(
     new NetworkAccessDeniedError(
@@ -95,9 +48,7 @@ if (typeof __BROWSER__ !== "undefined" && __BROWSER__) {
     ),
   );
 } else {
-  // Eager load at module-evaluation time. The dynamic import() here runs
-  // during module initialization (before any untrusted script executes),
-  // so the defense-in-depth loader hook does not intercept it.
+  // Load before the defense-in-depth loader hook activates.
   guardedFetchPromise = import("guarded-fetch");
 }
 
@@ -225,11 +176,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     }
   }
 
-  // guarded-fetch performs its own DNS resolution for SSRF protection. It does
-  // not expose a lookup-injection seam, so the bespoke `_dnsResolve` and
-  // `_createConnectionOwner` test hooks are not bridged; the e2e suites that
-  // relied on them are rewritten to assert behavior through the public
-  // `SecureFetch` surface instead.
+  // DNS resolution and connection pinning are handled by guarded-fetch.
 
   /**
    * Extracts a hostname for guarded-fetch's host allowlist, returning a
@@ -263,23 +210,19 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
   > {
     if (config.dangerouslyAllowFullInternetAccess) {
       if (denyPrivateRanges) {
-        // No host allowlist; guarded-fetch's SSRF check is the sole gate and
-        // private/loopback/link-local addresses are rejected by it.
+        // guarded-fetch enforces SSRF checks without a host allowlist.
         return {
           allowedHosts: undefined,
           skipSsrfCheckForAllowedHosts: undefined,
         };
       }
-      // No private-range denial: skip DNS entirely by trusting the request's
-      // own hostname, matching the bespoke implementation.
+      // Skip DNS for the explicit private-range opt-out.
       return {
         allowedHosts: [safeHostnameOf(requestUrl)],
         skipSsrfCheckForAllowedHosts: true,
       };
     }
-    // Allow-list mode. allowedHosts carries the configured origins so
-    // guarded-fetch enforces hostname scoping in addition to just-bash's
-    // path-prefix check.
+    // Combine guarded-fetch hostname checks with path-prefix checks.
     return {
       allowedHosts,
       skipSsrfCheckForAllowedHosts: !denyPrivateRanges,
@@ -360,9 +303,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
       case "protocol_not_allowed":
         return new NetworkAccessDeniedError(url);
       case "hostname_unsafe":
-        // guarded-fetch unifies lexical + DNS-resolved private IPs under one
-        // code. The lexical literal case is pre-empted above; a DNS-resolved
-        // private address surfaces here.
+        // guarded-fetch uses one error code for private IP results.
         return new NetworkAccessDeniedError(
           url,
           "hostname resolves to private/loopback IP address",
@@ -374,8 +315,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
       case "response_too_large":
         return new ResponseTooLargeError(maxResponseSize);
       default:
-        // timeout, network_error, redirect_invalid, invalid_url — surface the
-        // underlying abort/network reason so callers see the original cause.
+        // Preserve the underlying timeout, network, or URL error.
         return error as Error;
     }
   }
@@ -421,23 +361,18 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     );
 
     try {
-      // Pre-flight checks live inside the try/finally so that a denied URL,
-      // private literal, or disallowed method still cleans up the timeout
-      // timer and combined-signal listeners. (The bespoke implementation
-      // also performed these inside the try block.)
+      // Keep preflight inside finally so rejected requests clean up.
       checkPathAllowed(url);
       checkPrivateLiteral(url);
       checkMethodAllowed(method);
 
-      // Load guarded-fetch eagerly (the import was started at module-load
-      // time). The promise is cached so subsequent calls reuse it.
+      // The module was loaded at initialization and is cached.
       const gfModule = await guardedFetchPromise;
 
       let currentUrl = url;
       let redirectCount = 0;
 
-      // Track per-hop state so RFC 7231 method/body rewriting and
-      // cross-origin credential stripping can be applied between redirects.
+      // Redirects update method, body, and user credentials per hop.
       let currentMethod = method;
       let currentBody = options.body;
       const currentHeaders = options.headers;
@@ -446,18 +381,9 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
       while (true) {
         throwIfAborted(combinedAbort.signal);
 
-        // Header construction and the guarded-fetch call both run inside the
-        // trusted boundary: guarded-fetch creates an undici Agent
-        // (FinalizationRegistry) and does DNS resolution internally. The
-        // guarded-fetch module itself was loaded eagerly at module-init time
-        // (outside script execution) so its internal `import("node:dns/promises")`
-        // is not intercepted by the defense-in-depth loader hook.
+        // Keep transport creation inside the trusted boundary.
         const response = await DefenseInDepthBox.runTrustedAsync(async () => {
-          // Strip user-supplied credentials after a cross-origin redirect.
-          // Firewall transforms (applied below via buildMergedHeaders) are
-          // the sandbox's own credential brokering and are NOT stripped —
-          // they re-inject Authorization/Cookie for hops that match the
-          // transform entry's URL prefix.
+          // Strip user credentials; firewall credentials are re-applied below.
           let userHeaders = currentHeaders;
           if (credentialsStripped && userHeaders) {
             const h =
@@ -479,16 +405,10 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
             method: currentMethod,
             headers: mergedHeaders,
             signal: combinedAbort.signal,
-            // We drive redirects ourselves so firewall headers are re-applied
-            // per hop and path-scoped allow-listing is re-checked.
+            // Redirects are handled here so headers and path policy are reapplied.
             followRedirects: false,
             timeoutMs: effectiveTimeout,
-            // just-bash's firewall-header system is its own (narrower)
-            // sanitization layer: the sandbox can set cookies/Host via curl and
-            // firewall transforms only override specific headers. guarded-fetch's
-            // blanket Cookie/Host stripping would break that contract, so hand
-            // the merged headers through verbatim. SSRF/redirect/DNS protections
-            // remain fully in force.
+            // Preserve firewall-managed Cookie/Host semantics.
             sanitizeHeaders: false,
           };
 
@@ -498,19 +418,13 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
 
           Object.assign(fetchOptions, buildHostPolicy(currentUrl));
 
-          // Route through the ambient globalThis.fetch so test mocks and
-          // browser shims are honored. In the guarded path, guarded-fetch
-          // passes its dispatcher into fetchInit.dispatcher and Node's fetch
-          // honors it, preserving connect-time IP pinning.
+          // Use the ambient fetch for mocks and browser shims.
           fetchOptions.fetch = globalThis.fetch as typeof fetch;
 
           if (!denyPrivateRanges) {
-            // The explicit opt-out permits private/loopback literals, but
-            // guarded-fetch still rejects those lexically even with
-            // skipSsrfCheckForAllowedHosts. Only those literal opt-out cases
-            // use the ambient fetch directly. Public hosts still go through
-            // guarded-fetch with dispatcher:null, making the opt-out explicit
-            // without retaining a broad unguarded transport branch.
+            // guarded-fetch rejects private literals even with its host skip;
+            // use ambient fetch only for that explicit opt-out case. Public
+            // hosts use guarded-fetch with dispatcher:null.
             let privateLiteral = false;
             try {
               privateLiteral = isPrivateIp(new URL(currentUrl).hostname);
@@ -571,9 +485,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
             throw error;
           }
 
-          // Per RFC 7231 §6.4: 301/302/303 change the method to GET and drop
-          // the body; 307/308 preserve both. This matches guarded-fetch's
-          // built-in redirect behavior that we took over.
+          // 301/302/303 become GET without a body; 307/308 preserve both.
           const statusChangesMethod =
             response.status === 301 ||
             response.status === 302 ||
@@ -583,8 +495,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
             currentBody = undefined;
           }
 
-          // Drop credentials on cross-origin redirects so Authorization/Cookie
-          // never follow a redirect to a different host.
+          // Do not forward user credentials across origins.
           if (new URL(redirectUrl).origin !== new URL(currentUrl).origin) {
             credentialsStripped = true;
           }

@@ -1,21 +1,4 @@
-/**
- * DNS rebinding SSRF protection tests
- *
- * Verifies that private/loopback IPs are blocked when denyPrivateRanges is
- * enabled, preventing DNS rebinding attacks.
- *
- * The bespoke implementation exposed a `_dnsResolve` injection seam for
- * faking DNS answers; guarded-fetch resolves DNS internally and does not
- * expose that seam. These tests therefore assert behavior through the
- * public `createSecureFetch` surface:
- *
- * - Private IP literals are blocked by the lexical pre-check (no DNS needed).
- * - `denyPrivateRanges: false` skips all SSRF/DNS checks.
- * - DNS-resolved private IPs, multi-record split-horizon, and fail-closed
- *   on DNS errors are guarded-fetch's responsibility and covered by its own
- *   test suite; the error mapping from GuardedFetchError to just-bash's
- *   domain errors is verified here.
- */
+/** DNS rebinding and private-IP enforcement tests. */
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createSecureFetch } from "../fetch.js";
