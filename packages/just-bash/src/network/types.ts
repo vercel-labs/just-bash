@@ -133,32 +133,22 @@ export interface NetworkConfig {
 
   /**
    * @internal Override DNS resolution for testing.
-   *
-   * @deprecated Not supported since the move to guarded-fetch, which resolves
-   * DNS internally and exposes no seam for a custom resolver. Retained so
-   * existing embedders get a clear error instead of a silently weaker policy:
-   * `createSecureFetch` throws when this is set.
+   * @deprecated guarded-fetch resolves DNS internally; `createSecureFetch`
+   * throws when this is set rather than running a weaker policy silently.
    */
   _dnsResolve?: (hostname: string) => Promise<DnsLookupResult[]>;
 
   /**
    * @internal Override request-owned connection binding for testing.
-   *
-   * @deprecated Not supported since the move to guarded-fetch, which performs
-   * connect-time IP pinning through its own guarded dispatcher. Retained so
-   * existing embedders get a clear error instead of a silently weaker policy:
-   * `createSecureFetch` throws when this is set.
+   * @deprecated guarded-fetch pins connections itself; `createSecureFetch`
+   * throws when this is set rather than running a weaker policy silently.
    */
   _createConnectionOwner?: PinnedConnectionOwnerFactory;
 
   /**
-   * @internal Override the HTTP transport for testing.
-   *
-   * Tests that must intercept requests on the private-range-enforcing path
-   * set this instead of patching `globalThis.fetch`: that path deliberately
-   * uses guarded-fetch's own undici transport, the only one guaranteed to
-   * honor the guarded dispatcher that closes the DNS-rebinding window.
-   * DNS resolution and IP validation still run — only the transport changes.
+   * @internal Override the HTTP transport for testing. Required to intercept
+   * requests on the private-range-enforcing path, which ignores
+   * `globalThis.fetch`. DNS resolution and IP validation still run.
    */
   _fetch?: typeof fetch;
 }

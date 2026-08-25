@@ -1,16 +1,11 @@
 /**
  * DNS-rebinding protection on the guarded path (`denyPrivateRanges: true`).
  *
- * guarded-fetch owns resolution, so these tests drive it by mocking
- * `node:dns/promises` (guarded-fetch is inlined in vitest.config.ts so the
- * mock reaches it). The transport is injected through `_fetch`, which means a
- * request that survives the DNS check still never leaves the process — and,
- * unlike patching `globalThis.fetch`, it cannot mask the guarded path
- * accidentally routing through ambient host state.
- *
- * What is covered here is the *wiring*: that private-range enforcement makes
- * guarded-fetch resolve and reject, that failures fail closed, and that
- * turning enforcement off skips resolution entirely.
+ * guarded-fetch owns resolution, so these drive it by mocking
+ * `node:dns/promises` — which only reaches it because the vitest configs
+ * inline guarded-fetch. The transport comes from `_fetch`, so a request that
+ * passes the DNS check still never leaves the process, and the guarded path
+ * cannot quietly fall back to ambient host state.
  */
 
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -43,27 +38,20 @@ function resolutionFails(code: string): void {
 const PUBLIC: LookupResult = { address: "93.184.216.34", family: 4 };
 
 let createSecureFetch: (config: NetworkConfig) => SecureFetch;
-/**
- * Error classes from the same freshly-imported graph as `createSecureFetch`.
- * Reading them off a static import would compare against a different class
- * object and never match.
- */
+/** Error classes from the same fresh graph, or `instanceof` never matches. */
 let errors: typeof import("./types.js");
 
 beforeAll(async () => {
-  // Some configs run with `isolate: false`, where another file may already
-  // have pulled guarded-fetch in with the real resolver bound. Reset the
-  // registry and re-import so this file's mock is the one in force.
+  // Under `isolate: false` another file may already hold guarded-fetch with
+  // the real resolver bound, so re-import to put this file's mock in force.
   vi.resetModules();
   [{ createSecureFetch }, errors] = await Promise.all([
     import("./fetch.js"),
     import("./types.js"),
   ]);
 
-  // Everything below assumes the mock reaches guarded-fetch, which only holds
-  // while the running vitest config keeps guarded-fetch out of SSR externals.
-  // Check it once: otherwise this file would quietly resolve real hostnames
-  // and stop testing the defense it exists for.
+  // Without the inline setting the mock never reaches guarded-fetch and this
+  // file would quietly resolve real hostnames, testing nothing.
   resolvesTo(PUBLIC);
   try {
     await createSecureFetch({

@@ -1,15 +1,9 @@
 /**
  * Browser-build behavior of the secure fetch adapter.
  *
- * guarded-fetch is undici-backed and Node-only, so the browser build folds it
- * out entirely. That leaves two things worth pinning down, neither of which is
- * observable from a normal Node test because the branch is chosen by a
- * compile-time define: importing the module must not emit an unhandled
- * rejection, and requests must still work through the ambient `fetch` the way
- * they did before guarded-fetch was adopted — while private-range enforcement
- * still fails closed, since the browser cannot pin a connection.
- *
- * The module is bundled here the same way `build:browser` bundles it.
+ * The browser folds guarded-fetch out at compile time, so none of this is
+ * observable from an ordinary Node test: the module is bundled here exactly
+ * the way `build:browser` bundles it, then exercised.
  */
 
 import { execFile } from "node:child_process";
@@ -32,8 +26,7 @@ beforeAll(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "just-bash-browser-fetch-"));
   const outfile = join(tempDir, "fetch.browser.js");
 
-  // Same shape as the build:browser script: browser platform, __BROWSER__
-  // defined, Node-only modules aliased to the unsupported shim.
+  // Same flags as the build:browser script.
   await execFileAsync(
     resolve(packageRoot, "node_modules/.bin/esbuild"),
     [
@@ -57,7 +50,7 @@ beforeAll(async () => {
   };
   process.on("unhandledRejection", onUnhandled);
   ({ createSecureFetch } = await import(outfile));
-  // Let the microtask queue drain so a module-init rejection would surface.
+  // Drain microtasks so a module-init rejection would surface.
   await new Promise((r) => setTimeout(r, 0));
   process.off("unhandledRejection", onUnhandled);
 }, 30000);
@@ -70,8 +63,7 @@ describe("browser build", () => {
   it("does not import guarded-fetch", async () => {
     const { readFile } = await import("node:fs/promises");
     const bundle = await readFile(join(tempDir, "fetch.browser.js"), "utf-8");
-    // The module name still appears in error text; what must be gone is any
-    // static or dynamic import of it, which a browser could not resolve.
+    // The name survives in error text; no *import* of it may remain.
     expect(bundle).not.toMatch(/from\s*["']guarded-fetch["']/);
     expect(bundle).not.toMatch(/import\s*\(\s*["']guarded-fetch["']\s*\)/);
     expect(bundle).not.toMatch(/require\s*\(\s*["']guarded-fetch["']\s*\)/);
@@ -82,8 +74,7 @@ describe("browser build", () => {
   });
 
   it("serves an allow-listed request through the ambient fetch", async () => {
-    // Patch the global rather than injecting `_fetch`: the point is that the
-    // browser build still uses the page's own fetch, as it did before.
+    // Patch the global, not `_fetch`: the page's own fetch must be used.
     const original = globalThis.fetch;
     const transport = vi.fn(async () => new Response("browser-body"));
     globalThis.fetch = transport as unknown as typeof fetch;
@@ -117,8 +108,7 @@ describe("browser build", () => {
   });
 
   it("fails closed when private-range enforcement is requested", async () => {
-    // No undici in the browser means no connect-time pinning, so a policy that
-    // depends on it must refuse rather than run unprotected.
+    // No undici means no pinning, so the policy must refuse, not run open.
     const transport = vi.fn(async () => new Response("browser-body"));
     const secureFetch = createSecureFetch({
       allowedUrlPrefixes: ["https://api.example.com"],
