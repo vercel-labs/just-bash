@@ -51,14 +51,36 @@ let createSecureFetch: (config: NetworkConfig) => SecureFetch;
 let errors: typeof import("./types.js");
 
 beforeAll(async () => {
-  // The suite runs with `isolate: false`, so another file may already have
-  // pulled guarded-fetch in with the real resolver bound. Reset the registry
-  // and re-import so this file's `node:dns/promises` mock is the one in force.
+  // Some configs run with `isolate: false`, where another file may already
+  // have pulled guarded-fetch in with the real resolver bound. Reset the
+  // registry and re-import so this file's mock is the one in force.
   vi.resetModules();
   [{ createSecureFetch }, errors] = await Promise.all([
     import("./fetch.js"),
     import("./types.js"),
   ]);
+
+  // Everything below assumes the mock reaches guarded-fetch, which only holds
+  // while the running vitest config keeps guarded-fetch out of SSR externals.
+  // Check it once: otherwise this file would quietly resolve real hostnames
+  // and stop testing the defense it exists for.
+  resolvesTo(PUBLIC);
+  try {
+    await createSecureFetch({
+      dangerouslyAllowFullInternetAccess: true,
+      denyPrivateRanges: true,
+      _fetch: async () => new Response("probe"),
+    })("https://mock-probe.example/");
+  } catch {
+    // Only whether the resolver was consulted matters here.
+  }
+  if (lookup.mock.calls.length === 0) {
+    throw new Error(
+      'node:dns/promises mock did not reach guarded-fetch. Add "guarded-fetch" ' +
+        "to test.server.deps.inline in the vitest config running this file.",
+    );
+  }
+  lookup.mockReset();
 });
 
 afterEach(() => {
