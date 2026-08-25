@@ -5,6 +5,7 @@
  * curl commands through BashEnv and Sandbox.create.
  */
 
+import { lookup } from "node:dns/promises";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   type AdapterFactory,
@@ -19,6 +20,20 @@ import {
   MOCK_USERS_BODY,
   originalFetch,
 } from "./shared.js";
+
+/**
+ * Whether a hostname resolves here. Used to skip the parts of a test that
+ * need real DNS, so a sandboxed runner without a resolver does not report a
+ * security regression it cannot observe.
+ */
+async function dnsAvailable(hostname: string): Promise<boolean> {
+  try {
+    await lookup(hostname, { all: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Runs the allow-list test suite with a given adapter factory
@@ -378,13 +393,17 @@ function runAllowListTests(name: string, createAdapter: AdapterFactory) {
           },
         });
 
-        // Public URL should still be allowed. evil.com resolves to a public IP
-        // in real DNS, so guarded-fetch's SSRF check passes; the mock fetch
-        // supplies the response body.
-        const r1 = await env.exec("curl https://evil.com/data");
-        expect(r1.exitCode).toBe(0);
-        expect(r1.stdout).toBe(MOCK_EVIL_BODY);
-        expect(r1.stderr).toBe("");
+        // A public host must still be allowed. Private-range enforcement makes
+        // guarded-fetch resolve the hostname for real, so this half of the test
+        // only runs where DNS is available; the private-IP assertions below are
+        // lexical and always run. (Resolution behavior itself is covered
+        // without real DNS in dns-guarded-path.test.ts.)
+        if (await dnsAvailable("evil.com")) {
+          const r1 = await env.exec("curl https://evil.com/data");
+          expect(r1.exitCode).toBe(0);
+          expect(r1.stdout).toBe(MOCK_EVIL_BODY);
+          expect(r1.stderr).toBe("");
+        }
 
         // Private IPs should be blocked even with full access
         await expectBlockedPrivate(env, "https://127.0.0.1/data");

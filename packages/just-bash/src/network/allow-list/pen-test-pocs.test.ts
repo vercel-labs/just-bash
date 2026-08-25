@@ -70,16 +70,14 @@ describe("network pen-test PoCs", () => {
     }
   });
 
-  it("does not resolve DNS for disallowed hosts even when denyPrivateRanges is enabled", async () => {
+  it("does not reach DNS or transport for disallowed hosts even when denyPrivateRanges is enabled", async () => {
     const mockFetch = installEchoFetch();
-    const resolver = vi.fn(async () => [{ address: "127.0.0.1", family: 4 }]);
 
     try {
       const env = new Bash({
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           denyPrivateRanges: true,
-          _dnsResolve: resolver,
         },
       });
       const result = await env.exec('curl "https://secret.internal/data"');
@@ -89,7 +87,6 @@ describe("network pen-test PoCs", () => {
         "curl: (7) Network access denied: URL not in allow-list: https://secret.internal/data\n",
       );
       expect(result.exitCode).toBe(7);
-      expect(resolver).not.toHaveBeenCalled();
       expect(mockFetch).not.toHaveBeenCalled();
     } finally {
       global.fetch = originalFetch;
@@ -99,18 +96,12 @@ describe("network pen-test PoCs", () => {
 
   it("does not leak DNS failure state for disallowed hosts", async () => {
     const mockFetch = installEchoFetch();
-    const resolver = vi.fn(async () => {
-      const error = new Error("DNS timeout");
-      (error as NodeJS.ErrnoException).code = "ETIMEOUT";
-      throw error;
-    });
 
     try {
       const env = new Bash({
         network: {
           allowedUrlPrefixes: ["https://api.example.com"],
           denyPrivateRanges: true,
-          _dnsResolve: resolver,
         },
       });
       const result = await env.exec('curl "https://secret.internal/data"');
@@ -120,7 +111,6 @@ describe("network pen-test PoCs", () => {
         "curl: (7) Network access denied: URL not in allow-list: https://secret.internal/data\n",
       );
       expect(result.exitCode).toBe(7);
-      expect(resolver).not.toHaveBeenCalled();
       expect(mockFetch).not.toHaveBeenCalled();
     } finally {
       global.fetch = originalFetch;

@@ -87,29 +87,28 @@ describe("DNS rebinding SSRF protection", () => {
       );
     });
 
-    it("maps redirect_to_unsafe_host to RedirectNotAllowedError", async () => {
-      const secureFetch = createSecureFetch({
-        dangerouslyAllowFullInternetAccess: true,
-        denyPrivateRanges: true,
-      });
-      // A redirect to a private IP literal is caught by the adapter's
-      // redirect re-check (lexical), producing RedirectNotAllowedError.
-      // We can't easily simulate a DNS-resolved private redirect without
-      // fake DNS, but the redirect-to-private-literal path is testable.
-      // The mock returns a 302 to 127.0.0.1 for this URL.
-      global.fetch = vi.fn(
+    it("rejects a redirect to a private IP literal", async () => {
+      // The transport is injected rather than mocked on the global: the
+      // private-range-enforcing path deliberately uses guarded-fetch's own
+      // transport, so a global mock would not be consulted. Enforcement is
+      // off here because the point of the test is the adapter's per-hop
+      // lexical re-check, not resolution (covered in dns-guarded-path).
+      const transport = vi.fn(
         async () =>
           new Response("", {
             status: 302,
             headers: { location: "https://127.0.0.1/data" },
           }),
-      ) as typeof fetch;
+      );
+      const secureFetch = createSecureFetch({
+        dangerouslyAllowFullInternetAccess: true,
+        denyPrivateRanges: true,
+        _fetch: transport,
+      });
 
       await expect(secureFetch("https://evil.com/start")).rejects.toThrow(
         "Redirect target not in allow-list",
       );
-
-      global.fetch = mockFetch as typeof fetch;
     });
   });
 

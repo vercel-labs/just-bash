@@ -282,4 +282,94 @@ describe("secureFetch behavior", () => {
     expect(seenMethods).toEqual(["POST", "GET"]);
     expect(seenBodies).toEqual(["post-data", undefined]);
   });
+
+  /**
+   * Records the method and body of every hop for a single redirect.
+   */
+  async function followOneRedirect(
+    status: number,
+    method: string,
+  ): Promise<{ methods: string[]; bodies: (string | undefined)[] }> {
+    const methods: string[] = [];
+    const bodies: (string | undefined)[] = [];
+    globalThis.fetch = mockFetch(async (u, init) => {
+      methods.push(init.method ?? "GET");
+      bodies.push(init.body as string | undefined);
+      if (u === "https://example.com/start") {
+        return new Response("", {
+          status,
+          headers: { location: "https://example.com/final" },
+        });
+      }
+      return new Response("ok", { status: 200 });
+    });
+
+    const secureFetch = createSecureFetch({
+      allowedUrlPrefixes: ["https://example.com"],
+      denyPrivateRanges: false,
+      allowedMethods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
+    });
+    await secureFetch("https://example.com/start", {
+      method,
+      body: "payload",
+    });
+    return { methods, bodies };
+  }
+
+  // The fetch standard rewrites only POST on 301/302; curl does the same.
+  // Rewriting PUT/PATCH/DELETE would drop the caller's method and body.
+  it.each([
+    [301, "PUT"],
+    [302, "PUT"],
+    [301, "PATCH"],
+    [302, "DELETE"],
+  ])("preserves %s on a %i redirect", async (status, method) => {
+    const { methods, bodies } = await followOneRedirect(status, method);
+    expect(methods).toEqual([method, method]);
+    expect(bodies).toEqual(["payload", "payload"]);
+  });
+
+  it.each([
+    "PUT",
+    "DELETE",
+    "POST",
+  ])("rewrites %s to GET on a 303 redirect", async (method) => {
+    const { methods, bodies } = await followOneRedirect(303, method);
+    expect(methods).toEqual([method, "GET"]);
+    expect(bodies).toEqual(["payload", undefined]);
+  });
+
+  it("keeps HEAD on a 303 redirect", async () => {
+    const { methods } = await followOneRedirect(303, "HEAD");
+    expect(methods).toEqual(["HEAD", "HEAD"]);
+  });
+
+  it("refuses a redirect whose rewritten method is not allowed", async () => {
+    // A POST-only policy must not silently issue the rewritten GET.
+    const seenMethods: string[] = [];
+    globalThis.fetch = mockFetch(async (u, init) => {
+      seenMethods.push(init.method ?? "GET");
+      if (u === "https://example.com/start") {
+        return new Response("", {
+          status: 302,
+          headers: { location: "https://example.com/final" },
+        });
+      }
+      return new Response("ok", { status: 200 });
+    });
+
+    const secureFetch = createSecureFetch({
+      allowedUrlPrefixes: ["https://example.com"],
+      denyPrivateRanges: false,
+      allowedMethods: ["POST"],
+    });
+
+    await expect(
+      secureFetch("https://example.com/start", {
+        method: "POST",
+        body: "payload",
+      }),
+    ).rejects.toThrow("HTTP method 'GET' not allowed. Allowed methods: POST");
+    expect(seenMethods).toEqual(["POST"]);
+  });
 });
