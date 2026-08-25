@@ -105,9 +105,16 @@ EOF`);
 
     it("should send custom headers", async () => {
       mockFetch.mockImplementationOnce(async (_url, options) => {
-        const headers = options?.headers as Record<string, string>;
+        const headers = options?.headers as
+          | Headers
+          | Record<string, string>
+          | undefined;
+        const customHeader =
+          headers && "get" in headers && typeof headers.get === "function"
+            ? headers.get("X-Custom")
+            : (headers?.["X-Custom"] ?? headers?.["x-custom"]);
         return new Response(
-          JSON.stringify({ headers: { "X-Custom": headers?.["X-Custom"] } }),
+          JSON.stringify({ headers: { "X-Custom": customHeader } }),
           { status: 200 },
         );
       });
