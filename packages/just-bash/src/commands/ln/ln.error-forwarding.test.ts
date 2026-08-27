@@ -43,6 +43,42 @@ describe("ln command error forwarding", () => {
     expect(result.exitCode).toBe(1);
   });
 
+  // A filesystem that does not allow symlinks reports EPERM from `symlink`,
+  // which is neither a hard link nor a statement about the target.
+  it("reports a refused symlink as a symlink failure", async () => {
+    const fs = withInjectedFsError(
+      new InMemoryFs({ "/target.txt": "ok\n" }),
+      "symlink",
+      "EPERM: operation not permitted, symlink '/link'",
+    );
+    const env = new Bash({ fs });
+
+    const result = await env.exec("ln -s target.txt link");
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "ln: failed to create symbolic link 'link': Operation not permitted\n",
+    );
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("still reports a refused hard link against a directory", async () => {
+    const fs = withInjectedFsError(
+      new InMemoryFs({ "/dir/file.txt": "ok\n" }),
+      "link",
+      "EPERM: operation not permitted, link '/dir'",
+    );
+    const env = new Bash({ fs });
+
+    const result = await env.exec("ln /dir /link");
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "ln: '/dir': hard link not allowed for directory\n",
+    );
+    expect(result.exitCode).toBe(1);
+  });
+
   it("sanitizes hard-link error strings before forwarding", async () => {
     const fs = withInjectedFsError(
       new InMemoryFs({ "/target.txt": "ok\n" }),

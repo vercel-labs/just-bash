@@ -124,9 +124,14 @@ export const lnCommand: RuntimeCommand = {
     } catch (e) {
       const err = e as Error;
       if (err.message.includes("EPERM")) {
+        // Only `link` reports EPERM for a directory. `symlink` reports it on a
+        // filesystem that does not allow symlinks at all, where naming a hard
+        // link and a directory describes neither the operation nor the target.
         return {
           stdout: "",
-          stderr: `ln: '${target}': hard link not allowed for directory\n`,
+          stderr: symbolic
+            ? `ln: failed to create symbolic link '${linkName}': Operation not permitted\n`
+            : `ln: '${target}': hard link not allowed for directory\n`,
           exitCode: 1,
         };
       }
