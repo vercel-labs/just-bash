@@ -74,6 +74,7 @@ const jsExecRunner = createRunner({
 });
 const jsExecRunResource = new AsyncResource("just-bash:js-exec:run");
 const jsExecContext = new AsyncLocalStorage<boolean>();
+let activeJsExecRuns = 0;
 
 const RUN_BUFFER_MODULE_SOURCE = BUFFER_MODULE_SOURCE.replace(
   "Buffer.prototype.toString = function(encoding, start, end) {",
@@ -652,17 +653,10 @@ try {
 `;
 }
 
-export async function executeWithRun(
+async function executeWithRunInner(
   options: RunJsOptions,
   ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
-  if (jsExecContext.getStore()) {
-    return {
-      stdout: "",
-      stderr: "js-exec: recursive invocation is not supported\n",
-      exitCode: 1,
-    };
-  }
   const snapshot = await snapshotFileSystem(ctx);
   const strippedSource = options.stripTypes
     ? stripTypesOutsideSandbox(options.source)
@@ -815,5 +809,32 @@ export async function executeWithRun(
           : `js-exec: ${sanitizeHostErrorMessage(getErrorMessage(error))}\n`,
       exitCode: timedOut || aborted ? 124 : 1,
     };
+  }
+}
+
+export async function executeWithRun(
+  options: RunJsOptions,
+  ctx: RuntimeCommandContext,
+): Promise<ExecResult> {
+  if (jsExecContext.getStore()) {
+    return {
+      stdout: "",
+      stderr: "js-exec: recursive invocation is not supported\n",
+      exitCode: 1,
+    };
+  }
+  if (activeJsExecRuns > 0) {
+    return {
+      stdout: "",
+      stderr: "js-exec: JavaScript runtime maxWorkers limit reached (1).\n",
+      exitCode: 1,
+    };
+  }
+
+  activeJsExecRuns++;
+  try {
+    return await executeWithRunInner(options, ctx);
+  } finally {
+    activeJsExecRuns--;
   }
 }
