@@ -12,12 +12,6 @@ const WORKERS = [
     external: ["../../../vendor/cpython-emscripten/*"],
   },
   {
-    name: "js-exec",
-    ts: "src/commands/js-exec/js-exec-worker.ts",
-    js: "src/commands/js-exec/js-exec-worker.js",
-    external: ["quickjs-emscripten"],
-  },
-  {
     name: "sqlite3",
     ts: "src/commands/sqlite3/worker.ts",
     js: "src/commands/sqlite3/worker.js",

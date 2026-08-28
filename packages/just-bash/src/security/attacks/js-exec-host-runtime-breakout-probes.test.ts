@@ -40,7 +40,7 @@ for (const [name, fn] of checks) {
     expect(result.exitCode).toBe(0);
   });
 
-  it("blocks nested js-exec when invoked through Symbol.for('jb:exec') bridge", async () => {
+  it("does not expose the legacy Symbol.for('jb:exec') bridge", async () => {
     const env = new Bash({
       javascript: true,
       files: {
@@ -54,19 +54,12 @@ require('fs').writeFileSync('/tmp/jb_symbol_bridge_marker','1')
 const marker = '/tmp/jb_symbol_bridge_marker';
 fs.rmSync(marker, { force: true });
 const execBridge = globalThis[Symbol.for('jb:exec')];
-const r = execBridge('js-exec /tmp/symbol-nested.js');
-console.log('SYMBOL_EXIT=' + String(r.exitCode));
-console.log('SYMBOL_ERR=' + String(r.stderr).trim());
+console.log('SYMBOL_BRIDGE=' + typeof execBridge);
 console.log('SYMBOL_MARKER=' + String(fs.existsSync(marker)));
 "`);
 
     expect(result.stdout).toBe(
-      [
-        "SYMBOL_EXIT=1",
-        "SYMBOL_ERR=js-exec: recursive invocation is not supported",
-        "SYMBOL_MARKER=false",
-        "",
-      ].join("\n"),
+      ["SYMBOL_BRIDGE=undefined", "SYMBOL_MARKER=false", ""].join("\n"),
     );
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);

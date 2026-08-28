@@ -45,7 +45,7 @@ for (const name of names) {
 "`);
 
     expect(result.stdout).toBe(
-      ["__proto__:true", "constructor:true", "toString:true", ""].join("\n"),
+      ["__proto__:false", "constructor:false", "toString:false", ""].join("\n"),
     );
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);

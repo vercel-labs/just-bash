@@ -349,7 +349,7 @@ to inline these, and some of them cannot be inlined. Mark all six as external:
 | `@mongodb-js/zstd` | native binding (`optionalDependencies`) |
 | `node-liblzma` | native binding (`optionalDependencies`) |
 | `sql.js` | ships a `.wasm` asset |
-| `quickjs-emscripten` | ships a `.wasm` asset |
+| `run` | embeds the QuickJS WASM runtime |
 | `seek-bzip` | CommonJS-only bzip2 decoder |
 | `guarded-fetch` | imports `node:dns/promises`, `node:net`, `node:dns` |
 
@@ -369,7 +369,7 @@ const nextConfig = {
     "node-liblzma",
     "seek-bzip",
     "sql.js",
-    "quickjs-emscripten",
+    "run",
     "guarded-fetch",
   ],
 };
@@ -379,7 +379,7 @@ Older Next.js uses `experimental.serverComponentsExternalPackages`. webpack:
 add them to `externals` (or use `webpack-node-externals`). esbuild/rollup:
 `--external:<name>` / `external: [...]`.
 
-**Node version**: just-bash requires Node `>=20.19` (`guarded-fetch`'s floor).
+**Node version**: just-bash requires Node `>=22.13` (`run`'s floor).
 
 **Optional dependencies**: `@mongodb-js/zstd` and `node-liblzma` are declared
 in `optionalDependencies`, so an install that cannot build them still succeeds.

@@ -179,8 +179,8 @@ console.log('NOWAIT_NERR=' + String(fs.existsSync(nestedErr) ? fs.readFileSync(n
           "NOWAIT_STATUS=1",
           "NOWAIT_STDERR=",
           "NOWAIT_MARKER=false",
-          "NOWAIT_NOUT=",
-          "NOWAIT_NERR=js-exec: recursive invocation is not supported",
+          "NOWAIT_NOUT=NOOUT",
+          "NOWAIT_NERR=NOERR",
           "",
         ].join("\n"),
       );
@@ -231,8 +231,8 @@ console.log('DELAY_NERR=' + String(fs.existsSync(nestedErr) ? fs.readFileSync(ne
           "DELAY_STATUS=1",
           "DELAY_STDERR=",
           "DELAY_MARKER=false",
-          "DELAY_NOUT=",
-          "DELAY_NERR=js-exec: recursive invocation is not supported",
+          "DELAY_NOUT=NOOUT",
+          "DELAY_NERR=NOERR",
           "",
         ].join("\n"),
       );
@@ -243,7 +243,7 @@ console.log('DELAY_NERR=' + String(fs.existsSync(nestedErr) ? fs.readFileSync(ne
     },
   );
 
-  it("blocks nested js-exec from Promise microtask bridge callback", async () => {
+  it("does not expose an exec bridge to Promise microtasks", async () => {
     const env = new Bash({ javascript: true });
 
     const result = await env.exec(`js-exec -c "
@@ -251,20 +251,13 @@ const marker = '/tmp/jb_nested_promise_marker';
 fs.rmSync(marker, { force: true });
 const execBridge = globalThis[Symbol.for('jb:exec')];
 Promise.resolve().then(() => {
-  const r = execBridge(\\"js-exec -c \\\\\\"require('fs').writeFileSync('/tmp/jb_nested_promise_marker','1')\\\\\\"\\");
-  console.log('PROMISE_EXIT=' + String(r.exitCode));
-  console.log('PROMISE_ERR=' + String(r.stderr).trim());
+  console.log('PROMISE_BRIDGE=' + typeof execBridge);
   console.log('PROMISE_MARKER=' + String(fs.existsSync(marker)));
 });
 "`);
 
     expect(result.stdout).toBe(
-      [
-        "PROMISE_EXIT=1",
-        "PROMISE_ERR=js-exec: recursive invocation is not supported",
-        "PROMISE_MARKER=false",
-        "",
-      ].join("\n"),
+      ["PROMISE_BRIDGE=undefined", "PROMISE_MARKER=false", ""].join("\n"),
     );
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);

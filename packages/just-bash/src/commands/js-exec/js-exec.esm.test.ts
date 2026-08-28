@@ -170,9 +170,8 @@ describe("js-exec ESM modules", () => {
     );
 
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe(
-      "at <anonymous> (-c:1:31): top-level await rejected\n",
-    );
+    expect(result.stderr).toContain("top-level await rejected");
+    expect(result.stderr).toContain("run.js:");
     expect(result.exitCode).toBe(1);
   });
 

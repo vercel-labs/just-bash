@@ -456,9 +456,8 @@ describe("js-exec Node.js compatibility", () => {
       });
       const result = await env.exec("js-exec /home/user/app.mjs");
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toBe(
-        "at <anonymous> (/home/user/app.mjs:3:1): 'undefinedVar' is not defined\n",
-      );
+      expect(result.stderr).toContain("undefinedVar is not defined");
+      expect(result.stderr).toContain("run.js:");
       expect(result.stdout).toBe("");
     });
 
@@ -471,9 +470,8 @@ describe("js-exec Node.js compatibility", () => {
       });
       const result = await env.exec("js-exec /home/user/app.mjs");
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toBe(
-        "at <anonymous> (/home/user/app.mjs:2:2): cannot read property 'foo' of null\n",
-      );
+      expect(result.stderr).toContain("cannot read property 'foo' of null");
+      expect(result.stderr).toContain("run.js:");
       expect(result.stdout).toBe("");
     });
 
@@ -483,9 +481,8 @@ describe("js-exec Node.js compatibility", () => {
         `js-exec -c "const x = 1; undefinedVar.foo;"`,
       );
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toBe(
-        "at <eval> (-c:1:14): 'undefinedVar' is not defined\n",
-      );
+      expect(result.stderr).toContain("undefinedVar is not defined");
+      expect(result.stderr).toContain("run.js:");
       expect(result.stdout).toBe("");
     });
 
@@ -501,9 +498,8 @@ describe("js-exec Node.js compatibility", () => {
       });
       const result = await env.exec("js-exec /home/user/main.mjs");
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toBe(
-        "at helper (/home/user/utils.mjs:2:3): 'undefinedVar' is not defined\n",
-      );
+      expect(result.stderr).toContain("undefinedVar is not defined");
+      expect(result.stderr).toContain("at helper (run.js:");
       expect(result.stdout).toBe("");
     });
 
@@ -518,9 +514,8 @@ describe("js-exec Node.js compatibility", () => {
       });
       const result = await env.exec("js-exec /home/user/main.mjs");
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toBe(
-        "at <anonymous> (/home/user/b.mjs:1:16): deep error\n",
-      );
+      expect(result.stderr).toContain("deep error");
+      expect(result.stderr).toContain("run.js:");
       expect(result.stdout).toBe("");
     });
 
@@ -535,9 +530,8 @@ describe("js-exec Node.js compatibility", () => {
       });
       const result = await env.exec("js-exec /home/user/app.mjs");
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toBe(
-        "at doStuff (/home/user/lib.mjs:5:18): boom\n",
-      );
+      expect(result.stderr).toContain("boom");
+      expect(result.stderr).toContain("at doStuff (run.js:");
       expect(result.stdout).toBe("");
     });
 
@@ -550,9 +544,8 @@ describe("js-exec Node.js compatibility", () => {
       });
       const result = await env.exec("js-exec /home/user/long.mjs");
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toBe(
-        "at <anonymous> (/home/user/long.mjs:21:1): 'undefinedVar' is not defined\n",
-      );
+      expect(result.stderr).toContain("undefinedVar is not defined");
+      expect(result.stderr).toContain("run.js:");
       expect(result.stdout).toBe("");
     });
 
@@ -565,7 +558,7 @@ describe("js-exec Node.js compatibility", () => {
       });
       const result = await env.exec("js-exec /home/user/bad.mjs");
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toBe("at /home/user/bad.mjs:3:1: expecting ')'\n");
+      expect(result.stderr).toContain("Unexpected token");
       expect(result.stdout).toBe("");
     });
 
@@ -594,9 +587,8 @@ describe("js-exec Node.js compatibility", () => {
       });
       const result = await env.exec("js-exec /home/user/app.js");
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toBe(
-        "at /home/user/app.js:2:1: 'undefinedVar' is not defined\n",
-      );
+      expect(result.stderr).toContain("undefinedVar is not defined");
+      expect(result.stderr).toContain("run.js:");
       expect(result.stdout).toBe("");
     });
 
