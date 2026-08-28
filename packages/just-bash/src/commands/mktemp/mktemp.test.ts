@@ -27,6 +27,18 @@ describe("mktemp", () => {
       expect(result.stdout.trim()).toMatch(/^\/scratch\/tmp\.[0-9A-Za-z]{10}$/);
       expect(result.exitCode).toBe(0);
     });
+
+    // An empty value is unset, not the root directory. Checked against
+    // coreutils 9.2, which prints /tmp/tmp.XXXXXXXXXX for all three.
+    it.each([
+      "TMPDIR= mktemp -u",
+      "mktemp -u --tmpdir=",
+      "mktemp -u -p ''",
+    ])("should treat an empty temp dir in `%s` as unset", async (command) => {
+      const env = new Bash();
+      const result = await env.exec(command);
+      expect(result.stdout.trim()).toMatch(NAME);
+    });
   });
 
   describe("options", () => {
@@ -114,12 +126,28 @@ describe("mktemp", () => {
     });
   });
 
+  describe("permissions", () => {
+    it("should create files with mode 0600", async () => {
+      const env = new Bash();
+      const result = await env.exec("f=$(mktemp); stat -c '%a' \"$f\"");
+      expect(result.stdout.trim()).toBe("600");
+    });
+
+    it("should create directories with mode 0700", async () => {
+      const env = new Bash();
+      const result = await env.exec("d=$(mktemp -d); stat -c '%a' \"$d\"");
+      expect(result.stdout.trim()).toBe("700");
+    });
+  });
+
   describe("diagnostics", () => {
-    it("should stay silent about a bad template under -q", async () => {
+    // GNU's -q covers creation failure only, so a malformed template still
+    // reports. Checked against coreutils 9.2.
+    it("should still report a bad template under -q", async () => {
       const env = new Bash();
       const result = await env.exec("mktemp -q -t bad.XX");
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toBe("");
+      expect(result.stderr).toContain("too few X's");
     });
 
     // Real mktemp fails here, but the virtual filesystem creates parents on
@@ -132,6 +160,13 @@ describe("mktemp", () => {
         /^\/nope\/missing\/tmp\.[0-9A-Za-z]{10}$/,
       );
       expect(result.exitCode).toBe(0);
+    });
+
+    it("should print help for --help", async () => {
+      const env = new Bash();
+      const result = await env.exec("mktemp --help");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Usage: mktemp [OPTION]... [TEMPLATE]");
     });
 
     it("should report an unknown short option", async () => {
