@@ -38,14 +38,18 @@ for (const name of names) {
     console.log(name + ':ALLOWED');
   } catch (e) {
     const msg = String(e && e.message ? e.message : e);
-    const okPrefix = \\"Cannot find module '\\" + name + \\"':\\";
-    console.log(name + ':' + msg.startsWith(okPrefix));
+    console.log(name + ':' + msg);
   }
 }
 "`);
 
     expect(result.stdout).toBe(
-      ["__proto__:false", "constructor:false", "toString:false", ""].join("\n"),
+      [
+        "__proto__:Host bridge request failed.",
+        "constructor:Host bridge request failed.",
+        "toString:Host bridge request failed.",
+        "",
+      ].join("\n"),
     );
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);

@@ -13,7 +13,7 @@ Usage: js-exec [OPTIONS] [-c CODE | FILE] [ARGS...]
 Options:
   -c CODE          Execute inline code
   -m, --module     Enable ES module mode (import/export)
-  --strip-types    Strip TypeScript type annotations
+  --strip-types    Accepted for compatibility; type stripping is automatic
   --version, -V    Show version
   --help           Show this help
 
@@ -50,7 +50,6 @@ interface ParsedArgs {
   showVersion: boolean;
   scriptArgs: string[];
   isModule: boolean;
-  stripTypes: boolean;
 }
 
 function parseArgs(args: string[]): ParsedArgs | ExecResult {
@@ -60,7 +59,6 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
     scriptArgs: [],
     scriptFile: null,
     showVersion: false,
-    stripTypes: false,
   };
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
@@ -69,7 +67,8 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
       continue;
     }
     if (arg === "--strip-types") {
-      result.stripTypes = true;
+      // run strips supported TypeScript syntax automatically. Retain this
+      // Node-compatible flag as an explicit compatibility alias.
       continue;
     }
     if (arg === "-c") {

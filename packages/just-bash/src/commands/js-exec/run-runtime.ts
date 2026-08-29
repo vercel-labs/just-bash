@@ -4,17 +4,22 @@ import {
   createRunner,
   getHostFunctionContext,
   RunAbortedError,
+  RunBridgeLimitError,
+  RunError,
   type RunModuleLoader,
   RunTimeoutError,
 } from "run";
+import { combineAbortSignals } from "../../abort-signals.js";
 import { fromBuffer } from "../../fs/encoding.js";
 import {
   sanitizeErrorMessage,
   sanitizeHostErrorMessage,
 } from "../../fs/sanitize-error.js";
 import { mapToRecord } from "../../helpers/env.js";
+import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
+import { _clearFiniteTimeout, _setTimeoutIfFinite } from "../../timers.js";
 import type {
   CommandExecOptions,
   ExecResult,
@@ -60,9 +65,18 @@ interface GuestSourceLocation {
 }
 
 const jsExecContext = new AsyncLocalStorage<boolean>();
-let executionTail: Promise<void> = Promise.resolve();
+interface QueuedExecution {
+  canceled: boolean;
+  start(): void;
+}
+
+const executionQueue: QueuedExecution[] = [];
+let executionActive = false;
 const RUN_MEMORY_LIMIT_BYTES = 64 * 1024 * 1024;
 const RUN_SYNC_BRIDGE_PAYLOAD_BYTES = RUN_MEMORY_LIMIT_BYTES - 64 * 1024;
+const RUN_MAX_LIMIT_VALUE = 2_147_483_647;
+
+class JsExecQueueCanceledError extends Error {}
 
 const RUN_BUFFER_MODULE_SOURCE = BUFFER_MODULE_SOURCE.replace(
   "Buffer.prototype.toString = function(encoding, start, end) {",
@@ -314,6 +328,7 @@ const guestSetupSource = (
   options: RunJsOptions,
   env: Record<string, string>,
   cwd: string,
+  hasInvokeTool: boolean,
 ): string => `
 (function() {
   function unwrap(result) {
@@ -342,7 +357,7 @@ const guestSetupSource = (
     arch: 'x64',
     versions: { node: '22.0.0', quickjs: '2025' },
     version: 'v22.0.0',
-    exit: function(code) { throw new Error('__JUST_BASH_EXIT__:' + (Number(code) || 0)); }
+    exit: function(code) { return __host.exit(Number(code) || 0); }
   };
 
   ${RUN_BUFFER_MODULE_SOURCE}
@@ -453,7 +468,9 @@ const guestSetupSource = (
   console.error = function() { unwrap(__host.stderr(Array.prototype.map.call(arguments, format).join(' ') + '\\n')); };
   console.warn = console.error;
 
-  globalThis.tools = (function makeProxy(path) {
+  ${
+    hasInvokeTool
+      ? `globalThis.tools = (function makeProxy(path) {
     return new Proxy(function(){}, {
       get: function(_target, property) {
         if (property === 'then' || typeof property === 'symbol') return undefined;
@@ -465,23 +482,59 @@ const guestSetupSource = (
         return value ? JSON.parse(value) : undefined;
       }
     });
-  })([]);
+  })([]);`
+      : ""
+  }
 })();
 `;
 
-const enqueue = async <T>(operation: () => Promise<T>): Promise<T> => {
-  let release!: () => void;
-  const turn = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const previous = executionTail;
-  executionTail = turn;
-  await previous;
-  try {
-    return await operation();
-  } finally {
-    release();
+const processNextExecution = (): void => {
+  if (executionActive) return;
+  const next = executionQueue.shift();
+  if (next === undefined) return;
+  if (next.canceled) {
+    processNextExecution();
+    return;
   }
+  executionActive = true;
+  next.start();
+};
+
+const enqueue = <T>(
+  operation: () => Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> => {
+  const boundOperation = DefenseInDepthBox.bindCurrentContext(operation);
+  return new Promise<T>((resolve, reject) => {
+    const queued: QueuedExecution = {
+      canceled: false,
+      start() {
+        signal?.removeEventListener("abort", cancel);
+        void (async () => {
+          try {
+            resolve(await boundOperation());
+          } catch (error) {
+            reject(error);
+          } finally {
+            executionActive = false;
+            processNextExecution();
+          }
+        })();
+      },
+    };
+    const cancel = () => {
+      const index = executionQueue.indexOf(queued);
+      if (index === -1) return;
+      executionQueue.splice(index, 1);
+      queued.canceled = true;
+      signal?.removeEventListener("abort", cancel);
+      reject(new JsExecQueueCanceledError());
+    };
+    signal?.addEventListener("abort", cancel, { once: true });
+    executionQueue.push(queued);
+    if (signal?.aborted) cancel();
+    else processNextExecution();
+  });
 };
 
 const serializeStat = (
@@ -498,6 +551,9 @@ const serializeStat = (
 async function executeWithRunInner(
   options: RunJsOptions,
   ctx: RuntimeCommandContext,
+  abortSignal: AbortSignal | undefined,
+  deadline: number,
+  deadlineSignal: AbortSignal,
 ): Promise<ExecResult> {
   // run accounts for the SharedArrayBuffer inside the invocation budget and
   // adds framing space to host-function arguments. Leave bounded headroom
@@ -512,6 +568,7 @@ async function executeWithRunInner(
     stderr: "",
     stdout: "",
   };
+  let requestedExitCode: number | undefined;
   const maxOutputSize = ctx.limits.maxOutputSize;
   const appendOutput = (
     stream: "stdout" | "stderr",
@@ -534,7 +591,10 @@ async function executeWithRunInner(
     operation: () => Promise<T>,
   ): Promise<HostResult<T>> => {
     try {
-      return { ok: true, value: await operation() };
+      return {
+        ok: true,
+        value: await DefenseInDepthBox.runUntrustedAsync(operation),
+      };
     } catch (error) {
       return { ok: false, error: sanitizeErrorMessage(getErrorMessage(error)) };
     }
@@ -544,6 +604,11 @@ async function executeWithRunInner(
     createRunner({
       syncHostFunctions: {
         __host: {
+          exit(code: number) {
+            requestedExitCode = Number.isFinite(code) ? Math.trunc(code) : 0;
+            output.exitCode = requestedExitCode;
+            throw new Error("Guest requested process exit.");
+          },
           fsRead: (path: string) =>
             attempt(async () =>
               Array.from(await ctx.fs.readFileBuffer(resolve(path))),
@@ -611,8 +676,15 @@ async function executeWithRunInner(
                 throw new Error(
                   "Network access not configured. Enable network in Bash options.",
                 );
+              const remaining =
+                deadline === Number.POSITIVE_INFINITY
+                  ? undefined
+                  : Math.max(0, deadline - Date.now());
               const response = await ctx.fetch(url, {
-                ...init,
+                method: init?.method,
+                headers: init?.headers,
+                body: init?.body,
+                ...(remaining === undefined ? {} : { timeoutMs: remaining }),
                 signal: getHostFunctionContext().abortSignal,
               });
               return {
@@ -652,7 +724,8 @@ async function executeWithRunInner(
               return await jsExecContext.run(
                 true,
                 () =>
-                  ctx.exec?.(command, {
+                  ctx.exec?.(shellJoinArgs([command]), {
+                    // Preserve spawnSync's argv-only executable semantics.
                     args: args.map(String),
                     cwd: ctx.cwd,
                     env,
@@ -674,7 +747,12 @@ async function executeWithRunInner(
     }),
   );
 
-  const setup = guestSetupSource(options, env, ctx.cwd);
+  const setup = guestSetupSource(
+    options,
+    env,
+    ctx.cwd,
+    ctx.invokeTool !== undefined,
+  );
   const bootstrap = options.bootstrapCode ?? "";
   const moduleLoader: RunModuleLoader | undefined = options.isModule
     ? {
@@ -712,7 +790,9 @@ async function executeWithRunInner(
             throw new Error(
               `Cannot find module '${specifier.slice("just-bash:missing:".length)}': not found. Run 'js-exec --help' for available modules.`,
             );
-          return await ctx.fs.readFile(specifier);
+          return await DefenseInDepthBox.runUntrustedAsync(
+            async () => await ctx.fs.readFile(specifier),
+          );
         },
       }
     : undefined;
@@ -723,40 +803,55 @@ async function executeWithRunInner(
   const sourceLineOffset = sourcePrefix.split("\n").length - 1;
 
   try {
-    await jsExecContext.run(
-      true,
-      async () =>
-        await DefenseInDepthBox.runTrustedAsync(
-          async () =>
-            await runner.run({
-              abortSignal: ctx.signal,
-              limits: {
-                maxBridgeRequests: 1024,
-                maxConsoleOutputBytes: 1,
-                maxHostFunctionArgumentsBytes: maxBridgePayloadBytes,
-                maxHostFunctionOutputBytes: maxBridgePayloadBytes,
-                maxResultBytes: ctx.limits.maxWorkerMessageBytes,
-                memoryLimitBytes: RUN_MEMORY_LIMIT_BYTES,
-                timeoutMs: ctx.limits.maxJsTimeoutMs,
-              },
-              ...(moduleLoader === undefined ? {} : { moduleLoader }),
-              source,
-            }),
-        ),
-    );
+    await jsExecContext.run(true, async () => {
+      let runPromise!: ReturnType<typeof runner.run>;
+      DefenseInDepthBox.runTrusted(() => {
+        runPromise = runner.run({
+          abortSignal,
+          limits: {
+            maxBridgeRequests: Math.min(
+              Math.max(1, ctx.limits.maxJsBridgeRequests),
+              RUN_MAX_LIMIT_VALUE,
+            ),
+            maxConsoleOutputBytes: 1,
+            maxHostFunctionArgumentsBytes: maxBridgePayloadBytes,
+            maxHostFunctionOutputBytes: maxBridgePayloadBytes,
+            maxResultBytes: ctx.limits.maxWorkerMessageBytes,
+            memoryLimitBytes: RUN_MEMORY_LIMIT_BYTES,
+            timeoutMs:
+              deadline === Number.POSITIVE_INFINITY
+                ? RUN_MAX_LIMIT_VALUE
+                : Math.min(
+                    Math.max(1, deadline - Date.now()),
+                    RUN_MAX_LIMIT_VALUE,
+                  ),
+          },
+          ...(moduleLoader === undefined ? {} : { moduleLoader }),
+          source,
+        });
+      });
+      await runPromise;
+    });
   } catch (error) {
     const message = getErrorMessage(error);
-    const exitMatch = /__JUST_BASH_EXIT__:(\d+)/u.exec(message);
-    if (exitMatch) output.exitCode = Number(exitMatch[1]);
-    else if (
+    if (
+      requestedExitCode !== undefined &&
+      RunError.isInstance(error) &&
+      error.code === "RUN_HOST_FUNCTION_ERROR"
+    ) {
+      output.exitCode = requestedExitCode;
+    } else if (
       error instanceof RunTimeoutError ||
       error instanceof RunAbortedError
     ) {
       return {
         ...output,
         exitCode: 124,
-        stderr: `${output.stderr}js-exec: ${error instanceof RunTimeoutError ? `Execution timeout: exceeded ${ctx.limits.maxJsTimeoutMs}ms limit` : "Execution aborted"}\n`,
+        stderr: `${output.stderr}js-exec: ${error instanceof RunTimeoutError || deadlineSignal.aborted ? `Execution timeout: exceeded ${ctx.limits.maxJsTimeoutMs}ms limit` : "Execution aborted"}\n`,
       };
+    } else if (error instanceof RunBridgeLimitError) {
+      output.exitCode = 1;
+      output.stderr += `js-exec: ${sanitizeHostErrorMessage(message)}\n`;
     } else {
       output.exitCode = 1;
       const guestMessage = formatGuestError(error, options, sourceLineOffset);
@@ -793,5 +888,41 @@ export async function executeWithRun(
       stdout: "",
     };
   }
-  return await enqueue(async () => await executeWithRunInner(options, ctx));
+  const timeoutController = new AbortController();
+  const deadline =
+    ctx.limits.maxJsTimeoutMs === Number.POSITIVE_INFINITY
+      ? Number.POSITIVE_INFINITY
+      : Date.now() + ctx.limits.maxJsTimeoutMs;
+  const timeout = _setTimeoutIfFinite(
+    () => timeoutController.abort(),
+    ctx.limits.maxJsTimeoutMs,
+  );
+  const combinedAbort = combineAbortSignals(
+    ctx.signal,
+    timeoutController.signal,
+  );
+  try {
+    return await enqueue(
+      async () =>
+        await executeWithRunInner(
+          options,
+          ctx,
+          combinedAbort.signal,
+          deadline,
+          timeoutController.signal,
+        ),
+      combinedAbort.signal,
+    );
+  } catch (error) {
+    if (!(error instanceof JsExecQueueCanceledError)) throw error;
+    const timedOut = timeoutController.signal.aborted;
+    return {
+      exitCode: 124,
+      stderr: `js-exec: ${timedOut ? `Execution timeout: exceeded ${ctx.limits.maxJsTimeoutMs}ms limit` : "Execution aborted"}\n`,
+      stdout: "",
+    };
+  } finally {
+    combinedAbort.cleanup();
+    _clearFiniteTimeout(timeout);
+  }
 }
