@@ -5,14 +5,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
 
 jobs:
   unit-tests:
-    if: github.event.action != 'edited' || github.event.changes.base.ref.from
     runs-on: ubuntu-latest
     strategy:
       matrix:
