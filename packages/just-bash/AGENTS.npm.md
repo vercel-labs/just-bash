@@ -379,7 +379,7 @@ Older Next.js uses `experimental.serverComponentsExternalPackages`. webpack:
 add them to `externals` (or use `webpack-node-externals`). esbuild/rollup:
 `--external:<name>` / `external: [...]`.
 
-**Node version**: just-bash requires Node `>=22.13` (`run`'s floor).
+**Node version**: just-bash requires Node `>=20.19` (`guarded-fetch`'s floor).
 
 **Optional dependencies**: `@mongodb-js/zstd` and `node-liblzma` are declared
 in `optionalDependencies`, so an install that cannot build them still succeeds.

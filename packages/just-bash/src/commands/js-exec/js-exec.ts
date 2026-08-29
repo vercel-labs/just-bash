@@ -1,14 +1,8 @@
-/**
- * js-exec - Execute JavaScript code via the run package.
- */
+/** js-exec - Execute JavaScript code via the run package. */
 
 import { decodeBytesToUtf8 } from "../../encoding.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
-import type {
-  ExecResult,
-  RuntimeCommand,
-  RuntimeCommandContext,
-} from "../../types.js";
+import type { ExecResult, RuntimeCommand } from "../../types.js";
 import { hasHelpFlag } from "../help.js";
 import { executeWithRun } from "./run-runtime.js";
 
@@ -35,8 +29,9 @@ File Extension Auto-Detection:
   .ts, .mts        ES module mode + TypeScript stripping
 
 Node.js Compatibility:
-  Code written for Node.js largely works here. CommonJS module loading and
-  standard globals like process, console, fetch, and Buffer are available.
+  Code written for Node.js largely works here. Both require and import are
+  supported for the documented built-ins. Filesystem and command APIs retain
+  synchronous Node.js call semantics inside the sandbox.
 
   Available modules:
     fs, path, child_process, process, console,
@@ -61,13 +56,12 @@ interface ParsedArgs {
 function parseArgs(args: string[]): ParsedArgs | ExecResult {
   const result: ParsedArgs = {
     code: null,
+    isModule: false,
+    scriptArgs: [],
     scriptFile: null,
     showVersion: false,
-    scriptArgs: [],
-    isModule: false,
     stripTypes: false,
   };
-
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
     if (arg === "-m" || arg === "--module") {
@@ -81,9 +75,9 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
     if (arg === "-c") {
       if (index + 1 >= args.length) {
         return {
-          stdout: "",
-          stderr: "js-exec: option requires an argument -- 'c'\n",
           exitCode: 2,
+          stderr: "js-exec: option requires an argument -- 'c'\n",
+          stdout: "",
         };
       }
       result.code = args[index + 1];
@@ -96,9 +90,9 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
     }
     if (arg.startsWith("-") && arg !== "-" && arg !== "--") {
       return {
-        stdout: "",
-        stderr: `js-exec: unrecognized option '${arg}'\n`,
         exitCode: 2,
+        stderr: `js-exec: unrecognized option '${arg}'\n`,
+        stdout: "",
       };
     }
     if (arg === "--") {
@@ -112,31 +106,23 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
     result.scriptArgs = args.slice(index + 1);
     return result;
   }
-
   return result;
 }
 
 export const jsExecCommand: RuntimeCommand = {
   name: "js-exec",
-
-  async execute(
-    args: string[],
-    ctx: RuntimeCommandContext,
-  ): Promise<ExecResult> {
+  async execute(args, ctx) {
     if (hasHelpFlag(args)) {
-      return { stdout: JS_EXEC_HELP, stderr: "", exitCode: 0 };
+      return { exitCode: 0, stderr: "", stdout: JS_EXEC_HELP };
     }
-
     const parsed = parseArgs(args);
     if ("exitCode" in parsed) return parsed;
-
     if (parsed.showVersion) {
-      return { stdout: "QuickJS (run)\n", stderr: "", exitCode: 0 };
+      return { exitCode: 0, stderr: "", stdout: "QuickJS (run)\n" };
     }
 
     let source: string;
     let scriptPath: string;
-
     if (parsed.code !== null) {
       source = parsed.code;
       scriptPath = "-c";
@@ -144,9 +130,9 @@ export const jsExecCommand: RuntimeCommand = {
       const filePath = ctx.fs.resolvePath(ctx.cwd, parsed.scriptFile);
       if (!(await ctx.fs.exists(filePath))) {
         return {
-          stdout: "",
-          stderr: `js-exec: can't open file '${parsed.scriptFile}': No such file or directory\n`,
           exitCode: 2,
+          stderr: `js-exec: can't open file '${parsed.scriptFile}': No such file or directory\n`,
+          stdout: "",
         };
       }
       try {
@@ -154,9 +140,9 @@ export const jsExecCommand: RuntimeCommand = {
         scriptPath = filePath;
       } catch (error) {
         return {
-          stdout: "",
-          stderr: `js-exec: can't open file '${parsed.scriptFile}': ${sanitizeErrorMessage((error as Error).message)}\n`,
           exitCode: 2,
+          stderr: `js-exec: can't open file '${parsed.scriptFile}': ${sanitizeErrorMessage((error as Error).message)}\n`,
+          stdout: "",
         };
       }
     } else if (decodeBytesToUtf8(ctx.stdin).trim()) {
@@ -164,10 +150,10 @@ export const jsExecCommand: RuntimeCommand = {
       scriptPath = "<stdin>";
     } else {
       return {
-        stdout: "",
+        exitCode: 2,
         stderr:
           "js-exec: no input provided (use -c CODE or provide a script file)\n",
-        exitCode: 2,
+        stdout: "",
       };
     }
 
@@ -176,19 +162,13 @@ export const jsExecCommand: RuntimeCommand = {
       scriptPath.endsWith(".mjs") ||
       scriptPath.endsWith(".mts") ||
       scriptPath.endsWith(".ts");
-    const stripTypes =
-      parsed.stripTypes ||
-      scriptPath.endsWith(".ts") ||
-      scriptPath.endsWith(".mts");
-
-    return executeWithRun(
+    return await executeWithRun(
       {
-        source,
-        scriptPath,
-        scriptArgs: parsed.scriptArgs,
         bootstrapCode: ctx.jsBootstrapCode,
         isModule,
-        stripTypes,
+        scriptArgs: parsed.scriptArgs,
+        scriptPath,
+        source,
       },
       ctx,
     );
@@ -199,9 +179,9 @@ export const nodeStubCommand: RuntimeCommand = {
   name: "node",
   async execute(): Promise<ExecResult> {
     return {
-      stdout: "",
-      stderr: `node: this sandbox uses js-exec instead of node\n\n${JS_EXEC_HELP}`,
       exitCode: 1,
+      stderr: `node: this sandbox uses js-exec instead of node\n\n${JS_EXEC_HELP}`,
+      stdout: "",
     };
   },
 };

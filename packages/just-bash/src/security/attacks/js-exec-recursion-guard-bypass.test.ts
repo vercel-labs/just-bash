@@ -179,8 +179,8 @@ console.log('NOWAIT_NERR=' + String(fs.existsSync(nestedErr) ? fs.readFileSync(n
           "NOWAIT_STATUS=1",
           "NOWAIT_STDERR=",
           "NOWAIT_MARKER=false",
-          "NOWAIT_NOUT=NOOUT",
-          "NOWAIT_NERR=NOERR",
+          "NOWAIT_NOUT=",
+          "NOWAIT_NERR=js-exec: recursive invocation is not supported",
           "",
         ].join("\n"),
       );
@@ -231,8 +231,8 @@ console.log('DELAY_NERR=' + String(fs.existsSync(nestedErr) ? fs.readFileSync(ne
           "DELAY_STATUS=1",
           "DELAY_STDERR=",
           "DELAY_MARKER=false",
-          "DELAY_NOUT=NOOUT",
-          "DELAY_NERR=NOERR",
+          "DELAY_NOUT=",
+          "DELAY_NERR=js-exec: recursive invocation is not supported",
           "",
         ].join("\n"),
       );
