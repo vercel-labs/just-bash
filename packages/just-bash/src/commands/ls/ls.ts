@@ -32,6 +32,41 @@ function appendLsOutput(
   return current + next;
 }
 
+/**
+ * Bound a collection of directory entries as it enters `ls`, before anything
+ * sorts, stats, classifies or formats it. A filesystem backend may return an
+ * arbitrarily large `readdir()` result, and the existing output-size limit only
+ * applies once entries have been formatted — by which point the work is already
+ * done. Piping to `head` does not help either: pipeline producers are
+ * materialized before consumers run.
+ */
+function checkEntryCount(ctx: RuntimeCommandContext, count: number): void {
+  if (count > ctx.limits.maxArrayElements) {
+    throw new ExecutionLimitError(
+      `ls: array element limit exceeded (${ctx.limits.maxArrayElements})`,
+      "array_elements",
+    );
+  }
+}
+
+/**
+ * Bound a batch of entries and reserve it against the shared traversal budget,
+ * so a recursive listing cannot bypass the per-directory bound by walking many
+ * directories that are each individually small enough.
+ */
+function admitEntries(
+  ctx: RuntimeCommandContext,
+  traversalBudget: FileTraversalBudget,
+  count: number,
+): void {
+  checkEntryCount(ctx, count);
+  // `reserve`, not `discover`: reading a directory is a single filesystem
+  // operation however many names come back, already charged by the checkpoint
+  // at the call site. Only the collection ceiling applies here, so a plain
+  // name-order listing stays as cheap in work as it was.
+  traversalBudget.reserve(count);
+}
+
 function joinLsLines(
   ctx: RuntimeCommandContext,
   lines: readonly string[],
@@ -249,7 +284,17 @@ export const lsCommand: RuntimeCommand = {
       traversalBudget.visit(0);
       try {
         const stat = await ctx.fs.stat(ctx.fs.resolvePath(ctx.cwd, path));
-        (stat.isDirectory ? dirOperands : fileOperands).push(path);
+        if (stat.isDirectory) {
+          // `visit()` and `discover()` keep separate counters, so charging an
+          // operand as a visit does not reserve it as a root whose children
+          // are about to be discovered. The budget pre-reserves exactly one
+          // root, so without this a listing of N directories could admit N-1
+          // further batches of children before the bound applied.
+          if (dirOperands.length > 0) traversalBudget.reserve(1);
+          dirOperands.push(path);
+        } else {
+          fileOperands.push(path);
+        }
       } catch {
         stderr = appendLsOutput(
           ctx,
@@ -478,6 +523,10 @@ async function listPath(
     // It's a directory
     let entries = await ctx.fs.readdir(fullPath);
     traversalBudget.checkpoint();
+    // `-a` prepends the synthetic "." and ".." below, so charge for them here
+    // rather than letting a directory of exactly `maxArrayElements` entries
+    // build an array two elements over the limit.
+    admitEntries(ctx, traversalBudget, entries.length + (showAll ? 2 : 0));
 
     // Filter hidden files unless -a or -A
     if (!showHidden) {
@@ -616,14 +665,19 @@ async function listPath(
     if (recursive) {
       // Filter out . and .. and get directory entries
       const filteredEntries = entries.filter((e) => e !== "." && e !== "..");
+      const listedEntries = new Set(filteredEntries);
 
       // Use readdirWithFileTypes if available to avoid stat calls
       let dirEntries: { name: string; isDirectory: boolean }[] = [];
 
       if (ctx.fs.readdirWithFileTypes) {
         const entriesWithTypes = await ctx.fs.readdirWithFileTypes(fullPath);
+        traversalBudget.checkpoint();
+        // This re-reads the directory already admitted above, so bound the
+        // fresh allocation without reserving the same children twice.
+        checkEntryCount(ctx, entriesWithTypes.length);
         dirEntries = entriesWithTypes
-          .filter((e) => e.isDirectory && filteredEntries.includes(e.name))
+          .filter((e) => e.isDirectory && listedEntries.has(e.name))
           .map((e) => ({ name: e.name, isDirectory: true }));
       } else {
         // Fall back to stat calls - parallelize them
@@ -660,40 +714,42 @@ async function listPath(
         (a, b) => (dirRank.get(a.name) ?? 0) - (dirRank.get(b.name) ?? 0),
       );
 
-      // Process subdirectories in parallel batches
+      // Descend one subdirectory at a time. Fanning out in batches would let
+      // every child in the batch await its own `readdir()` before any of them
+      // reached `admitEntries`, so up to `DEFAULT_BATCH_SIZE` directories could
+      // each materialize an entry list before the shared budget rejected the
+      // first one — multiplying the bound this command is supposed to enforce
+      // by the batch width. Entries within a single directory are still
+      // statted in parallel batches; that work runs over an already-admitted,
+      // bounded list.
       const subResults: { name: string; result: ExecResult }[] = [];
 
-      for (let i = 0; i < dirEntries.length; i += DEFAULT_BATCH_SIZE) {
-        const batch = dirEntries.slice(i, i + DEFAULT_BATCH_SIZE);
-        const batchResults = await Promise.all(
-          batch.map(async (dir) => {
-            const subPath =
-              path === "." ? `./${dir.name}` : `${path}/${dir.name}`;
-            const result = await listPath(
-              subPath,
-              ctx,
-              showAll,
-              showAlmostAll,
-              longFormat,
-              recursive,
-              false,
-              reverse,
-              humanReadable,
-              sortKey,
-              classifyFiles,
-              true,
-              traversalBudget,
-              traversalDepth + 1,
-              childAncestors,
-            );
-            return { name: dir.name, result };
-          }),
+      for (const dir of dirEntries) {
+        const subPath = path === "." ? `./${dir.name}` : `${path}/${dir.name}`;
+        const result = await listPath(
+          subPath,
+          ctx,
+          showAll,
+          showAlmostAll,
+          longFormat,
+          recursive,
+          false,
+          reverse,
+          humanReadable,
+          sortKey,
+          classifyFiles,
+          true,
+          traversalBudget,
+          traversalDepth + 1,
+          childAncestors,
         );
-        subResults.push(...batchResults);
+        subResults.push({ name: dir.name, result });
       }
 
-      // Batching resolves out of order, so restore the order settled above
-      // rather than sorting by name a second time.
+      // Descending in order already yields this order; keep the explicit sort
+      // so the output contract does not depend on the traversal staying
+      // sequential, and reuse the ranking settled above rather than sorting by
+      // name a second time.
       subResults.sort(
         (a, b) => (dirRank.get(a.name) ?? 0) - (dirRank.get(b.name) ?? 0),
       );
