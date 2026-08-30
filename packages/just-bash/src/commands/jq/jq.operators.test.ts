@@ -174,5 +174,19 @@ describe("jq operators", () => {
       const result = await env.exec("echo '\"42\"' | jq 'tonumber'");
       expect(result.stdout).toBe("42\n");
     });
+
+    it("should reject tonumber on an empty string", async () => {
+      const env = new Bash();
+      const result = await env.exec("echo '\"\"' | jq 'tonumber'");
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain("cannot be parsed as a number");
+    });
+
+    it("should reject tonumber on a whitespace-only string", async () => {
+      const env = new Bash();
+      const result = await env.exec("echo '\" \"' | jq 'tonumber'");
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain("cannot be parsed as a number");
+    });
   });
 });
