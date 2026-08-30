@@ -3,6 +3,7 @@ import {
   unsafeBytesFromLatin1,
   utf8ByteLength,
 } from "../../encoding.js";
+import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import { fromBuffer, getEncoding, toBuffer } from "../encoding.js";
 import type {
   BufferEncoding,
@@ -302,7 +303,11 @@ export class InMemoryFs implements IFileSystem {
     path: string,
     entry: LazyFileEntry,
   ): Promise<FileEntry> {
-    const content = await entry.lazy();
+    // Providers are host-supplied code; without the trusted scope, real
+    // async I/O would trip the sandbox blocked-globals traps.
+    const content = await DefenseInDepthBox.runTrustedAsync(async () =>
+      entry.lazy(),
+    );
     const buffer =
       typeof content === "string" ? textEncoder.encode(content) : content;
     const materialized: FileEntry = {
