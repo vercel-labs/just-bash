@@ -14,6 +14,7 @@
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { type ByteString, unsafeBytesFromLatin1 } from "../../encoding.js";
+import { resolveDestinationPath } from "../destination-parent.js";
 import {
   type FileContent,
   fromBuffer,
@@ -1204,7 +1205,7 @@ export class OverlayFs implements IFileSystem {
     validatePath(dest, "cp");
     this.assertWritable(`cp '${dest}'`);
     const srcNorm = normalizePath(src);
-    const destNorm = normalizePath(dest);
+    let destNorm = normalizePath(dest);
 
     const srcExists = await this.existsInOverlay(srcNorm);
     if (!srcExists) {
@@ -1215,11 +1216,18 @@ export class OverlayFs implements IFileSystem {
 
     if (srcStat.isFile) {
       const content = await this.readFileBuffer(srcNorm);
+      destNorm = await resolveDestinationPath(this, dest);
       await this.writeFile(destNorm, content);
     } else if (srcStat.isDirectory) {
       if (!options?.recursive) {
         throw new Error(`EISDIR: is a directory, cp '${src}'`);
       }
+      if (isSameOrDescendantPath(srcNorm, destNorm)) {
+        throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
+      }
+      destNorm = await resolveDestinationPath(this, dest, {
+        allowMissingDirectory: true,
+      });
       if (isSameOrDescendantPath(srcNorm, destNorm)) {
         throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
       }
@@ -1516,14 +1524,22 @@ export class OverlayFs implements IFileSystem {
           const canonical = this.resolveRealPath_(realPath);
           if (canonical) {
             try {
-              const stat = await fs.promises.lstat(canonical);
+              // Validate the target as well as the entry, but inspect the
+              // entry itself: canonical already follows its final symlink.
+              const canonicalEntry = this.resolveRealPathParent_(realPath);
+              if (!canonicalEntry) {
+                throw new Error(
+                  `ENOENT: no such file or directory, realpath '${path}'`,
+                );
+              }
+              const stat = await fs.promises.lstat(canonicalEntry);
               if (stat.isSymbolicLink()) {
                 if (!this.allowSymlinks) {
                   throw new Error(
                     `ENOENT: no such file or directory, realpath '${path}'`,
                   );
                 }
-                const rawTarget = await fs.promises.readlink(canonical);
+                const rawTarget = await fs.promises.readlink(canonicalEntry);
                 const virtualTarget = this.realTargetToVirtual(
                   resolved,
                   rawTarget,
@@ -1533,7 +1549,7 @@ export class OverlayFs implements IFileSystem {
 
                 // Continue resolving from the new path
                 // We need to restart from this point to handle nested symlinks
-                return resolveAll(resolved);
+                resolved = await resolveAll(resolved);
               }
             } catch (e) {
               if ((e as NodeJS.ErrnoException).code === "ENOENT") {

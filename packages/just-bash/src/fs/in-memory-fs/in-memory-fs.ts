@@ -4,6 +4,7 @@ import {
   utf8ByteLength,
 } from "../../encoding.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
+import { resolveDestinationPath } from "../destination-parent.js";
 import { fromBuffer, getEncoding, toBuffer } from "../encoding.js";
 import type {
   BufferEncoding,
@@ -811,15 +812,33 @@ export class InMemoryFs implements IFileSystem {
     validatePath(src, "cp");
     validatePath(dest, "cp");
     const srcNorm = normalizePath(src);
-    const destNorm = normalizePath(dest);
+    let destNorm = normalizePath(dest);
     const srcEntry = this.data.get(srcNorm);
 
     if (!srcEntry) {
       throw new Error(`ENOENT: no such file or directory, cp '${src}'`);
     }
 
+    if (srcEntry.type === "directory") {
+      if (!options?.recursive) {
+        throw new Error(`EISDIR: is a directory, cp '${src}'`);
+      }
+      if (isSameOrDescendantPath(srcNorm, destNorm)) {
+        throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
+      }
+    }
+
+    destNorm = await resolveDestinationPath(this, dest, {
+      allowMissingDirectory: srcEntry.type === "directory",
+    });
+    if (
+      srcEntry.type === "directory" &&
+      isSameOrDescendantPath(srcNorm, destNorm)
+    ) {
+      throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
+    }
+
     if (srcEntry.type === "file") {
-      this.ensureParentDirs(destNorm);
       // Deep copy: create a new Uint8Array to avoid sharing the buffer reference
       if ("content" in srcEntry) {
         const sourceBytes =
@@ -838,15 +857,8 @@ export class InMemoryFs implements IFileSystem {
       }
     } else if (srcEntry.type === "symlink") {
       // Copy the symlink itself (not its target)
-      this.ensureParentDirs(destNorm);
       this.data.set(destNorm, { ...srcEntry });
     } else if (srcEntry.type === "directory") {
-      if (!options?.recursive) {
-        throw new Error(`EISDIR: is a directory, cp '${src}'`);
-      }
-      if (isSameOrDescendantPath(srcNorm, destNorm)) {
-        throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
-      }
       await this.mkdir(destNorm, { recursive: true });
       const children = await this.readdir(srcNorm);
       for (const child of children) {
@@ -861,13 +873,24 @@ export class InMemoryFs implements IFileSystem {
     validatePath(src, "mv");
     validatePath(dest, "mv");
     const srcNorm = normalizePath(src);
-    const destNorm = normalizePath(dest);
-    if (srcNorm === destNorm) return;
+    let destNorm = normalizePath(dest);
 
     const source = this.data.get(srcNorm);
     if (!source) {
       throw new Error(`ENOENT: no such file or directory, mv '${src}'`);
     }
+    if (
+      source.type === "directory" &&
+      srcNorm !== destNorm &&
+      isSameOrDescendantPath(srcNorm, destNorm)
+    ) {
+      throw new Error(`EINVAL: cannot move '${src}' into itself, '${dest}'`);
+    }
+
+    destNorm = await resolveDestinationPath(this, dest, {
+      allowMissingDirectory: source.type === "directory",
+    });
+    if (srcNorm === destNorm) return;
     if (
       source.type === "directory" &&
       isSameOrDescendantPath(srcNorm, destNorm)
@@ -885,7 +908,6 @@ export class InMemoryFs implements IFileSystem {
       return;
     }
 
-    this.ensureParentDirs(destNorm);
     // Reuse the same body while the old path still retains it. The accounting
     // helper therefore sees an existing reference and a rename never needs
     // temporary capacity equal to the file size.
