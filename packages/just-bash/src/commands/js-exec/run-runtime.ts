@@ -5,12 +5,10 @@ import {
   getHostFunctionContext,
   RunAbortedError,
   RunBridgeLimitError,
-  RunError,
   type RunModuleLoader,
   RunTimeoutError,
 } from "run";
 import { combineAbortSignals } from "../../abort-signals.js";
-import { fromBuffer } from "../../fs/encoding.js";
 import {
   sanitizeErrorMessage,
   sanitizeHostErrorMessage,
@@ -75,6 +73,14 @@ let executionActive = false;
 const RUN_MEMORY_LIMIT_BYTES = 64 * 1024 * 1024;
 const RUN_SYNC_BRIDGE_PAYLOAD_BYTES = RUN_MEMORY_LIMIT_BYTES - 64 * 1024;
 const RUN_MAX_LIMIT_VALUE = 2_147_483_647;
+
+const createHostNamespace = (): string => {
+  const suffix =
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID().replaceAll("-", "")
+      : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+  return `__jbHost_${suffix}`;
+};
 
 class JsExecQueueCanceledError extends Error {}
 
@@ -329,8 +335,10 @@ const guestSetupSource = (
   env: Record<string, string>,
   cwd: string,
   hasInvokeTool: boolean,
+  hostNamespace: string,
 ): string => `
 (function() {
+  var host = globalThis[${JSON.stringify(hostNamespace)}];
   function unwrap(result) {
     if (!result || result.ok !== true) throw new Error(result && result.error || 'Host operation failed');
     return result.value;
@@ -357,31 +365,31 @@ const guestSetupSource = (
     arch: 'x64',
     versions: { node: '22.0.0', quickjs: '2025' },
     version: 'v22.0.0',
-    exit: function(code) { return __host.exit(Number(code) || 0); }
+    exit: function(code) { return host.exit(Number(code) || 0); }
   };
 
   ${RUN_BUFFER_MODULE_SOURCE}
   var fs = {
-    readFileBuffer: function(path) { return Uint8Array.from(unwrap(__host.fsRead(path))); },
+    readFileBuffer: function(path) { return Uint8Array.from(unwrap(host.fsRead(path))); },
     readFileSync: function(path, opts) {
-      var buffer = Buffer.from(unwrap(__host.fsRead(path)));
+      var buffer = Buffer.from(unwrap(host.fsRead(path)));
       var encoding = typeof opts === 'string' ? opts : opts && opts.encoding;
       return encoding ? buffer.toString(encoding) : buffer;
     },
-    writeFileSync: function(path, data) { unwrap(__host.fsWrite(path, bytes(data))); },
-    appendFileSync: function(path, data) { unwrap(__host.fsAppend(path, bytes(data))); },
-    statSync: function(path) { return unwrap(__host.fsStat(path, false)); },
-    lstatSync: function(path) { return unwrap(__host.fsStat(path, true)); },
-    readdirSync: function(path) { return unwrap(__host.fsReaddir(path)); },
-    mkdirSync: function(path, opts) { unwrap(__host.fsMkdir(path, Boolean(opts && opts.recursive))); },
-    rmSync: function(path, opts) { unwrap(__host.fsRm(path, Boolean(opts && opts.recursive), Boolean(opts && opts.force))); },
-    existsSync: function(path) { return unwrap(__host.fsExists(path)); },
-    symlinkSync: function(target, path) { unwrap(__host.fsSymlink(target, path)); },
-    readlinkSync: function(path) { return unwrap(__host.fsReadlink(path)); },
-    chmodSync: function(path, mode) { unwrap(__host.fsChmod(path, Number(mode))); },
-    realpathSync: function(path) { return unwrap(__host.fsRealpath(path)); },
-    renameSync: function(from, to) { unwrap(__host.fsRename(from, to)); },
-    copyFileSync: function(from, to) { unwrap(__host.fsCopy(from, to)); }
+    writeFileSync: function(path, data) { unwrap(host.fsWrite(path, bytes(data))); },
+    appendFileSync: function(path, data) { unwrap(host.fsAppend(path, bytes(data))); },
+    statSync: function(path) { return unwrap(host.fsStat(path, false)); },
+    lstatSync: function(path) { return unwrap(host.fsStat(path, true)); },
+    readdirSync: function(path) { return unwrap(host.fsReaddir(path)); },
+    mkdirSync: function(path, opts) { unwrap(host.fsMkdir(path, Boolean(opts && opts.recursive))); },
+    rmSync: function(path, opts) { unwrap(host.fsRm(path, Boolean(opts && opts.recursive), Boolean(opts && opts.force))); },
+    existsSync: function(path) { return unwrap(host.fsExists(path)); },
+    symlinkSync: function(target, path) { unwrap(host.fsSymlink(target, path)); },
+    readlinkSync: function(path) { return unwrap(host.fsReadlink(path)); },
+    chmodSync: function(path, mode) { unwrap(host.fsChmod(path, Number(mode))); },
+    realpathSync: function(path) { return unwrap(host.fsRealpath(path)); },
+    renameSync: function(from, to) { unwrap(host.fsRename(from, to)); },
+    copyFileSync: function(from, to) { unwrap(host.fsCopy(from, to)); }
   };
   fs.unlinkSync = fs.rmSync;
   fs.rmdirSync = fs.rmSync;
@@ -415,15 +423,15 @@ const guestSetupSource = (
   ${STRING_DECODER_MODULE_SOURCE}
   ${QUERYSTRING_MODULE_SOURCE}
 
-  var nativeFetch = function(url, opts) { return unwrap(__host.fetch(String(url), opts)); };
+  var nativeFetch = function(url, opts) { return unwrap(host.fetch(String(url), opts)); };
   globalThis[Symbol.for('jb:fetch')] = nativeFetch;
   ${RUN_FETCH_POLYFILL_SOURCE}
   ${URL_MODULE_SOURCE}
 
   var childProcess = {
-    exec: function(command, opts) { return unwrap(__host.exec(String(command), opts && opts.stdin)); },
+    exec: function(command, opts) { return unwrap(host.exec(String(command), opts && opts.stdin)); },
     execSync: function(command, opts) {
-      var result = unwrap(__host.exec(String(command), opts && opts.stdin));
+      var result = unwrap(host.exec(String(command), opts && opts.stdin));
       if (result.exitCode !== 0) {
         var error = new Error('Command failed: ' + command);
         error.status = result.exitCode; error.stdout = result.stdout; error.stderr = result.stderr;
@@ -432,7 +440,7 @@ const guestSetupSource = (
       return result.stdout;
     },
     spawnSync: function(command, args) {
-      var result = unwrap(__host.execArgs(String(command), args || []));
+      var result = unwrap(host.execArgs(String(command), args || []));
       return { stdout: result.stdout, stderr: result.stderr, status: result.exitCode };
     }
   };
@@ -462,10 +470,10 @@ const guestSetupSource = (
   };
   globalThis.require.resolve = function(name) { return name; };
 
-  console.log = function() { unwrap(__host.stdout(Array.prototype.map.call(arguments, format).join(' ') + '\\n')); };
+  console.log = function() { unwrap(host.stdout(Array.prototype.map.call(arguments, format).join(' ') + '\\n')); };
   console.info = console.log;
   console.debug = console.log;
-  console.error = function() { unwrap(__host.stderr(Array.prototype.map.call(arguments, format).join(' ') + '\\n')); };
+  console.error = function() { unwrap(host.stderr(Array.prototype.map.call(arguments, format).join(' ') + '\\n')); };
   console.warn = console.error;
 
   ${
@@ -478,7 +486,7 @@ const guestSetupSource = (
       },
       apply: function(_target, _this, args) {
         var argsJson = args.length ? JSON.stringify(args[0]) : '';
-        var value = unwrap(__host.invokeTool(path.join('.'), argsJson || ''));
+        var value = unwrap(host.invokeTool(path.join('.'), argsJson || ''));
         return value ? JSON.parse(value) : undefined;
       }
     });
@@ -555,6 +563,14 @@ async function executeWithRunInner(
   deadline: number,
   deadlineSignal: AbortSignal,
 ): Promise<ExecResult> {
+  if (ctx.limits.maxJsBridgeRequests === 0) {
+    return {
+      exitCode: 1,
+      stderr:
+        "js-exec: JavaScript runtime exceeded the 0 bridge request limit.\n",
+      stdout: "",
+    };
+  }
   // run accounts for the SharedArrayBuffer inside the invocation budget and
   // adds framing space to host-function arguments. Leave bounded headroom
   // while preserving the existing 64 MiB QuickJS heap limit.
@@ -562,6 +578,7 @@ async function executeWithRunInner(
     ctx.limits.maxWorkerMessageBytes,
     RUN_SYNC_BRIDGE_PAYLOAD_BYTES,
   );
+  const hostNamespace = createHostNamespace();
   const output: OutputState = {
     exitCode: 0,
     limitExceeded: false,
@@ -570,42 +587,63 @@ async function executeWithRunInner(
   };
   let requestedExitCode: number | undefined;
   const maxOutputSize = ctx.limits.maxOutputSize;
+  let outputBytes = 0;
   const appendOutput = (
     stream: "stdout" | "stderr",
     value: string,
   ): HostResult<void> => {
-    const nextBytes =
-      Buffer.byteLength(output.stdout) +
-      Buffer.byteLength(output.stderr) +
-      Buffer.byteLength(value);
+    if (requestedExitCode !== undefined) {
+      return { error: "process.exit() already requested", ok: false };
+    }
+    if (typeof value !== "string") {
+      return { error: "Output must be a string", ok: false };
+    }
+    const nextBytes = outputBytes + Buffer.byteLength(value);
     if (maxOutputSize > 0 && nextBytes > maxOutputSize) {
       output.limitExceeded = true;
       output.exitCode = 1;
       return { error: "Output size limit exceeded", ok: false };
     }
     output[stream] += value;
+    outputBytes = nextBytes;
     return { ok: true, value: undefined };
   };
   const resolve = (path: string) => ctx.fs.resolvePath(ctx.cwd, path);
   const attempt = async <T>(
     operation: () => Promise<T>,
+    sanitize = sanitizeErrorMessage,
   ): Promise<HostResult<T>> => {
+    if (requestedExitCode !== undefined) {
+      return { error: "process.exit() already requested", ok: false };
+    }
     try {
       return {
         ok: true,
         value: await DefenseInDepthBox.runUntrustedAsync(operation),
       };
     } catch (error) {
-      return { ok: false, error: sanitizeErrorMessage(getErrorMessage(error)) };
+      return { ok: false, error: sanitize(getErrorMessage(error)) };
     }
+  };
+  const toFileData = (data: unknown): string | Uint8Array => {
+    if (typeof data === "string") return data;
+    if (!Array.isArray(data) || data.length > maxBridgePayloadBytes) {
+      throw new TypeError("File data must be a bounded byte array or string");
+    }
+    for (const byte of data) {
+      if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
+        throw new TypeError("File data contains an invalid byte");
+      }
+    }
+    return Uint8Array.from(data);
   };
   const env = mapToRecord(ctx.env);
   const runner = DefenseInDepthBox.runTrusted(() =>
     createRunner({
       syncHostFunctions: {
-        __host: {
+        [hostNamespace]: {
           exit(code: number) {
-            requestedExitCode = Number.isFinite(code) ? Math.trunc(code) : 0;
+            requestedExitCode ??= Number.isFinite(code) ? Math.trunc(code) : 0;
             output.exitCode = requestedExitCode;
             throw new Error("Guest requested process exit.");
           },
@@ -613,21 +651,15 @@ async function executeWithRunInner(
             attempt(async () =>
               Array.from(await ctx.fs.readFileBuffer(resolve(path))),
             ),
-          fsWrite: (path: string, data: string | number[]) =>
+          fsWrite: (path: string, data: unknown) =>
             attempt(
               async () =>
-                await ctx.fs.writeFile(
-                  resolve(path),
-                  typeof data === "string" ? data : Uint8Array.from(data),
-                ),
+                await ctx.fs.writeFile(resolve(path), toFileData(data)),
             ),
-          fsAppend: (path: string, data: string | number[]) =>
+          fsAppend: (path: string, data: unknown) =>
             attempt(
               async () =>
-                await ctx.fs.appendFile(
-                  resolve(path),
-                  typeof data === "string" ? data : Uint8Array.from(data),
-                ),
+                await ctx.fs.appendFile(resolve(path), toFileData(data)),
             ),
           fsStat: (path: string, lstat: boolean) =>
             attempt(async () =>
@@ -689,7 +721,6 @@ async function executeWithRunInner(
               });
               return {
                 body: Buffer.from(response.body).toString("latin1"),
-                bodyBase64: fromBuffer(response.body, "base64"),
                 headers: response.headers,
                 status: response.status,
                 statusText: response.statusText,
@@ -740,7 +771,7 @@ async function executeWithRunInner(
               return await DefenseInDepthBox.runTrustedAsync(
                 () => ctx.invokeTool?.(path, argsJson) as Promise<string>,
               );
-            });
+            }, sanitizeHostErrorMessage);
           },
         },
       },
@@ -752,8 +783,11 @@ async function executeWithRunInner(
     env,
     ctx.cwd,
     ctx.invokeTool !== undefined,
+    hostNamespace,
   );
   const bootstrap = options.bootstrapCode ?? "";
+  const isolatedBootstrap =
+    bootstrap === "" ? "" : `(function() {\n${bootstrap}\n})();\n`;
   const moduleLoader: RunModuleLoader | undefined = options.isModule
     ? {
         identity: "just-bash-js-exec-v1",
@@ -769,19 +803,22 @@ async function executeWithRunInner(
             return `just-bash:builtin:${bare}`;
           if (!specifier.startsWith(".") && !specifier.startsWith("/"))
             return `just-bash:missing:${specifier}`;
-          const importerDirectory =
+          const importerPath =
             importer === "<entry>" || importer.startsWith("just-bash:")
-              ? options.scriptPath.includes("/")
-                ? options.scriptPath.slice(
-                    0,
-                    options.scriptPath.lastIndexOf("/"),
-                  )
-                : ctx.cwd
-              : importer.slice(0, importer.lastIndexOf("/"));
-          return normalizePath(importerDirectory || ctx.cwd, specifier);
+              ? options.scriptPath
+              : importer;
+          const separator = importerPath.lastIndexOf("/");
+          const importerDirectory =
+            separator < 0
+              ? ctx.cwd
+              : separator === 0
+                ? "/"
+                : importerPath.slice(0, separator);
+          return normalizePath(importerDirectory, specifier);
         },
         async load(specifier) {
-          if (specifier === "just-bash:bootstrap") return setup;
+          if (specifier === "just-bash:bootstrap")
+            return `${setup}\n${isolatedBootstrap}`;
           if (specifier.startsWith("just-bash:builtin:"))
             return createBuiltInModuleSource(
               specifier.slice("just-bash:builtin:".length),
@@ -797,8 +834,8 @@ async function executeWithRunInner(
       }
     : undefined;
   const sourcePrefix = options.isModule
-    ? `import 'just-bash:bootstrap';\n${bootstrap}\n`
-    : `${setup}\n${bootstrap}\n`;
+    ? "import 'just-bash:bootstrap';\n"
+    : `${setup}\n${isolatedBootstrap}`;
   const source = `${sourcePrefix}${options.source}`;
   const sourceLineOffset = sourcePrefix.split("\n").length - 1;
 
@@ -810,7 +847,7 @@ async function executeWithRunInner(
           abortSignal,
           limits: {
             maxBridgeRequests: Math.min(
-              Math.max(1, ctx.limits.maxJsBridgeRequests),
+              ctx.limits.maxJsBridgeRequests,
               RUN_MAX_LIMIT_VALUE,
             ),
             maxConsoleOutputBytes: 1,
@@ -834,11 +871,7 @@ async function executeWithRunInner(
     });
   } catch (error) {
     const message = getErrorMessage(error);
-    if (
-      requestedExitCode !== undefined &&
-      RunError.isInstance(error) &&
-      error.code === "RUN_HOST_FUNCTION_ERROR"
-    ) {
+    if (requestedExitCode !== undefined) {
       output.exitCode = requestedExitCode;
     } else if (
       error instanceof RunTimeoutError ||

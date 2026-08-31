@@ -681,6 +681,9 @@ The Node.js package requires Node `>=20.18.1`.
 - All execution happens without VM isolation. This does introduce additional risk. The code base was designed to be robust against prototype-pollution attacks and other break outs to the host JS engine and filesystem.
 - There is no network access by default. When enabled, requests are checked against URL prefix allow-lists and HTTP-method allow-lists.
 - Python and JavaScript execution are off by default as they represent additional security surface.
+- `js-exec` guest code runs inside the `run` package's QuickJS/WASM realm. Its
+  primary isolation boundary is QuickJS plus the validated, bounded host
+  bridge; guest JavaScript does not execute in the Node worker realm.
 - Execution is protected against infinite loops and deep recursion with configurable limits.
 - Host-realm defense-in-depth uses the strongest scoped controls available on
   each supported Node runtime. Where `node:module.registerHooks()` is present,

@@ -41,6 +41,102 @@ describe("js-exec run adapter regressions", () => {
     expect(result.exitCode).toBe(1);
   });
 
+  it("prevents side effects after process.exit even when guest code catches", async () => {
+    const bash = new Bash({ javascript: true });
+    const result = await bash.exec(
+      `js-exec -c "try { process.exit(7) } catch {} try { require('fs').writeFileSync('/late.txt', 'late') } catch {} try { console.log('late') } catch {}"`,
+    );
+
+    expect(result).toMatchObject({ exitCode: 7, stderr: "", stdout: "" });
+    expect(await bash.fs.exists("/late.txt")).toBe(false);
+  });
+
+  it("isolates bootstrap declarations from user declarations", async () => {
+    const bash = new Bash({
+      javascript: {
+        bootstrap: "const collision = 'bootstrap'; globalThis.ready = true;",
+      },
+    });
+    const result = await bash.exec(
+      `js-exec -c "const collision = 'user'; console.log(collision, ready)"`,
+    );
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stderr: "",
+      stdout: "user true\n",
+    });
+  });
+
+  it("resolves relative imports from a module at the filesystem root", async () => {
+    const bash = new Bash({
+      files: {
+        "/helper.mjs": "export const value = 'root';",
+        "/main.mjs":
+          "import { value } from './helper.mjs'; console.log(value);",
+      },
+      javascript: true,
+    });
+    const result = await bash.exec("js-exec /main.mjs");
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stderr: "",
+      stdout: "root\n",
+    });
+  });
+
+  it("honors a zero JavaScript bridge request limit", async () => {
+    const bash = new Bash({
+      executionLimits: { maxJsBridgeRequests: 0 },
+      javascript: true,
+    });
+    const result = await bash.exec(
+      `js-exec -c "require('fs').existsSync('/anything')"`,
+    );
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("0 bridge request limit");
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("rejects malicious raw host arguments without a stable namespace", async () => {
+    const bash = new Bash({ javascript: true });
+    const result = await bash.exec(
+      `js-exec -c "const name = Object.getOwnPropertyNames(globalThis).find(name => name.startsWith('__jbHost_')); const raw = globalThis[name].fsWrite('/amplified.bin', {length: 2 ** 30}); console.log(typeof __host, raw.ok, raw.error)"`,
+    );
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stderr: "",
+      stdout:
+        "undefined false File data must be a bounded byte array or string\n",
+    });
+    expect(await bash.fs.exists("/amplified.bin")).toBe(false);
+  });
+
+  it("redacts host paths from tool errors", async () => {
+    const bash = new Bash({
+      javascript: {
+        invokeTool: async () => {
+          throw new Error(
+            "tool failed at /workspace/private/tool.js and file:///root/key",
+          );
+        },
+      },
+    });
+    const result = await bash.exec(
+      `js-exec -c "try { tools.fail() } catch (error) { console.log(error.message) }"`,
+    );
+
+    expect(result.stdout).not.toContain("/workspace");
+    expect(result.stdout).not.toContain("/root");
+    expect(result.stdout).not.toContain("file://");
+    expect(result.stdout).toContain("<path>");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
+
   it("only exposes tools when invokeTool is configured", async () => {
     const bash = new Bash({ javascript: true });
     const result = await bash.exec(`js-exec -c "console.log(typeof tools)"`);
