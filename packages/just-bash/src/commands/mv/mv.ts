@@ -1,3 +1,4 @@
+import { DestinationParentError } from "../../fs/destination-parent.js";
 import { isSameOrDescendantPath } from "../../fs/path-utils.js";
 import {
   compareCanonicalContainment,
@@ -104,6 +105,7 @@ export const mvCommand: RuntimeCommand = {
     }
 
     for (const src of sources) {
+      let targetDisplayPath = dest;
       try {
         const srcPath = ctx.fs.resolvePath(ctx.cwd, src);
         const srcStat = await ctx.fs.stat(srcPath);
@@ -113,6 +115,10 @@ export const mvCommand: RuntimeCommand = {
           const basename = src.split("/").pop() || src;
           targetPath =
             destPath === "/" ? `/${basename}` : `${destPath}/${basename}`;
+          targetDisplayPath =
+            dest === "/"
+              ? `/${basename}`
+              : `${dest}${dest.endsWith("/") ? "" : "/"}${basename}`;
         }
         if (srcStat.isDirectory) {
           const containment = await compareCanonicalContainment(
@@ -186,11 +192,19 @@ export const mvCommand: RuntimeCommand = {
         ) {
           throw error;
         }
-        const message = getErrorMessage(error);
-        if (message.includes("ENOENT") || message.includes("no such file")) {
-          stderr += `mv: cannot stat '${src}': No such file or directory\n`;
+        if (error instanceof DestinationParentError) {
+          const description =
+            error.code === "ENOENT"
+              ? "No such file or directory"
+              : "Not a directory";
+          stderr += `mv: cannot move '${src}' to '${targetDisplayPath}': ${description}\n`;
         } else {
-          stderr += `mv: cannot move '${src}': ${message}\n`;
+          const message = getErrorMessage(error);
+          if (message.includes("ENOENT") || message.includes("no such file")) {
+            stderr += `mv: cannot stat '${src}': No such file or directory\n`;
+          } else {
+            stderr += `mv: cannot move '${src}': ${message}\n`;
+          }
         }
         exitCode = 1;
       }

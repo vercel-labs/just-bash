@@ -1,4 +1,5 @@
 import { type ByteString, readBytesFrom } from "../../encoding.js";
+import { assertDestinationParentDirectory } from "../destination-parent.js";
 import { InMemoryFs } from "../in-memory-fs/in-memory-fs.js";
 import type {
   BufferEncoding,
@@ -473,8 +474,13 @@ export class MountableFs implements IFileSystem {
 
   async cp(src: string, dest: string, options?: CpOptions): Promise<void> {
     const srcStat = await this.stat(src);
-    if (srcStat.isDirectory && isSameOrDescendantPath(src, dest)) {
-      throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
+    if (srcStat.isDirectory) {
+      if (!options?.recursive) {
+        throw new Error(`EISDIR: is a directory, cp '${src}'`);
+      }
+      if (isSameOrDescendantPath(src, dest)) {
+        throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
+      }
     }
     const srcRoute = this.routePath(src);
     const destRoute = this.routePath(dest);
@@ -489,6 +495,7 @@ export class MountableFs implements IFileSystem {
     }
 
     // Cross-mount copy
+    await assertDestinationParentDirectory(this, dest);
     return this.crossMountCopy(src, dest, options);
   }
 
@@ -645,7 +652,7 @@ export class MountableFs implements IFileSystem {
       await this.chmod(dest, srcStat.mode);
     } else if (srcStat.isDirectory) {
       if (!options?.recursive) {
-        throw new Error(`cp: ${src} is a directory (not copied)`);
+        throw new Error(`EISDIR: is a directory, cp '${src}'`);
       }
       await this.mkdir(dest, { recursive: true });
       const children = await this.readdir(src);
