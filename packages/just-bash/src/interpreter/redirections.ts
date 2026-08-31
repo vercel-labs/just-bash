@@ -124,6 +124,7 @@ export type PreparedRedirections = {
   standardRoutes: Map<number, FdEntry>;
   stdin: string | undefined;
   stdinSourceFd: number;
+  stdinReplaced: boolean;
   error: ExecResult | null;
   errorCause?: ExitError | ExecutionLimitError;
 };
@@ -331,6 +332,7 @@ async function prepareRedirectionsWithState(
   const snapshot = transaction.numericSnapshot;
   let stdin: string | undefined;
   let stdinSourceFd = -1;
+  let stdinReplaced = false;
   const initialStdin = standardRoutes.get(0);
   if (initialStdin?.kind === "input") {
     stdin = initialStdin.content;
@@ -345,6 +347,7 @@ async function prepareRedirectionsWithState(
     standardRoutes,
     stdin,
     stdinSourceFd,
+    stdinReplaced,
     error: null,
   });
   const fail = async (
@@ -460,6 +463,7 @@ async function prepareRedirectionsWithState(
         stdin = latin1FromBytes(encodeUtf8ToBytes(content));
         stdinSourceFd = -1;
         persistStandard(effectiveFd, { kind: "input", content: stdin });
+        stdinReplaced = true;
       } else {
         const entry: FdEntry = { kind: "input", content };
         if (transaction.policy === "persistent") {
@@ -779,6 +783,7 @@ async function prepareRedirectionsWithState(
         if (effectiveFd === 0) {
           stdin = "";
           stdinSourceFd = -1;
+          stdinReplaced = true;
         }
         if (effectiveFd !== null && effectiveFd < FIRST_USER_FD) {
           standardRoutes.set(effectiveFd, { kind: "closed" });
@@ -889,6 +894,13 @@ async function prepareRedirectionsWithState(
           stdinSourceFd = -1;
         }
       }
+      if (
+        redir.operator === "<&" &&
+        effectiveFd === 0 &&
+        parsed.sourceFd !== 0
+      ) {
+        stdinReplaced = true;
+      }
       if (parsed.move) {
         if (parsed.sourceFd >= FIRST_USER_FD) {
           closeFd(ctx, parsed.sourceFd);
@@ -933,12 +945,14 @@ async function prepareRedirectionsWithState(
       stdin = latin1FromBytes(encodeUtf8ToBytes(`${target}\n`));
       stdinSourceFd = -1;
       persistStandard(effectiveFd, { kind: "input", content: stdin });
+      if (effectiveFd === 0) stdinReplaced = true;
     } else if (redir.operator === "<") {
       const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
       try {
         stdin = (await readBytesFrom(ctx.fs, filePath)) as unknown as string;
         stdinSourceFd = -1;
         persistStandard(effectiveFd, { kind: "input", content: stdin });
+        if (effectiveFd === 0) stdinReplaced = true;
       } catch {
         return fail(
           makeResult("", `bash: ${target}: No such file or directory\n`, 1),
@@ -953,6 +967,7 @@ async function prepareRedirectionsWithState(
       if (effectiveFd === 0 && entry.kind === "readwrite") {
         stdin = entry.content;
         stdinSourceFd = -1;
+        stdinReplaced = true;
       }
     }
   }
