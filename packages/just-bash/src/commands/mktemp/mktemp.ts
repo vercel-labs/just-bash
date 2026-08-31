@@ -37,7 +37,15 @@ const TRAILING_X = /X{3,}$/;
 const SUFFIX_ALPHABET =
   "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
-/** How many names to try before giving up, as GNU's TMP_MAX does. */
+/**
+ * How many names to try before giving up, as GNU's TMP_MAX does.
+ *
+ * Not a resource ceiling and not something a host would want to configure: it
+ * bounds retries against name collisions, and every attempt is one `exists`
+ * check on a name drawn from 62^n. Raising it buys nothing and lowering it only
+ * makes the command fail on a directory it could have used.
+ */
+// @banned-pattern-ignore: retry invariant against name collisions, not a configurable resource limit
 const MAX_ATTEMPTS = 32;
 
 /** The private modes mktemp guarantees. */
