@@ -17,6 +17,106 @@ describe("rg searches stdin when no paths are given", () => {
     expect(result.stdout).not.toContain("decoy");
   });
 
+  it("searches empty piped stdin instead of cwd", async () => {
+    const env = new Bash({ files: { "/decoy.txt": "target line\n" } });
+    const result = await env.exec('printf "" | rg "target"');
+
+    expect(result).toMatchObject({
+      stdout: "",
+      stderr: "",
+      exitCode: 1,
+    });
+  });
+
+  it("lets an empty input redirection override enclosing stdin", async () => {
+    const env = new Bash({
+      files: {
+        "/empty.txt": "",
+        "/outer.txt": "outer target\n",
+      },
+    });
+    const result = await env.exec("{ rg target < /empty.txt; } < /outer.txt");
+
+    expect(result).toMatchObject({
+      stdout: "",
+      stderr: "",
+      exitCode: 1,
+    });
+  });
+
+  it("treats an empty fd-0 here-doc as direct stdin", async () => {
+    const env = new Bash({ files: { "/decoy.txt": "target line\n" } });
+    const result = await env.exec("rg target <<EOF\nEOF");
+
+    expect(result).toMatchObject({
+      stdout: "",
+      stderr: "",
+      exitCode: 1,
+    });
+  });
+
+  it("ignores an empty here-doc on a non-stdin descriptor", async () => {
+    const env = new Bash({ files: { "/outer.txt": "outer target\n" } });
+    const result = await env.exec(
+      "{ rg target 2<<EOF\nEOF\n} < /outer.txt",
+    );
+
+    expect(result).toMatchObject({
+      stdout: "1:outer target\n",
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
+  it("ignores an empty input redirection on a non-stdin descriptor", async () => {
+    const env = new Bash({
+      files: {
+        "/empty.txt": "",
+        "/outer.txt": "outer target\n",
+      },
+    });
+    const result = await env.exec("{ rg target 2< /empty.txt; } < /outer.txt");
+
+    expect(result).toMatchObject({
+      stdout: "1:outer target\n",
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
+  it("preserves inherited stdin through an fd-0 self-duplication", async () => {
+    const env = new Bash({ files: { "/outer.txt": "outer target\n" } });
+    const result = await env.exec("{ rg target <&0; } < /outer.txt");
+
+    expect(result).toMatchObject({
+      stdout: "1:outer target\n",
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
+  it("still searches an explicit path when piped stdin is empty", async () => {
+    const env = new Bash({ files: { "/data.txt": "target line\n" } });
+    const result = await env.exec('printf "" | rg "target" /data.txt');
+
+    expect(result).toMatchObject({
+      stdout: "target line\n",
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
+  it("does not treat wrapper-created empty stdin as direct input", async () => {
+    const env = new Bash({ files: { "/decoy.txt": "target line\n" } });
+    const result = await env.exec("bash -c 'rg target'");
+
+    expect(result).toMatchObject({
+      stdout: "decoy.txt:1:target line\n",
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
   it("returns exit code 1 when stdin has no match", async () => {
     const env = new Bash({ files: {} });
     const result = await env.exec('echo "hello" | rg "xyz"');

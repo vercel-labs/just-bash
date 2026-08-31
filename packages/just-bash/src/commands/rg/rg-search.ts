@@ -263,16 +263,16 @@ export async function executeSearch(
     for (const lease of patternSourceLeases) lease.release();
   }
 
-  // If no paths given and stdin has content, search stdin (like real rg).
-  // In a pipeline, the previous command's stdout becomes this command's
-  // stdin — search that text instead of defaulting to the current directory.
+  // If no paths are given and stdin was provided, search stdin (like real rg).
+  // Pipeline stages and explicit redirections can provide an empty stdin, which
+  // must still suppress rg's fallback recursive search of the current directory.
   // Skip when `-f -` already consumed stdin for patterns to avoid
   // double-consuming it as both pattern source and search input.
   const stdinConsumedByPatternFile = options.patternFiles.includes("-");
   const stdinText = decodeBytesToUtf8(ctx.stdin);
   if (
     inputPaths.length === 0 &&
-    stdinText.length > 0 &&
+    (ctx.stdinProvided || stdinText.length > 0) &&
     !stdinConsumedByPatternFile
   ) {
     const content = stdinText;
