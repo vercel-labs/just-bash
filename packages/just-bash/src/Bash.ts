@@ -405,6 +405,7 @@ export class Bash {
       sourceDepth: 0,
       commandCount: 0,
       lastExitCode: 0,
+      lastSubstitutionExitCode: null,
       lastArg: "", // $_ is initially empty (or could be shell name)
       startTime: Date.now(),
       lastBackgroundPid: 0,

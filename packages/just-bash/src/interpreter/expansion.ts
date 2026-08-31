@@ -91,6 +91,7 @@ import {
   splitByIfsForExpansion,
 } from "./helpers/ifs.js";
 import { isNameref, resolveNameref } from "./helpers/nameref.js";
+import { recordSubstitutionExit } from "./helpers/substitution-status.js";
 import { getLiteralValue, isQuotedPart } from "./helpers/word-parts.js";
 import { openProcessSubstitution } from "./process-substitution.js";
 import type { InterpreterContext } from "./types.js";
@@ -765,8 +766,7 @@ async function expandPart(
             : `${ctx.state.cwd}/${filePath}`;
           // Read the file
           const content = await ctx.fs.readFile(resolvedPath);
-          ctx.state.lastExitCode = 0;
-          ctx.state.env.set("?", "0");
+          recordSubstitutionExit(ctx.state, 0);
           // Strip trailing newlines (like command substitution does)
           const result = content.replace(/\n+$/, "");
           // Check string length limit
@@ -782,8 +782,7 @@ async function expandPart(
             throw error;
           }
           // File not found or read error - return empty string, set exit code
-          ctx.state.lastExitCode = 1;
-          ctx.state.env.set("?", "1");
+          recordSubstitutionExit(ctx.state, 1);
           return "";
         }
       }
@@ -825,8 +824,7 @@ async function expandPart(
         ctx.state.cwd = savedCwd;
         ctx.state.suppressVerbose = savedSuppressVerbose;
         // Store the exit code for $?
-        ctx.state.lastExitCode = exitCode;
-        ctx.state.env.set("?", String(exitCode));
+        recordSubstitutionExit(ctx.state, exitCode);
         // Command substitution stderr should go to the shell's stderr at expansion time,
         // NOT be affected by later redirections on the outer command
         if (result.stderr) {
@@ -857,8 +855,7 @@ async function expandPart(
         }
         if (error instanceof ExitError) {
           // Catch exit in command substitution - return output so far
-          ctx.state.lastExitCode = error.exitCode;
-          ctx.state.env.set("?", String(error.exitCode));
+          recordSubstitutionExit(ctx.state, error.exitCode);
           // Also forward stderr from the exit
           if (error.stderr) {
             ctx.state.expansionStderr =

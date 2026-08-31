@@ -37,6 +37,13 @@ async function getXtracePrefix(ctx: InterpreterContext): Promise<string> {
 
   const xtraceWasEnabled = ctx.state.options.xtrace;
   ctx.state.options.xtrace = false;
+  // PS4 is expanded for the trace line only. A command substitution in it must
+  // not become the traced command's status, so `$?` and the substitution
+  // marker are put back exactly as they were: under `set -x` with a PS4 that
+  // substitutes, `x=1` is still 0 and `x=$(exit 7)` is still 7.
+  const savedExitCode = ctx.state.lastExitCode;
+  const savedExitCodeVar = ctx.state.env.get("?");
+  const savedSubstitutionExitCode = ctx.state.lastSubstitutionExitCode;
   try {
     // Parse PS4 as a word to handle variable expansion
     const parser = new Parser();
@@ -66,6 +73,13 @@ async function getXtracePrefix(ctx: InterpreterContext): Promise<string> {
     return ps4 || DEFAULT_PS4;
   } finally {
     ctx.state.options.xtrace = xtraceWasEnabled;
+    ctx.state.lastExitCode = savedExitCode;
+    ctx.state.lastSubstitutionExitCode = savedSubstitutionExitCode;
+    if (savedExitCodeVar === undefined) {
+      ctx.state.env.delete("?");
+    } else {
+      ctx.state.env.set("?", savedExitCodeVar);
+    }
   }
 }
 

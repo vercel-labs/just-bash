@@ -84,6 +84,7 @@ import { advanceFd } from "./fd-table.js";
 import { executeFunctionDef } from "./functions.js";
 import { failure, OK, result, testResult } from "./helpers/result.js";
 import { isPosixSpecialBuiltin } from "./helpers/shell-constants.js";
+import { nullCommandExitStatus } from "./helpers/substitution-status.js";
 import { isWordLiteralMatch } from "./helpers/word-matching.js";
 import { traceSimpleCommand } from "./helpers/xtrace.js";
 import { executePipeline as executePipelineHelper } from "./pipeline-execution.js";
@@ -666,6 +667,11 @@ export class Interpreter {
     // Clear expansion stderr at the start
     this.ctx.state.expansionStderr = "";
 
+    // A command with no command word reports the status of the last command
+    // substitution that ran inside it, so start every simple command with a
+    // clean marker rather than inheriting the previous command's.
+    this.ctx.state.lastSubstitutionExitCode = null;
+
     // Process all assignments (array, subscript, and scalar)
     const assignmentResult = await processAssignments(this.ctx, node);
     if (assignmentResult.error) {
@@ -705,7 +711,12 @@ export class Interpreter {
             transaction.finish();
           }
         }
-        const baseResult = result("", xtraceAssignmentOutput, 0);
+        // After `prepare`, so a substitution in a redirection target counts.
+        const baseResult = result(
+          "",
+          xtraceAssignmentOutput,
+          nullCommandExitStatus(this.ctx.state, node.redirections),
+        );
         const redirected = await applyRedirections(
           this.ctx,
           baseResult,
@@ -718,15 +729,20 @@ export class Interpreter {
         return redirected;
       }
 
-      // Assignment-only command: preserve the exit code from command substitution
-      // e.g., x=$(false) should set $? to 1, not 0
+      // Assignment-only command: the status is the one from a command
+      // substitution in the values (`x=$(false)` is 1), and 0 when there was
+      // none — a bare `x=1` never re-reports the previous command's status.
       // Also clear $_ - bash clears it for bare assignments
       this.ctx.state.lastArg = "";
       // Include any stderr from command substitutions (e.g., FOO=$(echo foo 1>&2))
       const stderrOutput =
         (this.ctx.state.expansionStderr || "") + xtraceAssignmentOutput;
       this.ctx.state.expansionStderr = "";
-      return result("", stderrOutput, this.ctx.state.lastExitCode);
+      return result(
+        "",
+        stderrOutput,
+        nullCommandExitStatus(this.ctx.state, []),
+      );
     }
 
     // Mark prefix assignment variables as temporarily exported for this command
@@ -874,10 +890,14 @@ export class Interpreter {
     // However, a literal empty string (like '') is "command not found".
     if (!commandName) {
       if (commandIsOnlyExpansions) {
-        // No args - treat as no-op (status 0)
-        // Preserve lastExitCode for command subs like $(exit 42)
+        // No args - treat as a no-op that reports the status of a command
+        // substitution in the word (`$(exit 42)` is 42) and 0 otherwise.
         transaction.finish();
-        return result("", "", this.ctx.state.lastExitCode);
+        return result(
+          "",
+          "",
+          nullCommandExitStatus(this.ctx.state, node.redirections),
+        );
       }
       // Literal empty command name - command not found
       transaction.finish();

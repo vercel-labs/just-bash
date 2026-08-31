@@ -414,6 +414,13 @@ export interface InterpreterState
   // ---- Execution Tracking ----
   /** Exit code of last executed command */
   lastExitCode: number;
+  /**
+   * Exit status of the most recent command substitution, or `null` when none
+   * has run since the current simple command began expanding. A command with
+   * no command word takes its status from this, not from `lastExitCode`:
+   * `x=$(exit 7)` is 7, while a plain `x=1` is 0 no matter what ran before it.
+   */
+  lastSubstitutionExitCode: number | null;
   /** Last argument of previous command, for $_ expansion */
   lastArg: string;
   /** Current line number being executed (for $LINENO) */
