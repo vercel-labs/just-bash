@@ -73,6 +73,7 @@ let executionActive = false;
 const RUN_MEMORY_LIMIT_BYTES = 64 * 1024 * 1024;
 const RUN_SYNC_BRIDGE_PAYLOAD_BYTES = RUN_MEMORY_LIMIT_BYTES - 64 * 1024;
 const RUN_MAX_LIMIT_VALUE = 2_147_483_647;
+const RUN_BRIDGE_VALUE_OVERHEAD_BYTES = 4096;
 
 const createHostNamespace = (): string => {
   const suffix =
@@ -267,6 +268,15 @@ const normalizePath = (cwd: string, path: string): string => {
   return `/${result.join("/")}`;
 };
 
+const truncateUtf8 = (value: string, maxBytes: number): string => {
+  if (maxBytes <= 0) return "";
+  const bytes = Buffer.from(value);
+  if (bytes.byteLength <= maxBytes) return value;
+  let end = maxBytes;
+  while (end > 0 && (bytes[end] & 0xc0) === 0x80) end--;
+  return bytes.subarray(0, end).toString("utf8");
+};
+
 const parseGuestSourceLocation = (
   stack: string,
 ): GuestSourceLocation | undefined => {
@@ -370,9 +380,9 @@ const guestSetupSource = (
 
   ${RUN_BUFFER_MODULE_SOURCE}
   var fs = {
-    readFileBuffer: function(path) { return Uint8Array.from(unwrap(host.fsRead(path))); },
+    readFileBuffer: function(path) { return Buffer.from(unwrap(host.fsRead(path)), 'base64')._data; },
     readFileSync: function(path, opts) {
-      var buffer = Buffer.from(unwrap(host.fsRead(path)));
+      var buffer = Buffer.from(unwrap(host.fsRead(path)), 'base64');
       var encoding = typeof opts === 'string' ? opts : opts && opts.encoding;
       return encoding ? buffer.toString(encoding) : buffer;
     },
@@ -578,6 +588,12 @@ async function executeWithRunInner(
     ctx.limits.maxWorkerMessageBytes,
     RUN_SYNC_BRIDGE_PAYLOAD_BYTES,
   );
+  const maxFileReadBytes = Math.max(
+    0,
+    Math.floor(
+      (maxBridgePayloadBytes - RUN_BRIDGE_VALUE_OVERHEAD_BYTES) * 0.75,
+    ),
+  );
   const hostNamespace = createHostNamespace();
   const output: OutputState = {
     exitCode: 0,
@@ -648,9 +664,22 @@ async function executeWithRunInner(
             throw new Error("Guest requested process exit.");
           },
           fsRead: (path: string) =>
-            attempt(async () =>
-              Array.from(await ctx.fs.readFileBuffer(resolve(path))),
-            ),
+            attempt(async () => {
+              const resolved = resolve(path);
+              const stat = await ctx.fs.stat(resolved);
+              if (stat.size > maxFileReadBytes) {
+                throw new Error(
+                  `File exceeds JavaScript bridge read limit (${maxFileReadBytes} bytes)`,
+                );
+              }
+              const data = await ctx.fs.readFileBuffer(resolved);
+              if (data.byteLength > maxFileReadBytes) {
+                throw new Error(
+                  `File exceeds JavaScript bridge read limit (${maxFileReadBytes} bytes)`,
+                );
+              }
+              return Buffer.from(data).toString("base64");
+            }),
           fsWrite: (path: string, data: unknown) =>
             attempt(
               async () =>
@@ -823,13 +852,21 @@ async function executeWithRunInner(
             return createBuiltInModuleSource(
               specifier.slice("just-bash:builtin:".length),
             );
-          if (specifier.startsWith("just-bash:missing:"))
-            throw new Error(
-              `Cannot find module '${specifier.slice("just-bash:missing:".length)}': not found. Run 'js-exec --help' for available modules.`,
+          if (specifier.startsWith("just-bash:missing:")) {
+            const name = specifier.slice("just-bash:missing:".length);
+            return `throw new Error(${JSON.stringify(
+              `Cannot find module '${name}': not found. Run 'js-exec --help' for available modules.`,
+            )});`;
+          }
+          try {
+            return await DefenseInDepthBox.runUntrustedAsync(
+              async () => await ctx.fs.readFile(specifier),
             );
-          return await DefenseInDepthBox.runUntrustedAsync(
-            async () => await ctx.fs.readFile(specifier),
-          );
+          } catch (error) {
+            return `throw new Error(${JSON.stringify(
+              sanitizeErrorMessage(getErrorMessage(error)),
+            )});`;
+          }
         },
       }
     : undefined;
@@ -853,7 +890,14 @@ async function executeWithRunInner(
             maxConsoleOutputBytes: 1,
             maxHostFunctionArgumentsBytes: maxBridgePayloadBytes,
             maxHostFunctionOutputBytes: maxBridgePayloadBytes,
-            maxResultBytes: ctx.limits.maxWorkerMessageBytes,
+            maxResultBytes: Math.min(
+              ctx.limits.maxWorkerMessageBytes,
+              RUN_MAX_LIMIT_VALUE,
+            ),
+            maxSourceBytes: Math.min(
+              ctx.limits.maxWorkerMessageBytes,
+              RUN_MAX_LIMIT_VALUE,
+            ),
             memoryLimitBytes: RUN_MEMORY_LIMIT_BYTES,
             timeoutMs:
               deadline === Number.POSITIVE_INFINITY
@@ -901,7 +945,15 @@ async function executeWithRunInner(
     }
   }
   if (output.limitExceeded) {
-    output.stderr = `js-exec: total output size exceeded (>${maxOutputSize} bytes), increase executionLimits.maxOutputSize\n`;
+    const diagnostic = truncateUtf8(
+      `js-exec: total output size exceeded (>${maxOutputSize} bytes), increase executionLimits.maxOutputSize\n`,
+      maxOutputSize,
+    );
+    let remainingBytes = maxOutputSize - Buffer.byteLength(diagnostic);
+    output.stderr = truncateUtf8(output.stderr, remainingBytes);
+    remainingBytes -= Buffer.byteLength(output.stderr);
+    output.stdout = truncateUtf8(output.stdout, remainingBytes);
+    output.stderr += diagnostic;
   }
   return {
     exitCode: output.exitCode,

@@ -251,6 +251,9 @@ describe("js-exec", () => {
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("total output size exceeded");
       expect(result.stderr).toContain("js-exec:");
+      expect(
+        Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr),
+      ).toBeLessThanOrEqual(500);
     });
   });
 

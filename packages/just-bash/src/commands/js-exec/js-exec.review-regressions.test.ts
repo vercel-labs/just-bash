@@ -137,6 +137,39 @@ describe("js-exec run adapter regressions", () => {
     expect(result.exitCode).toBe(0);
   });
 
+  it("rejects oversized filesystem reads before byte-array allocation", async () => {
+    const maxWorkerMessageBytes = 128 * 1024;
+    const bash = new Bash({
+      executionLimits: { maxWorkerMessageBytes },
+      files: { "/large.bin": new Uint8Array(maxWorkerMessageBytes) },
+      javascript: true,
+    });
+    const result = await bash.exec(
+      `js-exec -c "try { require('fs').readFileSync('/large.bin') } catch (error) { console.log(error.message) }"`,
+    );
+
+    expect(result.stdout).toContain(
+      "File exceeds JavaScript bridge read limit",
+    );
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("maps the worker request ceiling to run's source limit", async () => {
+    const maxWorkerMessageBytes = 128 * 1024;
+    const bash = new Bash({
+      executionLimits: { maxWorkerMessageBytes },
+      javascript: true,
+    });
+    const source = `/*${"x".repeat(maxWorkerMessageBytes)}*/`;
+    const result = await bash.exec(`js-exec -c ${JSON.stringify(source)}`);
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("source exceeds");
+    expect(result.stderr).toContain(`${maxWorkerMessageBytes} byte size limit`);
+    expect(result.exitCode).toBe(1);
+  });
+
   it("only exposes tools when invokeTool is configured", async () => {
     const bash = new Bash({ javascript: true });
     const result = await bash.exec(`js-exec -c "console.log(typeof tools)"`);

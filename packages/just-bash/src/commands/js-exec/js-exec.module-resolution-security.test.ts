@@ -45,9 +45,9 @@ for (const name of names) {
 
     expect(result.stdout).toBe(
       [
-        "__proto__:Host bridge request failed.",
-        "constructor:Host bridge request failed.",
-        "toString:Host bridge request failed.",
+        "__proto__:Cannot find module '__proto__': not found. Run 'js-exec --help' for available modules.",
+        "constructor:Cannot find module 'constructor': not found. Run 'js-exec --help' for available modules.",
+        "toString:Cannot find module 'toString': not found. Run 'js-exec --help' for available modules.",
         "",
       ].join("\n"),
     );
