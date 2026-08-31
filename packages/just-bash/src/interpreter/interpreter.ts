@@ -525,8 +525,8 @@ export class Interpreter {
   }
 
   private async executePipeline(node: PipelineNode): Promise<ExecResult> {
-    return executePipelineHelper(this.ctx, node, (cmd, stdin) =>
-      this.executeCommand(cmd, stdin),
+    return executePipelineHelper(this.ctx, node, (cmd, stdin, stdinProvided) =>
+      this.executeCommand(cmd, stdin, stdinProvided),
     );
   }
 
@@ -575,7 +575,7 @@ export class Interpreter {
     this.ctx.coverage?.hit(`bash:cmd:${node.type}`);
     switch (node.type) {
       case "SimpleCommand":
-        return this.executeSimpleCommand(node, stdin);
+        return this.executeSimpleCommand(node, stdin, stdinOwned);
       case "If":
         return executeIf(this.ctx, node);
       case "For":
@@ -606,10 +606,11 @@ export class Interpreter {
   private async executeSimpleCommand(
     node: SimpleCommandNode,
     stdin: string,
+    stdinProvided: boolean,
   ): Promise<ExecResult> {
     let transaction: RedirectionTransaction | undefined;
     try {
-      return await this.executeSimpleCommandInner(node, stdin, (created) => {
+      return await this.executeSimpleCommandInner(node, stdin, stdinProvided, (created) => {
         transaction = created;
       });
     } catch (error) {
@@ -627,6 +628,7 @@ export class Interpreter {
   private async executeSimpleCommandInner(
     node: SimpleCommandNode,
     stdin: string,
+    stdinProvided: boolean,
     onTransaction: (transaction: RedirectionTransaction) => void,
   ): Promise<ExecResult> {
     // Update currentLine for $LINENO
@@ -859,7 +861,7 @@ export class Interpreter {
       return preparedRedirectionError(preparedRedirections);
     }
     const stdinSourceFd = preparedRedirections.stdinSourceFd;
-    const stdinRedirected = preparedRedirections.stdin !== undefined;
+    const stdinRedirected = preparedRedirections.stdinReplaced;
     if (preparedRedirections.stdin !== undefined) {
       stdin = preparedRedirections.stdin;
     }
@@ -935,6 +937,7 @@ export class Interpreter {
         false,
         stdinSourceFd,
         stdinRedirected,
+        stdinProvided,
       );
     } catch (error) {
       // For break/continue, we still need to apply redirections before propagating
@@ -1062,6 +1065,7 @@ export class Interpreter {
     useDefaultPath = false,
     stdinSourceFd = -1,
     stdinRedirected = false,
+    stdinProvided = false,
   ): Promise<ExecResult> {
     const dispatchCtx: BuiltinDispatchContext = {
       ctx: this.ctx,
@@ -1096,6 +1100,7 @@ export class Interpreter {
       args,
       stdin,
       useDefaultPath,
+      stdinRedirected || stdinProvided,
     );
     return { ...externalResult, internalProducerCommand: commandName };
   }
