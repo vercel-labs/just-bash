@@ -1,11 +1,18 @@
 import { type ByteString, readBytesFrom } from "../../encoding.js";
 import { ExclusiveCreateUnsupportedError } from "../create-exclusive.js";
+import {
+  assertDestinationOutsideSource,
+  getFileOperationBudget,
+  resolveDestinationPath,
+} from "../destination-parent.js";
 import { InMemoryFs } from "../in-memory-fs/in-memory-fs.js";
 import type {
   BufferEncoding,
   CpOptions,
   CreateExclusiveOptions,
   FileContent,
+  FileSystemOperationOptions,
+  FileSystemTraversalBudget,
   FsStat,
   IFileSystem,
   MkdirOptions,
@@ -16,7 +23,6 @@ import type {
 import {
   DEFAULT_DIR_MODE,
   dirname,
-  isSameOrDescendantPath,
   joinPath,
   normalizePath,
   resolvePath,
@@ -222,6 +228,18 @@ export class MountableFs implements IFileSystem {
     }
 
     return children;
+  }
+
+  private async materializeSyntheticDestinationParent(
+    destinationPath: string,
+    destinationRoute: { fs: IFileSystem; relativePath: string },
+  ): Promise<void> {
+    const destinationParentPath = dirname(destinationPath);
+    if (this.getChildMountPoints(destinationParentPath).length === 0) return;
+
+    await destinationRoute.fs.mkdir(dirname(destinationRoute.relativePath), {
+      recursive: true,
+    });
   }
 
   // ==================== IFileSystem Implementation ====================
@@ -520,48 +538,105 @@ export class MountableFs implements IFileSystem {
   }
 
   async cp(src: string, dest: string, options?: CpOptions): Promise<void> {
-    const srcStat = await this.stat(src);
-    if (srcStat.isDirectory && isSameOrDescendantPath(src, dest)) {
-      throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
+    const traversalBudget = getFileOperationBudget(options, "cp");
+    traversalBudget.checkpoint();
+    const srcStat = await this.lstat(src);
+    traversalBudget.checkpoint(0);
+    if (srcStat.isDirectory) {
+      if (!options?.recursive) {
+        throw new Error(`EISDIR: is a directory, cp '${src}'`);
+      }
+    }
+    const resolvedDestination = await resolveDestinationPath(this, dest, {
+      allowMissingDirectory: srcStat.isDirectory,
+      budget: traversalBudget,
+    });
+    if (srcStat.isDirectory) {
+      await assertDestinationOutsideSource(
+        this,
+        src,
+        resolvedDestination,
+        "cp",
+        traversalBudget,
+      );
     }
     const srcRoute = this.routePath(src);
-    const destRoute = this.routePath(dest);
+    const destRoute = this.routePath(resolvedDestination);
+    traversalBudget.checkpoint(0);
+    await this.materializeSyntheticDestinationParent(
+      resolvedDestination,
+      destRoute,
+    );
+    traversalBudget.checkpoint(0);
 
     // If same filesystem, delegate directly
     if (srcRoute.fs === destRoute.fs) {
-      return srcRoute.fs.cp(
-        srcRoute.relativePath,
-        destRoute.relativePath,
-        options,
-      );
+      return srcRoute.fs.cp(srcRoute.relativePath, destRoute.relativePath, {
+        ...options,
+        traversalBudget,
+      });
     }
 
     // Cross-mount copy
-    return this.crossMountCopy(src, dest, options);
+    return this.crossMountCopy(
+      src,
+      resolvedDestination,
+      options,
+      traversalBudget,
+    );
   }
 
-  async mv(src: string, dest: string): Promise<void> {
+  async mv(
+    src: string,
+    dest: string,
+    options?: FileSystemOperationOptions,
+  ): Promise<void> {
+    const traversalBudget = getFileOperationBudget(options, "mv");
+    traversalBudget.checkpoint();
     const normalized = normalizePath(src);
-    const srcStat = await this.stat(src);
-    if (srcStat.isDirectory && isSameOrDescendantPath(src, dest)) {
-      throw new Error(`EINVAL: cannot move '${src}' into itself, '${dest}'`);
-    }
+    const srcStat = await this.lstat(src);
+    traversalBudget.checkpoint(0);
 
     // Cannot move mount points
     if (this.mounts.has(normalized)) {
       throw new Error(`EBUSY: mount point, cannot move '${src}'`);
     }
 
+    const resolvedDestination = await resolveDestinationPath(this, dest, {
+      allowMissingDirectory: srcStat.isDirectory,
+      budget: traversalBudget,
+    });
+    if (srcStat.isDirectory) {
+      await assertDestinationOutsideSource(
+        this,
+        src,
+        resolvedDestination,
+        "mv",
+        traversalBudget,
+      );
+    }
     const srcRoute = this.routePath(src);
-    const destRoute = this.routePath(dest);
+    const destRoute = this.routePath(resolvedDestination);
+    traversalBudget.checkpoint(0);
+    await this.materializeSyntheticDestinationParent(
+      resolvedDestination,
+      destRoute,
+    );
+    traversalBudget.checkpoint(0);
 
     // If same filesystem, delegate directly
     if (srcRoute.fs === destRoute.fs) {
-      return srcRoute.fs.mv(srcRoute.relativePath, destRoute.relativePath);
+      return srcRoute.fs.mv(srcRoute.relativePath, destRoute.relativePath, {
+        traversalBudget,
+      });
     }
 
     // Cross-mount move: copy then delete
-    await this.cp(src, dest, { recursive: true });
+    await this.cp(src, resolvedDestination, {
+      recursive: true,
+      traversalBudget,
+    });
+    traversalBudget.checkpoint(0);
     await this.rm(src, { recursive: true });
   }
 
@@ -680,27 +755,38 @@ export class MountableFs implements IFileSystem {
   private async crossMountCopy(
     src: string,
     dest: string,
-    options?: CpOptions,
+    options: CpOptions | undefined,
+    traversalBudget: FileSystemTraversalBudget,
   ): Promise<void> {
+    traversalBudget.checkpoint();
     const srcStat = await this.lstat(src);
+    traversalBudget.checkpoint(0);
 
     if (srcStat.isFile) {
       const content = await this.readFileBuffer(src);
+      traversalBudget.checkpoint(0);
       await this.writeFile(dest, content);
       await this.chmod(dest, srcStat.mode);
     } else if (srcStat.isDirectory) {
       if (!options?.recursive) {
-        throw new Error(`cp: ${src} is a directory (not copied)`);
+        throw new Error(`EISDIR: is a directory, cp '${src}'`);
       }
       await this.mkdir(dest, { recursive: true });
       const children = await this.readdir(src);
+      traversalBudget.checkpoint(0);
       for (const child of children) {
         const srcChild = joinPath(src, child);
         const destChild = joinPath(dest, child);
-        await this.crossMountCopy(srcChild, destChild, options);
+        await this.crossMountCopy(
+          srcChild,
+          destChild,
+          options,
+          traversalBudget,
+        );
       }
     } else if (srcStat.isSymbolicLink) {
       const target = await this.readlink(src);
+      traversalBudget.checkpoint(0);
       await this.symlink(target, dest);
     }
   }

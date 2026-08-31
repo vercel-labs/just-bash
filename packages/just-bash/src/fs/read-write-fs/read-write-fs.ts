@@ -16,6 +16,14 @@ import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { type ByteString, unsafeBytesFromLatin1 } from "../../encoding.js";
 import {
+  ExecutionAbortedError,
+  ExecutionLimitError,
+} from "../../interpreter/errors.js";
+import {
+  getFileOperationBudget,
+  resolveDestinationPath,
+} from "../destination-parent.js";
+import {
   type FileContent,
   fromBuffer,
   getEncoding,
@@ -25,6 +33,8 @@ import type {
   CpOptions,
   CreateExclusiveOptions,
   DirentEntry,
+  FileSystemOperationOptions,
+  FileSystemTraversalBudget,
   FsStat,
   IFileSystem,
   MkdirOptions,
@@ -899,14 +909,14 @@ export class ReadWriteFs implements IFileSystem {
     dest: string,
     options?: CpOptions,
   ): Promise<void> {
+    const traversalBudget = getFileOperationBudget(options, "cp");
+    traversalBudget.checkpoint();
     validatePath(src, "cp");
     validatePath(dest, "cp");
     const srcReal = this.toRealPath(src);
-    const destReal = this.toRealPath(dest);
     // cp operates on the source directory entry itself, including when it is
     // a symlink. Validate its parent without resolving the final component.
     const srcCanonical = this.validateParent(srcReal, src);
-    const destCanonical = this.resolveAndValidate(destReal, dest);
     let srcStat: fs.Stats;
     try {
       srcStat = await fs.promises.lstat(srcCanonical);
@@ -917,6 +927,21 @@ export class ReadWriteFs implements IFileSystem {
       }
       this.sanitizeError(e, src, "cp");
     }
+
+    if (srcStat.isDirectory()) {
+      if (!options?.recursive) {
+        throw new Error(`EISDIR: is a directory, cp '${src}'`);
+      }
+    }
+
+    const resolvedDestination = await resolveDestinationPath(this, dest, {
+      allowMissingDirectory: srcStat.isDirectory(),
+      budget: traversalBudget,
+    });
+    traversalBudget.checkpoint(0);
+    const destReal = this.toRealPath(resolvedDestination);
+    const destCanonical = this.resolveAndValidate(destReal, dest);
+
     if (
       srcStat.isDirectory() &&
       isPathWithinRoot(destCanonical, srcCanonical)
@@ -953,23 +978,9 @@ export class ReadWriteFs implements IFileSystem {
     }
 
     try {
-      await this.preflightCopyTree(srcCanonical, src);
+      await this.preflightCopyTree(srcCanonical, src, traversalBudget);
     } catch (e) {
       this.sanitizeError(e, src, "cp");
-    }
-
-    // Match fs.cp's behavior for a missing destination hierarchy. Validate
-    // again after creating it so the path used for replacement reflects the
-    // directory entries that now exist.
-    if (srcStat.isFile() || srcStat.isSymbolicLink()) {
-      try {
-        await fs.promises.mkdir(nodePath.dirname(destCanonical), {
-          recursive: true,
-        });
-        this.resolveAndValidate(destReal, dest);
-      } catch (e) {
-        this.sanitizeError(e, dest, "cp");
-      }
     }
 
     try {
@@ -977,8 +988,9 @@ export class ReadWriteFs implements IFileSystem {
         srcCanonical,
         destReal,
         src,
-        dest,
+        resolvedDestination,
         options?.recursive ?? false,
+        traversalBudget,
       );
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
@@ -998,8 +1010,11 @@ export class ReadWriteFs implements IFileSystem {
     virtualSource: string,
     virtualDestination: string,
     recursive: boolean,
+    traversalBudget: FileSystemTraversalBudget,
   ): Promise<void> {
+    traversalBudget.checkpoint();
     const stat = await fs.promises.lstat(source);
+    traversalBudget.checkpoint(0);
     if (stat.isFile()) {
       this.assertCopySize(stat, virtualSource);
       const destination = this.resolveAndValidate(
@@ -1013,6 +1028,7 @@ export class ReadWriteFs implements IFileSystem {
       const sourceHandle = await this.openCopySource(source);
       try {
         const sourceStat = await sourceHandle.stat();
+        traversalBudget.checkpoint(0);
         if (
           !sourceStat.isFile() ||
           sourceStat.dev !== stat.dev ||
@@ -1043,6 +1059,7 @@ export class ReadWriteFs implements IFileSystem {
       const target = nodePath.isAbsolute(rawTarget)
         ? await this.toVirtualAbsoluteSymlinkTarget(rawTarget, virtualSource)
         : rawTarget;
+      traversalBudget.checkpoint(0);
       await this.replaceSymlink(destinationReal, virtualDestination, target);
       return;
     }
@@ -1054,7 +1071,14 @@ export class ReadWriteFs implements IFileSystem {
         destinationReal,
         virtualDestination,
       );
-      await fs.promises.mkdir(destination, { recursive: true });
+      try {
+        await fs.promises.mkdir(destination);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code !== "EEXIST") throw e;
+        const destinationStat = await fs.promises.stat(destination);
+        if (!destinationStat.isDirectory()) throw e;
+      }
       // A pre-existing child symlink, or a parent swap during mkdir, must not
       // redirect subsequent recursive entries outside the sandbox.
       destination = this.resolveAndValidate(
@@ -1068,6 +1092,7 @@ export class ReadWriteFs implements IFileSystem {
           nodePath.join(virtualSource, entry),
           nodePath.join(virtualDestination, entry),
           true,
+          traversalBudget,
         );
       }
       await fs.promises.chmod(destination, stat.mode & 0o7777);
@@ -1199,9 +1224,12 @@ export class ReadWriteFs implements IFileSystem {
   private async preflightCopyTree(
     source: string,
     virtualSource: string,
+    traversalBudget: FileSystemTraversalBudget,
     visited = new Set<string>(),
   ): Promise<void> {
+    traversalBudget.checkpoint();
     const stat = await fs.promises.lstat(source);
+    traversalBudget.checkpoint(0);
     const identity = `${stat.dev}:${stat.ino}`;
     if (visited.has(identity)) {
       throw new Error(`ELOOP: cp '${virtualSource}' contains a cycle`);
@@ -1213,6 +1241,7 @@ export class ReadWriteFs implements IFileSystem {
         );
       }
       const resolved = await fs.promises.realpath(source);
+      traversalBudget.checkpoint(0);
       if (!isPathWithinRoot(resolved, this.canonicalRoot)) {
         throw new Error(
           `EACCES: permission denied, cp '${virtualSource}' contains an unsafe symlink`,
@@ -1228,6 +1257,7 @@ export class ReadWriteFs implements IFileSystem {
         await this.preflightCopyTree(
           nodePath.join(source, entry),
           nodePath.join(virtualSource, entry),
+          traversalBudget,
           visited,
         );
       }
@@ -1236,20 +1266,30 @@ export class ReadWriteFs implements IFileSystem {
     }
   }
 
-  async mv(src: string, dest: string): Promise<void> {
-    await this.withFilesystemMutation(() => this.mvUnlocked(src, dest));
+  async mv(
+    src: string,
+    dest: string,
+    options?: FileSystemOperationOptions,
+  ): Promise<void> {
+    await this.withFilesystemMutation(() =>
+      this.mvUnlocked(src, dest, options),
+    );
   }
 
-  private async mvUnlocked(src: string, dest: string): Promise<void> {
+  private async mvUnlocked(
+    src: string,
+    dest: string,
+    options?: FileSystemOperationOptions,
+  ): Promise<void> {
+    const traversalBudget = getFileOperationBudget(options, "mv");
+    traversalBudget.checkpoint();
     validatePath(src, "mv");
     validatePath(dest, "mv");
     const srcReal = this.toRealPath(src);
-    const destReal = this.toRealPath(dest);
     // Use validateParent (not resolveAndValidate) because rename() operates on
     // directory entries — it does NOT follow the final symlink component.
     // resolveAndValidate would resolve through symlinks, breaking symlink moves.
     const srcCanonical = this.validateParent(srcReal, src);
-    const destCanonical = this.validateParent(destReal, dest);
     let sourceStat: fs.Stats;
     try {
       sourceStat = await fs.promises.lstat(srcCanonical);
@@ -1260,6 +1300,15 @@ export class ReadWriteFs implements IFileSystem {
       }
       this.sanitizeError(e, src, "mv");
     }
+
+    const resolvedDestination = await resolveDestinationPath(this, dest, {
+      allowMissingDirectory: sourceStat.isDirectory(),
+      budget: traversalBudget,
+    });
+    traversalBudget.checkpoint(0);
+    const destReal = this.toRealPath(resolvedDestination);
+    const destCanonical = this.validateParent(destReal, dest);
+
     if (
       sourceStat.isDirectory() &&
       this.isSameOrDescendantIdentity(srcCanonical, destCanonical)
@@ -1300,14 +1349,7 @@ export class ReadWriteFs implements IFileSystem {
       // For other errors, let the rename below handle it
     }
 
-    // Ensure destination parent directory exists
-    const destDir = nodePath.dirname(destCanonical);
-    try {
-      await fs.promises.mkdir(destDir, { recursive: true });
-    } catch (e) {
-      this.sanitizeError(e, dest, "mv");
-    }
-
+    traversalBudget.checkpoint(0);
     try {
       await fs.promises.rename(srcCanonical, destCanonical);
     } catch (e) {
@@ -1317,7 +1359,7 @@ export class ReadWriteFs implements IFileSystem {
       }
       // If rename fails across devices, fall back to copy + delete
       if (err.code === "EXDEV") {
-        await this.moveAcrossDevices(src, dest);
+        await this.moveAcrossDevices(src, resolvedDestination, traversalBudget);
         return;
       }
       this.sanitizeError(e, src, "mv");
@@ -1399,7 +1441,11 @@ export class ReadWriteFs implements IFileSystem {
    * sibling, then committed by rename. Source removal is also staged by rename,
    * so failures can restore both visible names without claiming atomicity.
    */
-  private async moveAcrossDevices(src: string, dest: string): Promise<void> {
+  private async moveAcrossDevices(
+    src: string,
+    dest: string,
+    traversalBudget: FileSystemTraversalBudget,
+  ): Promise<void> {
     const stage = await this.uniqueTransactionPath(dest, "stage");
     const backup = await this.uniqueTransactionPath(dest, "backup");
     const sourceTombstone = await this.uniqueTransactionPath(src, "source");
@@ -1437,7 +1483,7 @@ export class ReadWriteFs implements IFileSystem {
     try {
       // cp performs the complete traversal and symlink policy checks before any
       // visible destination name is changed.
-      await this.cpUnlocked(src, stage, { recursive: true });
+      await this.cpUnlocked(src, stage, { recursive: true, traversalBudget });
       const stagedStat = await fs.promises.lstat(stageReal);
       if (
         stagedStat.isDirectory() &&
@@ -1447,6 +1493,7 @@ export class ReadWriteFs implements IFileSystem {
           `EACCES: permission denied, mv '${src}' -> '${dest}' would create symlinks escaping sandbox`,
         );
       }
+      traversalBudget.checkpoint(0);
       try {
         await fs.promises.rename(destReal, backupReal);
         destinationBackedUp = true;
@@ -1492,6 +1539,8 @@ export class ReadWriteFs implements IFileSystem {
     virtualPath: string,
     operation: string,
   ): never {
+    if (e instanceof ExecutionAbortedError || e instanceof ExecutionLimitError)
+      throw e;
     sanitizeFsError(e, virtualPath, operation, RW_PASSTHROUGH_ERRORS);
   }
 
