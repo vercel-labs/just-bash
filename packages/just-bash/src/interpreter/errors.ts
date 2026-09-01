@@ -12,6 +12,8 @@
  * as they propagate through the execution stack.
  */
 import { utf8ByteLength } from "../encoding.js";
+import { orderedOutput } from "../output-chunks.js";
+import type { OutputChunk } from "../types.js";
 
 /**
  * Base class for all control flow errors.
@@ -19,6 +21,13 @@ import { utf8ByteLength } from "../encoding.js";
  */
 export abstract class ControlFlowError extends Error {
   internalOutputAccounting = { stdout: 0, stderr: 0 };
+  /**
+   * The two streams above in the order they were written, so a redirection
+   * that catches this error on the way out can still merge a duplication
+   * along it. Undefined once any scope it passed through contributed output
+   * whose order was not recorded.
+   */
+  outputChunks: OutputChunk[] | undefined = [];
   constructor(
     message: string,
     public stdout: string = "",
@@ -30,7 +39,10 @@ export abstract class ControlFlowError extends Error {
   /**
    * Prepend output from the current context before re-throwing.
    */
-  prependOutput(stdout: string, stderr: string): void {
+  prependOutput(stdout: string, stderr: string, chunks?: OutputChunk[]): void {
+    const prefix = orderedOutput(chunks, stdout, stderr);
+    const carried = orderedOutput(this.outputChunks, this.stdout, this.stderr);
+    this.outputChunks = prefix && carried ? [...prefix, ...carried] : undefined;
     this.stdout = stdout + this.stdout;
     this.stderr = stderr + this.stderr;
     this.internalOutputAccounting.stdout += utf8ByteLength(stdout);
