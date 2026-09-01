@@ -139,6 +139,7 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
     groupStdin: state.groupStdin,
     groupStdinSourceFd: state.groupStdinSourceFd,
     bashPid: state.bashPid,
+    suppressVerbose: state.suppressVerbose,
     expansionExitCode: state.expansionExitCode,
     expansionStderr: state.expansionStderr,
   };

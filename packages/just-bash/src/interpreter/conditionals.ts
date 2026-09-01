@@ -867,7 +867,7 @@ async function evalArithExpr(
   try {
     const parser = new Parser();
     const arithAst = parseArithmeticExpression(parser, expr);
-    return await evaluateArithmetic(ctx, arithAst.expression);
+    return await evaluateArithmetic(ctx, arithAst);
   } catch {
     // If parsing fails, try simple numeric
     return parseNumeric(expr);

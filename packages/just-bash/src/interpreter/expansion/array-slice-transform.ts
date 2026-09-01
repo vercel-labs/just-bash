@@ -6,7 +6,12 @@
  * - "${arr[@]@a}", "${arr[@]@P}", "${arr[@]@Q}" - transform operations
  */
 
-import type { SubstringOp, WordPart } from "../../ast/types.js";
+import type {
+  ArithExpr,
+  ArithmeticExpressionNode,
+  SubstringOp,
+  WordPart,
+} from "../../ast/types.js";
 import { utf8ByteLength } from "../../commands/printf/escapes.js";
 import { ArithmeticError, ExecutionLimitError, ExitError } from "../errors.js";
 import { getIfsSeparator } from "../helpers/ifs.js";
@@ -22,14 +27,12 @@ import { getVariableAttributes } from "./variable-attrs.js";
  */
 export type ArrayExpansionResult = { values: string[]; quoted: boolean } | null;
 
-import type { ArithExpr } from "../../ast/types.js";
-
 /**
  * Type for evaluateArithmetic function
  */
 export type EvaluateArithmeticFn = (
   ctx: InterpreterContext,
-  expr: ArithExpr,
+  expr: ArithExpr | ArithmeticExpressionNode,
   isExpansionContext?: boolean,
 ) => Promise<number>;
 
@@ -79,10 +82,10 @@ export async function handleArraySlicing(
 
   // Evaluate offset and length
   const offset = operation.offset
-    ? await evaluateArithmetic(ctx, operation.offset.expression)
+    ? await evaluateArithmetic(ctx, operation.offset)
     : 0;
   const length = operation.length
-    ? await evaluateArithmetic(ctx, operation.length.expression)
+    ? await evaluateArithmetic(ctx, operation.length)
     : undefined;
 
   // Get array elements (sorted by index)

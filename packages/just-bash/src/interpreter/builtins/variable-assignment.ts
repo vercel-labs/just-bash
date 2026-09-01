@@ -92,7 +92,7 @@ async function evaluateArrayIndex(
   try {
     const parser = new Parser();
     const arithAst = parseArithmeticExpression(parser, indexExpr);
-    return await evaluateArithmetic(ctx, arithAst.expression);
+    return await evaluateArithmetic(ctx, arithAst);
   } catch {
     // If parsing fails, try to parse as simple number
     const num = parseInt(indexExpr, 10);

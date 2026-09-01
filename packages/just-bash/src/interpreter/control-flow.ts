@@ -316,7 +316,7 @@ async function executeCStyleForBody(
   let iterations = 0;
 
   if (node.init) {
-    await evaluateArithmetic(ctx, node.init.expression);
+    await evaluateArithmetic(ctx, node.init);
   }
 
   ctx.state.loopDepth++;
@@ -337,10 +337,7 @@ async function executeCStyleForBody(
         if (loopLine !== undefined) {
           ctx.state.currentLine = loopLine;
         }
-        const condResult = await evaluateArithmetic(
-          ctx,
-          node.condition.expression,
-        );
+        const condResult = await evaluateArithmetic(ctx, node.condition);
         if (condResult === 0) break;
       }
 
@@ -362,7 +359,7 @@ async function executeCStyleForBody(
         if (loopResult.action === "continue") {
           // Still need to run the update expression on continue
           if (node.update) {
-            await evaluateArithmetic(ctx, node.update.expression);
+            await evaluateArithmetic(ctx, node.update);
           }
           continue;
         }
@@ -373,7 +370,7 @@ async function executeCStyleForBody(
       }
 
       if (node.update) {
-        await evaluateArithmetic(ctx, node.update.expression);
+        await evaluateArithmetic(ctx, node.update);
       }
     }
   } finally {

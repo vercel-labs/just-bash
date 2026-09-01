@@ -14,6 +14,7 @@
 
 import type {
   ArithExpr,
+  ArithmeticExpressionNode,
   ParameterExpansionPart,
   SubstringOp,
   WordNode,
@@ -116,7 +117,7 @@ export type ExpandWordPartsAsyncFn = (
  */
 export type EvaluateArithmeticFn = (
   ctx: InterpreterContext,
-  expr: ArithExpr,
+  expr: ArithExpr | ArithmeticExpressionNode,
   isExpansionContext?: boolean,
 ) => Promise<number>;
 
@@ -690,10 +691,10 @@ export async function handleUnquotedPositionalSlicing(
 
   // Evaluate offset and length
   const offset = operation.offset
-    ? await evaluateArithmetic(ctx, operation.offset.expression)
+    ? await evaluateArithmetic(ctx, operation.offset)
     : 0;
   const length = operation.length
-    ? await evaluateArithmetic(ctx, operation.length.expression)
+    ? await evaluateArithmetic(ctx, operation.length)
     : undefined;
 
   // Get positional parameters

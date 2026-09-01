@@ -9,12 +9,12 @@
  */
 
 import type {
-  ArithExpr,
   AssignDefaultOp,
   DefaultValueOp,
   ErrorIfUnsetOp,
   InnerParameterOperation,
   ParameterExpansionPart,
+  SubstringOp,
   UseAlternativeOp,
   WordNode,
   WordPart,
@@ -229,16 +229,13 @@ async function handleIndirectArraySlicing(
   elements: Array<[string | number, string]>,
   arrayName: string,
   isStar: boolean,
-  innerOp: {
-    offset?: { expression: ArithExpr };
-    length?: { expression: ArithExpr } | null;
-  },
+  innerOp: SubstringOp,
 ): Promise<IndirectExpansionResult> {
   const offset = innerOp.offset
-    ? await evaluateArithmetic(ctx, innerOp.offset.expression)
+    ? await evaluateArithmetic(ctx, innerOp.offset)
     : 0;
   const length = innerOp.length
-    ? await evaluateArithmetic(ctx, innerOp.length.expression)
+    ? await evaluateArithmetic(ctx, innerOp.length)
     : undefined;
 
   // For sparse arrays, offset refers to index position
