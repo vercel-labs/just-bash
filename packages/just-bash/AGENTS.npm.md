@@ -346,8 +346,8 @@ to inline these, and some of them cannot be inlined. Mark all six as external:
 
 | Package | What it is |
 | --- | --- |
-| `@mongodb-js/zstd` | native binding (`optionalDependencies`) |
-| `node-liblzma` | native binding (`optionalDependencies`) |
+| `@mongodb-js/zstd` | native binding (optional peer) |
+| `node-liblzma` | native binding (optional peer) |
 | `sql.js` | ships a `.wasm` asset |
 | `quickjs-emscripten` | ships a `.wasm` asset |
 | `seek-bzip` | CommonJS-only bzip2 decoder |
@@ -381,9 +381,9 @@ add them to `externals` (or use `webpack-node-externals`). esbuild/rollup:
 
 **Node version**: just-bash requires Node `>=20.19` (`guarded-fetch`'s floor).
 
-**Optional dependencies**: `@mongodb-js/zstd` and `node-liblzma` are declared
-in `optionalDependencies`, so an install that cannot build them still succeeds.
-Only the compression they provide is lost: `tar -J` then exits non-zero with
-`xz compression requires node-liblzma which failed to load`, rather than
-crashing the interpreter. The other four are regular dependencies and are
-required.
+**Optional codecs**: `@mongodb-js/zstd` and `node-liblzma` are optional peer
+dependencies, so they are not installed unless the application opts into their
+native bindings. Without them, only the compression they provide is unavailable:
+`tar -J` exits non-zero with an actionable `node-liblzma` installation error
+rather than crashing the interpreter. The other four are regular dependencies
+and are required.

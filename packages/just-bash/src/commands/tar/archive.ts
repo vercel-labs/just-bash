@@ -25,7 +25,7 @@ import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import { CodecBudget } from "../compression/codec-budget.js";
 import { bzip2Compress } from "./bzip2-compress.js";
 
-// Lazy load node-liblzma since it requires native compilation
+// Lazy load the optional node-liblzma peer since it requires native compilation
 // that may fail on some systems (e.g., missing liblzma-dev)
 let lzma: typeof import("node-liblzma") | null = null;
 let lzmaLoadError: Error | null = null;
@@ -41,14 +41,14 @@ async function getLzma(): Promise<typeof import("node-liblzma")> {
     return lzma;
   } catch {
     lzmaLoadError = new Error(
-      "xz compression requires node-liblzma which failed to load. " +
-        "Install liblzma-dev (apt) or xz (brew) and reinstall dependencies.",
+      "xz compression requires node-liblzma which is not installed or failed to load. " +
+        "Install it with: npm install node-liblzma (requires liblzma-dev on apt or xz on brew).",
     );
     throw lzmaLoadError;
   }
 }
 
-// Lazy load @mongodb-js/zstd since it's an optional dependency
+// Lazy load the optional @mongodb-js/zstd peer
 let zstd: typeof import("@mongodb-js/zstd") | null = null;
 let zstdLoadError: Error | null = null;
 
