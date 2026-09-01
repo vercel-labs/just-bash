@@ -1,5 +1,5 @@
 # Default: changes anywhere need a review from a maintainer.
-* @cramforce
+* @cramforce @prha
 
 # Release plumbing — the workflow is bound to npm Trusted Publisher by
 # filename, so a rename or behavioural change is a security-relevant edit.
