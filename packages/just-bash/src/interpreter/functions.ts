@@ -208,6 +208,7 @@ export async function callFunction(
       execResult,
       func.redirections,
       prepared.targets,
+      prepared.outputEntries,
       prepared.dupSources,
       prepared.standardRoutes,
     );
@@ -220,7 +221,11 @@ export async function callFunction(
     }
     throw error;
   } finally {
-    redirectionTransaction.finish();
-    cleanup();
+    try {
+      const closing = redirectionTransaction.finish();
+      if (closing) await closing;
+    } finally {
+      cleanup();
+    }
   }
 }

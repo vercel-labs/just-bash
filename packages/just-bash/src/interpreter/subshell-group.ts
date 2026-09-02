@@ -62,7 +62,7 @@ export async function executeSubshell(
     const entry = getFdEntry(ctx, fd);
     if (entry) parentDescriptors.set(fd, entry);
   }
-  const restoreState = beginIsolatedShellState(ctx.state);
+  const restoreState = beginIsolatedShellState(ctx);
   ctx.state.parentHasLoopContext = parentLoopDepth > 0;
   ctx.state.loopDepth = 0;
   ctx.state.bashPid = ctx.state.nextVirtualPid++;
@@ -99,7 +99,8 @@ export async function executeSubshell(
         Math.max(consumedDescriptors.get(sourceFd) ?? 0, consumed),
       );
     }
-    restoreState();
+    const closing = restoreState();
+    if (closing) await closing;
     for (const [fd, consumed] of consumedDescriptors) {
       advanceFd(ctx, fd, consumed);
     }
@@ -350,7 +351,7 @@ export async function executeUserScript(
   }
 
   const parentLoopDepth = ctx.state.loopDepth;
-  const cleanup = beginIsolatedShellState(ctx.state);
+  const cleanup = beginIsolatedShellState(ctx);
 
   // Set up subshell-like environment
   ctx.state.parentHasLoopContext = parentLoopDepth > 0;
@@ -379,10 +380,12 @@ export async function executeUserScript(
     const parser = new Parser();
     const ast = parser.parse(content);
     const execResult = await executeScript(ast);
-    cleanup();
+    const closing = cleanup();
+    if (closing) await closing;
     return execResult;
   } catch (error) {
-    cleanup();
+    const closing = cleanup();
+    if (closing) await closing;
 
     // Executable scripts run in a subshell-like environment, so exit only
     // ends the script and returns its status to the surrounding command list.

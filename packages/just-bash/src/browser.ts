@@ -42,8 +42,10 @@ export type {
   LazyFileEntry,
   LazyFileProvider,
   MkdirOptions,
+  OpenWritableOptions,
   RmOptions,
   SymlinkEntry,
+  WritableFile,
 } from "./fs/interface.js";
 export {
   MountableFs,

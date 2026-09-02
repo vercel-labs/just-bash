@@ -17,6 +17,7 @@ import {
   readBytesFrom,
   utf8ByteLength,
 } from "../encoding.js";
+import type { WritableFile } from "../fs/interface.js";
 import type { ExecResult } from "../types.js";
 import {
   ControlFlowError,
@@ -32,6 +33,7 @@ import {
 } from "./expansion.js";
 import {
   closeFd,
+  closeUnusedWritables,
   dupFd,
   type FdEntry,
   type FdSnapshot,
@@ -120,6 +122,7 @@ export type PreparedDupSources = Map<number, PreparedDupSource>;
 
 export type PreparedRedirections = {
   targets: ExpandedRedirectTargets;
+  outputEntries: Map<number, FdEntry>;
   dupSources: PreparedDupSources;
   standardRoutes: Map<number, FdEntry>;
   stdin: string | undefined;
@@ -136,6 +139,8 @@ export const EXEC_REDIRECTION_POLICY: RedirectionPolicy = "persistent";
 
 type RedirectionTransactionState = {
   numericSnapshot: FdSnapshot;
+  outputEntries: Map<number, FdEntry>;
+  openedWritables: WritableFile[];
   fdVariableSnapshot: FdSnapshot;
   standardSnapshot: FdSnapshot;
   standardClosedSnapshot: Map<number, boolean>;
@@ -146,7 +151,7 @@ type RedirectionTransactionState = {
 
 export type RedirectionTransaction = {
   prepare: (inheritedStdin?: string) => Promise<PreparedRedirections>;
-  finish: () => void;
+  finish: () => Promise<void> | undefined;
 };
 
 const fdLimitError = (ctx: InterpreterContext): ExecutionLimitError =>
@@ -200,8 +205,50 @@ const getDupSource = (
     : null;
 };
 
+async function manageWritable(
+  ctx: InterpreterContext,
+  writable: WritableFile,
+): Promise<WritableFile> {
+  let closePromise: Promise<void> | undefined;
+  let unregisterCleanup = (): void => undefined;
+  const managed: WritableFile = {
+    write: (content, options) => {
+      if (closePromise) {
+        return Promise.reject(new Error("cannot write to a closed file"));
+      }
+      return writable.write(content, options);
+    },
+    close: () => {
+      if (!closePromise) {
+        unregisterCleanup();
+        try {
+          closePromise = Promise.resolve(writable.close());
+        } catch (error) {
+          closePromise = Promise.reject(error);
+        }
+      }
+      return closePromise;
+    },
+  };
+  try {
+    unregisterCleanup = ctx.executionScope.registerCleanup(() =>
+      managed.close(),
+    );
+  } catch (error) {
+    try {
+      await writable.close();
+    } catch {
+      // The existing abort or limit failure remains authoritative.
+    }
+    throw error;
+  }
+  return managed;
+}
+
 async function openOutputEntry(
   ctx: InterpreterContext,
+  transaction: RedirectionTransactionState,
+  index: number,
   target: string,
   append: boolean,
   isClobber: boolean,
@@ -218,13 +265,27 @@ async function openOutputEntry(
       error: makeResult("", "bash: /dev/full: No space left on device\n", 1),
     };
   }
+  const opened = (entry: FdEntry): { entry: FdEntry } => {
+    transaction.outputEntries.set(index, entry);
+    return { entry };
+  };
   if (target === "/dev/stdout") {
-    return { entry: { kind: "dup-out", sourceFd: 1 } };
+    return opened({ kind: "dup-out", sourceFd: 1 });
   }
   if (target === "/dev/stderr") {
-    return { entry: { kind: "dup-out", sourceFd: 2 } };
+    return opened({ kind: "dup-out", sourceFd: 2 });
   }
   try {
+    if (ctx.fs.openWritable) {
+      const writable = await manageWritable(
+        ctx,
+        await ctx.fs.openWritable(filePath, {
+          mode: append ? "append" : "truncate",
+        }),
+      );
+      transaction.openedWritables.push(writable);
+      return opened({ kind: "output", path: filePath, append, writable });
+    }
     if (append) await ctx.fs.appendFile(filePath, "", "binary");
     else await ctx.fs.writeFile(filePath, "", "binary");
   } catch (error) {
@@ -237,7 +298,7 @@ async function openOutputEntry(
       ),
     };
   }
-  return { entry: { kind: "output", path: filePath, append } };
+  return opened({ kind: "output", path: filePath, append });
 }
 
 async function readInputEntry(
@@ -341,6 +402,7 @@ async function prepareRedirectionsWithState(
   }
   const base = (): PreparedRedirections => ({
     targets,
+    outputEntries: transaction.outputEntries,
     dupSources,
     standardRoutes,
     stdin,
@@ -359,6 +421,7 @@ async function prepareRedirectionsWithState(
         error,
         redirections.slice(0, index),
         targets,
+        transaction.outputEntries,
         dupSources,
         standardRoutes,
       ),
@@ -571,7 +634,14 @@ async function prepareRedirectionsWithState(
               index,
             );
           }
-          const opened = await openOutputEntry(ctx, target, false, false);
+          const opened = await openOutputEntry(
+            ctx,
+            transaction,
+            index,
+            target,
+            false,
+            false,
+          );
           if (opened.error) return fail(opened.error, index);
           entry = opened.entry;
         } else {
@@ -609,6 +679,8 @@ async function prepareRedirectionsWithState(
         const append = redir.operator === ">>" || redir.operator === "&>>";
         const opened = await openOutputEntry(
           ctx,
+          transaction,
+          index,
           target,
           append,
           redir.operator === ">|",
@@ -698,7 +770,14 @@ async function prepareRedirectionsWithState(
               index,
             );
           }
-          const opened = await openOutputEntry(ctx, target, false, false);
+          const opened = await openOutputEntry(
+            ctx,
+            transaction,
+            index,
+            target,
+            false,
+            false,
+          );
           if (opened.error) return fail(opened.error, index);
           setFdEntry(ctx, fd, opened.entry as FdEntry);
           continue;
@@ -754,6 +833,8 @@ async function prepareRedirectionsWithState(
       ) {
         const opened = await openOutputEntry(
           ctx,
+          transaction,
+          index,
           target,
           redir.operator === ">>",
           redir.operator === ">|",
@@ -798,7 +879,15 @@ async function prepareRedirectionsWithState(
             index,
           );
         }
-        const opened = await openOutputEntry(ctx, target, false, false, false);
+        const opened = await openOutputEntry(
+          ctx,
+          transaction,
+          index,
+          target,
+          false,
+          false,
+          false,
+        );
         if (opened.error) return fail(opened.error, index);
         const entry = opened.entry as FdEntry;
         dupSources.set(index, {
@@ -913,6 +1002,8 @@ async function prepareRedirectionsWithState(
     ) {
       const opened = await openOutputEntry(
         ctx,
+        transaction,
+        index,
         target,
         redir.operator === ">>" || redir.operator === "&>>",
         redir.operator === ">|",
@@ -967,6 +1058,8 @@ export function createRedirectionTransaction(
 ): RedirectionTransaction {
   const state: RedirectionTransactionState = {
     numericSnapshot: new Map(),
+    outputEntries: new Map(),
+    openedWritables: [],
     fdVariableSnapshot: new Map(),
     standardSnapshot: new Map(),
     standardClosedSnapshot: new Map(),
@@ -979,7 +1072,7 @@ export function createRedirectionTransaction(
     prepare: (inheritedStdin = "") =>
       prepareRedirectionsWithState(ctx, redirections, inheritedStdin, state),
     finish: () => {
-      if (finished) return;
+      if (finished) return undefined;
       finished = true;
       if (policy !== "persistent") {
         restoreFds(ctx, state.numericSnapshot);
@@ -1003,6 +1096,7 @@ export function createRedirectionTransaction(
         }
         ctx.state.nextFd = state.nextFd;
       }
+      return closeUnusedWritables(ctx, state.openedWritables);
     },
   };
 }
@@ -1038,6 +1132,7 @@ export async function routeControlFlowError(
     makeResult(error.stdout, error.stderr, exitCode),
     redirections,
     prepared.targets,
+    prepared.outputEntries,
     prepared.dupSources,
     prepared.standardRoutes,
   );
@@ -1077,6 +1172,7 @@ export async function withPreparedRedirections(
         result,
         redirections,
         prepared.targets,
+        prepared.outputEntries,
         prepared.dupSources,
         prepared.standardRoutes,
       );
@@ -1091,7 +1187,8 @@ export async function withPreparedRedirections(
     await routeControlFlowError(ctx, error, redirections, prepared);
     throw error;
   } finally {
-    transaction.finish();
+    const closing = transaction.finish();
+    if (closing) await closing;
   }
 }
 
@@ -1100,6 +1197,7 @@ export async function applyRedirections(
   result: ExecResult,
   redirections: RedirectionNode[],
   targets: ExpandedRedirectTargets,
+  outputEntries: Map<number, FdEntry> = new Map(),
   dupSources: PreparedDupSources = new Map(),
   standardRoutes: Map<number, FdEntry> = new Map(),
   writeErrorCommand = "bash",
@@ -1142,10 +1240,11 @@ export async function applyRedirections(
   // so `cmd > file 2>&1` sends stderr to `file`, `cmd 2>&1 > file` sends
   // stderr to the caller's stdout, and `cmd > all 2>&1 2> err` lets the
   // later `2> err` reclaim stderr.
+  type OutputEntry = Extract<FdEntry, { kind: "output" }>;
   type RedirectSink =
     | { kind: "live-stdout" }
     | { kind: "live-stderr" }
-    | { kind: "file"; path: string; append: boolean }
+    | { kind: "file"; entry: OutputEntry }
     | {
         kind: "descriptor";
         source: Extract<PreparedDupSource, { kind: "entry" }>;
@@ -1259,10 +1358,15 @@ export async function applyRedirections(
           break;
         }
         const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+        const preparedEntry = outputEntries.get(i);
+        const entry: OutputEntry =
+          preparedEntry?.kind === "output"
+            ? preparedEntry
+            : { kind: "output", path: filePath, append: isAppend };
         if (fd === 1) {
-          fd1Sink = { kind: "file", path: filePath, append: isAppend };
+          fd1Sink = { kind: "file", entry };
         } else {
-          fd2Sink = { kind: "file", path: filePath, append: isAppend };
+          fd2Sink = { kind: "file", entry };
         }
         break;
       }
@@ -1289,16 +1393,16 @@ export async function applyRedirections(
         break;
       }
 
-      case "&>": {
-        const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-        fd1Sink = { kind: "file", path: filePath, append: false };
-        fd2Sink = fd1Sink;
-        break;
-      }
-
+      case "&>":
       case "&>>": {
+        const append = redir.operator === "&>>";
         const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-        fd1Sink = { kind: "file", path: filePath, append: true };
+        const preparedEntry = outputEntries.get(i);
+        const entry: OutputEntry =
+          preparedEntry?.kind === "output"
+            ? preparedEntry
+            : { kind: "output", path: filePath, append };
+        fd1Sink = { kind: "file", entry };
         fd2Sink = fd1Sink;
         break;
       }
@@ -1328,14 +1432,16 @@ export async function applyRedirections(
     }
     if (fd2Sink.kind === "invalid-output") pendingStderr = "";
     const deliverToFile = async (
-      sink: { path: string; append: boolean },
+      sink: Extract<RedirectSink, { kind: "file" }>,
       content: string,
       encoding: "binary" | "utf8",
     ) => {
-      if (sink.append) {
-        await ctx.fs.appendFile(sink.path, content, encoding);
+      if (sink.entry.writable) {
+        await sink.entry.writable.write(content, encoding);
+      } else if (sink.entry.append) {
+        await ctx.fs.appendFile(sink.entry.path, content, encoding);
       } else {
-        await ctx.fs.writeFile(sink.path, content, encoding);
+        await ctx.fs.writeFile(sink.entry.path, content, encoding);
       }
     };
     if (
