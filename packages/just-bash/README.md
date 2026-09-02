@@ -327,39 +327,6 @@ const fs = new MountableFs({
 });
 ```
 
-### Custom writable files
-
-Custom `IFileSystem` implementations may provide the optional `openWritable()`
-method when they can model one writable open file description. just-bash uses
-it for output redirections and numeric output descriptors, including persistent
-and duplicated descriptors. Existing implementations remain compatible and
-fall back to `writeFile()` and `appendFile()` when the method is absent.
-
-```typescript
-import type { IFileSystem } from "just-bash";
-
-async function appendLog(fs: IFileSystem) {
-  const file = await fs.openWritable?.("/logs/run.txt", { mode: "append" });
-  if (!file) return;
-  try {
-    await file.write("started\n", "utf8");
-  } finally {
-    await file.close();
-  }
-}
-```
-
-`mode: "truncate"` must create the file if needed and make its empty content
-observable before `openWritable()` resolves. `mode: "append"` preserves existing
-content and appends each write at the then-current end. Duplicated shell file
-descriptors share the returned object and its write position. Successful opens
-and writes are never rolled back by `close()`.
-
-This interface lets local filesystems retain a real OS handle and lets remote or
-versioned filesystems maintain an execution-visible staging view before making
-their final durable commit. Implementations that cannot preserve these semantics
-should omit the method and use the compatible fallback.
-
 ## Optional Capabilities
 
 ### Network Access
