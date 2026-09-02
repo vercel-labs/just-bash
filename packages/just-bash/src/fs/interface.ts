@@ -31,6 +31,34 @@ export interface WriteFileOptions {
   encoding?: BufferEncoding;
 }
 
+/** How opening a writable file affects existing content. */
+export interface OpenWritableOptions {
+  /**
+   * `truncate` creates the file if needed, empties it immediately, and starts
+   * writing at offset zero. `append` creates the file if needed, preserves its
+   * content, and writes at the then-current end of the file.
+   */
+  mode: "truncate" | "append";
+}
+
+/**
+ * One writable open file description. Duplicated shell descriptors share this
+ * object and therefore its write position.
+ */
+export interface WritableFile {
+  /**
+   * Writes all content at this description's current position and advances it
+   * by the encoded byte length. Unwritten trailing bytes remain. In append
+   * mode, each write instead begins at the file's then-current end.
+   */
+  write(
+    content: FileContent,
+    options?: WriteFileOptions | BufferEncoding,
+  ): Promise<void>;
+  /** Releases this description without rolling back successful mutations. */
+  close(): Promise<void>;
+}
+
 /**
  * File system entry types
  */
@@ -175,6 +203,20 @@ export interface IFileSystem {
     content: FileContent,
     options?: WriteFileOptions | BufferEncoding,
   ): Promise<void>;
+
+  /**
+   * Optionally opens one writable file description for offset-aware output.
+   *
+   * Each call returns a distinct description, even for the same path. Opening
+   * must apply create/truncate semantics before this promise resolves, and
+   * subsequent reads through this filesystem must observe successful writes
+   * before the description is closed. Callers fall back to
+   * `writeFile`/`appendFile` when this method is absent.
+   */
+  openWritable?(
+    path: string,
+    options: OpenWritableOptions,
+  ): Promise<WritableFile>;
 
   /**
    * Check if a path exists

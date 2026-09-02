@@ -9,7 +9,7 @@ import type {
   StatementNode,
 } from "../ast/types.js";
 import type { ExecutionScope } from "../execution-scope.js";
-import type { IFileSystem } from "../fs/interface.js";
+import type { IFileSystem, WritableFile } from "../fs/interface.js";
 import type { ExecutionLimits } from "../limits.js";
 import type { SecureFetch } from "../network/index.js";
 import type {
@@ -328,6 +328,10 @@ export interface IOState {
    * for one. Maintained exclusively by `fd-table.ts`.
    */
   inputFds?: Set<number>;
+  /** Writable descriptions associated with encoded output descriptor entries. */
+  outputWriters?: Map<number, WritableFile>;
+  /** Writers detached during descriptor mutation and eligible for closing. */
+  writableCloseCandidates?: Set<WritableFile>;
   /**
    * Descriptors that share one open file description because of `N<&M`, and
    * therefore share a read offset. Every member of a group maps to the same

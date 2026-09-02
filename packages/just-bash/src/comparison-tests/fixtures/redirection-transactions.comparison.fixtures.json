@@ -13,10 +13,24 @@
     "stderr": "",
     "exitCode": 0
   },
+  "3a42f4c8ffb59f64": {
+    "command": "exec 3>out.txt; exec 4>&3; exec 3>&-; printf data >&4; exec 4>&-; cat out.txt",
+    "files": {},
+    "stdout": "data",
+    "stderr": "",
+    "exitCode": 0
+  },
   "62b3ba73f0e8520d": {
     "command": "fn() { printf before; printf problem >&2; return 4; } >out.txt 2>err.txt; fn; printf 'rc=%s out=%s err=%s' \"$?\" \"$(cat out.txt)\" \"$(cat err.txt)\"",
     "files": {},
     "stdout": "rc=4 out=before err=problem",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "784d8a723759f3c3": {
+    "command": "printf data >first.txt >second.txt; wc -c <first.txt; cat second.txt",
+    "files": {},
+    "stdout": "0\ndata",
     "stderr": "",
     "exitCode": 0
   },
@@ -32,6 +46,13 @@
     "command": "shopt -s expand_aliases; alias routed=': >alias.txt'; eval routed; echo after; test -f alias.txt && echo exists; test ! -s alias.txt && echo empty",
     "files": {},
     "stdout": "after\nexists\nempty\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cc41fc0fb314e0e8": {
+    "command": "printf previous >out.txt; false >out.txt; wc -c <out.txt",
+    "files": {},
+    "stdout": "0\n",
     "stderr": "",
     "exitCode": 0
   },
