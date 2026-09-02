@@ -77,6 +77,36 @@ function translatePattern(pattern: string): string {
   return RE2JS.translateRegExp(pattern);
 }
 
+// Only the immutable compiled RE2JS is shared; per-call state (lastIndex, the
+// reusable Matcher, result limits, AbortSignal) stays on each UserRegex.
+// Keyed on the numeric RE2 flags because `g` and `d` are handled by UserRegex.
+// Patterns are user-controlled and unbounded in length, so oversized ones are
+// compiled but not retained — the cache holds at most 256 KiB of pattern source.
+const COMPILED_CACHE_MAX = 256;
+const COMPILED_CACHE_MAX_PATTERN_LENGTH = 1024;
+const compiledCache = new Map<string, RE2JS>();
+
+function compilePattern(pattern: string, flags: string): RE2JS {
+  const re2Flags = convertFlags(flags);
+  if (pattern.length > COMPILED_CACHE_MAX_PATTERN_LENGTH) {
+    return RE2JS.compile(translatePattern(pattern), re2Flags);
+  }
+  const key = `${re2Flags} ${pattern}`;
+  const cached = compiledCache.get(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const compiled = RE2JS.compile(translatePattern(pattern), re2Flags);
+  if (compiledCache.size >= COMPILED_CACHE_MAX) {
+    const oldest = compiledCache.keys().next().value;
+    if (oldest !== undefined) {
+      compiledCache.delete(oldest);
+    }
+  }
+  compiledCache.set(key, compiled);
+  return compiled;
+}
+
 /**
  * A wrapper around RE2JS that provides a RegExp-compatible interface.
  * Uses RE2 for linear-time matching, providing ReDoS protection.
@@ -204,9 +234,7 @@ export class UserRegex implements RegexLike {
     }
 
     try {
-      const translatedPattern = translatePattern(pattern);
-      const re2Flags = convertFlags(flags);
-      this._re2 = RE2JS.compile(translatedPattern, re2Flags);
+      this._re2 = compilePattern(pattern, flags);
     } catch (e) {
       if (e instanceof RE2JSSyntaxException) {
         // Provide helpful error messages for unsupported RE2 features
