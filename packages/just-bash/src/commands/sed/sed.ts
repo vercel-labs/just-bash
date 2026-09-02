@@ -1,4 +1,8 @@
 import { decodeBytesToUtf8 } from "../../encoding.js";
+import {
+  type CommandExecutionBudget,
+  DEADLINE_CHECK_STRIDE,
+} from "../../execution-scope.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { ExecutionLimits } from "../../limits.js";
@@ -78,6 +82,8 @@ interface ProcessContentOptions {
   cwd?: string;
   coverage?: FeatureCoverageWriter;
   requireDefenseContext?: boolean;
+  /** Shared accounting; supplies the wall-clock deadline during the line loop. */
+  executionScope?: CommandExecutionBudget;
 }
 
 async function processContent(
@@ -86,8 +92,15 @@ async function processContent(
   silent: boolean,
   options: ProcessContentOptions = {},
 ): Promise<{ output: string; exitCode?: number; errorMessage?: string }> {
-  const { limits, filename, fs, cwd, coverage, requireDefenseContext } =
-    options;
+  const {
+    limits,
+    filename,
+    fs,
+    cwd,
+    coverage,
+    requireDefenseContext,
+    executionScope,
+  } = options;
   assertDefenseContext(requireDefenseContext, "sed", "processing entry");
   const withDefenseContext = <T>(
     phase: string,
@@ -141,6 +154,9 @@ async function processContent(
     : undefined;
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    if (lineIndex % DEADLINE_CHECK_STRIDE === 0) {
+      executionScope?.throwIfAborted("sed");
+    }
     const state: SedState = {
       ...createInitialState(totalLines, filename, rangeStates),
       patternSpace: lines[lineIndex],
@@ -507,6 +523,7 @@ export const sedCommand: RuntimeCommand = {
               cwd: ctx.cwd,
               coverage: ctx.coverage,
               requireDefenseContext: ctx.requireDefenseContext,
+              executionScope: ctx.executionScope,
             }),
           );
           if (result.errorMessage) {
@@ -556,6 +573,7 @@ export const sedCommand: RuntimeCommand = {
             cwd: ctx.cwd,
             coverage: ctx.coverage,
             requireDefenseContext: ctx.requireDefenseContext,
+            executionScope: ctx.executionScope,
           }),
         );
         // sed emits text; the pipeline handles encoding.
@@ -639,6 +657,7 @@ export const sedCommand: RuntimeCommand = {
           cwd: ctx.cwd,
           coverage: ctx.coverage,
           requireDefenseContext: ctx.requireDefenseContext,
+          executionScope: ctx.executionScope,
         }),
       );
       return {
