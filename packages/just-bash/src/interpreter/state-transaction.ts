@@ -1,5 +1,10 @@
+import { closeUnusedWritables } from "./fd-table.js";
 import { cloneArrays } from "./helpers/array.js";
-import type { CompletionSpec, InterpreterState, ShellArray } from "./types.js";
+import type {
+  CompletionSpec,
+  InterpreterContext,
+  ShellArray,
+} from "./types.js";
 
 function cloneCompletionSpec(
   spec: CompletionSpec | undefined,
@@ -84,7 +89,10 @@ function cloneLocalVarStack(
  * idempotent rollback. Process-wide accounting and PID allocation deliberately
  * remain shared with the parent execution.
  */
-export function beginIsolatedShellState(state: InterpreterState): () => void {
+export function beginIsolatedShellState(
+  ctx: InterpreterContext,
+): () => Promise<void> | undefined {
+  const state = ctx.state;
   const saved = {
     env: state.env,
     arrays: state.arrays,
@@ -98,6 +106,7 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
     fileDescriptors: state.fileDescriptors,
     inputFds: state.inputFds,
     outputWriters: state.outputWriters,
+    inheritedOutputWriters: state.inheritedOutputWriters,
     fdAliases: state.fdAliases,
     closedStandardFds: state.closedStandardFds,
     nextFd: state.nextFd,
@@ -156,6 +165,10 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
   state.outputWriters = state.outputWriters
     ? new Map(state.outputWriters)
     : undefined;
+  state.inheritedOutputWriters = new Set([
+    ...(saved.inheritedOutputWriters ?? []),
+    ...(saved.outputWriters?.values() ?? []),
+  ]);
   state.fdAliases = cloneFdAliases(state.fdAliases);
   state.closedStandardFds = state.closedStandardFds
     ? new Set(state.closedStandardFds)
@@ -212,8 +225,16 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
 
   let restored = false;
   return () => {
-    if (restored) return;
+    if (restored) return undefined;
     restored = true;
+    const childWriters = new Set(state.outputWriters?.values() ?? []);
+    const parentWriters = new Set(saved.outputWriters?.values() ?? []);
     Object.assign(state, saved);
+    for (const writable of childWriters) {
+      if (parentWriters.has(writable)) continue;
+      state.writableCloseCandidates ??= new Set();
+      state.writableCloseCandidates.add(writable);
+    }
+    return closeUnusedWritables(ctx);
   };
 }

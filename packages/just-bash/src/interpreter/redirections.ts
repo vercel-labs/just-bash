@@ -205,10 +205,10 @@ const getDupSource = (
     : null;
 };
 
-function manageWritable(
+async function manageWritable(
   ctx: InterpreterContext,
   writable: WritableFile,
-): WritableFile {
+): Promise<WritableFile> {
   let closePromise: Promise<void> | undefined;
   let unregisterCleanup = (): void => undefined;
   const managed: WritableFile = {
@@ -230,7 +230,18 @@ function manageWritable(
       return closePromise;
     },
   };
-  unregisterCleanup = ctx.executionScope.registerCleanup(() => managed.close());
+  try {
+    unregisterCleanup = ctx.executionScope.registerCleanup(() =>
+      managed.close(),
+    );
+  } catch (error) {
+    try {
+      await writable.close();
+    } catch {
+      // The existing abort or limit failure remains authoritative.
+    }
+    throw error;
+  }
   return managed;
 }
 
@@ -266,7 +277,7 @@ async function openOutputEntry(
   }
   try {
     if (ctx.fs.openWritable) {
-      const writable = manageWritable(
+      const writable = await manageWritable(
         ctx,
         await ctx.fs.openWritable(filePath, {
           mode: append ? "append" : "truncate",

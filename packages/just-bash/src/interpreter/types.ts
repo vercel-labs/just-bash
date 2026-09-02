@@ -330,6 +330,8 @@ export interface IOState {
   inputFds?: Set<number>;
   /** Writable descriptions associated with encoded output descriptor entries. */
   outputWriters?: Map<number, WritableFile>;
+  /** Parent descriptions retained while an isolated shell mutates its fd table. */
+  inheritedOutputWriters?: Set<WritableFile>;
   /** Writers detached during descriptor mutation and eligible for closing. */
   writableCloseCandidates?: Set<WritableFile>;
   /**

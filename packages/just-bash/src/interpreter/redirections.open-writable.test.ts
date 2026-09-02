@@ -80,6 +80,37 @@ class RecordingWritableFs extends InMemoryFs {
   }
 }
 
+class FailingCloseFs extends RecordingWritableFs {
+  override async openWritable(
+    path: string,
+    options: OpenWritableOptions,
+  ): Promise<WritableFile> {
+    const writable = await super.openWritable(path, options);
+    return {
+      write: writable.write,
+      close: async () => {
+        await writable.close();
+        throw new Error("durable commit failed");
+      },
+    };
+  }
+}
+
+class AbortingOpenFs extends RecordingWritableFs {
+  constructor(private readonly controller: AbortController) {
+    super();
+  }
+
+  override async openWritable(
+    path: string,
+    options: OpenWritableOptions,
+  ): Promise<WritableFile> {
+    const writable = await super.openWritable(path, options);
+    this.controller.abort();
+    return writable;
+  }
+}
+
 describe("optional writable file descriptions", () => {
   it("opens, writes, and closes a redirected output through one description", async () => {
     const fs = new RecordingWritableFs();
@@ -191,6 +222,40 @@ describe("optional writable file descriptions", () => {
     ]);
   });
 
+  it("does not close a parent description when a subshell closes its copy", async () => {
+    const fs = new RecordingWritableFs();
+    const bash = new Bash({ fs });
+
+    const result = await bash.exec(
+      "exec 3> /out; (exec 3>&-); printf value >&3; exec 3>&-",
+    );
+
+    expect(result).toMatchObject({ stdout: "", stderr: "", exitCode: 0 });
+    expect(await fs.readFile("/out")).toBe("value");
+    expect(fs.events).toEqual([
+      "open:truncate:/out",
+      "handle-write:/out:value",
+      "close:/out",
+    ]);
+  });
+
+  it("closes child-only persistent descriptions when isolated state is restored", async () => {
+    const fs = new RecordingWritableFs();
+    const bash = new Bash({ fs });
+
+    const result = await bash.exec(
+      "(exec 3> /out; printf value >&3); printf after",
+    );
+
+    expect(result).toMatchObject({ stdout: "after", stderr: "", exitCode: 0 });
+    expect(await fs.readFile("/out")).toBe("value");
+    expect(fs.events).toEqual([
+      "open:truncate:/out",
+      "handle-write:/out:value",
+      "close:/out",
+    ]);
+  });
+
   it("restores a persistent writer after a command-scoped descriptor override", async () => {
     const fs = new RecordingWritableFs();
     const bash = new Bash({ fs });
@@ -249,6 +314,41 @@ describe("optional writable file descriptions", () => {
       "handle-write:/out:value",
       "close:/out",
     ]);
+  });
+
+  it("reports close failures through execution cleanup", async () => {
+    const fs = new FailingCloseFs();
+    const bash = new Bash({ fs });
+
+    const result = await bash.exec("printf value > /out");
+
+    expect(result).toMatchObject({
+      stdout: "",
+      stderr: "bash: execution cleanup failed\n",
+      exitCode: 126,
+    });
+    expect(fs.events).toEqual([
+      "open:truncate:/out",
+      "handle-write:/out:value",
+      "close:/out",
+    ]);
+  });
+
+  it("closes a writable acquired while execution is being cancelled", async () => {
+    const controller = new AbortController();
+    const fs = new AbortingOpenFs(controller);
+    const bash = new Bash({ fs });
+
+    const result = await bash.exec("printf value > /out", {
+      signal: controller.signal,
+    });
+
+    expect(result).toMatchObject({
+      stdout: "",
+      stderr: "bash: execution aborted\n",
+      exitCode: 124,
+    });
+    expect(fs.events).toEqual(["open:truncate:/out", "close:/out"]);
   });
 
   it("keeps legacy path operations as the fallback", async () => {

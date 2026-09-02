@@ -198,27 +198,33 @@ export function closeUnusedWritables(
     ...opened,
   ]);
   ctx.state.writableCloseCandidates?.clear();
-  const active = new Set(ctx.state.outputWriters?.values() ?? []);
+  const active = new Set([
+    ...(ctx.state.outputWriters?.values() ?? []),
+    ...(ctx.state.inheritedOutputWriters ?? []),
+  ]);
   const closable = [...candidates]
     .reverse()
     .filter((writable) => !active.has(writable));
   if (closable.length === 0) return undefined;
-  return closeWritables(closable);
+  return closeWritables(ctx, closable);
 }
 
 async function closeWritables(
+  ctx: InterpreterContext,
   writables: readonly WritableFile[],
 ): Promise<void> {
-  const errors: unknown[] = [];
   for (const writable of writables) {
     try {
       await writable.close();
     } catch (error) {
-      errors.push(error);
+      // Preserve the result-oriented Bash.exec contract and any in-flight
+      // shell control flow. ExecutionScope reports cleanup failures as 126.
+      try {
+        ctx.executionScope.registerCleanup(() => Promise.reject(error));
+      } catch {
+        // An existing abort or limit failure remains authoritative.
+      }
     }
-  }
-  if (errors.length > 0) {
-    throw new AggregateError(errors, "failed to close writable files");
   }
 }
 
