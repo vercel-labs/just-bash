@@ -174,6 +174,26 @@ describe("optional writable file descriptions", () => {
     expect(fs.commits).toEqual(["/second:hello", "/first:"]);
   });
 
+  it("preserves independent positions for separate opens of one path", async () => {
+    const fs = new RecordingWritableFs();
+    const bash = new Bash({ fs });
+
+    const result = await bash.exec(
+      "{ printf abc; printf Z >&2; } > /out 2> /out",
+    );
+
+    expect(result).toMatchObject({ stdout: "", stderr: "", exitCode: 0 });
+    expect(await fs.readFile("/out")).toBe("Zbc");
+    expect(fs.events).toEqual([
+      "open:truncate:/out",
+      "open:truncate:/out",
+      "handle-write:/out:abc",
+      "handle-write:/out:Z",
+      "close:/out",
+      "close:/out",
+    ]);
+  });
+
   it("closes earlier successful opens when a later redirect fails", async () => {
     const fs = new RecordingWritableFs({ "/first": "previous" });
     const bash = new Bash({ fs });
