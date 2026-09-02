@@ -151,7 +151,7 @@ type RedirectionTransactionState = {
 
 export type RedirectionTransaction = {
   prepare: (inheritedStdin?: string) => Promise<PreparedRedirections>;
-  finish: () => Promise<void>;
+  finish: () => Promise<void> | undefined;
 };
 
 const fdLimitError = (ctx: InterpreterContext): ExecutionLimitError =>
@@ -1060,8 +1060,8 @@ export function createRedirectionTransaction(
   return {
     prepare: (inheritedStdin = "") =>
       prepareRedirectionsWithState(ctx, redirections, inheritedStdin, state),
-    finish: async () => {
-      if (finished) return;
+    finish: () => {
+      if (finished) return undefined;
       finished = true;
       if (policy !== "persistent") {
         restoreFds(ctx, state.numericSnapshot);
@@ -1085,7 +1085,7 @@ export function createRedirectionTransaction(
         }
         ctx.state.nextFd = state.nextFd;
       }
-      await closeUnusedWritables(ctx, state.openedWritables);
+      return closeUnusedWritables(ctx, state.openedWritables);
     },
   };
 }
@@ -1176,7 +1176,8 @@ export async function withPreparedRedirections(
     await routeControlFlowError(ctx, error, redirections, prepared);
     throw error;
   } finally {
-    await transaction.finish();
+    const closing = transaction.finish();
+    if (closing) await closing;
   }
 }
 

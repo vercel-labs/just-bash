@@ -189,19 +189,28 @@ function attachWritable(
  * Newly opened command-scoped descriptions may be supplied because standard
  * descriptors do not always need an encoded table entry.
  */
-export async function closeUnusedWritables(
+export function closeUnusedWritables(
   ctx: InterpreterContext,
   opened: readonly WritableFile[] = [],
-): Promise<void> {
+): Promise<void> | undefined {
   const candidates = new Set([
     ...(ctx.state.writableCloseCandidates ?? []),
     ...opened,
   ]);
   ctx.state.writableCloseCandidates?.clear();
   const active = new Set(ctx.state.outputWriters?.values() ?? []);
+  const closable = [...candidates]
+    .reverse()
+    .filter((writable) => !active.has(writable));
+  if (closable.length === 0) return undefined;
+  return closeWritables(closable);
+}
+
+async function closeWritables(
+  writables: readonly WritableFile[],
+): Promise<void> {
   const errors: unknown[] = [];
-  for (const writable of [...candidates].reverse()) {
-    if (active.has(writable)) continue;
+  for (const writable of writables) {
     try {
       await writable.close();
     } catch (error) {

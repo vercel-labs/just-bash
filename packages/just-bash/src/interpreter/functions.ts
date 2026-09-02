@@ -222,7 +222,8 @@ export async function callFunction(
     throw error;
   } finally {
     try {
-      await redirectionTransaction.finish();
+      const closing = redirectionTransaction.finish();
+      if (closing) await closing;
     } finally {
       cleanup();
     }
