@@ -170,6 +170,31 @@ describe("cp command - Real Bash Comparison", () => {
     expect(result.stdout).toContain("a.txt");
     expect(result.stdout).toContain("b.txt");
   });
+
+  it("should not create missing destination parents", async () => {
+    const env = await setupFiles(testDir, {
+      "source.txt": "content\n",
+    });
+
+    const envResult = await env.exec("cp source.txt missing/copied.txt");
+    const realResult = await runRealBash(
+      "cp source.txt missing/copied.txt",
+      testDir,
+    );
+
+    expect(envResult.exitCode).toBe(realResult.exitCode);
+    expect(envResult.exitCode).toBe(1);
+    expect(envResult.stderr).toContain("No such file or directory");
+    expect(realResult.stderr).toContain("No such file or directory");
+    expect(await env.readFile(path.join(testDir, "source.txt"))).toBe(
+      "content\n",
+    );
+
+    const envMissingParent = await env.exec("test -e missing");
+    const realMissingParent = await runRealBash("test -e missing", testDir);
+    expect(envMissingParent.exitCode).toBe(1);
+    expect(realMissingParent.exitCode).toBe(1);
+  });
 });
 
 describe("mv command - Real Bash Comparison", () => {
@@ -236,6 +261,31 @@ describe("mv command - Real Bash Comparison", () => {
     expect(rootLs.stdout).not.toContain("b.txt");
     expect(dirLs.stdout).toContain("a.txt");
     expect(dirLs.stdout).toContain("b.txt");
+  });
+
+  it("should not create missing destination parents", async () => {
+    const env = await setupFiles(testDir, {
+      "source.txt": "content\n",
+    });
+
+    const envResult = await env.exec("mv source.txt missing/moved.txt");
+    const realResult = await runRealBash(
+      "mv source.txt missing/moved.txt",
+      testDir,
+    );
+
+    expect(envResult.exitCode).toBe(realResult.exitCode);
+    expect(envResult.exitCode).toBe(1);
+    expect(envResult.stderr).toContain("No such file or directory");
+    expect(realResult.stderr).toContain("No such file or directory");
+    expect(await env.readFile(path.join(testDir, "source.txt"))).toBe(
+      "content\n",
+    );
+
+    const envMissingParent = await env.exec("test -e missing");
+    const realMissingParent = await runRealBash("test -e missing", testDir);
+    expect(envMissingParent.exitCode).toBe(1);
+    expect(realMissingParent.exitCode).toBe(1);
   });
 });
 

@@ -41,6 +41,7 @@ describe("ReadWriteFs recursive copy and append hardening", () => {
     fs.writeFileSync(path.join(sandboxDir, "target.txt"), "content");
     const rwfs = new ReadWriteFs({ root: sandboxDir, allowSymlinks: true });
     await rwfs.symlink("/target.txt", "/source/link.txt");
+    fs.mkdirSync(path.join(sandboxDir, "deep/nested"), { recursive: true });
 
     await rwfs.cp("/source/link.txt", "/deep/nested/link.txt");
 
@@ -66,6 +67,7 @@ describe("ReadWriteFs recursive copy and append hardening", () => {
       path.join(rootAlias, "target.txt"),
       path.join(realRoot, "source/link.txt"),
     );
+    fs.mkdirSync(path.join(realRoot, "copied"));
     const rwfs = new ReadWriteFs({ root: rootAlias, allowSymlinks: true });
 
     await rwfs.cp("/source/link.txt", "/copied/link.txt");
@@ -77,20 +79,21 @@ describe("ReadWriteFs recursive copy and append hardening", () => {
     expect(fs.readFileSync(copied, "utf8")).toBe("content");
   });
 
-  it("preserves a relative symlink target when copying to a missing parent", async () => {
+  it("preserves a relative symlink target when copying to an existing parent", async () => {
     fs.mkdirSync(path.join(sandboxDir, "source"));
+    fs.mkdirSync(path.join(sandboxDir, "destination"));
     fs.writeFileSync(path.join(sandboxDir, "source/target.txt"), "content");
     fs.symlinkSync("target.txt", path.join(sandboxDir, "source/link.txt"));
     const rwfs = new ReadWriteFs({ root: sandboxDir, allowSymlinks: true });
 
-    await rwfs.cp("/source/link.txt", "/missing/parent/link.txt");
+    await rwfs.cp("/source/link.txt", "/destination/link.txt");
 
-    expect(
-      fs.readlinkSync(path.join(sandboxDir, "missing/parent/link.txt")),
-    ).toBe("target.txt");
+    expect(fs.readlinkSync(path.join(sandboxDir, "destination/link.txt"))).toBe(
+      "target.txt",
+    );
     expect(
       fs
-        .lstatSync(path.join(sandboxDir, "missing/parent/link.txt"))
+        .lstatSync(path.join(sandboxDir, "destination/link.txt"))
         .isSymbolicLink(),
     ).toBe(true);
   });

@@ -216,12 +216,13 @@ export interface IFileSystem {
 
   /**
    * Copy a file or directory
-   * @throws Error if source doesn't exist or trying to copy directory without recursive
+   * @throws Error if the source or destination parent doesn't exist, the destination parent isn't a directory, or trying to copy directory without recursive
    */
   cp(src: string, dest: string, options?: CpOptions): Promise<void>;
 
   /**
    * Move/rename a file or directory
+   * @throws Error if the source or destination parent doesn't exist or the destination parent isn't a directory
    */
   mv(src: string, dest: string): Promise<void>;
 
