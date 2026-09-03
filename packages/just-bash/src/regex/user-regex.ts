@@ -2,15 +2,22 @@
  * UserRegex - Centralized regex handling for user-provided patterns
  *
  * This module provides a single point of control for all user-provided regex
- * execution. Uses RE2JS for ReDoS protection via linear-time matching.
+ * execution. Matching goes through the execution's RegexEngine (re2js by
+ * default) for ReDoS protection via linear-time matching.
  *
  * All user-provided regex patterns should go through this module.
  * Internal patterns (those we control) can use ConstantRegex for the same interface.
  */
 
-import { RE2JS, RE2JSSyntaxException } from "re2js";
 import { BoundedStringBuilder } from "../bounded-builder.js";
 import { ExecutionLimitError } from "../interpreter/errors.js";
+import {
+  type CompiledRegex,
+  type RegexEngineFlags,
+  type RegexMatcher,
+  RegexSyntaxError,
+} from "./engine.js";
+import { currentRegexEngine } from "./engine-context.js";
 
 const DEFAULT_MAX_REGEX_RESULTS = 1_000_000;
 const DEFAULT_MAX_REGEX_OUTPUT_BYTES = 64 * 1024 * 1024;
@@ -51,38 +58,22 @@ export interface RegexLike {
   lastIndex: number;
 }
 
-/**
- * Convert string flags to RE2JS numeric flags.
- * RE2 doesn't support the 'g' flag - we handle global matching manually.
- */
-function convertFlags(flags: string): number {
-  let re2Flags = 0;
-  if (flags.includes("i")) {
-    re2Flags |= RE2JS.CASE_INSENSITIVE;
-  }
-  if (flags.includes("m")) {
-    re2Flags |= RE2JS.MULTILINE;
-  }
-  if (flags.includes("s")) {
-    re2Flags |= RE2JS.DOTALL;
-  }
-  return re2Flags;
+function engineFlagsFrom(flags: string): RegexEngineFlags {
+  return {
+    ignoreCase: flags.includes("i"),
+    multiline: flags.includes("m"),
+    dotAll: flags.includes("s"),
+    unicode: flags.includes("u"),
+  };
 }
 
 /**
- * Translate a JavaScript regex pattern to RE2-compatible syntax.
- * Uses RE2JS.translateRegExp to handle syntax differences.
- */
-function translatePattern(pattern: string): string {
-  return RE2JS.translateRegExp(pattern);
-}
-
-/**
- * A wrapper around RE2JS that provides a RegExp-compatible interface.
- * Uses RE2 for linear-time matching, providing ReDoS protection.
+ * A wrapper around the current execution's RegexEngine that provides a
+ * RegExp-compatible interface. The engine guarantees linear-time matching,
+ * providing ReDoS protection.
  */
 export class UserRegex implements RegexLike {
-  private readonly _re2: RE2JS;
+  private readonly _compiled: CompiledRegex;
   private readonly _pattern: string;
   private readonly _flags: string;
   private readonly _global: boolean;
@@ -91,12 +82,10 @@ export class UserRegex implements RegexLike {
   private _lastIndex = 0;
   // Cache native RegExp for compatibility - created lazily
   private _nativeRegex: RegExp | null = null;
-  // Reusable RE2 Matcher to avoid per-call allocation in tight grep loops.
+  // Reusable matcher to avoid per-call allocation in tight grep loops.
   // Matcher allocation dominates regex.test/exec cost when called once per line
-  // across thousands of lines. We mutate charSequence in-place (not resetMatcherInput,
-  // which is broken in re2js 1.2.1 — see acquireMatcher).
-  private _matcher: ReturnType<RE2JS["matcher"]> | null = null;
-  private _matcherInput: string | null = null;
+  // across thousands of lines.
+  private _matcher: RegexMatcher | null = null;
   private readonly maxResults: number;
   private readonly maxOutputBytes: number;
   private readonly signal?: AbortSignal;
@@ -112,15 +101,17 @@ export class UserRegex implements RegexLike {
   }
 
   private expandReplacement(
-    matcher: ReturnType<RE2JS["matcher"]>,
+    matcher: RegexMatcher,
     replacement: string,
   ): string {
     const output = new BoundedStringBuilder(
       this.maxOutputBytes,
       "regular expression replacement",
     );
-    const groupCount = this._re2.groupCount();
-    const namedGroups = this._re2.namedGroups();
+    // Resolved on first use: most replacements are literal and the string
+    // `s///g` path runs this once per match.
+    let groups: (string | null)[] | undefined;
+    let namedGroups: Record<string, string | null> | undefined;
     for (let index = 0; index < replacement.length; index++) {
       const char = replacement[index];
       if (char === "\\" && index + 1 < replacement.length) {
@@ -135,15 +126,17 @@ export class UserRegex implements RegexLike {
         const end = replacement.indexOf("}", index + 2);
         if (end !== -1) {
           const name = replacement.slice(index + 2, end);
-          const groupIndex = namedGroups?.[name];
-          if (groupIndex !== undefined) {
-            output.append(matcher.group(groupIndex) ?? "");
+          namedGroups ??= matcher.namedGroups();
+          if (name in namedGroups) {
+            output.append(namedGroups[name] ?? "");
             index = end;
             continue;
           }
         }
       }
       if (/\d/.test(replacement[index + 1])) {
+        groups ??= matcher.groups();
+        const groupCount = groups.length - 1;
         let end = index + 1;
         let group = 0;
         while (end < replacement.length && /\d/.test(replacement[end])) {
@@ -152,7 +145,7 @@ export class UserRegex implements RegexLike {
           group = candidate;
           end++;
         }
-        output.append(matcher.group(group) ?? "");
+        output.append(groups[group] ?? "");
         index = end - 1;
         continue;
       }
@@ -161,26 +154,53 @@ export class UserRegex implements RegexLike {
     return output.build();
   }
 
-  private acquireMatcher(input: string): ReturnType<RE2JS["matcher"]> {
+  private captureGroups(matcher: RegexMatcher): string[] {
+    return matcher.groups().slice(1) as string[];
+  }
+
+  // Null-prototype so a group named __proto__ cannot pollute the result.
+  // `missing` stands in for groups that did not participate; null omits them.
+  private namedGroupValues(
+    matcher: RegexMatcher,
+    missing: string | null,
+  ): Record<string, string> | undefined {
+    const entries = Object.entries(matcher.namedGroups());
+    if (entries.length === 0) {
+      return undefined;
+    }
+    const groups: Record<string, string> = Object.create(null);
+    for (const [name, text] of entries) {
+      const value = text ?? missing;
+      if (value !== null) {
+        groups[name] = value;
+      }
+    }
+    return groups;
+  }
+
+  private buildMatchArray(
+    matcher: RegexMatcher,
+    input: string,
+  ): RegExpExecArray {
+    const result = [
+      matcher.group(0) ?? "",
+      ...this.captureGroups(matcher),
+    ] as unknown as RegExpExecArray;
+    result.index = matcher.start(0);
+    result.input = input;
+    const groups = this.namedGroupValues(matcher, null);
+    if (groups) {
+      result.groups = groups;
+    }
+    return result;
+  }
+
+  private acquireMatcher(input: string): RegexMatcher {
     if (this._matcher === null) {
-      this._matcher = this._re2.matcher(input);
-      this._matcherInput = input;
+      this._matcher = this._compiled.matcher(input);
       return this._matcher;
     }
-    if (this._matcherInput !== input) {
-      // Swap the cached Utf16MatcherInput's charSequence in-place to avoid
-      // allocating a new Matcher per call. RE2JS's resetMatcherInput is not
-      // safe with raw strings (the constructor wraps strings via
-      // MatcherInput.utf16, but resetMatcherInput assigns its argument
-      // directly and then calls .length() as a method, which throws on a
-      // raw string). MatcherInput is not exported, so we mutate the existing
-      // wrapper's charSequence field — Matcher.reset() reads matcherInput.length()
-      // afterwards, so the new length is picked up correctly.
-      // biome-ignore lint/suspicious/noExplicitAny: reaching into re2js internals
-      (this._matcher as any).matcherInput.charSequence = input;
-      this._matcherInput = input;
-    }
-    this._matcher.reset();
+    this._matcher.reset(input);
     return this._matcher;
   }
 
@@ -204,11 +224,12 @@ export class UserRegex implements RegexLike {
     }
 
     try {
-      const translatedPattern = translatePattern(pattern);
-      const re2Flags = convertFlags(flags);
-      this._re2 = RE2JS.compile(translatedPattern, re2Flags);
+      this._compiled = currentRegexEngine().compile(
+        pattern,
+        engineFlagsFrom(flags),
+      );
     } catch (e) {
-      if (e instanceof RE2JSSyntaxException) {
+      if (e instanceof RegexSyntaxError) {
         // Provide helpful error messages for unsupported RE2 features
         const msg = e.message || "";
         let explanation = "";
@@ -266,37 +287,7 @@ export class UserRegex implements RegexLike {
       return null;
     }
 
-    // Build result array
-    const groupCount = this._re2.groupCount();
-    const result: string[] = [];
-
-    // Group 0 is the full match
-    result.push(matcher.group(0) ?? "");
-
-    // Add capture groups
-    for (let i = 1; i <= groupCount; i++) {
-      const group = matcher.group(i);
-      result.push(group as string);
-    }
-
-    // Add RegExpExecArray properties
-    const execResult = result as unknown as RegExpExecArray;
-    execResult.index = matcher.start(0);
-    execResult.input = input;
-
-    // Add named groups if any
-    const namedGroups = this._re2.namedGroups();
-    if (namedGroups && Object.keys(namedGroups).length > 0) {
-      // Use Object.create(null) to prevent prototype pollution from names like __proto__
-      const groups: { [key: string]: string } = Object.create(null);
-      for (const [name, index] of Object.entries(namedGroups)) {
-        const value = matcher.group(index as number);
-        if (value !== null) {
-          groups[name] = value;
-        }
-      }
-      execResult.groups = groups;
-    }
+    const execResult = this.buildMatchArray(matcher, input);
 
     // Update lastIndex for global regex
     if (this._global) {
@@ -357,7 +348,7 @@ export class UserRegex implements RegexLike {
     }
 
     if (typeof replacement === "string") {
-      const matcher = this._re2.matcher(input);
+      const matcher = this._compiled.matcher(input);
       const output = new BoundedStringBuilder(
         this.maxOutputBytes,
         "regular expression replacement",
@@ -390,38 +381,24 @@ export class UserRegex implements RegexLike {
       this.maxOutputBytes,
       "regular expression replacement",
     );
-    const matcher = this._re2.matcher(input);
+    const matcher = this._compiled.matcher(input);
     let lastEnd = 0;
     let pos = 0;
     let matchCount = 0;
-    const groupCount = this._re2.groupCount();
-    const namedGroups = this._re2.namedGroups();
 
     while (matcher.find(pos)) {
-      // Add text before match
       this.assertResultCount(++matchCount);
       result.append(input.slice(lastEnd, matcher.start(0)));
 
-      // Build callback arguments
-      const args: (string | number | Record<string, string>)[] = [];
+      // Same argument list as String.prototype.replace hands its callback.
       const fullMatch = matcher.group(0) ?? "";
-
-      // Add capture groups
-      for (let i = 1; i <= groupCount; i++) {
-        args.push(matcher.group(i) as string);
-      }
-
-      // Add index and input
-      args.push(matcher.start(0));
-      args.push(input);
-
-      // Add named groups if present
-      if (namedGroups && Object.keys(namedGroups).length > 0) {
-        // Use Object.create(null) to prevent prototype pollution from names like __proto__
-        const groups: Record<string, string> = Object.create(null);
-        for (const [name, index] of Object.entries(namedGroups)) {
-          groups[name] = matcher.group(index as number) ?? "";
-        }
+      const args: (string | number | Record<string, string>)[] = [
+        ...this.captureGroups(matcher),
+        matcher.start(0),
+        input,
+      ];
+      const groups = this.namedGroupValues(matcher, "");
+      if (groups) {
         args.push(groups);
       }
 
@@ -464,7 +441,7 @@ export class UserRegex implements RegexLike {
         ? this.maxResults
         : Math.min(limit, this.maxResults);
     const result: string[] = [];
-    const matcher = this._re2.matcher(input);
+    const matcher = this._compiled.matcher(input);
     let lastEnd = 0;
     let searchFrom = 0;
     while (result.length < effectiveLimit && matcher.find(searchFrom)) {
@@ -503,40 +480,13 @@ export class UserRegex implements RegexLike {
     // would be corrupted if a caller interleaves any other method on the same
     // UserRegex instance between two `next()` calls (acquireMatcher would
     // reset/repoint it). Use a fresh Matcher to keep iterator state private.
-    const matcher = this._re2.matcher(input);
-    const groupCount = this._re2.groupCount();
-    const namedGroups = this._re2.namedGroups();
+    const matcher = this._compiled.matcher(input);
     let pos = 0;
     let resultCount = 0;
 
     while (matcher.find(pos)) {
       this.assertResultCount(++resultCount);
-      // Build result array
-      const result: string[] = [];
-      result.push(matcher.group(0) ?? "");
-
-      for (let i = 1; i <= groupCount; i++) {
-        result.push(matcher.group(i) as string);
-      }
-
-      const execResult = result as unknown as RegExpMatchArray;
-      execResult.index = matcher.start(0);
-      execResult.input = input;
-
-      // Add named groups if any
-      if (namedGroups && Object.keys(namedGroups).length > 0) {
-        // Use Object.create(null) to prevent prototype pollution from names like __proto__
-        const groups: { [key: string]: string } = Object.create(null);
-        for (const [name, index] of Object.entries(namedGroups)) {
-          const value = matcher.group(index as number);
-          if (value !== null) {
-            groups[name] = value;
-          }
-        }
-        execResult.groups = groups;
-      }
-
-      yield execResult;
+      yield this.buildMatchArray(matcher, input);
 
       pos = matcher.end(0);
       // Prevent infinite loop on zero-length matches
@@ -620,8 +570,11 @@ export class UserRegex implements RegexLike {
 
 /**
  * Create a UserRegex from a pattern string and flags.
- * This is the primary entry point for user-provided regex patterns.
- * Uses RE2 for ReDoS protection.
+ * This is the primary entry point for user-provided regex patterns. The
+ * pattern is compiled by the engine of the `Bash` execution this is called
+ * from (`BashOptions.regexEngine`); outside any execution, or in the browser
+ * build, that is re2js. Either way the engine matches in linear time, which is
+ * the ReDoS protection.
  *
  * @param pattern - The regex pattern string
  * @param flags - Optional regex flags (g, i, m, s, u)

@@ -2,7 +2,7 @@
  * Centralized regex handling for user-provided patterns.
  *
  * This module provides ReDoS-safe regex execution for all user-provided patterns.
- * Currently uses native JavaScript RegExp, designed to be swapped to RE2.
+ * Matching runs through a pluggable RegexEngine; re2js is the default.
  *
  * Usage:
  *   import { createUserRegex, UserRegex } from '../regex/index.js';
@@ -15,6 +15,19 @@
  *   const internalRegex = /^[a-z]+$/;
  */
 
+export {
+  type CompiledRegex,
+  type RegexEngine,
+  type RegexEngineFlags,
+  type RegexMatcher,
+  RegexSyntaxError,
+} from "./engine.js";
+export {
+  currentRegexEngine,
+  runWithRegexEngine,
+  supportsRegexEngineOption,
+} from "./engine-context.js";
+export { re2jsEngine } from "./re2js-engine.js";
 export {
   ConstantRegex,
   createUserRegex,

@@ -4,12 +4,29 @@
  * Used by grep, find, and other commands that need glob matching.
  */
 
-import { createUserRegex, type RegexLike } from "../regex/index.js";
+import {
+  createUserRegex,
+  currentRegexEngine,
+  type RegexEngine,
+  type RegexLike,
+} from "../regex/index.js";
 
-// Cache compiled regexes for glob patterns (key: pattern + flags).
-// Bounded to prevent unbounded memory growth from diverse patterns.
+// Cache compiled regexes for glob patterns (key: pattern + flags), one cache
+// per regex engine so an execution never matches through another engine's
+// compiled pattern. Bounded to prevent unbounded memory growth from diverse
+// patterns.
 const GLOB_CACHE_MAX = 2048;
-const globRegexCache = new Map<string, RegexLike>();
+const globRegexCaches = new WeakMap<RegexEngine, Map<string, RegexLike>>();
+
+function globRegexCacheForCurrentEngine(): Map<string, RegexLike> {
+  const engine = currentRegexEngine();
+  let cache = globRegexCaches.get(engine);
+  if (!cache) {
+    cache = new Map();
+    globRegexCaches.set(engine, cache);
+  }
+  return cache;
+}
 
 export interface MatchGlobOptions {
   /** Case-insensitive matching */
@@ -55,16 +72,17 @@ export function matchGlob(
 
   // Build cache key
   const cacheKey = opts.ignoreCase ? `i:${cleanPattern}` : cleanPattern;
-  let re = globRegexCache.get(cacheKey);
+  const cache = globRegexCacheForCurrentEngine();
+  let re = cache.get(cacheKey);
 
   if (!re) {
     re = globToRegex(cleanPattern, opts.ignoreCase);
-    if (globRegexCache.size >= GLOB_CACHE_MAX) {
+    if (cache.size >= GLOB_CACHE_MAX) {
       // Evict oldest entry (first key in insertion order)
-      const oldest = globRegexCache.keys().next().value;
-      if (oldest !== undefined) globRegexCache.delete(oldest);
+      const oldest = cache.keys().next().value;
+      if (oldest !== undefined) cache.delete(oldest);
     }
-    globRegexCache.set(cacheKey, re);
+    cache.set(cacheKey, re);
   }
 
   return re.test(name);

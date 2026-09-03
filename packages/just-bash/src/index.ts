@@ -93,6 +93,15 @@ export {
 } from "./network/index.js";
 // Parser
 export { parse } from "./parser/parser.js";
+// Regex engine behind every user-provided pattern (see BashOptions.regexEngine)
+export {
+  type CompiledRegex,
+  type RegexEngine,
+  type RegexEngineFlags,
+  type RegexMatcher,
+  RegexSyntaxError,
+  re2jsEngine,
+} from "./regex/index.js";
 export type {
   CommandFinished as SandboxCommandFinished,
   OutputMessage,

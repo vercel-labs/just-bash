@@ -56,6 +56,15 @@ export {
   RedirectNotAllowedError,
   TooManyRedirectsError,
 } from "./network/index.js";
+// Regex engine behind every user-provided pattern (see BashOptions.regexEngine)
+export {
+  type CompiledRegex,
+  type RegexEngine,
+  type RegexEngineFlags,
+  type RegexMatcher,
+  RegexSyntaxError,
+  re2jsEngine,
+} from "./regex/index.js";
 export type {
   BashExecResult,
   Command,

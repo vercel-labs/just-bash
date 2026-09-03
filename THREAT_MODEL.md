@@ -189,7 +189,7 @@ The following components are **trusted** and outside the scope of just-bash's ru
 | Fork bomb | Recursive function calls | maxCallDepth (100) | `src/limits.ts` |
 | Command flood | Thousands of commands | maxCommandCount (10K) | `src/limits.ts` |
 | Memory exhaustion | String/array growth | maxStringLength (10MB), maxArrayElements (100K) | `src/limits.ts` |
-| Regex DoS (ReDoS) | Catastrophic backtracking | re2js (linear-time regex engine) | `src/regex/user-regex.ts` |
+| Regex DoS (ReDoS) | Catastrophic backtracking | Linear-time regex engine (re2js by default; a host-installed `RegexEngine` must keep this guarantee) | `src/regex/user-regex.ts`, `src/regex/engine.ts` |
 | process.exit() | Terminate host process | Blocked by defense-in-depth | `src/security/blocked-globals.ts` |
 | process.abort() | Crash host process | Blocked by defense-in-depth | `src/security/blocked-globals.ts` |
 | process.kill() | Signal host/other procs | Blocked by defense-in-depth | `src/security/blocked-globals.ts` |
@@ -344,7 +344,7 @@ Heredocs with variable expansion are size-limited (10MB) but nested heredocs wit
 | **Execution limits** | Primary | DoS | High — enforced at every loop/call/expansion |
 | **Prototype pollution guards** | Primary | Data integrity | Medium — requires discipline across all new code |
 | **Parser limits** | Primary | Parser DoS | High — token/depth/size/iteration limits |
-| **re2js regex engine** | Primary | ReDoS | High — linear-time guarantee (no backtracking) |
+| **Linear-time regex engine** (re2js default) | Primary | ReDoS | High — linear-time guarantee (no backtracking); `BashOptions.regexEngine` hands this guarantee to the host |
 | **Defense-in-depth** (globals) | Secondary | JS escape | Medium — monkey-patching has inherent limits |
 | **Virtual process info** | Secondary | Info disclosure | High — no real values exposed |
 | **Error sanitization** | Secondary | Info disclosure | High — systematic at FS layers + all error choke points + node:internal paths |

@@ -66,6 +66,11 @@ import {
 import { LexerError } from "./parser/lexer.js";
 import { type ParseException, parse } from "./parser/parser.js";
 import {
+  type RegexEngine,
+  runWithRegexEngine,
+  supportsRegexEngineOption,
+} from "./regex/index.js";
+import {
   DefenseInDepthBox,
   SecurityViolationError,
 } from "./security/defense-in-depth-box.js";
@@ -168,6 +173,14 @@ export interface BashOptions {
    * Disabled by default. Can be a boolean or a config object with bootstrap code.
    */
   javascript?: boolean | JavaScriptConfig;
+  /**
+   * Engine that compiles and matches every user-provided regex pattern in this
+   * instance's scripts (grep, sed, awk, jq, `[[ =~ ]]`, …). Defaults to re2js.
+   * The engine must match in linear time for every pattern it accepts — that
+   * property is the sandbox's ReDoS protection. Node.js only: the browser build
+   * has no AsyncLocalStorage to scope the engine to an execution.
+   */
+  regexEngine?: RegexEngine;
   /**
    * Optional list of command names to register.
    * If not provided, all built-in commands are available.
@@ -320,6 +333,7 @@ export class Bash {
   private coverageWriter?: FeatureCoverageWriter;
   private jsBootstrapCode?: string;
   private invokeToolFn?: (path: string, argsJson: string) => Promise<string>;
+  private readonly regexEngine?: RegexEngine;
   // biome-ignore lint/suspicious/noExplicitAny: type-erased plugin storage for untyped API
   private transformPlugins: TransformPlugin<any>[] = [];
 
@@ -327,6 +341,12 @@ export class Bash {
   private state: InterpreterState;
 
   constructor(options: BashOptions = {}) {
+    if (options.regexEngine && !supportsRegexEngineOption()) {
+      throw new Error(
+        "regexEngine requires AsyncLocalStorage, which this runtime does not provide",
+      );
+    }
+    this.regexEngine = options.regexEngine;
     // Resolve limits before constructing the default filesystem so retained
     // virtual storage follows the same host-selected policy as execution.
     this.limits = resolveLimits(
@@ -610,14 +630,16 @@ export class Bash {
     const executionScope = new ExecutionScope(this.limits, options?.signal);
     let result: BashExecResult;
     try {
-      result = await this.execInScope(
-        commandLine,
-        options,
-        executionScope,
-        0,
-        options?.signal,
-        false, // stdinAlreadyAccounted
-        false, // defer result logging until cleanup finalizes the result
+      result = await runWithRegexEngine(this.regexEngine, () =>
+        this.execInScope(
+          commandLine,
+          options,
+          executionScope,
+          0,
+          options?.signal,
+          false, // stdinAlreadyAccounted
+          false, // defer result logging until cleanup finalizes the result
+        ),
       );
     } catch (error) {
       // Cleanup must not hide the original execution failure.
