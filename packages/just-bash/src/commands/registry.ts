@@ -31,6 +31,7 @@ export type CommandName =
   | "chmod"
   | "pwd"
   | "readlink"
+  | "realpath"
   | "head"
   | "tail"
   | "wc"
@@ -179,6 +180,10 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   {
     name: "readlink",
     load: async () => (await import("./readlink/readlink.js")).readlinkCommand,
+  },
+  {
+    name: "realpath",
+    load: async () => (await import("./realpath/realpath.js")).realpathCommand,
   },
 
   // File viewing

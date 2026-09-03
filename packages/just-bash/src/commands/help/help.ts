@@ -31,7 +31,10 @@ const CATEGORIES = new Map<string, string[]>([
     ["grep", "sed", "awk", "sort", "uniq", "cut", "tr", "tee", "diff"],
   ],
   ["Search", ["find"]],
-  ["Navigation & paths", ["pwd", "basename", "dirname", "tree", "du"]],
+  [
+    "Navigation & paths",
+    ["pwd", "basename", "dirname", "realpath", "tree", "du"],
+  ],
   [
     "Environment & shell",
     [

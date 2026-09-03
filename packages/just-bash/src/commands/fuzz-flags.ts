@@ -82,6 +82,7 @@ import { flagsForFuzzing as printf } from "./printf/printf.js";
 // Navigation
 import { flagsForFuzzing as pwd } from "./pwd/pwd.js";
 import { flagsForFuzzing as readlink } from "./readlink/readlink.js";
+import { flagsForFuzzing as realpath } from "./realpath/realpath.js";
 import { flagsForFuzzing as rev } from "./rev/rev.js";
 import { flagsForFuzzing as rg } from "./rg/rg.js";
 import { flagsForFuzzing as rm } from "./rm/rm.js";
@@ -135,6 +136,7 @@ const allFuzzInfo: CommandFuzzInfo[] = [
   chmod,
   pwd,
   readlink,
+  realpath,
   head,
   tail,
   wc,
