@@ -46,6 +46,7 @@ const CATEGORIES = new Map<string, string[]>([
       "clear",
       "true",
       "false",
+      "yes",
       "bash",
       "sh",
     ],
