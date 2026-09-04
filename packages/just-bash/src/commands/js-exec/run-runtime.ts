@@ -604,6 +604,14 @@ async function executeWithRunInner(
       (maxBridgePayloadBytes - RUN_BRIDGE_VALUE_OVERHEAD_BYTES) * 0.75,
     ),
   );
+  const maxModuleReadBytes = Math.max(
+    0,
+    Math.min(
+      ctx.limits.maxWorkerMessageBytes,
+      maxBridgePayloadBytes - RUN_BRIDGE_VALUE_OVERHEAD_BYTES,
+      RUN_MAX_LIMIT_VALUE,
+    ),
+  );
   const hostNamespace = createHostNamespace();
   const output: OutputState = {
     exitCode: 0,
@@ -612,6 +620,7 @@ async function executeWithRunInner(
     stdout: "",
   };
   let requestedExitCode: number | undefined;
+  let bootstrapFailure: string | undefined;
   const maxOutputSize = ctx.limits.maxOutputSize;
   let outputBytes = 0;
   const appendOutput = (
@@ -668,6 +677,12 @@ async function executeWithRunInner(
     createRunner({
       syncHostFunctions: {
         [hostNamespace]: {
+          bootstrapError(message: string) {
+            bootstrapFailure ??= sanitizeErrorMessage(
+              typeof message === "string" ? message : "Bootstrap failed",
+            );
+            throw new Error("Bootstrap failed.");
+          },
           exit(code: number) {
             requestedExitCode ??= Number.isFinite(code) ? Math.trunc(code) : 0;
             output.exitCode = requestedExitCode;
@@ -834,7 +849,22 @@ async function executeWithRunInner(
   );
   const bootstrap = options.bootstrapCode ?? "";
   const isolatedBootstrap =
-    bootstrap === "" ? "" : `(function() {\n${bootstrap}\n})();\n`;
+    bootstrap === ""
+      ? ""
+      : `try {
+  (function() {
+${bootstrap}
+  })();
+} catch (__jbBootstrapError) {
+  var __jbBootstrapMessage = 'Bootstrap failed';
+  try {
+    __jbBootstrapMessage = __jbBootstrapError && typeof __jbBootstrapError.message === 'string'
+      ? __jbBootstrapError.message
+      : String(__jbBootstrapError);
+  } catch (_) {}
+  globalThis[${JSON.stringify(hostNamespace)}].bootstrapError(__jbBootstrapMessage);
+}
+`;
   const moduleLoader: RunModuleLoader | undefined = options.isModule
     ? {
         identity: "just-bash-js-exec-v1",
@@ -877,9 +907,21 @@ async function executeWithRunInner(
             )});`;
           }
           try {
-            return await DefenseInDepthBox.runUntrustedAsync(
-              async () => await ctx.fs.readFile(specifier),
-            );
+            return await DefenseInDepthBox.runUntrustedAsync(async () => {
+              const stat = await ctx.fs.stat(specifier);
+              if (stat.size > maxModuleReadBytes) {
+                throw new Error(
+                  `Module exceeds JavaScript source limit (${maxModuleReadBytes} bytes)`,
+                );
+              }
+              const moduleSource = await ctx.fs.readFile(specifier);
+              if (Buffer.byteLength(moduleSource) > maxModuleReadBytes) {
+                throw new Error(
+                  `Module exceeds JavaScript source limit (${maxModuleReadBytes} bytes)`,
+                );
+              }
+              return moduleSource;
+            });
           } catch (error) {
             return `throw new Error(${JSON.stringify(
               sanitizeErrorMessage(getErrorMessage(error)),
@@ -933,8 +975,22 @@ async function executeWithRunInner(
     });
   } catch (error) {
     const message = getErrorMessage(error);
+    const errorLocation =
+      error instanceof Error && error.stack !== undefined
+        ? parseGuestSourceLocation(error.stack)
+        : undefined;
+    const bootstrapSourceFailure =
+      bootstrap !== "" &&
+      errorLocation !== undefined &&
+      (errorLocation.file === "just-bash:bootstrap" ||
+        (!options.isModule &&
+          errorLocation.file === "run.js" &&
+          errorLocation.line <= sourceLineOffset));
     if (requestedExitCode !== undefined) {
       output.exitCode = requestedExitCode;
+    } else if (bootstrapFailure !== undefined || bootstrapSourceFailure) {
+      output.exitCode = 1;
+      output.stderr += `js-exec: bootstrap error: ${bootstrapFailure ?? sanitizeErrorMessage(message)}\n`;
     } else if (
       error instanceof RunTimeoutError ||
       error instanceof RunAbortedError
@@ -969,6 +1025,7 @@ async function executeWithRunInner(
     }
   }
   if (output.limitExceeded) {
+    output.exitCode = 1;
     const diagnostic = truncateUtf8(
       `js-exec: total output size exceeded (>${maxOutputSize} bytes), increase executionLimits.maxOutputSize\n`,
       maxOutputSize,

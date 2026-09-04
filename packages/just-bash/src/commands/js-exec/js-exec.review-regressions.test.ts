@@ -155,6 +155,25 @@ describe("js-exec run adapter regressions", () => {
     expect(result.exitCode).toBe(0);
   });
 
+  it("rejects oversized modules before reading their contents", async () => {
+    const maxWorkerMessageBytes = 128 * 1024;
+    const bash = new Bash({
+      executionLimits: { maxWorkerMessageBytes },
+      files: {
+        "/large.mjs": "x".repeat(maxWorkerMessageBytes),
+        "/main.mjs": "import '/large.mjs'; console.log('unreachable');",
+      },
+      javascript: true,
+    });
+    const readFile = vi.spyOn(bash.fs, "readFile");
+
+    const result = await bash.exec("js-exec /main.mjs");
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Module exceeds JavaScript source limit");
+    expect(readFile).not.toHaveBeenCalledWith("/large.mjs");
+  });
+
   it("maps the worker request ceiling to run's source limit", async () => {
     const maxWorkerMessageBytes = 128 * 1024;
     const bash = new Bash({

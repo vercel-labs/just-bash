@@ -131,20 +131,15 @@ describe("just-bash bundled binary", () => {
     expect(result.exitCode).toBe(0);
   }, 60000); // 60s timeout for first WASM load
 
-  const nodeMajor = Number(process.versions.node.split(".")[0]);
-  it.skipIf(nodeMajor < 22)(
-    "should lazy-load commands (js-exec with run)",
-    async () => {
-      const result = await runBin([
-        "--javascript",
-        "-c",
-        `js-exec -c "console.log(1 + 2)"`,
-      ]);
-      expect(result.stdout).toBe("3\n");
-      expect(result.exitCode).toBe(0);
-    },
-    30000,
-  );
+  it("should lazy-load commands (js-exec with run)", async () => {
+    const result = await runBin([
+      "--javascript",
+      "-c",
+      `js-exec -c "console.log(1 + 2)"`,
+    ]);
+    expect(result.stdout).toBe("3\n");
+    expect(result.exitCode).toBe(0);
+  }, 30000);
 });
 
 describe("just-bash CJS bundle", () => {

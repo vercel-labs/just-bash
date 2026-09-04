@@ -255,6 +255,19 @@ describe("js-exec", () => {
         Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr),
       ).toBeLessThanOrEqual(500);
     });
+
+    it("should not let process.exit(0) clear an output-limit failure", async () => {
+      const env = new Bash({
+        javascript: true,
+        executionLimits: { maxOutputSize: 500 },
+      });
+      const result = await env.exec(
+        `js-exec -c "try { console.log('x'.repeat(1000)) } catch {} process.exit(0)"`,
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("total output size exceeded");
+    });
   });
 
   describe("bootstrap code", () => {
@@ -267,6 +280,40 @@ describe("js-exec", () => {
       const result = await env.exec(`js-exec -c "console.log(greeting)"`);
       expect(result.stdout).toBe("hello from bootstrap\n");
       expect(result.exitCode).toBe(0);
+    });
+
+    it.each([
+      ["script", `js-exec -c "console.log('unreachable')"`],
+      ["module", "js-exec /main.mjs"],
+    ])("should attribute %s bootstrap errors", async (_mode, command) => {
+      const env = new Bash({
+        files: { "/main.mjs": "console.log('unreachable');" },
+        javascript: { bootstrap: "throw new Error('setup failed');" },
+      });
+
+      const result = await env.exec(command);
+
+      expect(result).toMatchObject({
+        exitCode: 1,
+        stderr: "js-exec: bootstrap error: setup failed\n",
+        stdout: "",
+      });
+    });
+
+    it.each([
+      ["script", `js-exec -c "console.log('unreachable')"`],
+      ["module", "js-exec /main.mjs"],
+    ])("should attribute %s bootstrap syntax errors", async (_mode, command) => {
+      const env = new Bash({
+        files: { "/main.mjs": "console.log('unreachable');" },
+        javascript: { bootstrap: "const broken = ;" },
+      });
+
+      const result = await env.exec(command);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("js-exec: bootstrap error:");
+      expect(result.stdout).toBe("");
     });
   });
 });
