@@ -72,7 +72,7 @@ interface QueuedExecution {
 const executionQueue: QueuedExecution[] = [];
 let executionActive = false;
 const RUN_MEMORY_LIMIT_BYTES = 64 * 1024 * 1024;
-const RUN_SYNC_BRIDGE_PAYLOAD_BYTES = RUN_MEMORY_LIMIT_BYTES - 64 * 1024;
+const RUN_SYNC_BRIDGE_PAYLOAD_BYTES = 8 * 1024 * 1024;
 const RUN_MAX_LIMIT_VALUE = 2_147_483_647;
 const RUN_BRIDGE_VALUE_OVERHEAD_BYTES = 4096;
 
@@ -621,6 +621,8 @@ async function executeWithRunInner(
   };
   let requestedExitCode: number | undefined;
   let bootstrapFailure: string | undefined;
+  let bootstrapActive =
+    options.bootstrapCode !== undefined && options.bootstrapCode !== "";
   const maxOutputSize = ctx.limits.maxOutputSize;
   let outputBytes = 0;
   const appendOutput = (
@@ -678,10 +680,16 @@ async function executeWithRunInner(
       syncHostFunctions: {
         [hostNamespace]: {
           bootstrapError(message: string) {
+            if (!bootstrapActive) {
+              throw new Error("Bootstrap phase has ended.");
+            }
             bootstrapFailure ??= sanitizeErrorMessage(
               typeof message === "string" ? message : "Bootstrap failed",
             );
             throw new Error("Bootstrap failed.");
+          },
+          bootstrapDone() {
+            bootstrapActive = false;
           },
           exit(code: number) {
             requestedExitCode ??= Number.isFinite(code) ? Math.trunc(code) : 0;
@@ -863,6 +871,8 @@ ${bootstrap}
       : String(__jbBootstrapError);
   } catch (_) {}
   globalThis[${JSON.stringify(hostNamespace)}].bootstrapError(__jbBootstrapMessage);
+} finally {
+  globalThis[${JSON.stringify(hostNamespace)}].bootstrapDone();
 }
 `;
   const moduleLoader: RunModuleLoader | undefined = options.isModule

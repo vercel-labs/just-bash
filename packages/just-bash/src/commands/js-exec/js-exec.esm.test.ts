@@ -176,6 +176,22 @@ describe("js-exec ESM modules", () => {
     expect(result.exitCode).toBe(1);
   });
 
+  it("should auto-detect module mode for top-level dynamic imports", async () => {
+    const env = new Bash({
+      files: { "/dep.mjs": "export const value = 'loaded';" },
+      javascript: true,
+    });
+    const result = await env.exec(
+      `js-exec -c "const module = await import('./dep.mjs'); console.log(module.value)"`,
+    );
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stderr: "",
+      stdout: "loaded\n",
+    });
+  });
+
   it("should handle transitive imports", async () => {
     const env = new Bash({
       javascript: true,

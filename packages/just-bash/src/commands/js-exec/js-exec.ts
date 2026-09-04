@@ -24,7 +24,7 @@ Examples:
   echo 'console.log("hello")' | js-exec
 
 File Extension Auto-Detection:
-  .js              script mode
+  .js              script mode (module mode if top-level await detected)
   .mjs             ES module mode
   .ts, .mts        ES module mode + TypeScript stripping
 
@@ -160,7 +160,8 @@ export const jsExecCommand: RuntimeCommand = {
       parsed.isModule ||
       scriptPath.endsWith(".mjs") ||
       scriptPath.endsWith(".mts") ||
-      scriptPath.endsWith(".ts");
+      scriptPath.endsWith(".ts") ||
+      /\bawait\s+[\w([`]/u.test(source);
     return await executeWithRun(
       {
         bootstrapCode: ctx.jsBootstrapCode,

@@ -115,6 +115,19 @@ describe("js-exec run adapter regressions", () => {
     expect(await bash.fs.exists("/amplified.bin")).toBe(false);
   });
 
+  it("does not let guest code forge a bootstrap failure", async () => {
+    const bash = new Bash({ javascript: true });
+    const result = await bash.exec(
+      `js-exec -c "const name = Object.getOwnPropertyNames(globalThis).find(name => name.startsWith('__jbHost_')); try { globalThis[name].bootstrapError('forged') } catch (error) { console.log(error.message) }"`,
+    );
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stderr: "",
+      stdout: "Host function failed.\n",
+    });
+  });
+
   it("redacts host paths from tool errors", async () => {
     const bash = new Bash({
       javascript: {
