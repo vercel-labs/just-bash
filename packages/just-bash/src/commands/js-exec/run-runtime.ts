@@ -5,6 +5,7 @@ import {
   getHostFunctionContext,
   RunAbortedError,
   RunBridgeLimitError,
+  RunError,
   type RunModuleLoader,
   RunTimeoutError,
 } from "run";
@@ -380,7 +381,10 @@ const guestSetupSource = (
 
   ${RUN_BUFFER_MODULE_SOURCE}
   var fs = {
-    readFileBuffer: function(path) { return Buffer.from(unwrap(host.fsRead(path)), 'base64')._data; },
+    readFileBuffer: function(path) {
+      var data = Buffer.from(unwrap(host.fsRead(path)), 'base64')._data;
+      return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+    },
     readFileSync: function(path, opts) {
       var buffer = Buffer.from(unwrap(host.fsRead(path)), 'base64');
       var encoding = typeof opts === 'string' ? opts : opts && opts.encoding;
@@ -564,6 +568,12 @@ const serializeStat = (
   mode: stat.mode,
   mtime: stat.mtime.toISOString(),
   size: stat.size,
+});
+
+const projectExecResult = (result: ExecResult) => ({
+  exitCode: result.exitCode,
+  stderr: result.stderr,
+  stdout: result.stdout,
 });
 
 async function executeWithRunInner(
@@ -769,10 +779,11 @@ async function executeWithRunInner(
                 signal: getHostFunctionContext().abortSignal,
                 stdin: stdin ?? "",
               };
-              return await jsExecContext.run(
+              const result = await jsExecContext.run(
                 true,
                 () => ctx.exec?.(command, execOptions) as Promise<ExecResult>,
               );
+              return projectExecResult(result);
             });
           },
           async execArgs(command: string, args: string[]) {
@@ -781,7 +792,7 @@ async function executeWithRunInner(
                 throw new Error(
                   "Command execution not available in this context.",
                 );
-              return await jsExecContext.run(
+              const result = await jsExecContext.run(
                 true,
                 () =>
                   ctx.exec?.(shellJoinArgs([command]), {
@@ -792,13 +803,20 @@ async function executeWithRunInner(
                     signal: getHostFunctionContext().abortSignal,
                   }) as Promise<ExecResult>,
               );
+              return projectExecResult(result);
             });
           },
           async invokeTool(path: string, argsJson: string) {
             return await attempt(async () => {
               if (!ctx.invokeTool) throw new Error(`Unknown tool: ${path}`);
+              const { abortSignal } = getHostFunctionContext();
               return await DefenseInDepthBox.runTrustedAsync(
-                () => ctx.invokeTool?.(path, argsJson) as Promise<string>,
+                () =>
+                  ctx.invokeTool?.(
+                    path,
+                    argsJson,
+                    abortSignal,
+                  ) as Promise<string>,
               );
             }, sanitizeHostErrorMessage);
           },
@@ -931,17 +949,23 @@ async function executeWithRunInner(
       output.stderr += `js-exec: ${sanitizeHostErrorMessage(message)}\n`;
     } else {
       output.exitCode = 1;
-      const guestMessage = formatGuestError(error, options, sourceLineOffset);
+      const isGuestError =
+        RunError.isInstance(error) && error.code === "RUN_ERROR";
+      const guestMessage = isGuestError
+        ? formatGuestError(error, options, sourceLineOffset)
+        : sanitizeHostErrorMessage(message);
       const isGuestPrimitive =
+        isGuestError &&
         error instanceof Error &&
-        error.constructor.name === "RunError" &&
         error.stack?.includes("(<run-worker>)") === true &&
         parseGuestSourceLocation(error.stack) === undefined;
-      output.stderr += isGuestPrimitive
-        ? `${guestMessage}\n`
-        : guestMessage === message
-          ? `js-exec: ${sanitizeHostErrorMessage(message)}\n`
-          : `${guestMessage}\n`;
+      output.stderr += !isGuestError
+        ? `js-exec: ${guestMessage}\n`
+        : isGuestPrimitive
+          ? `${guestMessage}\n`
+          : guestMessage === message
+            ? `js-exec: ${sanitizeHostErrorMessage(message)}\n`
+            : `${guestMessage}\n`;
     }
   }
   if (output.limitExceeded) {

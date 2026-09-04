@@ -461,9 +461,10 @@ const bash = new Bash({
     // argsJson: '{"a":1,"b":2}'  (or "" for no args)
     // return:   JSON-stringified result, or "" for undefined
     // throw:    propagates as a sandbox exception
-    invokeTool: async (path, argsJson) => {
+    invokeTool: async (path, argsJson, abortSignal) => {
       const args = argsJson ? JSON.parse(argsJson) : undefined;
       if (path === "math.add") {
+        abortSignal.throwIfAborted();
         return JSON.stringify({ sum: args.a + args.b });
       }
       throw new Error(`Unknown tool: ${path}`);
@@ -473,6 +474,10 @@ const bash = new Bash({
 
 await bash.exec(`js-exec -c 'console.log((await tools.math.add({a:3,b:4})).sum)'`);
 ```
+
+The `abortSignal` fires when the JavaScript execution is canceled or times
+out. Tool implementations should forward it to network requests and other
+cancelable work so effects do not outlive the sandbox execution.
 
 The hook is generic — wire any tool framework through it (raw maps, MCP,
 Anthropic tool-use, etc.). For full GraphQL / OpenAPI / MCP discovery via

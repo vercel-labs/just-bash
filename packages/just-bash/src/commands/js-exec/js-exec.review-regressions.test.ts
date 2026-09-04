@@ -167,7 +167,29 @@ describe("js-exec run adapter regressions", () => {
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("source exceeds");
     expect(result.stderr).toContain(`${maxWorkerMessageBytes} byte size limit`);
+    expect(result.stderr).not.toContain("node_modules/run");
+    expect(result.stderr).not.toContain("manager.ts");
     expect(result.exitCode).toBe(1);
+  });
+
+  it("projects command results before exposing them to the guest", async () => {
+    const probe = defineCommand("result-projection-probe", async () => ({
+      env: { HOST_SECRET: "must-not-cross" },
+      exitCode: 0,
+      stderr: "",
+      stdout: "ok\n",
+      stdoutKind: "bytes",
+    }));
+    const bash = new Bash({ customCommands: [probe], javascript: true });
+    const result = await bash.exec(
+      `js-exec -c "const value = require('child_process').exec('result-projection-probe'); console.log(value.stdout.trim(), value.env, value.stdoutKind)"`,
+    );
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stderr: "",
+      stdout: "ok undefined undefined\n",
+    });
   });
 
   it("only exposes tools when invokeTool is configured", async () => {
