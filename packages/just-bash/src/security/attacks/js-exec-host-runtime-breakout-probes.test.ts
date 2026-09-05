@@ -2,10 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 import { assertExecResultSafe } from "../fuzzing/oracles/assertions.js";
 
-// js-exec worker requires stripTypeScriptTypes (Node >= 22.6).
-const nodeMajor = Number(process.versions.node.split(".")[0]);
-
-describe.skipIf(nodeMajor < 22)("js-exec host runtime breakout probes", () => {
+describe("js-exec host runtime breakout probes", () => {
   it("keeps Function-constructor blocked on host-bridged function objects", async () => {
     const env = new Bash({ javascript: true });
 
@@ -40,7 +37,7 @@ for (const [name, fn] of checks) {
     expect(result.exitCode).toBe(0);
   });
 
-  it("blocks nested js-exec when invoked through Symbol.for('jb:exec') bridge", async () => {
+  it("does not expose the legacy Symbol.for('jb:exec') bridge", async () => {
     const env = new Bash({
       javascript: true,
       files: {
@@ -54,19 +51,12 @@ require('fs').writeFileSync('/tmp/jb_symbol_bridge_marker','1')
 const marker = '/tmp/jb_symbol_bridge_marker';
 fs.rmSync(marker, { force: true });
 const execBridge = globalThis[Symbol.for('jb:exec')];
-const r = execBridge('js-exec /tmp/symbol-nested.js');
-console.log('SYMBOL_EXIT=' + String(r.exitCode));
-console.log('SYMBOL_ERR=' + String(r.stderr).trim());
+console.log('SYMBOL_BRIDGE=' + typeof execBridge);
 console.log('SYMBOL_MARKER=' + String(fs.existsSync(marker)));
 "`);
 
     expect(result.stdout).toBe(
-      [
-        "SYMBOL_EXIT=1",
-        "SYMBOL_ERR=js-exec: recursive invocation is not supported",
-        "SYMBOL_MARKER=false",
-        "",
-      ].join("\n"),
+      ["SYMBOL_BRIDGE=undefined", "SYMBOL_MARKER=false", ""].join("\n"),
     );
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);

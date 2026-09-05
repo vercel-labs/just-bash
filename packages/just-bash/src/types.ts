@@ -269,10 +269,15 @@ export interface RuntimeCommandContext {
   jsBootstrapCode?: string;
   /**
    * Tool invoker hook. When present, js-exec sets up a `tools` proxy that
-   * routes calls through this callback. Receives `(path, argsJson)` and
-   * returns a JSON result string.
+   * routes calls through this callback. Receives `(path, argsJson,
+   * abortSignal)` and returns a JSON result string. Implementations should
+   * forward the signal to cancelable work.
    */
-  invokeTool?: (path: string, argsJson: string) => Promise<string>;
+  invokeTool?: (
+    path: string,
+    argsJson: string,
+    abortSignal: AbortSignal,
+  ) => Promise<string>;
 }
 
 /** Legacy standalone context shape used by direct command invocations. */

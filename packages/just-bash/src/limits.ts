@@ -118,6 +118,9 @@ export interface ExecutionLimits {
   /** Maximum JavaScript execution time in milliseconds (normal default: 30000) */
   maxJsTimeoutMs?: number;
 
+  /** Maximum JavaScript host-bridge operations (normal default: 1000000) */
+  maxJsBridgeRequests?: number;
+
   /** Maximum glob filesystem operations (normal default: 1000000) */
   maxGlobOperations?: number;
 
@@ -200,6 +203,7 @@ const DEFAULT_LIMITS: Required<ExecutionLimits> = {
   maxSqliteTimeoutMs: 30000,
   maxPythonTimeoutMs: 30000,
   maxJsTimeoutMs: 30000,
+  maxJsBridgeRequests: 1_000_000,
   maxGlobOperations: 1000000,
   maxStringLength: 64 * 1024 * 1024,
   maxArrayElements: 1000000,
@@ -222,6 +226,7 @@ const HARDENED_LIMITS: Required<ExecutionLimits> = {
   maxSqliteTimeoutMs: 5_000,
   maxPythonTimeoutMs: 10_000,
   maxJsTimeoutMs: 10_000,
+  maxJsBridgeRequests: 100_000,
   maxExtensionCleanupTimeMs: 25,
   maxGlobOperations: 100_000,
   maxStringLength: 10 * 1024 * 1024,
@@ -325,6 +330,8 @@ export function resolveLimits(
     maxPythonTimeoutMs:
       userLimits.maxPythonTimeoutMs ?? defaults.maxPythonTimeoutMs,
     maxJsTimeoutMs: userLimits.maxJsTimeoutMs ?? defaults.maxJsTimeoutMs,
+    maxJsBridgeRequests:
+      userLimits.maxJsBridgeRequests ?? defaults.maxJsBridgeRequests,
     maxGlobOperations:
       userLimits.maxGlobOperations ?? defaults.maxGlobOperations,
     maxStringLength: userLimits.maxStringLength ?? defaults.maxStringLength,

@@ -2,10 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 import { assertExecResultSafe } from "../fuzzing/oracles/assertions.js";
 
-// js-exec worker requires stripTypeScriptTypes (Node >= 22.6).
-const nodeMajor = Number(process.versions.node.split(".")[0]);
-
-describe.skipIf(nodeMajor < 22)("js-exec recursion guard bypass probes", () => {
+describe("js-exec recursion guard bypass probes", () => {
   it("blocks nested js-exec via child_process.execSync", async () => {
     const env = new Bash({ javascript: true });
 
@@ -243,7 +240,7 @@ console.log('DELAY_NERR=' + String(fs.existsSync(nestedErr) ? fs.readFileSync(ne
     },
   );
 
-  it("blocks nested js-exec from Promise microtask bridge callback", async () => {
+  it("does not expose an exec bridge to Promise microtasks", async () => {
     const env = new Bash({ javascript: true });
 
     const result = await env.exec(`js-exec -c "
@@ -251,20 +248,13 @@ const marker = '/tmp/jb_nested_promise_marker';
 fs.rmSync(marker, { force: true });
 const execBridge = globalThis[Symbol.for('jb:exec')];
 Promise.resolve().then(() => {
-  const r = execBridge(\\"js-exec -c \\\\\\"require('fs').writeFileSync('/tmp/jb_nested_promise_marker','1')\\\\\\"\\");
-  console.log('PROMISE_EXIT=' + String(r.exitCode));
-  console.log('PROMISE_ERR=' + String(r.stderr).trim());
+  console.log('PROMISE_BRIDGE=' + typeof execBridge);
   console.log('PROMISE_MARKER=' + String(fs.existsSync(marker)));
 });
 "`);
 
     expect(result.stdout).toBe(
-      [
-        "PROMISE_EXIT=1",
-        "PROMISE_ERR=js-exec: recursive invocation is not supported",
-        "PROMISE_MARKER=false",
-        "",
-      ].join("\n"),
+      ["PROMISE_BRIDGE=undefined", "PROMISE_MARKER=false", ""].join("\n"),
     );
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);

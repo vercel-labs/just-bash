@@ -237,7 +237,7 @@ Dynamic `import()` is a language-level keyword, not a property on any object. It
 1. **Context-aware loader hooks** — when `node:module.registerHooks()` is available, builtin and executable URL imports are rejected only from the untrusted async context.
 2. **Scoped host controls** — supported runtimes without contextual hooks still apply the reversible best-effort global and CommonJS defenses.
 3. **Filesystem restrictions** — OverlayFs writes to memory only, and InMemoryFs has no real filesystem backing.
-4. **Architecture** — ordinary shell interpretation does not evaluate JavaScript. The opt-in `js-exec` feature uses a separately hardened worker boundary.
+4. **Architecture** — ordinary shell interpretation does not evaluate JavaScript. The opt-in `js-exec` feature executes guest code inside QuickJS/WASM in `run`; a validated, bounded bridge is the only guest-to-host interface. Host-worker defense-in-depth is not treated as a sandbox boundary because guest JavaScript never executes in that realm.
 
 Call `DefenseInDepthBox.getInstance().getStatus()` and require `level: "full"`
 when contextual dynamic-import protection is a deployment requirement. The

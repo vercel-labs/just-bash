@@ -17,6 +17,22 @@ describe("js-exec fs operations", () => {
       expect(result.exitCode).toBe(0);
     });
 
+    it("should preserve binary bytes across bounded reads", async () => {
+      const env = new Bash({
+        javascript: true,
+        files: {
+          "/home/user/binary.bin": new Uint8Array([0, 127, 128, 255]),
+        },
+      });
+      const result = await env.exec(
+        `js-exec -c "const fs = require('fs'); const raw = fs.readFileBuffer('/home/user/binary.bin'); console.log(fs.readFileSync('/home/user/binary.bin').toString('hex')); console.log(raw instanceof ArrayBuffer, raw.byteLength, Array.from(new Uint8Array(raw)).join(','))"`,
+      );
+
+      expect(result.stdout).toBe("007f80ff\ntrue 4 0,127,128,255\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should throw on non-existent file", async () => {
       const env = new Bash({ javascript: true });
       const result = await env.exec(

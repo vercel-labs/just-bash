@@ -509,5 +509,9 @@ export interface InterpreterContext {
    * Tool invoker hook. When present, js-exec sets up a `tools` proxy that
    * routes calls through this callback.
    */
-  invokeTool?: (path: string, argsJson: string) => Promise<string>;
+  invokeTool?: (
+    path: string,
+    argsJson: string,
+    abortSignal: AbortSignal,
+  ) => Promise<string>;
 }

@@ -213,9 +213,12 @@ Both `require()` and ES module `import` work. The `node:` prefix is supported.
 const fs = require('node:fs');
 const { join } = require('node:path');
 
-// ES modules (requires -m flag, .mjs, .ts, .mts, or top-level await)
+// Static ES imports (requires -m flag, .mjs, .ts, or .mts)
 import fs from 'node:fs';
 import { execSync } from 'node:child_process';
+
+// Dynamic imports also work in function-body mode
+const path = await import('node:path');
 ```
 
 Available modules: `fs`, `path`, `child_process`, `process`, `console`.
@@ -240,7 +243,9 @@ js-exec --strip-types -c "const x: number = 5; console.log(x)"
 
 When `javascript.invokeTool` is set on the Bash constructor, js-exec scripts
 get a global `tools` proxy that routes calls through that callback. The hook
-is `(path, argsJson) => Promise<string>` — bring your own tool framework, or
+is `(path, argsJson, abortSignal) => Promise<string>`. Implementations should
+forward `abortSignal` to cancelable work so tool effects do not outlive a
+timed-out execution. Bring your own tool framework, or
 use the companion package
 [`@just-bash/executor`](../../../../just-bash-executor/README.md) which
 produces an `invokeTool` plus matching bash commands from inline tool maps
@@ -249,5 +254,6 @@ and/or `@executor-js/sdk` discovery (GraphQL, OpenAPI, MCP).
 ## Limits
 
 - **Memory**: 64 MB per execution
-- **Timeout**: 10 seconds by default and never raised by enabling network access (configurable via `maxJsTimeoutMs`)
+- **Timeout**: 30 seconds normally and 10 seconds in the hardened profile; never raised by enabling network access (configurable via `maxJsTimeoutMs`, including time spent waiting for another `js-exec` invocation)
+- **Host bridge operations**: 8 MiB per-call payload ceiling, bounded by `maxJsBridgeRequests` (100,000 in the hardened profile and 1,000,000 otherwise)
 - **Engine**: QuickJS (compiled to WebAssembly)
