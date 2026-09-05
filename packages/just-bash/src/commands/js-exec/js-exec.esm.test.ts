@@ -176,19 +176,45 @@ describe("js-exec ESM modules", () => {
     expect(result.exitCode).toBe(1);
   });
 
-  it("should auto-detect module mode for top-level dynamic imports", async () => {
+  it("should load dynamic imports in function-body mode", async () => {
     const env = new Bash({
       files: { "/dep.mjs": "export const value = 'loaded';" },
       javascript: true,
     });
     const result = await env.exec(
-      `js-exec -c "const module = await import('./dep.mjs'); console.log(module.value)"`,
+      `js-exec -c "const module = await import('./dep.mjs'); console.log(module.value); return module.value"`,
     );
 
     expect(result).toMatchObject({
       exitCode: 0,
       stderr: "",
       stdout: "loaded\n",
+    });
+  });
+
+  it("should support top-level await without inspecting source text", async () => {
+    const env = new Bash({ javascript: true });
+    const result = await env.exec(
+      `js-exec -c "await /* comments are valid here */ Promise.resolve(); console.log('ok')"`,
+    );
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stderr: "",
+      stdout: "ok\n",
+    });
+  });
+
+  it("should not infer module mode from strings", async () => {
+    const env = new Bash({ javascript: true });
+    const result = await env.exec(
+      `js-exec -c 'const text = "await value"; console.log(text); return text'`,
+    );
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stderr: "",
+      stdout: "await value\n",
     });
   });
 

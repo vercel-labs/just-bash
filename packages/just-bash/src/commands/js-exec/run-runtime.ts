@@ -875,71 +875,69 @@ ${bootstrap}
   globalThis[${JSON.stringify(hostNamespace)}].bootstrapDone();
 }
 `;
-  const moduleLoader: RunModuleLoader | undefined = options.isModule
-    ? {
-        identity: "just-bash-js-exec-v1",
-        normalize(specifier, importer) {
-          const bare = specifier.startsWith("node:")
-            ? specifier.slice(5)
-            : specifier;
-          if (bare === "just-bash:bootstrap") return bare;
-          if (
-            BUILTIN_EXPORTS[bare] !== undefined ||
-            UNSUPPORTED_MODULES[bare] !== undefined
-          )
-            return `just-bash:builtin:${bare}`;
-          if (!specifier.startsWith(".") && !specifier.startsWith("/"))
-            return `just-bash:missing:${specifier}`;
-          const importerPath =
-            importer === "<entry>" || importer.startsWith("just-bash:")
-              ? options.scriptPath
-              : importer;
-          const separator = importerPath.lastIndexOf("/");
-          const importerDirectory =
-            separator < 0
-              ? ctx.cwd
-              : separator === 0
-                ? "/"
-                : importerPath.slice(0, separator);
-          return normalizePath(importerDirectory, specifier);
-        },
-        async load(specifier) {
-          if (specifier === "just-bash:bootstrap")
-            return `${setup}\n${isolatedBootstrap}`;
-          if (specifier.startsWith("just-bash:builtin:"))
-            return createBuiltInModuleSource(
-              specifier.slice("just-bash:builtin:".length),
-            );
-          if (specifier.startsWith("just-bash:missing:")) {
-            const name = specifier.slice("just-bash:missing:".length);
-            return `throw new Error(${JSON.stringify(
-              `Cannot find module '${name}': not found. Run 'js-exec --help' for available modules.`,
-            )});`;
-          }
-          try {
-            return await DefenseInDepthBox.runUntrustedAsync(async () => {
-              const stat = await ctx.fs.stat(specifier);
-              if (stat.size > maxModuleReadBytes) {
-                throw new Error(
-                  `Module exceeds JavaScript source limit (${maxModuleReadBytes} bytes)`,
-                );
-              }
-              const moduleSource = await ctx.fs.readFile(specifier);
-              if (Buffer.byteLength(moduleSource) > maxModuleReadBytes) {
-                throw new Error(
-                  `Module exceeds JavaScript source limit (${maxModuleReadBytes} bytes)`,
-                );
-              }
-              return moduleSource;
-            });
-          } catch (error) {
-            return `throw new Error(${JSON.stringify(
-              sanitizeErrorMessage(getErrorMessage(error)),
-            )});`;
-          }
-        },
+  const moduleLoader: RunModuleLoader = {
+    identity: "just-bash-js-exec-v1",
+    normalize(specifier, importer) {
+      const bare = specifier.startsWith("node:")
+        ? specifier.slice(5)
+        : specifier;
+      if (bare === "just-bash:bootstrap") return bare;
+      if (
+        BUILTIN_EXPORTS[bare] !== undefined ||
+        UNSUPPORTED_MODULES[bare] !== undefined
+      )
+        return `just-bash:builtin:${bare}`;
+      if (!specifier.startsWith(".") && !specifier.startsWith("/"))
+        return `just-bash:missing:${specifier}`;
+      const importerPath =
+        importer === "<entry>" || importer.startsWith("just-bash:")
+          ? options.scriptPath
+          : importer;
+      const separator = importerPath.lastIndexOf("/");
+      const importerDirectory =
+        separator < 0
+          ? ctx.cwd
+          : separator === 0
+            ? "/"
+            : importerPath.slice(0, separator);
+      return normalizePath(importerDirectory, specifier);
+    },
+    async load(specifier) {
+      if (specifier === "just-bash:bootstrap")
+        return `${setup}\n${isolatedBootstrap}`;
+      if (specifier.startsWith("just-bash:builtin:"))
+        return createBuiltInModuleSource(
+          specifier.slice("just-bash:builtin:".length),
+        );
+      if (specifier.startsWith("just-bash:missing:")) {
+        const name = specifier.slice("just-bash:missing:".length);
+        return `throw new Error(${JSON.stringify(
+          `Cannot find module '${name}': not found. Run 'js-exec --help' for available modules.`,
+        )});`;
       }
-    : undefined;
+      try {
+        return await DefenseInDepthBox.runUntrustedAsync(async () => {
+          const stat = await ctx.fs.stat(specifier);
+          if (stat.size > maxModuleReadBytes) {
+            throw new Error(
+              `Module exceeds JavaScript source limit (${maxModuleReadBytes} bytes)`,
+            );
+          }
+          const moduleSource = await ctx.fs.readFile(specifier);
+          if (Buffer.byteLength(moduleSource) > maxModuleReadBytes) {
+            throw new Error(
+              `Module exceeds JavaScript source limit (${maxModuleReadBytes} bytes)`,
+            );
+          }
+          return moduleSource;
+        });
+      } catch (error) {
+        return `throw new Error(${JSON.stringify(
+          sanitizeErrorMessage(getErrorMessage(error)),
+        )});`;
+      }
+    },
+  };
   const sourcePrefix = options.isModule
     ? "import 'just-bash:bootstrap';\n"
     : `${setup}\n${isolatedBootstrap}`;
@@ -977,8 +975,9 @@ ${bootstrap}
                     RUN_MAX_LIMIT_VALUE,
                   ),
           },
-          ...(moduleLoader === undefined ? {} : { moduleLoader }),
+          moduleLoader,
           source,
+          sourceType: options.isModule ? "module" : "function-body",
         });
       });
       await runPromise;

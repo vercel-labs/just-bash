@@ -213,9 +213,12 @@ Both `require()` and ES module `import` work. The `node:` prefix is supported.
 const fs = require('node:fs');
 const { join } = require('node:path');
 
-// ES modules (requires -m flag, .mjs, .ts, .mts, or top-level await)
+// Static ES imports (requires -m flag, .mjs, .ts, or .mts)
 import fs from 'node:fs';
 import { execSync } from 'node:child_process';
+
+// Dynamic imports also work in function-body mode
+const path = await import('node:path');
 ```
 
 Available modules: `fs`, `path`, `child_process`, `process`, `console`.
