@@ -2,10 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 import { assertExecResultSafe } from "../fuzzing/oracles/assertions.js";
 
-// js-exec worker requires stripTypeScriptTypes (Node >= 22.6).
-const nodeMajor = Number(process.versions.node.split(".")[0]);
-
-describe.skipIf(nodeMajor < 22)("js-exec recursion guard bypass probes", () => {
+describe("js-exec recursion guard bypass probes", () => {
   it("blocks nested js-exec via child_process.execSync", async () => {
     const env = new Bash({ javascript: true });
 

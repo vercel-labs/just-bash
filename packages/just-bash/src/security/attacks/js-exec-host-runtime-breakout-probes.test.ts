@@ -2,10 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 import { assertExecResultSafe } from "../fuzzing/oracles/assertions.js";
 
-// js-exec worker requires stripTypeScriptTypes (Node >= 22.6).
-const nodeMajor = Number(process.versions.node.split(".")[0]);
-
-describe.skipIf(nodeMajor < 22)("js-exec host runtime breakout probes", () => {
+describe("js-exec host runtime breakout probes", () => {
   it("keeps Function-constructor blocked on host-bridged function objects", async () => {
     const env = new Bash({ javascript: true });
 

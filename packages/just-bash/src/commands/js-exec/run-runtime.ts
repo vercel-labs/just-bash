@@ -994,8 +994,26 @@ ${bootstrap}
   const sourcePrefix = options.isModule
     ? `import ${JSON.stringify(bootstrapModuleSpecifier)};\n`
     : `${setup}\n${isolatedBootstrap}`;
+  const maxGuestSourceBytes = Math.min(
+    ctx.limits.maxWorkerMessageBytes,
+    RUN_MAX_LIMIT_VALUE,
+  );
+  const guestSourceBytes = Buffer.byteLength(options.source);
+  if (guestSourceBytes > maxGuestSourceBytes) {
+    output.exitCode = 1;
+    appendDiagnostic(
+      `js-exec: JavaScript runtime source exceeds the ${maxGuestSourceBytes} byte size limit.\n`,
+    );
+    return output;
+  }
   const source = `${sourcePrefix}${options.source}`;
   const sourceLineOffset = sourcePrefix.split("\n").length - 1;
+  // run currently requires a finite 32-bit timeout. Preserve Infinity as
+  // its longest practical value (~24.9 days).
+  const runTimeoutMs =
+    deadline === Number.POSITIVE_INFINITY
+      ? RUN_MAX_LIMIT_VALUE
+      : Math.min(Math.max(1, deadline - Date.now()), RUN_MAX_LIMIT_VALUE);
 
   try {
     await jsExecContext.run(true, async () => {
@@ -1018,18 +1036,12 @@ ${bootstrap}
               ctx.limits.maxWorkerMessageBytes,
               RUN_MAX_LIMIT_VALUE,
             ),
-            maxSourceBytes: Math.min(
-              ctx.limits.maxWorkerMessageBytes,
-              RUN_MAX_LIMIT_VALUE,
-            ),
+            // Guest source is bounded above before the trusted setup and
+            // bootstrap prefix is injected. Do not charge that prefix to the
+            // caller's worker-message allowance.
+            maxSourceBytes: RUN_MAX_LIMIT_VALUE,
             memoryLimitBytes: RUN_MEMORY_LIMIT_BYTES,
-            timeoutMs:
-              deadline === Number.POSITIVE_INFINITY
-                ? RUN_MAX_LIMIT_VALUE
-                : Math.min(
-                    Math.max(1, deadline - Date.now()),
-                    RUN_MAX_LIMIT_VALUE,
-                  ),
+            timeoutMs: runTimeoutMs,
           },
           moduleLoader,
           source,
@@ -1122,13 +1134,6 @@ export async function executeWithRun(
       stderr: "js-exec: recursive invocation is not supported\n",
       stdout: "",
     };
-  }
-  if (ctx.limits.maxJsTimeoutMs > RUN_MAX_LIMIT_VALUE) {
-    return diagnosticResult(
-      `js-exec: maxJsTimeoutMs must be at most ${RUN_MAX_LIMIT_VALUE}\n`,
-      2,
-      ctx.limits.maxOutputSize,
-    );
   }
   const timeoutController = new AbortController();
   const deadline =

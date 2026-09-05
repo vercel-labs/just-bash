@@ -159,7 +159,7 @@ describe("js-exec run adapter regressions", () => {
     expect(result.exitCode).toBe(1);
   });
 
-  it("rejects JavaScript timeouts that run cannot represent", async () => {
+  it("maps an infinite JavaScript timeout to run's longest timeout", async () => {
     const bash = new Bash({
       executionLimits: { maxJsTimeoutMs: Number.POSITIVE_INFINITY },
       javascript: true,
@@ -167,9 +167,23 @@ describe("js-exec run adapter regressions", () => {
     const result = await bash.exec(`js-exec -c "return 1"`);
 
     expect(result).toMatchObject({
-      exitCode: 2,
-      stderr: "js-exec: maxJsTimeoutMs must be at most 2147483647\n",
+      exitCode: 0,
+      stderr: "",
       stdout: "",
+    });
+  });
+
+  it("does not charge trusted setup against the guest source limit", async () => {
+    const bash = new Bash({
+      executionLimits: { maxWorkerMessageBytes: 4096 },
+      javascript: true,
+    });
+    const result = await bash.exec(`js-exec -c "console.log('small')"`);
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stderr: "",
+      stdout: "small\n",
     });
   });
 
