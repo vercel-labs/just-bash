@@ -101,6 +101,10 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
       }
       return result;
     }
+    if (arg === "-") {
+      result.scriptArgs = args.slice(index + 1);
+      return result;
+    }
     result.scriptFile = arg;
     result.scriptArgs = args.slice(index + 1);
     return result;

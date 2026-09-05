@@ -2,6 +2,7 @@ import * as nodeModule from "node:module";
 import { describe, expect, it, vi } from "vitest";
 import { Bash } from "../../Bash.js";
 import { defineCommand } from "../../custom-commands.js";
+import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
 import type { SecureFetch } from "../../network/index.js";
 
 describe("js-exec run adapter regressions", () => {
@@ -51,6 +52,20 @@ describe("js-exec run adapter regressions", () => {
     expect(await bash.fs.exists("/late.txt")).toBe(false);
   });
 
+  it("does not load modules after process.exit even when guest code catches", async () => {
+    const fs = new InMemoryFs({ "/late.mjs": "export const value = 1;" });
+    const stat = vi.spyOn(fs, "stat");
+    const readFile = vi.spyOn(fs, "readFile");
+    const bash = new Bash({ fs, javascript: true });
+    const result = await bash.exec(
+      `js-exec -c "try { process.exit(7) } catch {} try { await import('/late.mjs') } catch {}"`,
+    );
+
+    expect(result.exitCode).toBe(7);
+    expect(stat).not.toHaveBeenCalledWith("/late.mjs");
+    expect(readFile).not.toHaveBeenCalledWith("/late.mjs");
+  });
+
   it("isolates bootstrap declarations from user declarations", async () => {
     const bash = new Bash({
       javascript: {
@@ -65,6 +80,24 @@ describe("js-exec run adapter regressions", () => {
       exitCode: 0,
       stderr: "",
       stdout: "user true\n",
+    });
+  });
+
+  it("does not expose the internal bootstrap module to guest imports", async () => {
+    const bash = new Bash({
+      javascript: {
+        bootstrap:
+          "globalThis.bootstrapRuns = (globalThis.bootstrapRuns || 0) + 1;",
+      },
+    });
+    const result = await bash.exec(
+      `js-exec -c "try { await import('just-bash:bootstrap') } catch {} console.log(bootstrapRuns)"`,
+    );
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stderr: "",
+      stdout: "1\n",
     });
   });
 
@@ -91,13 +124,53 @@ describe("js-exec run adapter regressions", () => {
       executionLimits: { maxJsBridgeRequests: 0 },
       javascript: true,
     });
-    const result = await bash.exec(
+    const bridgeFree = await bash.exec(`js-exec -c "return 1"`);
+    const bridgeFreeModule = await bash.exec(
+      `js-exec --module -c "export default 1"`,
+    );
+    const bridged = await bash.exec(
       `js-exec -c "require('fs').existsSync('/anything')"`,
     );
 
-    expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("0 bridge request limit");
+    expect(bridgeFree).toMatchObject({ exitCode: 0, stderr: "", stdout: "" });
+    expect(bridgeFreeModule).toMatchObject({
+      exitCode: 0,
+      stderr: "",
+      stdout: "",
+    });
+    expect(bridged.stdout).toBe("");
+    expect(bridged.stderr).toContain("0 bridge request limit");
+    expect(bridged.exitCode).toBe(1);
+  });
+
+  it("keeps thrown diagnostics within the output limit", async () => {
+    const maxOutputSize = 80;
+    const bash = new Bash({
+      executionLimits: { maxOutputSize },
+      javascript: true,
+    });
+    const result = await bash.exec(
+      `js-exec -c "console.log('x'.repeat(60)); throw new Error('boom')"`,
+    );
+
+    expect(
+      Buffer.byteLength(result.stdout + result.stderr),
+    ).toBeLessThanOrEqual(maxOutputSize);
     expect(result.exitCode).toBe(1);
+  });
+
+  it("rejects JavaScript timeouts that run cannot represent", async () => {
+    const bash = new Bash({
+      executionLimits: { maxJsTimeoutMs: Number.POSITIVE_INFINITY },
+      javascript: true,
+    });
+    const result = await bash.exec(`js-exec -c "return 1"`);
+
+    expect(result).toMatchObject({
+      exitCode: 2,
+      stderr: "js-exec: maxJsTimeoutMs must be at most 2147483647\n",
+      stdout: "",
+    });
   });
 
   it("rejects malicious raw host arguments without a stable namespace", async () => {

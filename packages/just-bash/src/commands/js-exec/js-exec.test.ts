@@ -150,6 +150,13 @@ describe("js-exec", () => {
       expect(result.stdout).toBe("42\n");
       expect(result.exitCode).toBe(0);
     });
+
+    it("should execute explicit dash from stdin", async () => {
+      const env = new Bash({ javascript: true });
+      const result = await env.exec("echo 'console.log(43)' | js-exec -");
+      expect(result.stdout).toBe("43\n");
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("process.exit", () => {

@@ -48,7 +48,11 @@ afterAll(() => {
 });
 
 function javascriptWithInvokeTool(
-  invokeTool: (path: string, argsJson: string) => Promise<string>,
+  invokeTool: (
+    path: string,
+    argsJson: string,
+    abortSignal: AbortSignal,
+  ) => Promise<string>,
 ): NonNullable<
   NonNullable<ConstructorParameters<typeof Bash>[0]>["javascript"]
 > {

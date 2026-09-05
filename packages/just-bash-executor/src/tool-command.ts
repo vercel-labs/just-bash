@@ -251,17 +251,23 @@ function formatSubcommandHelp(namespace: string, sub: ToolSubcommand): string {
 
 // ── Command Factory ─────────────────────────────────────────────
 
+const neverAbortSignal = new AbortController().signal;
+
 /**
  * Create a namespace command that dispatches to tool subcommands.
  *
  * @param namespace - Command name (e.g. "math", "countries")
  * @param subcommands - Subcommand definitions
- * @param invokeTool - Tool invoker: (toolPath, argsJson) → resultJson
+ * @param invokeTool - Tool invoker: (toolPath, argsJson, abortSignal) → resultJson
  */
 function createNamespaceCommand(
   namespace: string,
   subcommands: ToolSubcommand[],
-  invokeTool: (path: string, argsJson: string) => Promise<string>,
+  invokeTool: (
+    path: string,
+    argsJson: string,
+    abortSignal: AbortSignal,
+  ) => Promise<string>,
 ): Command {
   // Build lookup: subcommand name → tool info (including aliases)
   const lookup: Map<string, ToolSubcommand> = new Map();
@@ -317,7 +323,11 @@ function createNamespaceCommand(
 
         const argsJson =
           Object.keys(parsed).length > 0 ? JSON.stringify(parsed) : "";
-        const resultJson = await invokeTool(sub.originalPath, argsJson);
+        const resultJson = await invokeTool(
+          sub.originalPath,
+          argsJson,
+          ctx.signal ?? neverAbortSignal,
+        );
         const stdout = resultJson ? `${resultJson}\n` : "";
         return { stdout, stderr: "", exitCode: 0 };
       } catch (error) {
@@ -343,7 +353,11 @@ export interface ToolEntry {
  */
 export function buildNamespaceCommands(
   tools: ToolEntry[],
-  invokeTool: (path: string, argsJson: string) => Promise<string>,
+  invokeTool: (
+    path: string,
+    argsJson: string,
+    abortSignal: AbortSignal,
+  ) => Promise<string>,
 ): Command[] {
   // Group by namespace
   const groups: Map<string, ToolSubcommand[]> = new Map();

@@ -6,10 +6,15 @@
  */
 
 /** Tool definition for inline registration. */
+export interface ExecutorToolContext {
+  /** Aborts when the originating js-exec invocation is canceled or times out. */
+  abortSignal: AbortSignal;
+}
+
 export interface ExecutorToolDef {
   description?: string;
-  // biome-ignore lint/suspicious/noExplicitAny: matches @executor/sdk SimpleTool signature
-  execute: (...args: any[]) => unknown;
+  // biome-ignore lint/suspicious/noExplicitAny: matches @executor/sdk SimpleTool input variance
+  execute: (args: any, context: ExecutorToolContext) => unknown;
 }
 
 /**

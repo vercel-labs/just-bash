@@ -5,7 +5,11 @@ import { camelToKebab, parseToolCliArgs } from "./tool-command.js";
 import type { ExecutorConfig } from "./types.js";
 
 function javascriptWithInvokeTool(
-  invokeTool: (path: string, argsJson: string) => Promise<string>,
+  invokeTool: (
+    path: string,
+    argsJson: string,
+    abortSignal: AbortSignal,
+  ) => Promise<string>,
 ): NonNullable<
   NonNullable<ConstructorParameters<typeof Bash>[0]>["javascript"]
 > {
@@ -354,5 +358,37 @@ describe("tool namespace commands", () => {
     const r = await bash.exec("math add a=10 b=20 | jq -r .sum");
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toBe("30\n");
+  });
+
+  it("forwards js-exec cancellation to inline tools", async () => {
+    let observedAbort = false;
+    const executor = await createExecutor({
+      tools: {
+        "wait.forever": {
+          execute: async (_args, { abortSignal }) => {
+            await new Promise<void>((resolve) => {
+              abortSignal.addEventListener(
+                "abort",
+                () => {
+                  observedAbort = true;
+                  resolve();
+                },
+                { once: true },
+              );
+            });
+          },
+        },
+      },
+    });
+    const controller = new AbortController();
+    const invocation = executor.invokeTool(
+      "wait.forever",
+      "",
+      controller.signal,
+    );
+    controller.abort();
+
+    await expect(invocation).rejects.toMatchObject({ name: "AbortError" });
+    expect(observedAbort).toBe(true);
   });
 });

@@ -76,13 +76,15 @@ const RUN_SYNC_BRIDGE_PAYLOAD_BYTES = 8 * 1024 * 1024;
 const RUN_MAX_LIMIT_VALUE = 2_147_483_647;
 const RUN_BRIDGE_VALUE_OVERHEAD_BYTES = 4096;
 
-const createHostNamespace = (): string => {
+const createOpaqueSuffix = (): string => {
   const suffix =
     typeof crypto !== "undefined" && crypto.randomUUID
       ? crypto.randomUUID().replaceAll("-", "")
       : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
-  return `__jbHost_${suffix}`;
+  return suffix;
 };
+
+const createHostNamespace = (): string => `__jbHost_${createOpaqueSuffix()}`;
 
 class JsExecQueueCanceledError extends Error {}
 
@@ -576,6 +578,16 @@ const projectExecResult = (result: ExecResult) => ({
   stdout: result.stdout,
 });
 
+const diagnosticResult = (
+  message: string,
+  exitCode: number,
+  maxOutputSize: number,
+): ExecResult => ({
+  exitCode,
+  stderr: maxOutputSize <= 0 ? message : truncateUtf8(message, maxOutputSize),
+  stdout: "",
+});
+
 async function executeWithRunInner(
   options: RunJsOptions,
   ctx: RuntimeCommandContext,
@@ -583,14 +595,6 @@ async function executeWithRunInner(
   deadline: number,
   deadlineSignal: AbortSignal,
 ): Promise<ExecResult> {
-  if (ctx.limits.maxJsBridgeRequests === 0) {
-    return {
-      exitCode: 1,
-      stderr:
-        "js-exec: JavaScript runtime exceeded the 0 bridge request limit.\n",
-      stdout: "",
-    };
-  }
   // run accounts for the SharedArrayBuffer inside the invocation budget and
   // adds framing space to host-function arguments. Leave bounded headroom
   // while preserving the existing 64 MiB QuickJS heap limit.
@@ -613,6 +617,7 @@ async function executeWithRunInner(
     ),
   );
   const hostNamespace = createHostNamespace();
+  const bootstrapModuleSpecifier = `just-bash:bootstrap:${createOpaqueSuffix()}`;
   const output: OutputState = {
     exitCode: 0,
     limitExceeded: false,
@@ -625,12 +630,46 @@ async function executeWithRunInner(
     options.bootstrapCode !== undefined && options.bootstrapCode !== "";
   const maxOutputSize = ctx.limits.maxOutputSize;
   let outputBytes = 0;
+  let bridgeRequests = 0;
+  let bridgeLimitExceeded = false;
+  let bridgeLimitReported = false;
+  const bridgeLimitMessage = `JavaScript runtime exceeded the ${ctx.limits.maxJsBridgeRequests} bridge request limit.`;
+  const consumeBridgeRequest = (): boolean => {
+    if (bridgeRequests >= ctx.limits.maxJsBridgeRequests) {
+      bridgeLimitExceeded = true;
+      return false;
+    }
+    bridgeRequests += 1;
+    return true;
+  };
+  const appendDiagnostic = (value: string): void => {
+    if (maxOutputSize <= 0) {
+      output.stderr += value;
+      outputBytes += Buffer.byteLength(value);
+      return;
+    }
+    const bounded = truncateUtf8(
+      value,
+      Math.max(0, maxOutputSize - outputBytes),
+    );
+    output.stderr += bounded;
+    outputBytes += Buffer.byteLength(bounded);
+  };
+  const reportBridgeLimit = (): void => {
+    if (bridgeLimitReported) return;
+    bridgeLimitReported = true;
+    output.exitCode = 1;
+    appendDiagnostic(`js-exec: ${bridgeLimitMessage}\n`);
+  };
   const appendOutput = (
     stream: "stdout" | "stderr",
     value: string,
   ): HostResult<void> => {
     if (requestedExitCode !== undefined) {
       return { error: "process.exit() already requested", ok: false };
+    }
+    if (!consumeBridgeRequest()) {
+      return { error: bridgeLimitMessage, ok: false };
     }
     if (typeof value !== "string") {
       return { error: "Output must be a string", ok: false };
@@ -652,6 +691,9 @@ async function executeWithRunInner(
   ): Promise<HostResult<T>> => {
     if (requestedExitCode !== undefined) {
       return { error: "process.exit() already requested", ok: false };
+    }
+    if (!consumeBridgeRequest()) {
+      return { error: bridgeLimitMessage, ok: false };
     }
     try {
       return {
@@ -692,6 +734,9 @@ async function executeWithRunInner(
             bootstrapActive = false;
           },
           exit(code: number) {
+            if (!consumeBridgeRequest()) {
+              throw new Error(bridgeLimitMessage);
+            }
             requestedExitCode ??= Number.isFinite(code) ? Math.trunc(code) : 0;
             output.exitCode = requestedExitCode;
             throw new Error("Guest requested process exit.");
@@ -858,7 +903,7 @@ async function executeWithRunInner(
   const bootstrap = options.bootstrapCode ?? "";
   const isolatedBootstrap =
     bootstrap === ""
-      ? ""
+      ? `globalThis[${JSON.stringify(hostNamespace)}].bootstrapDone();\n`
       : `try {
   (function() {
 ${bootstrap}
@@ -881,7 +926,11 @@ ${bootstrap}
       const bare = specifier.startsWith("node:")
         ? specifier.slice(5)
         : specifier;
-      if (bare === "just-bash:bootstrap") return bare;
+      if (requestedExitCode !== undefined) {
+        throw new Error("process.exit() already requested");
+      }
+      if (specifier === bootstrapModuleSpecifier) return specifier;
+      if (!consumeBridgeRequest()) throw new Error(bridgeLimitMessage);
       if (
         BUILTIN_EXPORTS[bare] !== undefined ||
         UNSUPPORTED_MODULES[bare] !== undefined
@@ -903,8 +952,12 @@ ${bootstrap}
       return normalizePath(importerDirectory, specifier);
     },
     async load(specifier) {
-      if (specifier === "just-bash:bootstrap")
+      if (requestedExitCode !== undefined) {
+        throw new Error("process.exit() already requested");
+      }
+      if (specifier === bootstrapModuleSpecifier)
         return `${setup}\n${isolatedBootstrap}`;
+      if (!consumeBridgeRequest()) throw new Error(bridgeLimitMessage);
       if (specifier.startsWith("just-bash:builtin:"))
         return createBuiltInModuleSource(
           specifier.slice("just-bash:builtin:".length),
@@ -939,7 +992,7 @@ ${bootstrap}
     },
   };
   const sourcePrefix = options.isModule
-    ? "import 'just-bash:bootstrap';\n"
+    ? `import ${JSON.stringify(bootstrapModuleSpecifier)};\n`
     : `${setup}\n${isolatedBootstrap}`;
   const source = `${sourcePrefix}${options.source}`;
   const sourceLineOffset = sourcePrefix.split("\n").length - 1;
@@ -952,7 +1005,10 @@ ${bootstrap}
           abortSignal,
           limits: {
             maxBridgeRequests: Math.min(
-              ctx.limits.maxJsBridgeRequests,
+              Math.max(
+                1,
+                ctx.limits.maxJsBridgeRequests + (options.isModule ? 4 : 2),
+              ),
               RUN_MAX_LIMIT_VALUE,
             ),
             maxConsoleOutputBytes: 1,
@@ -991,27 +1047,28 @@ ${bootstrap}
     const bootstrapSourceFailure =
       bootstrap !== "" &&
       errorLocation !== undefined &&
-      (errorLocation.file === "just-bash:bootstrap" ||
+      (errorLocation.file === bootstrapModuleSpecifier ||
         (!options.isModule &&
           errorLocation.file === "run.js" &&
           errorLocation.line <= sourceLineOffset));
     if (requestedExitCode !== undefined) {
       output.exitCode = requestedExitCode;
+    } else if (bridgeLimitExceeded || error instanceof RunBridgeLimitError) {
+      bridgeLimitExceeded = true;
+      reportBridgeLimit();
     } else if (bootstrapFailure !== undefined || bootstrapSourceFailure) {
       output.exitCode = 1;
-      output.stderr += `js-exec: bootstrap error: ${bootstrapFailure ?? sanitizeErrorMessage(message)}\n`;
+      appendDiagnostic(
+        `js-exec: bootstrap error: ${bootstrapFailure ?? sanitizeErrorMessage(message)}\n`,
+      );
     } else if (
       error instanceof RunTimeoutError ||
       error instanceof RunAbortedError
     ) {
-      return {
-        ...output,
-        exitCode: 124,
-        stderr: `${output.stderr}js-exec: ${error instanceof RunTimeoutError || deadlineSignal.aborted ? `Execution timeout: exceeded ${ctx.limits.maxJsTimeoutMs}ms limit` : "Execution aborted"}\n`,
-      };
-    } else if (error instanceof RunBridgeLimitError) {
-      output.exitCode = 1;
-      output.stderr += `js-exec: ${sanitizeHostErrorMessage(message)}\n`;
+      output.exitCode = 124;
+      appendDiagnostic(
+        `js-exec: ${error instanceof RunTimeoutError || deadlineSignal.aborted ? `Execution timeout: exceeded ${ctx.limits.maxJsTimeoutMs}ms limit` : "Execution aborted"}\n`,
+      );
     } else {
       output.exitCode = 1;
       const isGuestError =
@@ -1024,15 +1081,18 @@ ${bootstrap}
         error instanceof Error &&
         error.stack?.includes("(<run-worker>)") === true &&
         parseGuestSourceLocation(error.stack) === undefined;
-      output.stderr += !isGuestError
-        ? `js-exec: ${guestMessage}\n`
-        : isGuestPrimitive
-          ? `${guestMessage}\n`
-          : guestMessage === message
-            ? `js-exec: ${sanitizeHostErrorMessage(message)}\n`
-            : `${guestMessage}\n`;
+      appendDiagnostic(
+        !isGuestError
+          ? `js-exec: ${guestMessage}\n`
+          : isGuestPrimitive
+            ? `${guestMessage}\n`
+            : guestMessage === message
+              ? `js-exec: ${sanitizeHostErrorMessage(message)}\n`
+              : `${guestMessage}\n`,
+      );
     }
   }
+  if (bridgeLimitExceeded) reportBridgeLimit();
   if (output.limitExceeded) {
     output.exitCode = 1;
     const diagnostic = truncateUtf8(
@@ -1063,6 +1123,13 @@ export async function executeWithRun(
       stdout: "",
     };
   }
+  if (ctx.limits.maxJsTimeoutMs > RUN_MAX_LIMIT_VALUE) {
+    return diagnosticResult(
+      `js-exec: maxJsTimeoutMs must be at most ${RUN_MAX_LIMIT_VALUE}\n`,
+      2,
+      ctx.limits.maxOutputSize,
+    );
+  }
   const timeoutController = new AbortController();
   const deadline =
     ctx.limits.maxJsTimeoutMs === Number.POSITIVE_INFINITY
@@ -1091,11 +1158,11 @@ export async function executeWithRun(
   } catch (error) {
     if (!(error instanceof JsExecQueueCanceledError)) throw error;
     const timedOut = timeoutController.signal.aborted;
-    return {
-      exitCode: 124,
-      stderr: `js-exec: ${timedOut ? `Execution timeout: exceeded ${ctx.limits.maxJsTimeoutMs}ms limit` : "Execution aborted"}\n`,
-      stdout: "",
-    };
+    return diagnosticResult(
+      `js-exec: ${timedOut ? `Execution timeout: exceeded ${ctx.limits.maxJsTimeoutMs}ms limit` : "Execution aborted"}\n`,
+      124,
+      ctx.limits.maxOutputSize,
+    );
   } finally {
     combinedAbort.cleanup();
     _clearFiniteTimeout(timeout);
