@@ -106,6 +106,21 @@ describe("curl data options - real curl comparison", () => {
     expect(result).toMatchObject({ stdout: real, stderr: "", exitCode: 0 });
   });
 
+  it.fails("matches -d @- reading request data from stdin", async () => {
+    const stdin = "a=1\n&b=2\r\n";
+    await writeFile(join(realCurlCwd, "stdin.txt"), stdin);
+    const { stdout: real } = await execFileAsync(
+      "sh",
+      ["-c", 'curl -sS -d @- "$1" < stdin.txt', "sh", `${baseUrl}/echo`],
+      { cwd: realCurlCwd, encoding: "utf8" },
+    );
+    const result = await createEnv().exec(`curl -sS -d @- '${baseUrl}/echo'`, {
+      stdin,
+    });
+
+    expect(result).toMatchObject({ stdout: real, stderr: "", exitCode: 0 });
+  });
+
   it("matches -G combined with an explicit request method", async () => {
     const real = await runRealCurl([
       "-X",
