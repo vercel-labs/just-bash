@@ -217,6 +217,53 @@ describe("curl @file interpretation", () => {
     });
   });
 
+  describe("data from stdin with @-", () => {
+    it.fails("-d @- reads stdin and strips CR and LF", async () => {
+      const env = createEnv();
+      const result = await env.exec("curl -d @- https://api.example.com/test", {
+        stdin: "first=1\n&second=2\r\n",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(lastRequest?.options.method).toBe("POST");
+      expect(lastRequest?.options.body).toBe("first=1&second=2");
+    });
+
+    it.fails("--data-binary @- reads stdin verbatim", async () => {
+      const env = createEnv();
+      const result = await env.exec(
+        "curl --data-binary @- https://api.example.com/test",
+        { stdin: "first line\nsecond line\r\n" },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(lastRequest?.options.method).toBe("POST");
+      expect(lastRequest?.options.body).toBe("first line\nsecond line\r\n");
+    });
+
+    it.fails("--data-urlencode @- URL-encodes stdin", async () => {
+      const env = createEnv();
+      const result = await env.exec(
+        "curl --data-urlencode @- https://api.example.com/test",
+        { stdin: "hello world & friends" },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(lastRequest?.options.body).toBe("hello+world+%26+friends");
+    });
+
+    it.fails("--data-urlencode name@- prefixes URL-encoded stdin", async () => {
+      const env = createEnv();
+      const result = await env.exec(
+        "curl --data-urlencode note@- https://api.example.com/test",
+        { stdin: "hello world & friends" },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(lastRequest?.options.body).toBe("note=hello+world+%26+friends");
+    });
+  });
+
   describe("mixed inline + file payloads", () => {
     it("merges -d @file with a trailing --data-urlencode inline", async () => {
       const env = createEnv({ "/payload.txt": "from=file" });
