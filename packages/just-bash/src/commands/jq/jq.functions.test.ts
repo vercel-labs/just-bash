@@ -206,6 +206,25 @@ describe("jq builtin functions", () => {
       );
     });
 
+    it("should convert an array to entries with numeric keys", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo '[\"a\",\"b\"]' | jq -c 'to_entries'",
+      );
+      expect(result.stdout).toBe(
+        '[{"key":0,"value":"a"},{"key":1,"value":"b"}]\n',
+      );
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should support to_entries[] iteration over an array", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo '[10,20]' | jq -c '[to_entries[] | .key]'",
+      );
+      expect(result.stdout).toBe("[0,1]\n");
+    });
+
     it("should convert from entries", async () => {
       const env = new Bash();
       const result = await env.exec(
