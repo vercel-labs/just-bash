@@ -23,6 +23,7 @@
  * older code paths.
  */
 
+import type { WritableFile } from "../fs/interface.js";
 import { checkFdLimit } from "./helpers/result.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -37,7 +38,12 @@ export const FIRST_USER_FD = 3;
 
 export type FdEntry =
   | { kind: "input"; content: string }
-  | { kind: "output"; path: string; append: boolean }
+  | {
+      kind: "output";
+      path: string;
+      append: boolean;
+      writable?: WritableFile;
+    }
   | { kind: "readwrite"; path: string; position: number; content: string }
   | { kind: "dup-out"; sourceFd: number }
   | { kind: "dup-in"; sourceFd: number }
@@ -50,6 +56,7 @@ export type FdEntry =
 interface FdSnapshotEntry {
   raw: string | undefined;
   isInput: boolean;
+  writable: WritableFile | undefined;
   aliases: number[];
 }
 
@@ -152,6 +159,75 @@ function markContent(ctx: InterpreterContext, fd: number, isInput: boolean) {
   }
 }
 
+function writableForFd(
+  ctx: InterpreterContext,
+  fd: number,
+): WritableFile | undefined {
+  return ctx.state.outputWriters?.get(fd);
+}
+
+function detachWritable(ctx: InterpreterContext, fd: number): void {
+  const writable = writableForFd(ctx, fd);
+  if (!writable) return;
+  ctx.state.outputWriters?.delete(fd);
+  ctx.state.writableCloseCandidates ??= new Set();
+  ctx.state.writableCloseCandidates.add(writable);
+}
+
+function attachWritable(
+  ctx: InterpreterContext,
+  fd: number,
+  writable: WritableFile | undefined,
+): void {
+  if (!writable) return;
+  ctx.state.outputWriters ??= new Map();
+  ctx.state.outputWriters.set(fd, writable);
+}
+
+/**
+ * Closes candidate descriptions that no live shell descriptor still owns.
+ * Newly opened command-scoped descriptions may be supplied because standard
+ * descriptors do not always need an encoded table entry.
+ */
+export function closeUnusedWritables(
+  ctx: InterpreterContext,
+  opened: readonly WritableFile[] = [],
+): Promise<void> | undefined {
+  const candidates = new Set([
+    ...(ctx.state.writableCloseCandidates ?? []),
+    ...opened,
+  ]);
+  ctx.state.writableCloseCandidates?.clear();
+  const active = new Set([
+    ...(ctx.state.outputWriters?.values() ?? []),
+    ...(ctx.state.inheritedOutputWriters ?? []),
+  ]);
+  const closable = [...candidates]
+    .reverse()
+    .filter((writable) => !active.has(writable));
+  if (closable.length === 0) return undefined;
+  return closeWritables(ctx, closable);
+}
+
+async function closeWritables(
+  ctx: InterpreterContext,
+  writables: readonly WritableFile[],
+): Promise<void> {
+  for (const writable of writables) {
+    try {
+      await writable.close();
+    } catch (error) {
+      // Preserve the result-oriented Bash.exec contract and any in-flight
+      // shell control flow. ExecutionScope reports cleanup failures as 126.
+      try {
+        ctx.executionScope.registerCleanup(() => Promise.reject(error));
+      } catch {
+        // An existing abort or limit failure remains authoritative.
+      }
+    }
+  }
+}
+
 // ---- Shared open file descriptions -----------------------------------------
 // `N<&M` gives N and M the same open file description, so they share ONE read
 // offset: after `exec 4<&3`, reading fd 3 moves fd 4 forward too. The table
@@ -217,7 +293,10 @@ export function getFdEntry(
   // A descriptor known to hold content is never re-parsed: a file whose
   // first line reads `__file__:/tmp/x` is data, not a marker.
   if (ctx.state.inputFds?.has(fd)) return { kind: "input", content: raw };
-  return decodeFdEntry(raw);
+  const entry = decodeFdEntry(raw);
+  if (entry.kind !== "output") return entry;
+  const writable = writableForFd(ctx, fd);
+  return writable ? { ...entry, writable } : entry;
 }
 
 export function isFdOpen(ctx: InterpreterContext, fd: number): boolean {
@@ -250,6 +329,7 @@ export function setRawFd(
   isInput = false,
 ): void {
   leaveAliasGroup(ctx, fd);
+  detachWritable(ctx, fd);
   writeRawFd(ctx, fd, raw, isInput);
 }
 
@@ -259,11 +339,13 @@ export function setFdEntry(
   entry: FdEntry,
 ): void {
   setRawFd(ctx, fd, encodeFdEntry(entry), entry.kind === "input");
+  attachWritable(ctx, fd, entry.kind === "output" ? entry.writable : undefined);
 }
 
 export function closeFd(ctx: InterpreterContext, fd: number): void {
   ctx.state.fileDescriptors?.delete(fd);
   ctx.state.inputFds?.delete(fd);
+  detachWritable(ctx, fd);
   leaveAliasGroup(ctx, fd);
 }
 
@@ -280,7 +362,9 @@ export function dupFd(
 ): boolean {
   const raw = getRawFd(ctx, sourceFd);
   if (raw === undefined) return false;
+  const writable = writableForFd(ctx, sourceFd);
   setRawFd(ctx, fd, raw, ctx.state.inputFds?.has(sourceFd) === true);
+  attachWritable(ctx, fd, writable);
   joinAliasGroup(ctx, fd, sourceFd);
   return true;
 }
@@ -294,11 +378,13 @@ export function moveFd(
   if (raw === undefined) return false;
   if (fd === sourceFd) return true;
   const isInput = ctx.state.inputFds?.has(sourceFd) === true;
+  const writable = writableForFd(ctx, sourceFd);
   const aliases = [...(aliasGroup(ctx, sourceFd) ?? [])].filter(
     (member) => member !== sourceFd,
   );
   closeFd(ctx, sourceFd);
   setRawFd(ctx, fd, raw, isInput);
+  attachWritable(ctx, fd, writable);
   const survivor = aliases.find((member) => isFdOpen(ctx, member));
   if (survivor !== undefined) joinAliasGroup(ctx, fd, survivor);
   return true;
@@ -370,7 +456,11 @@ export async function writeFdEntry(
   encoding: "binary" | "utf8",
 ): Promise<boolean> {
   if (entry.kind === "output") {
-    await ctx.fs.appendFile(entry.path, content, encoding);
+    if (entry.writable) {
+      await entry.writable.write(content, encoding);
+    } else {
+      await ctx.fs.appendFile(entry.path, content, encoding);
+    }
     return true;
   }
   const liveEntry = descriptors
@@ -414,6 +504,7 @@ export function rememberFd(
   snapshot.set(fd, {
     raw: getRawFd(ctx, fd),
     isInput: ctx.state.inputFds?.has(fd) === true,
+    writable: writableForFd(ctx, fd),
     aliases: group ? [...group].filter((member) => member !== fd) : [],
   });
 }
@@ -444,13 +535,14 @@ export function restoreFds(
 ): void {
   const fds = ctx.state.fileDescriptors;
   if (!fds) return;
-  for (const [fd, { raw, isInput, aliases }] of snapshot) {
+  for (const [fd, { raw, isInput, writable, aliases }] of snapshot) {
     if (raw === undefined) {
       closeFd(ctx, fd);
       continue;
     }
     // Re-opening the saved value detaches fd from whatever it aliases now.
     setRawFd(ctx, fd, raw, isInput);
+    attachWritable(ctx, fd, writable);
     // Then re-attach it to whichever of its original co-members is still
     // open — they all share one description, so any survivor will do.
     const survivor = aliases.find((member) => fds.has(member));

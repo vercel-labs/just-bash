@@ -62,6 +62,33 @@ describe("redirection transactions - Real Bash Comparison", () => {
     );
   });
 
+  it("keeps truncation when the redirected command fails", async () => {
+    const env = await setupFiles(testDirectory, {});
+    await compareOutputs(
+      env,
+      testDirectory,
+      "printf previous >out.txt; false >out.txt; wc -c <out.txt",
+    );
+  });
+
+  it("opens multiple output targets in source order", async () => {
+    const env = await setupFiles(testDirectory, {});
+    await compareOutputs(
+      env,
+      testDirectory,
+      "printf data >first.txt >second.txt; wc -c <first.txt; cat second.txt",
+    );
+  });
+
+  it("keeps a duplicated output description alive until its last descriptor closes", async () => {
+    const env = await setupFiles(testDirectory, {});
+    await compareOutputs(
+      env,
+      testDirectory,
+      "exec 3>out.txt; exec 4>&3; exec 3>&-; printf data >&4; exec 4>&-; cat out.txt",
+    );
+  });
+
   it("rejects output written through an fd1 heredoc", async () => {
     const env = await setupFiles(testDirectory, {});
     await compareOutputs(env, testDirectory, "echo hi 1<<EOF\nvalue\nEOF");
