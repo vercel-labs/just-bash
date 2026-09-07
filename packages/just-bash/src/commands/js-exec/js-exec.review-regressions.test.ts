@@ -179,13 +179,47 @@ describe("js-exec run adapter regressions", () => {
       javascript: true,
     });
     const result = await bash.exec(`js-exec -c "console.log('small')"`);
+    const moduleResult = await bash.exec(
+      `js-exec --module -c "console.log('small module')"`,
+    );
 
     expect(result).toMatchObject({
       exitCode: 0,
       stderr: "",
       stdout: "small\n",
     });
+    expect(moduleResult).toMatchObject({
+      exitCode: 0,
+      stderr: "",
+      stdout: "small module\n",
+    });
   });
+
+  it("charges serialized environment data against the guest input limit", async () => {
+    const maxWorkerMessageBytes = 4096;
+    const bash = new Bash({
+      env: { AMPLIFIED: "\\".repeat(3000) },
+      executionLimits: { maxWorkerMessageBytes },
+      javascript: true,
+    });
+    const result = await bash.exec(`js-exec -c "return 1"`);
+
+    expect(result).toMatchObject({ exitCode: 1, stdout: "" });
+    expect(result.stderr).toContain("JavaScript runtime input exceeds");
+    expect(result.stderr).toContain(`${maxWorkerMessageBytes} byte size limit`);
+  });
+
+  it("parses oversized guest stack lines without blocking the host", async () => {
+    const bash = new Bash({
+      executionLimits: { maxJsTimeoutMs: 500 },
+      javascript: true,
+    });
+    const result = await bash.exec(
+      `js-exec -c "await import('/' + 'a (b:1:'.repeat(60000) + 'x.mjs')"`,
+    );
+
+    expect(result.exitCode).toBe(1);
+  }, 2000);
 
   it("rejects malicious raw host arguments without a stable namespace", async () => {
     const bash = new Bash({ javascript: true });

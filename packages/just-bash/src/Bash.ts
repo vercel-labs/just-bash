@@ -104,7 +104,7 @@ export interface JavaScriptConfig {
   /**
    * Tool invocation hook. When provided, code running in `js-exec` gets a
    * global `tools` proxy that routes calls through this callback synchronously
-   * (the worker blocks via `Atomics.wait` while the host resolves the call).
+   * while `run` dispatches the host binding.
    *
    * - `path`: dot-separated tool path (e.g. `"math.add"`). The proxy builds
    *   it from JS property access — `tools.math.add(...)` becomes `"math.add"`.

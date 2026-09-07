@@ -675,12 +675,14 @@ const env = new Bash({
 All resources remain bounded by default in both profiles. Explicit values
 override the selected profile; non-negative safe integers and the legacy
 `Infinity` spelling are accepted. Infinite deadlines omit the corresponding
-platform timer rather than overflowing it. Invalid values are rejected when
-`Bash` is constructed. Error messages identify the resource that was hit.
+platform timer rather than overflowing it; `js-exec` maps an infinite
+JavaScript deadline to `run`'s longest timeout (about 24.9 days). Invalid
+values are rejected when `Bash` is constructed. Error messages identify the
+resource that was hit.
 
 ## Security Model
 
-The Node.js package requires Node `>=20.18.1`.
+The Node.js package requires Node `>=20.19`.
 
 - The shell only has access to the provided filesystem.
 - All execution happens without VM isolation. This does introduce additional risk. The code base was designed to be robust against prototype-pollution attacks and other break outs to the host JS engine and filesystem.

@@ -75,6 +75,8 @@ const RUN_MEMORY_LIMIT_BYTES = 64 * 1024 * 1024;
 const RUN_SYNC_BRIDGE_PAYLOAD_BYTES = 8 * 1024 * 1024;
 const RUN_MAX_LIMIT_VALUE = 2_147_483_647;
 const RUN_BRIDGE_VALUE_OVERHEAD_BYTES = 4096;
+const GUEST_STACK_SCAN_CHARS = 64 * 1024;
+const GUEST_STACK_LINE_SCAN_CHARS = 8 * 1024;
 
 const createOpaqueSuffix = (): string => {
   const suffix =
@@ -280,29 +282,122 @@ const truncateUtf8 = (value: string, maxBytes: number): string => {
   return bytes.subarray(0, end).toString("utf8");
 };
 
+const parseDecimal = (value: string): number | undefined => {
+  if (value.length === 0) return undefined;
+  let result = 0;
+  for (let index = 0; index < value.length; index++) {
+    const digit = value.charCodeAt(index) - 48;
+    if (digit < 0 || digit > 9) return undefined;
+    result = result * 10 + digit;
+    if (!Number.isSafeInteger(result)) return undefined;
+  }
+  return result;
+};
+
+const parseSourcePosition = (
+  value: string,
+): Omit<GuestSourceLocation, "functionName"> | undefined => {
+  const columnSeparator = value.lastIndexOf(":");
+  if (columnSeparator <= 0) return undefined;
+  const lineSeparator = value.lastIndexOf(":", columnSeparator - 1);
+  if (lineSeparator <= 0) return undefined;
+  const line = parseDecimal(value.slice(lineSeparator + 1, columnSeparator));
+  const column = parseDecimal(value.slice(columnSeparator + 1));
+  const file = value.slice(0, lineSeparator);
+  if (line === undefined || column === undefined || file.length === 0) {
+    return undefined;
+  }
+  return { column, file, line };
+};
+
 const parseGuestSourceLocation = (
   stack: string,
 ): GuestSourceLocation | undefined => {
-  for (const line of stack.split("\n")) {
-    const functionFrame = /^\s+at (.+) \((.+):(\d+):(\d+)\)$/u.exec(line);
-    if (functionFrame) {
-      return {
-        column: Number(functionFrame[4]),
-        file: functionFrame[2],
-        functionName: functionFrame[1],
-        line: Number(functionFrame[3]),
-      };
+  for (const line of stack.slice(0, GUEST_STACK_SCAN_CHARS).split("\n")) {
+    if (line.length > GUEST_STACK_LINE_SCAN_CHARS) continue;
+    const trimmed = line.trimStart();
+    if (!trimmed.startsWith("at ")) continue;
+    const frame = trimmed.slice(3);
+    if (frame.endsWith(")")) {
+      const functionSeparator = frame.lastIndexOf(" (");
+      if (functionSeparator > 0) {
+        const location = parseSourcePosition(
+          frame.slice(functionSeparator + 2, -1),
+        );
+        if (location !== undefined) {
+          return {
+            ...location,
+            functionName: frame.slice(0, functionSeparator),
+          };
+        }
+      }
     }
-    const frame = /^\s+at (.+):(\d+):(\d+)$/u.exec(line);
-    if (frame) {
-      return {
-        column: Number(frame[3]),
-        file: frame[1],
-        line: Number(frame[2]),
-      };
-    }
+    const location = parseSourcePosition(frame);
+    if (location !== undefined) return location;
   }
   return undefined;
+};
+
+const jsonStringBytesWithinLimit = (
+  value: string,
+  maxBytes: number,
+): number => {
+  let bytes = 2;
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    if (code === 0x22 || code === 0x5c) bytes += 2;
+    else if (
+      code === 0x08 ||
+      code === 0x09 ||
+      code === 0x0a ||
+      code === 0x0c ||
+      code === 0x0d
+    )
+      bytes += 2;
+    else if (code < 0x20) bytes += 6;
+    else if (code < 0x80) bytes += 1;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index += 1;
+      } else bytes += 6;
+    } else if (code >= 0xdc00 && code <= 0xdfff) bytes += 6;
+    else bytes += 3;
+    if (bytes > maxBytes) return maxBytes + 1;
+  }
+  return bytes;
+};
+
+const guestConfigurationBytesWithinLimit = (
+  env: Record<string, string>,
+  argv: string[],
+  cwd: string,
+  maxBytes: number,
+): number => {
+  let bytes = 2;
+  const addString = (value: string): boolean => {
+    bytes += jsonStringBytesWithinLimit(value, Math.max(0, maxBytes - bytes));
+    return bytes <= maxBytes;
+  };
+  let first = true;
+  for (const [key, value] of Object.entries(env)) {
+    if (!first) bytes += 1;
+    first = false;
+    if (!addString(key)) return maxBytes + 1;
+    bytes += 1;
+    if (!addString(value)) return maxBytes + 1;
+  }
+  bytes += 2;
+  first = true;
+  for (const value of argv) {
+    if (!first) bytes += 1;
+    first = false;
+    if (!addString(value)) return maxBytes + 1;
+  }
+  if (!addString(cwd)) return maxBytes + 1;
+  return bytes;
 };
 
 const formatGuestError = (
@@ -344,9 +439,9 @@ const formatGuestError = (
 };
 
 const guestSetupSource = (
-  options: RunJsOptions,
-  env: Record<string, string>,
-  cwd: string,
+  serializedEnv: string,
+  serializedArgv: string,
+  serializedCwd: string,
   hasInvokeTool: boolean,
   hostNamespace: string,
 ): string => `
@@ -357,6 +452,7 @@ const guestSetupSource = (
     return result.value;
   }
   function bytes(value) {
+    if (value && value._data instanceof Uint8Array) return Array.from(value._data);
     if (value && Array.isArray(value._data)) return value._data.slice();
     if (Array.isArray(value)) return value.slice();
     if (value instanceof Uint8Array) return Array.from(value);
@@ -369,10 +465,10 @@ const guestSetupSource = (
     try { return JSON.stringify(value); } catch (_) { return String(value); }
   }
 
-  globalThis.env = ${JSON.stringify(env)};
+  globalThis.env = ${serializedEnv};
   globalThis.process = {
-    argv: ${JSON.stringify([options.scriptPath, ...options.scriptArgs])},
-    cwd: function() { return ${JSON.stringify(cwd)}; },
+    argv: ${serializedArgv},
+    cwd: function() { return ${serializedCwd}; },
     env: globalThis.env,
     platform: 'linux',
     arch: 'x64',
@@ -717,6 +813,46 @@ async function executeWithRunInner(
     return Uint8Array.from(data);
   };
   const env = mapToRecord(ctx.env);
+  const argv = [options.scriptPath, ...options.scriptArgs];
+  const maxGuestInputBytes = Math.min(
+    ctx.limits.maxWorkerMessageBytes,
+    RUN_MAX_LIMIT_VALUE,
+  );
+  const guestSourceBytes = Buffer.byteLength(options.source);
+  const remainingGuestInputBytes = Math.max(
+    0,
+    maxGuestInputBytes - guestSourceBytes,
+  );
+  const guestConfigurationBytes = guestConfigurationBytesWithinLimit(
+    env,
+    argv,
+    ctx.cwd,
+    remainingGuestInputBytes,
+  );
+  if (
+    guestSourceBytes > maxGuestInputBytes ||
+    guestConfigurationBytes > remainingGuestInputBytes
+  ) {
+    output.exitCode = 1;
+    appendDiagnostic(
+      `js-exec: JavaScript runtime ${guestSourceBytes > maxGuestInputBytes ? "source" : "input"} exceeds the ${maxGuestInputBytes} byte size limit.\n`,
+    );
+    return output;
+  }
+  const serializedEnv = JSON.stringify(env);
+  const serializedArgv = JSON.stringify(argv);
+  const serializedCwd = JSON.stringify(ctx.cwd);
+  const serializedGuestConfigurationBytes =
+    Buffer.byteLength(serializedEnv) +
+    Buffer.byteLength(serializedArgv) +
+    Buffer.byteLength(serializedCwd);
+  if (serializedGuestConfigurationBytes > remainingGuestInputBytes) {
+    output.exitCode = 1;
+    appendDiagnostic(
+      `js-exec: JavaScript runtime input exceeds the ${maxGuestInputBytes} byte size limit.\n`,
+    );
+    return output;
+  }
   const runner = DefenseInDepthBox.runTrusted(() =>
     createRunner({
       syncHostFunctions: {
@@ -894,9 +1030,9 @@ async function executeWithRunInner(
   );
 
   const setup = guestSetupSource(
-    options,
-    env,
-    ctx.cwd,
+    serializedEnv,
+    serializedArgv,
+    serializedCwd,
     ctx.invokeTool !== undefined,
     hostNamespace,
   );
@@ -920,6 +1056,7 @@ ${bootstrap}
   globalThis[${JSON.stringify(hostNamespace)}].bootstrapDone();
 }
 `;
+  const bootstrapModuleSource = `${setup}\n${isolatedBootstrap}`;
   const moduleLoader: RunModuleLoader = {
     identity: "just-bash-js-exec-v1",
     normalize(specifier, importer) {
@@ -955,8 +1092,7 @@ ${bootstrap}
       if (requestedExitCode !== undefined) {
         throw new Error("process.exit() already requested");
       }
-      if (specifier === bootstrapModuleSpecifier)
-        return `${setup}\n${isolatedBootstrap}`;
+      if (specifier === bootstrapModuleSpecifier) return bootstrapModuleSource;
       if (!consumeBridgeRequest()) throw new Error(bridgeLimitMessage);
       if (specifier.startsWith("just-bash:builtin:"))
         return createBuiltInModuleSource(
@@ -994,20 +1130,34 @@ ${bootstrap}
   const sourcePrefix = options.isModule
     ? `import ${JSON.stringify(bootstrapModuleSpecifier)};\n`
     : `${setup}\n${isolatedBootstrap}`;
-  const maxGuestSourceBytes = Math.min(
-    ctx.limits.maxWorkerMessageBytes,
-    RUN_MAX_LIMIT_VALUE,
-  );
-  const guestSourceBytes = Buffer.byteLength(options.source);
-  if (guestSourceBytes > maxGuestSourceBytes) {
-    output.exitCode = 1;
-    appendDiagnostic(
-      `js-exec: JavaScript runtime source exceeds the ${maxGuestSourceBytes} byte size limit.\n`,
-    );
-    return output;
-  }
   const source = `${sourcePrefix}${options.source}`;
   const sourceLineOffset = sourcePrefix.split("\n").length - 1;
+  const sourceBytes = Buffer.byteLength(source);
+  const entryGuestBytes =
+    guestSourceBytes +
+    (options.isModule ? 0 : serializedGuestConfigurationBytes);
+  const trustedEntryBytes = Math.max(0, sourceBytes - entryGuestBytes);
+  const bootstrapModuleBytes = options.isModule
+    ? Buffer.byteLength(bootstrapModuleSource)
+    : 0;
+  const trustedBootstrapModuleBytes = Math.max(
+    0,
+    bootstrapModuleBytes - serializedGuestConfigurationBytes,
+  );
+  const maxRunSourceBytes = Math.min(
+    RUN_MAX_LIMIT_VALUE,
+    maxGuestInputBytes +
+      Math.max(trustedEntryBytes, trustedBootstrapModuleBytes),
+  );
+  const maxRunHostFunctionOutputBytes = Math.min(
+    RUN_SYNC_BRIDGE_PAYLOAD_BYTES,
+    Math.max(
+      maxBridgePayloadBytes,
+      options.isModule
+        ? Buffer.byteLength(JSON.stringify(bootstrapModuleSource))
+        : 0,
+    ),
+  );
   // run currently requires a finite 32-bit timeout. Preserve Infinity as
   // its longest practical value (~24.9 days).
   const runTimeoutMs =
@@ -1031,15 +1181,12 @@ ${bootstrap}
             ),
             maxConsoleOutputBytes: 1,
             maxHostFunctionArgumentsBytes: maxBridgePayloadBytes,
-            maxHostFunctionOutputBytes: maxBridgePayloadBytes,
+            maxHostFunctionOutputBytes: maxRunHostFunctionOutputBytes,
             maxResultBytes: Math.min(
               ctx.limits.maxWorkerMessageBytes,
               RUN_MAX_LIMIT_VALUE,
             ),
-            // Guest source is bounded above before the trusted setup and
-            // bootstrap prefix is injected. Do not charge that prefix to the
-            // caller's worker-message allowance.
-            maxSourceBytes: RUN_MAX_LIMIT_VALUE,
+            maxSourceBytes: maxRunSourceBytes,
             memoryLimitBytes: RUN_MEMORY_LIMIT_BYTES,
             timeoutMs: runTimeoutMs,
           },

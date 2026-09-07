@@ -52,6 +52,17 @@ describe("js-exec fs operations", () => {
       expect(result.stdout).toBe("test data\n");
       expect(result.exitCode).toBe(0);
     });
+
+    it("should preserve binary bytes written from a Buffer", async () => {
+      const env = new Bash({ javascript: true });
+      const result = await env.exec(
+        `js-exec -c "fs.writeFileSync('/tmp/binary.bin', Buffer.from([0, 127, 128, 255])); console.log(fs.readFileSync('/tmp/binary.bin').toString('hex'))"`,
+      );
+
+      expect(result.stdout).toBe("007f80ff\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("exists", () => {

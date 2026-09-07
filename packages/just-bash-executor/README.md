@@ -384,3 +384,7 @@ new Bash({
 
 `@just-bash/executor` is one consumer of this hook; raw maps, MCP clients, or
 custom dispatchers are equally valid producers.
+
+The companion passes the signal directly to inline tool contexts and uses it
+to interrupt SDK Effect invocations. External clients used by a tool must
+remain interruptible for cancellation to stop already-started I/O.

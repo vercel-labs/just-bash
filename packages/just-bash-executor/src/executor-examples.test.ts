@@ -466,6 +466,36 @@ describe("executor.setup: GraphQL tool discovery", () => {
   });
 });
 
+describe("executor.setup: cancellation", () => {
+  it("interrupts SDK Effect execution with the js-exec abort signal", async () => {
+    const executor = await createExecutor({
+      exposeToolsAsCommands: false,
+      setup: async (sdk: ExecutorSDKHandle) => {
+        await sdk.sources.add({
+          kind: "custom",
+          name: "wait",
+          tools: {
+            forever: {
+              execute: () => new Promise(() => {}),
+            },
+          },
+        });
+      },
+    });
+    const controller = new AbortController();
+    const invocation = executor.invokeTool(
+      "wait.forever",
+      "",
+      controller.signal,
+    );
+
+    controller.abort();
+
+    await expect(invocation).rejects.toBeDefined();
+    await executor.sdk?.close();
+  });
+});
+
 // ── OpenAPI plugin: static spec → tool discovery ────────────────
 
 const PETSTORE_SPEC = JSON.stringify({

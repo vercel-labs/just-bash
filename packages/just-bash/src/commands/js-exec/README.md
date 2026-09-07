@@ -11,7 +11,7 @@ js-exec -c "console.log('hello world')"
 # Run a file
 js-exec script.js
 
-# TypeScript (auto-detected from extension)
+# TypeScript (supported syntax is always transformed)
 js-exec app.ts
 ```
 
@@ -25,19 +25,20 @@ js-exec [OPTIONS] [-c CODE | FILE] [ARGS...]
 |------|-------------|
 | `-c CODE` | Execute inline code |
 | `-m`, `--module` | Enable ES module mode (`import`/`export`) |
-| `--strip-types` | Strip TypeScript type annotations |
+| `--strip-types` | Compatibility alias; supported TypeScript syntax is always transformed |
 | `--version`, `-V` | Show version |
 | `--help` | Show help |
 
-File extensions are auto-detected:
+File extensions select module mode; supported TypeScript syntax is transformed
+for every input form:
 
 | Extension | Module mode | TypeScript |
 |-----------|-------------|------------|
-| `.js` | no | no |
-| `.mjs` | yes | no |
+| `.js` | no | yes |
+| `.mjs` | yes | yes |
 | `.ts` | yes | yes |
 | `.mts` | yes | yes |
-| `-c` (inline) | no (unless `-m` or top-level `await`) | no (unless `--strip-types`) |
+| `-c` (inline) | no (unless `-m` or top-level `await`) | yes |
 
 ## Node.js Compatibility
 
@@ -232,7 +233,7 @@ import config from '/home/user/config.mjs';
 
 ## TypeScript
 
-TypeScript is auto-detected for `.ts` and `.mts` files. For inline code, use `--strip-types`. Type annotations, interfaces, type aliases, and generics are stripped. Runtime features like `enum` and `namespace` are not supported.
+Supported TypeScript syntax is transformed for every input, regardless of file extension. `--strip-types` remains as a compatibility alias but is not required. Type annotations, interfaces, type aliases, and generics are stripped. Runtime features like `enum` and `namespace` are not supported.
 
 ```bash
 js-exec app.ts
@@ -254,6 +255,6 @@ and/or `@executor-js/sdk` discovery (GraphQL, OpenAPI, MCP).
 ## Limits
 
 - **Memory**: 64 MB per execution
-- **Timeout**: 30 seconds normally and 10 seconds in the hardened profile; never raised by enabling network access (configurable via `maxJsTimeoutMs`, including time spent waiting for another `js-exec` invocation)
+- **Timeout**: 30 seconds normally and 10 seconds in the hardened profile; never raised by enabling network access (configurable via `maxJsTimeoutMs`, including time spent waiting for another `js-exec` invocation; `Infinity` maps to about 24.9 days)
 - **Host bridge operations**: 8 MiB per-call payload ceiling, bounded by `maxJsBridgeRequests` (100,000 in the hardened profile and 1,000,000 otherwise)
 - **Engine**: QuickJS (compiled to WebAssembly)

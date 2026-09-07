@@ -118,11 +118,11 @@ export async function createExecutor(
 
   // SDK path: boot SDK, run user setup, list discovered tools, build a merged
   // invokeTool that prefers inline tools and falls through to the SDK pipeline.
-  const { sdk, rawExecutor } = await initExecutorSDK(
-    config.setup,
-    config.plugins,
-    config.onElicitation,
-  );
+  const {
+    invokeTool: invokeSDKTool,
+    sdk,
+    rawExecutor,
+  } = await initExecutorSDK(config.setup, config.plugins, config.onElicitation);
 
   const discoveredTools = (await sdk.tools.list()) as {
     id: string;
@@ -175,7 +175,7 @@ export async function createExecutor(
       }
     }
 
-    const result = await rawExecutor.tools.invoke(path, args);
+    const result = await invokeSDKTool(path, args, abortSignal);
     abortSignal.throwIfAborted();
 
     return result !== undefined ? JSON.stringify(result) : "";

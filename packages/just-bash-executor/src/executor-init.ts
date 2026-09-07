@@ -29,7 +29,18 @@ type SDKPlugin = unknown;
 type ModuleNamespace = Record<string, unknown>;
 
 type SDKEffect = {
+  isEffect: (value: unknown) => boolean;
   promise: <A>(evaluate: () => Promise<A>) => unknown;
+  runPromise: <A>(
+    effect: unknown,
+    options?: { signal?: AbortSignal },
+  ) => Promise<A>;
+};
+
+type SDKEffectExecutor = Record<string, unknown> & {
+  tools: {
+    invoke: (toolId: string, args: unknown) => unknown;
+  };
 };
 
 type SDKElicitationHandler = "accept-all" | ((ctx: unknown) => unknown);
@@ -40,6 +51,38 @@ const DECLINE_ALL_ELICITATIONS: ExecutorElicitationHandler = async () => ({
 const EXECUTOR_API_PACKAGE = "@executor-js/api";
 const transformedModuleCache = new Map<string, Promise<ModuleNamespace>>();
 const executorApiShimUrlCache = new Map<string, Promise<string>>();
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    !(value instanceof Date) &&
+    !(value instanceof Promise)
+  );
+}
+
+function promisifySDKValue(value: unknown, Effect: SDKEffect): unknown {
+  if (typeof value === "function") {
+    return (...args: unknown[]) => {
+      const result = value(...args);
+      return Effect.isEffect(result) ? Effect.runPromise(result) : result;
+    };
+  }
+  if (!isPlainObject(value)) return value;
+  return new Proxy(value, {
+    get(target, property, receiver) {
+      const nested = Reflect.get(target, property, receiver) as unknown;
+      if (typeof nested === "function") {
+        return (...args: unknown[]) => {
+          const result = nested.apply(target, args) as unknown;
+          return Effect.isEffect(result) ? Effect.runPromise(result) : result;
+        };
+      }
+      return isPlainObject(nested) ? promisifySDKValue(nested, Effect) : nested;
+    },
+  });
+}
 
 // @executor-js 0.1.0 plugin core bundles import @executor-js/api for HTTP
 // route helpers, but that package is not published. just-bash only needs the
@@ -421,6 +464,11 @@ export async function initExecutorSDK(
   plugins: ExecutorConfig["plugins"] | undefined,
   onElicitation: ExecutorConfig["onElicitation"] | undefined,
 ): Promise<{
+  invokeTool: (
+    path: string,
+    args: unknown,
+    abortSignal: AbortSignal,
+  ) => Promise<unknown>;
   sdk: ExecutorSDKHandle;
   rawExecutor: SDKExecutor;
 }> {
@@ -451,8 +499,8 @@ export async function initExecutorSDK(
     queuedSources.map((source) => String(source.kind ?? "custom")),
   );
 
-  const { createExecutor } = await import("@executor-js/sdk");
-  const { Effect } = await import("@executor-js/sdk/core");
+  const sdkCore = await import("@executor-js/sdk/core");
+  const Effect = sdkCore.Effect as SDKEffect;
   const { discoveryPlugin } = await import("./executor-discovery-plugin.js");
   const officialPlugins = await loadOfficialPlugins(sourceKinds);
 
@@ -462,15 +510,28 @@ export async function initExecutorSDK(
     ...((plugins ?? []) as SDKPlugin[]),
   ];
 
-  const createSDKExecutor = createExecutor as (config: {
+  const scopes = [
+    new sdkCore.Scope({
+      createdAt: new Date(),
+      id: sdkCore.ScopeId.make(DEFAULT_SCOPE_ID),
+      name: "default",
+    }),
+  ];
+  const makeSDKConfig = sdkCore.makeTestConfig as unknown as (options: {
     plugins: SDKPlugin[];
-    onElicitation: SDKElicitationHandler;
-  }) => Promise<unknown>;
-
-  const executor = (await createSDKExecutor({
-    plugins: allPlugins,
+    scopes: unknown[];
+  }) => Record<string, unknown>;
+  const createSDKExecutor = sdkCore.createExecutor as unknown as (
+    config: Record<string, unknown>,
+  ) => unknown;
+  const effectConfig = {
+    ...makeSDKConfig({ plugins: allPlugins, scopes }),
     onElicitation: toSDKElicitationHandler(Effect, onElicitation),
-  })) as SDKExecutor;
+  };
+  const effectExecutor = await Effect.runPromise<SDKEffectExecutor>(
+    createSDKExecutor(effectConfig),
+  );
+  const executor = promisifySDKValue(effectExecutor, Effect) as SDKExecutor;
 
   const addSource = createAddSource(executor);
   const sdk: ExecutorSDKHandle = {
@@ -489,7 +550,14 @@ export async function initExecutorSDK(
     await addSource(source);
   }
 
-  return { sdk, rawExecutor: executor };
+  return {
+    invokeTool: (path, args, abortSignal) =>
+      Effect.runPromise(effectExecutor.tools.invoke(path, args), {
+        signal: abortSignal,
+      }),
+    rawExecutor: executor,
+    sdk,
+  };
 }
 
 function createAddSource(

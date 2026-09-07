@@ -2,6 +2,27 @@ import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
 describe("js-exec TypeScript type stripping", () => {
+  it("transforms supported TypeScript syntax for every input form", async () => {
+    const env = new Bash({
+      files: {
+        "/typed.js": "const value: number = 2; console.log(value);",
+        "/typed.mjs":
+          "const value: number = 3; console.log(value); export default value;",
+      },
+      javascript: true,
+    });
+
+    const inline = await env.exec(
+      `js-exec -c "const value: number = 1; console.log(value)"`,
+    );
+    const script = await env.exec("js-exec /typed.js");
+    const module = await env.exec("js-exec /typed.mjs");
+
+    expect(inline).toMatchObject({ exitCode: 0, stdout: "1\n" });
+    expect(script).toMatchObject({ exitCode: 0, stdout: "2\n" });
+    expect(module).toMatchObject({ exitCode: 0, stdout: "3\n" });
+  });
+
   it(
     "should strip types from .ts files with various type constructs",
     { timeout: 30000 },
