@@ -4,6 +4,7 @@
  * Holds all state for AWK program execution.
  */
 
+import type { CommandExecutionBudget } from "../../../execution-scope.js";
 import { ConstantRegex, type RegexLike } from "../../../regex/index.js";
 import type { FeatureCoverageWriter } from "../../../types.js";
 import type { AwkFunctionDef } from "../ast.js";
@@ -100,6 +101,8 @@ export interface AwkRuntimeContext {
 
   // Defense context invariant flag propagated from RuntimeCommandContext
   requireDefenseContext?: boolean;
+  /** Shared accounting; supplies the wall-clock deadline during record loops. */
+  executionScope?: CommandExecutionBudget;
 }
 
 export interface CreateContextOptions {
@@ -115,6 +118,7 @@ export interface CreateContextOptions {
   ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
   coverage?: FeatureCoverageWriter;
   requireDefenseContext?: boolean;
+  executionScope?: CommandExecutionBudget;
 }
 
 export function createRuntimeContext(
@@ -168,6 +172,7 @@ export function createRuntimeContext(
     maxRecursionDepth,
     maxOutputSize,
     maxArrayElements,
+    executionScope: options.executionScope,
     arrayElementCount: 0,
     recordsProcessed: 0,
     currentRecursionDepth: 0,

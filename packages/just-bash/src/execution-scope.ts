@@ -35,6 +35,12 @@ export interface CommandExecutionBudget {
 }
 
 type Cleanup = () => void | Promise<void>;
+
+/**
+ * Rows between deadline checks inside a data command's row loop: bounds
+ * cancellation latency without putting a check on the hot path.
+ */
+export const DEADLINE_CHECK_STRIDE = 1024;
 const OUTPUT_RELEASE_AUTHORITY = Object.freeze(Object.create(null) as object);
 
 /**

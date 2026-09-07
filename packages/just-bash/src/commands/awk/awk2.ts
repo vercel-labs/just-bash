@@ -159,6 +159,7 @@ export const awkCommand2: RuntimeCommand = {
         ctx.limits.maxOutputSize,
       ),
       maxArrayElements: ctx.limits.maxArrayElements,
+      executionScope: ctx.executionScope,
       fs: awkFs,
       cwd: ctx.cwd,
       // Wrap ctx.exec to match the expected signature for command pipe getline

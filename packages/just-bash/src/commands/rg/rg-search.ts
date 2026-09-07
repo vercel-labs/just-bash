@@ -298,6 +298,7 @@ export async function executeSearch(
       maxWork: ctx.limits.maxLoopIterations,
       maxMatches: ctx.limits.maxArrayElements,
       signal: ctx.signal,
+      budget: ctx.executionScope,
     });
 
     if (options.quiet) {
@@ -1185,6 +1186,7 @@ async function searchFiles(
             maxWork: ctx.limits.maxLoopIterations,
             maxMatches: ctx.limits.maxArrayElements,
             signal: ctx.signal,
+            budget: ctx.executionScope,
           });
 
           // JSON formatting below needs the source after this task ends, so
