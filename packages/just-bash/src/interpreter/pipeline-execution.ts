@@ -24,6 +24,7 @@ import type { InterpreterContext } from "./types.js";
 export type ExecuteCommandFn = (
   node: CommandNode,
   stdin: string,
+  stdinOwned?: boolean,
 ) => Promise<ExecResult>;
 
 /**
@@ -94,7 +95,7 @@ export async function executePipeline(
     const outputCheckpoint = ctx.executionScope.outputBytesUsed;
     try {
       ctx.state.commandCount = ctx.executionScope.chargeCommand();
-      result = await executeCommand(command, stdin);
+      result = await executeCommand(command, stdin, !isFirst);
     } catch (error) {
       // BadSubstitutionError should fail the command but not abort the script
       if (error instanceof BadSubstitutionError) {
