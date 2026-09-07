@@ -118,6 +118,7 @@ import { flagsForFuzzing as whoami } from "./whoami/whoami.js";
 import { flagsForFuzzing as xan } from "./xan/xan.js";
 // Utilities
 import { flagsForFuzzing as xargs } from "./xargs/xargs.js";
+import { flagsForFuzzing as yes } from "./yes/yes.js";
 import { flagsForFuzzing as yq } from "./yq/yq.js";
 
 const allFuzzInfo: CommandFuzzInfo[] = [
@@ -174,6 +175,7 @@ const allFuzzInfo: CommandFuzzInfo[] = [
   xargs,
   trueCmd,
   falseCmd,
+  yes,
   clear,
   bash,
   sh,
