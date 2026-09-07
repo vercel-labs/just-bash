@@ -5,9 +5,13 @@
  * time, so consumers who only use inline tools don't pay for SDK imports.
  */
 /** Tool definition for inline registration. */
+export interface ExecutorToolContext {
+    /** Aborts when the originating js-exec invocation is canceled or times out. */
+    abortSignal: AbortSignal;
+}
 export interface ExecutorToolDef {
     description?: string;
-    execute: (...args: any[]) => unknown;
+    execute: (args: any, context: ExecutorToolContext) => unknown;
 }
 /**
  * Elicitation context passed to the handler when a tool requests user input.

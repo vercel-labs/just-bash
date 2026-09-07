@@ -49,5 +49,5 @@ export interface ToolEntry {
  * Group tool entries by namespace (first dot-segment) and build
  * namespace commands.
  */
-export declare function buildNamespaceCommands(tools: ToolEntry[], invokeTool: (path: string, argsJson: string) => Promise<string>): Command[];
+export declare function buildNamespaceCommands(tools: ToolEntry[], invokeTool: (path: string, argsJson: string, abortSignal: AbortSignal) => Promise<string>): Command[];
 export {};
