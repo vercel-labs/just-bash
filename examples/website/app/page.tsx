@@ -106,8 +106,15 @@ export default function Home() {
       </noscript>
       <TerminalData />
       {mounted ? <TerminalComponent /> : null}
-      <a href="https://vercel.com" target="_blank" hidden id="credits">
-        Created by Vercel Labs
+      <a
+        href="https://vercel.com"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="vercel-badge"
+      >
+        <svg height="16" viewBox="0 0 283 64" fill="currentColor">
+          <path d="M36.95 0L73.9 64H0L36.95 0z" />
+        </svg>
       </a>
     </>
   );
