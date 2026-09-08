@@ -9,6 +9,7 @@ import type {
 } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import { formatStrftime } from "../printf/strftime.js";
+import { isValidTimezone, parseBareISOInTimezone } from "../timezone.js";
 
 const dateHelp = {
   name: "date",
@@ -22,87 +23,6 @@ const dateHelp = {
     "    --help          display this help and exit",
   ],
 };
-
-/**
- * True iff `tz` is a timezone Intl understands. Used to fall back to host-local
- * when `TZ` is set to a value Node's ICU build can't resolve, matching GNU
- * `date` (which silently uses local time on invalid `TZ`).
- */
-function isValidTimezone(tz: string): boolean {
-  try {
-    new Intl.DateTimeFormat(undefined, { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Return what `tz` shows at instant `d`, encoded as a UTC Date whose
- * UTC components equal the wall-clock components shown in `tz`.
- * Returns null if Intl rejects the timezone or produces an unparseable date.
- */
-function tzShownAsUtc(d: Date, tz: string): Date | null {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).formatToParts(d);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
-  const h = Number.parseInt(get("hour"), 10) % 24;
-  const shown = new Date(
-    `${get("year")}-${get("month")}-${get("day")}T${String(h).padStart(2, "0")}:${get("minute")}:${get("second")}Z`,
-  );
-  return Number.isNaN(shown.getTime()) ? null : shown;
-}
-
-/**
- * Interpret a bare ISO datetime string (no explicit offset) as if it were
- * in the given named timezone, returning the corresponding UTC Date.
- *
- * Strategy: treat the requested components as a UTC instant, then iteratively
- * refine by asking the timezone what wall-clock it shows at the current
- * candidate and applying the residual delta. Outside DST the loop converges
- * in one pass; across a DST boundary it converges in two. Bounded at 3
- * iterations as a safety net.
- *
- * DST edge cases:
- * - Skipped wall times (spring-forward gap, e.g. America/New_York
- *   2024-03-10T02:30 does not exist): the loop oscillates and we return the
- *   last candidate. In practice this lands on the post-shift (EDT) instant
- *   for the gap.
- * - Ambiguous wall times (fall-back, e.g. America/New_York 2024-11-03T01:30
- *   occurs twice): the seed's first shift uses the offset at the requested
- *   components-as-UTC, which is still EDT for the November case, so the
- *   loop converges on the earlier (EDT) instant.
- */
-function parseBareISOInTimezone(s: string, tz: string): Date | null {
-  const m = s.match(
-    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?$/,
-  );
-  if (!m) return null;
-  const [, yr, mo, dy, hr = "00", mn = "00", sc = "00"] = m;
-  const requested = new Date(`${yr}-${mo}-${dy}T${hr}:${mn}:${sc}Z`);
-  if (Number.isNaN(requested.getTime())) return null;
-  try {
-    let candidate = requested;
-    for (let pass = 0; pass < 3; pass++) {
-      const shown = tzShownAsUtc(candidate, tz);
-      if (shown === null) return null;
-      const drift = shown.getTime() - requested.getTime();
-      if (drift === 0) return candidate;
-      candidate = new Date(candidate.getTime() - drift);
-    }
-    return candidate;
-  } catch {
-    return null;
-  }
-}
 
 function parseDate(s: string, tz?: string): Date | null {
   // @unix-timestamp (GNU extension: date -d @1234567890)
