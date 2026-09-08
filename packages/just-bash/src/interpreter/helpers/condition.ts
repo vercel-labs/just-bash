@@ -12,7 +12,11 @@ import type { InterpreterContext } from "../types.js";
 
 export type ConditionResult = Pick<
   ExecResult,
-  "stdout" | "stderr" | "exitCode" | "internalOutputAccounting"
+  | "stdout"
+  | "stderr"
+  | "exitCode"
+  | "internalOutputAccounting"
+  | "internalOutputChunks"
 >;
 
 /**

@@ -209,13 +209,18 @@ export async function callFunction(
       func.redirections,
       prepared.targets,
       prepared.dupSources,
+      prepared.openedEntries,
       prepared.standardRoutes,
     );
   } catch (error) {
     if (error instanceof ControlFlowError && prepared) {
       await routeControlFlowError(ctx, error, func.redirections, prepared);
       if (error instanceof ReturnError) {
-        return result(error.stdout, error.stderr, error.exitCode);
+        const returned = result(error.stdout, error.stderr, error.exitCode);
+        if (error.outputChunks?.length) {
+          returned.internalOutputChunks = error.outputChunks;
+        }
+        return returned;
       }
     }
     throw error;

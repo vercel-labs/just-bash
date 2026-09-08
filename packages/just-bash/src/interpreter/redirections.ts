@@ -14,10 +14,16 @@ import type { HereDocNode, RedirectionNode, WordNode } from "../ast/types.js";
 import {
   encodeUtf8ToBytes,
   latin1FromBytes,
+  type OutputKind,
   readBytesFrom,
   utf8ByteLength,
 } from "../encoding.js";
-import type { ExecResult } from "../types.js";
+import {
+  chunksDescribe,
+  joinChunkTexts,
+  orderedOutput,
+} from "../output-chunks.js";
+import type { ExecResult, OutputChunk } from "../types.js";
 import {
   ControlFlowError,
   ErrexitError,
@@ -118,9 +124,20 @@ type PreparedDupSource =
 
 export type PreparedDupSources = Map<number, PreparedDupSource>;
 
+/**
+ * The fd-table entry each output redirection's open produced, keyed by its
+ * position in the redirection list.
+ *
+ * Two redirections naming one path are two opens with two positions of their
+ * own, so identity here is what separates `> f 2>&1` -- one open, both fds --
+ * from `> f 2> f`, which clobbers.
+ */
+export type OpenedRedirectEntries = Map<number, FdEntry>;
+
 export type PreparedRedirections = {
   targets: ExpandedRedirectTargets;
   dupSources: PreparedDupSources;
+  openedEntries: OpenedRedirectEntries;
   standardRoutes: Map<number, FdEntry>;
   stdin: string | undefined;
   stdinSourceFd: number;
@@ -319,6 +336,7 @@ async function prepareRedirectionsWithState(
 ): Promise<PreparedRedirections> {
   const targets: ExpandedRedirectTargets = new Map();
   const dupSources: PreparedDupSources = new Map();
+  const openedEntries: OpenedRedirectEntries = new Map();
   const standardRoute = (fd: number, fallback: FdEntry): FdEntry =>
     ctx.state.closedStandardFds?.has(fd)
       ? { kind: "closed" }
@@ -342,6 +360,7 @@ async function prepareRedirectionsWithState(
   const base = (): PreparedRedirections => ({
     targets,
     dupSources,
+    openedEntries,
     standardRoutes,
     stdin,
     stdinSourceFd,
@@ -360,6 +379,7 @@ async function prepareRedirectionsWithState(
         redirections.slice(0, index),
         targets,
         dupSources,
+        openedEntries,
         standardRoutes,
       ),
     };
@@ -920,6 +940,7 @@ async function prepareRedirectionsWithState(
       );
       if (opened.error) return fail(opened.error, index);
       const entry = opened.entry as FdEntry;
+      openedEntries.set(index, entry);
       if (redir.operator === "&>" || redir.operator === "&>>") {
         persistStandard(1, entry);
         persistStandard(2, entry);
@@ -1033,16 +1054,26 @@ export async function routeControlFlowError(
       : error instanceof ExecutionLimitError
         ? ExecutionLimitError.EXIT_CODE
         : 0;
+  const carried = makeResult(error.stdout, error.stderr, exitCode);
+  if (error.outputChunks?.length) {
+    carried.internalOutputChunks = error.outputChunks;
+  }
   const routed = await applyRedirections(
     ctx,
-    makeResult(error.stdout, error.stderr, exitCode),
+    carried,
     redirections,
     prepared.targets,
     prepared.dupSources,
+    prepared.openedEntries,
     prepared.standardRoutes,
   );
   error.stdout = routed.stdout;
   error.stderr = routed.stderr;
+  error.outputChunks = orderedOutput(
+    routed.internalOutputChunks,
+    routed.stdout,
+    routed.stderr,
+  );
   error.internalOutputAccounting = routed.internalOutputAccounting ?? {
     stdout: utf8ByteLength(routed.stdout),
     stderr: utf8ByteLength(routed.stderr),
@@ -1078,6 +1109,7 @@ export async function withPreparedRedirections(
         redirections,
         prepared.targets,
         prepared.dupSources,
+        prepared.openedEntries,
         prepared.standardRoutes,
       );
     } finally {
@@ -1095,12 +1127,43 @@ export async function withPreparedRedirections(
   }
 }
 
+/**
+ * The two streams merged into one, in the order the interpreter recorded them,
+ * so a duplication like `2>&1` splices stderr where it was written instead of
+ * appending it after all of stdout.
+ *
+ * Falls back to stdout-then-stderr whenever the recorded chunks no longer
+ * describe both pending strings -- a single command records no order, and the
+ * redirection list above may have rewritten a stream (an ambiguous-redirect
+ * message, a target that failed to open).
+ *
+ * Either way the pieces are joined by shape rather than concatenated, since
+ * the two streams reaching one descriptor need not agree on one: a
+ * byte-shaped stdout and a Unicode stderr are both written through the single
+ * encoding this returns.
+ */
+function mergeInRecordedOrder(
+  chunks: OutputChunk[] | undefined,
+  pendingStdout: string,
+  pendingStderr: string,
+  stdoutKind: OutputKind,
+): { text: string; kind: OutputKind } {
+  if (!chunksDescribe(chunks, pendingStdout, pendingStderr)) {
+    return joinChunkTexts([
+      { text: pendingStdout, kind: stdoutKind },
+      { text: pendingStderr, kind: "text" },
+    ]);
+  }
+  return joinChunkTexts(chunks);
+}
+
 export async function applyRedirections(
   ctx: InterpreterContext,
   result: ExecResult,
   redirections: RedirectionNode[],
   targets: ExpandedRedirectTargets,
   dupSources: PreparedDupSources = new Map(),
+  openedEntries: OpenedRedirectEntries = new Map(),
   standardRoutes: Map<number, FdEntry> = new Map(),
   writeErrorCommand = "bash",
   omitShellPrefix = false,
@@ -1145,7 +1208,10 @@ export async function applyRedirections(
   type RedirectSink =
     | { kind: "live-stdout" }
     | { kind: "live-stderr" }
-    | { kind: "file"; path: string; append: boolean }
+    // `entry` is the fd-table entry this redirection's own open produced, so
+    // a dup that resolved back to it can be told apart from an independent
+    // open of the same path.
+    | { kind: "file"; path: string; append: boolean; entry?: FdEntry }
     | {
         kind: "descriptor";
         source: Extract<PreparedDupSource, { kind: "entry" }>;
@@ -1259,10 +1325,16 @@ export async function applyRedirections(
           break;
         }
         const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+        const sink: RedirectSink = {
+          kind: "file",
+          path: filePath,
+          append: isAppend,
+          entry: openedEntries.get(i),
+        };
         if (fd === 1) {
-          fd1Sink = { kind: "file", path: filePath, append: isAppend };
+          fd1Sink = sink;
         } else {
-          fd2Sink = { kind: "file", path: filePath, append: isAppend };
+          fd2Sink = sink;
         }
         break;
       }
@@ -1291,30 +1363,46 @@ export async function applyRedirections(
 
       case "&>": {
         const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-        fd1Sink = { kind: "file", path: filePath, append: false };
+        fd1Sink = {
+          kind: "file",
+          path: filePath,
+          append: false,
+          entry: openedEntries.get(i),
+        };
         fd2Sink = fd1Sink;
         break;
       }
 
       case "&>>": {
         const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-        fd1Sink = { kind: "file", path: filePath, append: true };
+        fd1Sink = {
+          kind: "file",
+          path: filePath,
+          append: true,
+          entry: openedEntries.get(i),
+        };
         fd2Sink = fd1Sink;
         break;
       }
     }
   }
 
+  // The order of whatever is still on the caller's streams once delivery is
+  // done, and the shape stdout is left in. Both describe only what this
+  // function hands back, so an enclosing scope can go on merging along them.
+  let deliveredChunks: OutputChunk[] | undefined;
+  let mergedStdoutKind: OutputKind | undefined;
+
   // Deliver content still held in the streams to each fd's final sink.
   // "live-stdout" / "live-stderr" mean the caller's own streams as they were
   // before any redirection — a dup snapshot of a live fd keeps pointing
   // there even if a later redirection sends the source fd elsewhere.
   //
-  // A duplication (`2>&1`) shares the source fd's sink OBJECT — one open
-  // descriptor, so both streams go through it in order. Two independent
-  // redirects that happen to name the same path (`> f 2> f`) are separate
-  // descriptors, each writing from its own start position, so the later
-  // non-empty write clobbers the earlier one — matching bash's
+  // A duplication (`2>&1`) puts both fds on one open descriptor (see
+  // `fdsShareOneDescriptor`), so both streams go through it in order. Two
+  // independent redirects that happen to name the same path (`> f 2> f`) are
+  // separate descriptors, each writing from its own start position, so the
+  // later non-empty write clobbers the earlier one — matching bash's
   // independent-open behavior.
   if (stdout !== "" || stderr !== "") {
     let pendingStdout = stdout;
@@ -1327,6 +1415,64 @@ export async function applyRedirections(
       exitCode = 1;
     }
     if (fd2Sink.kind === "invalid-output") pendingStderr = "";
+    // The entry a sink writes through, for the redirections in this list that
+    // produced one. An entry opened here is handed to the dup that names its
+    // fd, so both fds arrive holding the one object.
+    const entryBehind = (sink: RedirectSink): FdEntry | undefined =>
+      sink.kind === "descriptor"
+        ? sink.source.entry
+        : sink.kind === "file"
+          ? sink.entry
+          : undefined;
+    // The fds sharing the open a dup resolved to. An entry that came back out
+    // of the fd table was decoded on lookup, so two dups of one open arrive as
+    // two equal objects; the alias group is what still ties them together,
+    // being exactly the set of fds on that open.
+    const aliasesBehind = (sink: RedirectSink): number[] | undefined =>
+      sink.kind === "descriptor" ? sink.source.descriptors : undefined;
+    // Whether both fds ended up on one open descriptor, which is what makes a
+    // duplication carry the two streams in the order they were written.
+    //
+    // Sharing the sink object is one way to be that descriptor (`&> f` points
+    // both fds at one open). The rest come from a sink rebuilt rather than
+    // shared: the live streams are the caller's own stdout and stderr, of
+    // which there is only ever one each; a dup of a file opened beside it
+    // (`> f 2>&1`) holds that open's entry; and two dups of a descriptor the
+    // caller already had (`exec 3> f` then `>&3 2>&3`) sit in one alias
+    // group. Two independent redirects to one path (`> f 2> f`) open an entry
+    // each and share no group, so they match none of these and keep
+    // clobbering.
+    const fdsShareOneDescriptor = (): boolean => {
+      if (fd1Sink === fd2Sink) return true;
+      if (fd1Sink.kind === "live-stdout" && fd2Sink.kind === "live-stdout") {
+        return true;
+      }
+      if (fd1Sink.kind === "live-stderr" && fd2Sink.kind === "live-stderr") {
+        return true;
+      }
+      const fd1Entry = entryBehind(fd1Sink);
+      if (fd1Entry !== undefined && fd1Entry === entryBehind(fd2Sink)) {
+        return true;
+      }
+      const fd1Aliases = aliasesBehind(fd1Sink);
+      const fd2Aliases = aliasesBehind(fd2Sink);
+      return (
+        fd1Aliases !== undefined &&
+        fd2Aliases !== undefined &&
+        fd1Aliases.some((fd) => fd2Aliases.includes(fd))
+      );
+    };
+    // Which of the caller's own streams each pending string ended up on, if
+    // either did. Only those two are still described by the result returned
+    // below, so only they can carry the recorded order to the next layer.
+    const liveStreamOf = (
+      sink: RedirectSink,
+    ): "stdout" | "stderr" | undefined =>
+      sink.kind === "live-stdout"
+        ? "stdout"
+        : sink.kind === "live-stderr"
+          ? "stderr"
+          : undefined;
     const deliverToFile = async (
       sink: { path: string; append: boolean },
       content: string,
@@ -1338,27 +1484,47 @@ export async function applyRedirections(
         await ctx.fs.writeFile(sink.path, content, encoding);
       }
     };
-    if (
-      fd1Sink === fd2Sink &&
-      (fd1Sink.kind === "file" || fd1Sink.kind === "descriptor")
-    ) {
-      // stdout-then-stderr order, not the command's temporal write order:
-      // ExecResult accumulates the two streams separately, so interleaving
-      // is not recorded anywhere in the interpreter. This matches the
-      // convention of the live-stream merge (`stdout += stderr`) used for a
-      // bare `2>&1`.
-      const combined = pendingStdout + pendingStderr;
-      if (combined !== "") {
-        if (fd1Sink.kind === "file") {
-          await deliverToFile(fd1Sink, combined, getStdoutEncoding(combined));
-        } else {
-          await writeFdEntry(
-            ctx,
-            fd1Sink.source.entry,
-            fd1Sink.source.descriptors,
-            combined,
-            getStdoutEncoding(combined),
-          );
+    if (fdsShareOneDescriptor()) {
+      // One descriptor carries both streams, so they arrive at it in the order
+      // they were written.
+      const combined = mergeInRecordedOrder(
+        result.internalOutputChunks,
+        pendingStdout,
+        pendingStderr,
+        stdoutIsBytes ? "bytes" : "text",
+      );
+      if (combined.text !== "") {
+        const encoding = combined.kind === "bytes" ? "binary" : "utf8";
+        switch (fd1Sink.kind) {
+          case "live-stdout":
+            stdout += combined.text;
+            mergedStdoutKind = combined.kind;
+            break;
+          case "live-stderr":
+            stderr += combined.text;
+            break;
+          case "file":
+            await deliverToFile(fd1Sink, combined.text, encoding);
+            break;
+          case "descriptor":
+            await writeFdEntry(
+              ctx,
+              fd1Sink.source.entry,
+              fd1Sink.source.descriptors,
+              combined.text,
+              encoding,
+            );
+            break;
+          case "invalid-output":
+            break;
+          case "discard":
+            break;
+        }
+        const landedOn = liveStreamOf(fd1Sink);
+        if (landedOn) {
+          deliveredChunks = [
+            { stream: landedOn, text: combined.text, kind: combined.kind },
+          ];
         }
       }
     } else {
@@ -1398,19 +1564,50 @@ export async function applyRedirections(
             break;
         }
       }
+      // Each stream went to a destination of its own, so what stayed with the
+      // caller keeps the order it was written in — re-tagged for the stream it
+      // landed on, since a swap (`1>&2 2>&1`) sends each to the other, and
+      // minus any piece routed away from the caller along with the content it
+      // describes. Nothing is recorded where nothing was: an order the
+      // upstream never observed must stay unobserved, or a single command's
+      // two strings would come out of here claiming to be stdout-then-stderr.
+      const stdoutTo = liveStreamOf(fd1Sink);
+      const stderrTo = liveStreamOf(fd2Sink);
+      const recorded = result.internalOutputChunks;
+      if (chunksDescribe(recorded, pendingStdout, pendingStderr)) {
+        deliveredChunks = recorded.flatMap((chunk) => {
+          const landedOn = chunk.stream === "stdout" ? stdoutTo : stderrTo;
+          return landedOn ? [{ ...chunk, stream: landedOn }] : [];
+        });
+      }
     }
   }
 
   const finalResult = makeResult(stdout, stderr, exitCode);
+  // Carry the write order across this layer, so a scope that redirects
+  // nothing (or redirects only one fd) does not flatten what it relays and
+  // leave an enclosing `2>&1` with two strings to guess at.
+  if (deliveredChunks?.length) {
+    finalResult.internalOutputChunks = deliveredChunks;
+  }
   // Preserve the upstream's stdout shape through the redirection layer so
   // the next stage (pipeline glue, output boundary) can tell bytes-shaped
   // output from text-shaped output. Both the new `stdoutKind` field and
-  // the legacy `stdoutEncoding` alias are forwarded.
-  if (result.stdoutKind) {
-    finalResult.stdoutKind = result.stdoutKind;
-  }
-  if (result.stdoutEncoding === "binary") {
-    finalResult.stdoutEncoding = "binary";
+  // the legacy `stdoutEncoding` alias are forwarded. A merge that put both
+  // streams on the caller's stdout decides the shape itself: joining a byte
+  // buffer with Unicode text settles on bytes for the pair.
+  if (mergedStdoutKind) {
+    finalResult.stdoutKind = mergedStdoutKind;
+    if (mergedStdoutKind === "bytes" && result.stdoutEncoding === "binary") {
+      finalResult.stdoutEncoding = "binary";
+    }
+  } else {
+    if (result.stdoutKind) {
+      finalResult.stdoutKind = result.stdoutKind;
+    }
+    if (result.stdoutEncoding === "binary") {
+      finalResult.stdoutEncoding = "binary";
+    }
   }
   if (result.internalPipeStatusOverride) {
     finalResult.internalPipeStatusOverride = result.internalPipeStatusOverride;

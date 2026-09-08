@@ -1,4 +1,4 @@
-import type { ByteString } from "./encoding.js";
+import type { ByteString, OutputKind } from "./encoding.js";
 import type { CommandExecutionBudget } from "./execution-scope.js";
 import type { IFileSystem } from "./fs/interface.js";
 import type { ExecutionLimits } from "./limits.js";
@@ -10,6 +10,25 @@ import type { SecureFetch } from "./network/index.js";
  */
 export interface FeatureCoverageWriter {
   hit(feature: string): void;
+}
+
+/**
+ * One stream's worth of output, tagged with which stream produced it and what
+ * shape its text is in.
+ *
+ * The shape travels per piece rather than per result because a duplication
+ * puts pieces of both streams on one descriptor, where a byte-shaped stdout
+ * and a Unicode stderr need different encodings on the way out.
+ * @internal
+ */
+export interface OutputChunk {
+  stream: "stdout" | "stderr";
+  text: string;
+  /**
+   * Matches `ExecResult.stdoutKind`. A stderr piece is `"text"` unless a
+   * duplication put byte-shaped stdout on that stream.
+   */
+  kind: OutputKind;
 }
 
 export interface ExecResult {
@@ -48,6 +67,19 @@ export interface ExecResult {
   internalProducerOmitsShellPrefix?: boolean;
   /** @internal Bytes consumed from a descriptor-backed stdin stream. */
   internalStdinConsumed?: number;
+  /**
+   * The stdout and stderr pieces of this result in the order they were
+   * produced, when the interpreter observed that order. `stdout` and `stderr`
+   * remain authoritative -- they are these pieces filtered by stream -- so this
+   * only adds back the relative ordering that keeping two strings discards.
+   *
+   * Set for a result the interpreter assembled from more than one statement: a
+   * group, a subshell, a loop, a function body. Absent for a single command,
+   * whose two streams arrive already separated, so consumers fall back to
+   * stdout-then-stderr there.
+   * @internal
+   */
+  internalOutputChunks?: OutputChunk[];
   /**
    * Bytes in the current result that have already been charged to the shared
    * execution output budget. Interpreter plumbing must preserve this when it

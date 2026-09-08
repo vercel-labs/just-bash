@@ -727,6 +727,7 @@ export class Interpreter {
           node.redirections,
           preparedRedirections.targets,
           preparedRedirections.dupSources,
+          preparedRedirections.openedEntries,
           preparedRedirections.standardRoutes,
         );
         transaction.finish();
@@ -994,6 +995,7 @@ export class Interpreter {
       node.redirections,
       preparedRedirections.targets,
       preparedRedirections.dupSources,
+      preparedRedirections.openedEntries,
       preparedRedirections.standardRoutes,
       cmdResult.internalProducerCommand ?? commandName,
       cmdResult.internalProducerOmitsShellPrefix,
