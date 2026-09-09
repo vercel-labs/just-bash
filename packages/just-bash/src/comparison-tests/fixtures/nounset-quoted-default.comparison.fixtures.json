@@ -1,0 +1,81 @@
+{
+  "0527bcbdf93ecea6": {
+    "command": "set -u; unset JB_NOUNSET_F; echo \"[${JB_NOUNSET_F+alt}]\"",
+    "files": {},
+    "stdout": "[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "21803fe924c962d8": {
+    "command": "set -u; unset JB_NOUNSET_D; echo \"${JB_NOUNSET_D=assigned}\"; echo \"$JB_NOUNSET_D\"",
+    "files": {},
+    "stdout": "assigned\nassigned\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2f981e30be51fdc9": {
+    "command": "set -u; unset JB_NOUNSET_J; echo \"${JB_NOUNSET_J}\"; echo reached",
+    "files": {},
+    "stdout": "",
+    "stderr": "/bin/bash: line 1: JB_NOUNSET_J: unbound variable\n",
+    "exitCode": 127,
+    "locked": true
+  },
+  "42bf6bb9eaecafe8": {
+    "command": "set -euo pipefail\nunset GITHUB_STEP_SUMMARY\nif [ -n \"${GITHUB_STEP_SUMMARY:-}\" ]; then echo \"writing to $GITHUB_STEP_SUMMARY\"; else echo \"no step summary\"; fi\nGITHUB_STEP_SUMMARY=summary.md\nif [ -n \"${GITHUB_STEP_SUMMARY:-}\" ]; then echo \"report\" >> \"$GITHUB_STEP_SUMMARY\"; fi\ncat summary.md",
+    "files": {},
+    "stdout": "no step summary\nreport\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5f5535bb94da437c": {
+    "command": "set -u; unset JB_NOUNSET_C; echo \"${JB_NOUNSET_C:=assigned}\"; echo \"$JB_NOUNSET_C\"",
+    "files": {},
+    "stdout": "assigned\nassigned\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "62c4ed942dfeee5a": {
+    "command": "set -u; JB_NOUNSET_G=value; JB_NOUNSET_H=; echo \"${JB_NOUNSET_G:-fallback}\"; echo \"[${JB_NOUNSET_H:-fallback}]\"; echo \"[${JB_NOUNSET_H-fallback}]\"",
+    "files": {},
+    "stdout": "value\n[fallback]\n[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "81e8cd70967cddeb": {
+    "command": "set -u; unset JB_NOUNSET_ARR; echo \"${JB_NOUNSET_ARR[@]:-fallback}\"; echo \"[${JB_NOUNSET_ARR[@]:+alt}]\"",
+    "files": {},
+    "stdout": "fallback\n[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ae1a1d7f33660417": {
+    "command": "set -u; unset JB_NOUNSET_A; echo \"${JB_NOUNSET_A:-fallback}\"",
+    "files": {},
+    "stdout": "fallback\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "aeea8559e831ba3b": {
+    "command": "set -u; unset JB_NOUNSET_B; echo \"${JB_NOUNSET_B-fallback}\"; echo \"[${JB_NOUNSET_B-}]\"",
+    "files": {},
+    "stdout": "fallback\n[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b6615d717e9e57ba": {
+    "command": "set -u; unset JB_NOUNSET_I; echo \"${#JB_NOUNSET_I}\"; echo reached",
+    "files": {},
+    "stdout": "",
+    "stderr": "/bin/bash: line 1: JB_NOUNSET_I: unbound variable\n",
+    "exitCode": 127,
+    "locked": true
+  },
+  "c1e67d7cfd1e8f6f": {
+    "command": "set -u; unset JB_NOUNSET_E; echo \"[${JB_NOUNSET_E:+alt}]\"",
+    "files": {},
+    "stdout": "[]\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
