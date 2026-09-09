@@ -344,6 +344,19 @@ describe("MountableFs", () => {
       const content = await mounted.readFile("/dest.txt");
       expect(content).toBe("content");
     });
+
+    it("should copy into a synthetic mount parent on the base filesystem", async () => {
+      const baseFilesystem = new InMemoryFs({ "/src.txt": "content" });
+      const mountableFilesystem = new MountableFs({ base: baseFilesystem });
+      mountableFilesystem.mount("/mnt/data", new InMemoryFs());
+
+      await mountableFilesystem.cp("/src.txt", "/mnt/copied.txt");
+
+      expect(await baseFilesystem.readFile("/mnt/copied.txt")).toBe("content");
+      expect((await mountableFilesystem.stat("/mnt/data")).isDirectory).toBe(
+        true,
+      );
+    });
   });
 
   describe("cross-mount move", () => {
@@ -379,6 +392,20 @@ describe("MountableFs", () => {
 
       expect(await mounted.readFile("/dest.txt")).toBe("content");
       expect(await mounted.exists("/src.txt")).toBe(false);
+    });
+
+    it("should move into a synthetic mount parent on the base filesystem", async () => {
+      const baseFilesystem = new InMemoryFs({ "/src.txt": "content" });
+      const mountableFilesystem = new MountableFs({ base: baseFilesystem });
+      mountableFilesystem.mount("/mnt/data", new InMemoryFs());
+
+      await mountableFilesystem.mv("/src.txt", "/mnt/moved.txt");
+
+      expect(await baseFilesystem.readFile("/mnt/moved.txt")).toBe("content");
+      expect(await baseFilesystem.exists("/src.txt")).toBe(false);
+      expect((await mountableFilesystem.stat("/mnt/data")).isDirectory).toBe(
+        true,
+      );
     });
   });
 
