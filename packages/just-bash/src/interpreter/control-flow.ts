@@ -43,7 +43,11 @@ import {
 import { appendBoundedElements } from "./helpers/bounded-array.js";
 import { executeCondition } from "./helpers/condition.js";
 import { getErrorMessage } from "./helpers/errors.js";
-import { handleLoopError } from "./helpers/loop.js";
+import {
+  adoptLoopStatus,
+  BREAK_CONTINUE_STATUS,
+  handleLoopError,
+} from "./helpers/loop.js";
 import { failure, throwExecutionLimit } from "./helpers/result.js";
 import {
   type PreparedRedirections,
@@ -274,6 +278,13 @@ async function executeForBody(
           ctx.state.loopDepth,
         );
         output.replace(loopResult.stdout, loopResult.stderr);
+        // `break`/`continue` are builtins that return 0, and they were the
+        // last command this body ran - so they, not the command that failed
+        // before them, set the loop's status. `$?` moves with it, or the next
+        // iteration would still see the failure (see adoptLoopStatus).
+        if (loopResult.exitCode !== undefined) {
+          exitCode = adoptLoopStatus(ctx, loopResult.exitCode);
+        }
         if (loopResult.action === "break") break;
         if (loopResult.action === "continue") continue;
         if (loopResult.action === "error") {
@@ -358,6 +369,13 @@ async function executeCStyleForBody(
           ctx.state.loopDepth,
         );
         output.replace(loopResult.stdout, loopResult.stderr);
+        // `break`/`continue` are builtins that return 0, and they were the
+        // last command this body ran - so they, not the command that failed
+        // before them, set the loop's status. `$?` moves with it, or the next
+        // iteration would still see the failure (see adoptLoopStatus).
+        if (loopResult.exitCode !== undefined) {
+          exitCode = adoptLoopStatus(ctx, loopResult.exitCode);
+        }
         if (loopResult.action === "break") break;
         if (loopResult.action === "continue") {
           // Still need to run the update expression on continue
@@ -466,6 +484,11 @@ async function executeWhileBody(
         ctx.state.inCondition = savedInCondition;
       }
 
+      if (shouldBreak || shouldContinue) {
+        // A `break`/`continue` in the condition is still the last command the
+        // loop ran, and it returned 0.
+        exitCode = adoptLoopStatus(ctx, BREAK_CONTINUE_STATUS);
+      }
       if (shouldBreak) break;
       if (shouldContinue) continue;
       if (conditionExitCode !== 0) break;
@@ -484,6 +507,13 @@ async function executeWhileBody(
           ctx.state.loopDepth,
         );
         output.replace(loopResult.stdout, loopResult.stderr);
+        // `break`/`continue` are builtins that return 0, and they were the
+        // last command this body ran - so they, not the command that failed
+        // before them, set the loop's status. `$?` moves with it, or the next
+        // iteration would still see the failure (see adoptLoopStatus).
+        if (loopResult.exitCode !== undefined) {
+          exitCode = adoptLoopStatus(ctx, loopResult.exitCode);
+        }
         if (loopResult.action === "break") break;
         if (loopResult.action === "continue") continue;
         if (loopResult.action === "error") {
@@ -562,6 +592,13 @@ async function executeUntilBody(
           ctx.state.loopDepth,
         );
         output.replace(loopResult.stdout, loopResult.stderr);
+        // `break`/`continue` are builtins that return 0, and they were the
+        // last command this body ran - so they, not the command that failed
+        // before them, set the loop's status. `$?` moves with it, or the next
+        // iteration would still see the failure (see adoptLoopStatus).
+        if (loopResult.exitCode !== undefined) {
+          exitCode = adoptLoopStatus(ctx, loopResult.exitCode);
+        }
         if (loopResult.action === "break") break;
         if (loopResult.action === "continue") continue;
         if (loopResult.action === "error") {
