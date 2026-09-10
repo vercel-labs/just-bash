@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { InMemoryFs } from "../in-memory-fs/in-memory-fs.js";
 import { MountableFs } from "./mountable-fs.js";
 
+/** A destination with the symlink policy ReadWriteFs and OverlayFs default to. */
+class NoSymlinkFs extends InMemoryFs {
+  override async symlink(_target: string, linkPath: string): Promise<void> {
+    throw new Error(`EPERM: operation not permitted, symlink '${linkPath}'`);
+  }
+}
+
 describe("MountableFs", () => {
   describe("mount/unmount operations", () => {
     it("should mount a filesystem at a path", () => {
@@ -343,6 +350,86 @@ describe("MountableFs", () => {
 
       const content = await mounted.readFile("/dest.txt");
       expect(content).toBe("content");
+    });
+
+    // ReadWriteFs and OverlayFs refuse to create a symlink unless allowSymlinks
+    // is set, which is the default; a tree with one link in it must still copy
+    // everything around the link.
+    it("should copy every other entry when the destination refuses one, then report it", async () => {
+      const mount1 = new InMemoryFs();
+      await mount1.mkdir("/dir");
+      await mount1.writeFile("/dir/a.txt", "a");
+      await mount1.symlink("/dir/a.txt", "/dir/link");
+      await mount1.mkdir("/dir/sub");
+      await mount1.writeFile("/dir/sub/b.txt", "b");
+      await mount1.symlink("../a.txt", "/dir/sub/up");
+      await mount1.writeFile("/dir/z.txt", "z");
+
+      const mount2 = new NoSymlinkFs();
+      const fs = new MountableFs();
+      fs.mount("/mnt/a", mount1);
+      fs.mount("/mnt/b", mount2);
+
+      await expect(
+        fs.cp("/mnt/a/dir", "/mnt/b/dir", { recursive: true }),
+      ).rejects.toThrow(
+        "copied all but 2 entries: /mnt/a/dir/link: EPERM: operation not permitted, symlink '/dir/link'; /mnt/a/dir/sub/up: EPERM: operation not permitted, symlink '/dir/sub/up'",
+      );
+
+      expect(await mount2.readFile("/dir/a.txt")).toBe("a");
+      expect(await mount2.readFile("/dir/sub/b.txt")).toBe("b");
+      expect(await mount2.readFile("/dir/z.txt")).toBe("z");
+      expect(await mount2.exists("/dir/link")).toBe(false);
+      expect(await mount2.exists("/dir/sub/up")).toBe(false);
+    });
+
+    it("should name a bounded number of the entries it could not copy", async () => {
+      const mount1 = new InMemoryFs();
+      await mount1.mkdir("/dir");
+      await mount1.writeFile("/dir/a.txt", "a");
+      for (let i = 0; i < 12; i++) {
+        await mount1.symlink(
+          "/dir/a.txt",
+          `/dir/link-${String(i).padStart(2, "0")}`,
+        );
+      }
+
+      const mount2 = new NoSymlinkFs();
+      const fs = new MountableFs();
+      fs.mount("/mnt/a", mount1);
+      fs.mount("/mnt/b", mount2);
+
+      await expect(
+        fs.cp("/mnt/a/dir", "/mnt/b/dir", { recursive: true }),
+      ).rejects.toThrow(
+        /^copied all but 12 entries: (\/mnt\/a\/dir\/link-\d\d: EPERM: operation not permitted, symlink '\/dir\/link-\d\d'; ){9}\/mnt\/a\/dir\/link-09: EPERM: operation not permitted, symlink '\/dir\/link-09'; and 2 more$/,
+      );
+
+      expect(await mount2.readFile("/dir/a.txt")).toBe("a");
+    });
+
+    it("should report a directory it could not enter as one entry with its contents", async () => {
+      const mount1 = new InMemoryFs();
+      await mount1.mkdir("/dir");
+      await mount1.writeFile("/dir/a.txt", "a");
+      await mount1.mkdir("/dir/sub");
+      await mount1.writeFile("/dir/sub/b.txt", "b");
+      await mount1.writeFile("/dir/sub/c.txt", "c");
+
+      // A file already sits where the subdirectory has to go.
+      const mount2 = new InMemoryFs({ "/dir/sub": "in the way" });
+      const fs = new MountableFs();
+      fs.mount("/mnt/a", mount1);
+      fs.mount("/mnt/b", mount2);
+
+      await expect(
+        fs.cp("/mnt/a/dir", "/mnt/b/dir", { recursive: true }),
+      ).rejects.toThrow(
+        /^copied all but 1 entry: \/mnt\/a\/dir\/sub and everything in it: EEXIST/,
+      );
+
+      expect(await mount2.readFile("/dir/a.txt")).toBe("a");
+      expect(await mount2.readFile("/dir/sub")).toBe("in the way");
     });
   });
 
