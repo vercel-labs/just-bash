@@ -85,10 +85,11 @@ export async function executePipeline(
     const runsInSubshell =
       isMultiCommandPipeline && (!isLast || !ctx.state.shoptOptions.lastpipe);
 
-    // Save environment for commands running in subshell context
-    // This prevents variable assignments (e.g., ${cmd=echo}) from leaking to parent
+    // Save environment and cwd for commands running in subshell context.
+    // Restoring PWD alone does not restore relative path resolution after cd.
     const savedEnv = runsInSubshell ? new Map(ctx.state.env) : null;
     const savedArrays = runsInSubshell ? cloneArrays(ctx.state.arrays) : null;
+    const savedCwd = ctx.state.cwd;
 
     let result: ExecResult;
     const outputCheckpoint = ctx.executionScope.outputBytesUsed;
@@ -122,11 +123,6 @@ export async function executePipeline(
           exitCode: error.exitCode,
         };
       } else {
-        // Restore environment before re-throwing
-        if (savedEnv) {
-          ctx.state.env = savedEnv;
-          ctx.state.arrays = savedArrays ?? new Map();
-        }
         throw error;
       }
     } finally {
@@ -143,12 +139,12 @@ export async function executePipeline(
         ctx.state.groupStdin = sharedStdin;
         ctx.state.groupStdinSourceFd = sharedStdinSourceFd;
       }
-    }
-
-    // Restore environment for subshell commands to prevent variable assignment leakage
-    if (savedEnv) {
-      ctx.state.env = savedEnv;
-      ctx.state.arrays = savedArrays ?? new Map();
+      // Restore on normal completion and on errors before the next stage runs.
+      if (savedEnv) {
+        ctx.state.env = savedEnv;
+        ctx.state.arrays = savedArrays ?? new Map();
+        ctx.state.cwd = savedCwd;
+      }
     }
 
     // Charge every stage before it can become a retained pipeline
