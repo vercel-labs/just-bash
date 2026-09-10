@@ -120,6 +120,11 @@ When recording:
 Currently locked fixtures:
 - `ls -R` - Uses Linux-style output with ".:" header
 - `cat -n` with multiple files - Uses continuous line numbering (Linux behavior)
+- Arithmetic syntax errors in `arithmetic-command-substitution-isolation` - Holds
+  the Linux `stderr`. bash words this message differently per version ("syntax
+  error" vs "arithmetic syntax error") and numbers the line differently, so
+  re-recording on macOS would otherwise drift. Only `stdout` and the exit code
+  are compared, so the recorded `stderr` is documentation.
 
 ## API Reference
 
