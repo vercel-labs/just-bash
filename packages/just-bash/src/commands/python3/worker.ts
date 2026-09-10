@@ -1419,6 +1419,12 @@ async function runPython(input: WorkerInput): Promise<WorkerOutput> {
   // Create the setup + user code as a single Python script
   const setupCode = generateSetupCode(input);
   const httpBridgeCode = generateHttpBridgeCode();
+  const sourceFilename =
+    input.scriptPath === "-c"
+      ? "<string>"
+      : input.scriptPath === "-"
+        ? "<stdin>"
+        : (input.scriptPath ?? "<stdin>");
   const wrappedCode = `
 import sys
 _jb_exit_code = 0
@@ -1431,10 +1437,13 @@ ${httpBridgeCode
   .split("\n")
   .map((line) => `    ${line}`)
   .join("\n")}
-${input.pythonCode
-  .split("\n")
-  .map((line) => `    ${line}`)
-  .join("\n")}
+    # Compile the user module unchanged: indenting it into this try block
+    # changes multiline string contents and breaks module-level future imports.
+    import linecache as _jb_linecache
+    _jb_source = ${JSON.stringify(input.pythonCode)}
+    _jb_filename = ${JSON.stringify(sourceFilename)}
+    _jb_linecache.cache[_jb_filename] = (len(_jb_source), None, _jb_source.splitlines(True), _jb_filename)
+    exec(compile(_jb_source, _jb_filename, "exec"), globals(), globals())
 except SystemExit as e:
     _jb_exit_code = e.code if isinstance(e.code, int) else (1 if e.code else 0)
 except Exception as e:
