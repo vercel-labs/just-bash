@@ -33,6 +33,13 @@ export interface WorkerInput {
   env: Record<string, string>;
   args: string[];
   scriptPath?: string;
+  /**
+   * Where the program came from, which decides the name it is compiled under
+   * and so what a traceback shows: a script file is named by `scriptPath` as
+   * typed, a program read from stdin `<stdin>`, and inline code (`-c`, or an
+   * `-m` bootstrap) `<string>`, the name CPython gives `-c` code.
+   */
+  source?: "file" | "inline" | "stdin";
   timeoutMs?: number;
   /** Maximum size of one HOSTFS file, enforced before guest allocations. */
   maxFileSize?: number;
@@ -1419,6 +1426,36 @@ async function runPython(input: WorkerInput): Promise<WorkerOutput> {
   // Create the setup + user code as a single Python script
   const setupCode = generateSetupCode(input);
   const httpBridgeCode = generateHttpBridgeCode();
+  // The program is compiled under its own name and run in a real __main__
+  // module rather than pasted into this wrapper, so a traceback names the
+  // script and its own line numbers, the wrapper's helpers stay out of its
+  // globals, sys.modules['__main__'] is the program (pickle, unittest.main
+  // and doctest all look it up there), and sys.path[0] and __file__ are what
+  // CPython would set. The source is compiled as the str it already is: the
+  // filesystem decoded it as UTF-8, and a coding cookie in a str is accepted
+  // and ignored, where compiling bytes would re-decode UTF-8 text under
+  // whatever the cookie names. JSON escapes are a subset of Python string
+  // escapes, so JSON.stringify yields a valid Python literal.
+  const isScriptFile =
+    input.source === "file" && input.scriptPath !== undefined;
+  const fileName = isScriptFile
+    ? input.scriptPath
+    : input.source === "stdin"
+      ? "<stdin>"
+      : "<string>";
+  const programCode = `
+import types as _jb_types
+_jb_main = _jb_types.ModuleType('__main__')
+if ${isScriptFile ? "True" : "False"}:
+    _jb_main.__file__ = os.path.abspath(${JSON.stringify(fileName)})
+    sys.path.insert(0, '/host' + os.path.dirname(_jb_main.__file__))
+else:
+    sys.path.insert(0, '')
+sys.modules['__main__'] = _jb_main
+_jb_code = compile(${JSON.stringify(input.pythonCode)}, ${JSON.stringify(fileName)}, 'exec')
+del _jb_types
+exec(_jb_code, _jb_main.__dict__)
+`;
   const wrappedCode = `
 import sys
 _jb_exit_code = 0
@@ -1431,15 +1468,25 @@ ${httpBridgeCode
   .split("\n")
   .map((line) => `    ${line}`)
   .join("\n")}
-${input.pythonCode
+${programCode
   .split("\n")
   .map((line) => `    ${line}`)
   .join("\n")}
 except SystemExit as e:
-    _jb_exit_code = e.code if isinstance(e.code, int) else (1 if e.code else 0)
+    if e.code is None:
+        _jb_exit_code = 0
+    elif isinstance(e.code, int):
+        _jb_exit_code = e.code
+    else:
+        print(e.code, file=sys.stderr)
+        _jb_exit_code = 1
 except Exception as e:
     import traceback
-    traceback.print_exc()
+    # The outermost frame is this wrapper's; the program's frames follow it.
+    # A compile-time error has no program frame at all, and prints as CPython
+    # prints a SyntaxError, from the exception alone.
+    _jb_tb = e.__traceback__
+    traceback.print_exception(type(e), e, None if _jb_tb is None else _jb_tb.tb_next)
     _jb_exit_code = 1
 sys.exit(_jb_exit_code)
 `;

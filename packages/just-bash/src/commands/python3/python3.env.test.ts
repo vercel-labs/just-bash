@@ -167,7 +167,18 @@ python3 -c "import os; print(os.getcwd())"
         `python3 -c "import sys; sys.exit('error message')"`,
       );
       // sys.exit with string message prints to stderr and exits with 1
+      expect(result.stderr).toBe("error message\n");
       expect(result.exitCode).toBe(1);
+    });
+
+    it("exits 1 and prints the value for any other non-integer code", async () => {
+      const env = new Bash({ python: true });
+      const empty = await env.exec(`python3 -c "import sys; sys.exit('')"`);
+      expect(empty.stderr).toBe("\n");
+      expect(empty.exitCode).toBe(1);
+      const float = await env.exec(`python3 -c "import sys; sys.exit(0.0)"`);
+      expect(float.stderr).toBe("0.0\n");
+      expect(float.exitCode).toBe(1);
     });
 
     it("should return exit code 1 from sys.exit(None)", async () => {
