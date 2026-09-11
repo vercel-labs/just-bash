@@ -329,7 +329,7 @@ function createHOSTFS(
       ENOTDIR: 54,
       EISDIR: 31,
       EINVAL: 28,
-      EFBIG: 27,
+      EFBIG: 22,
       EMFILE: 33,
       ENOSPC: 51,
       ESPIPE: 70,
@@ -337,7 +337,7 @@ function createHOSTFS(
       ENOTEMPTY: 55,
       ENOSYS: 52,
       ENOTSUP: 138,
-      ENODATA: 42,
+      ENODATA: 116,
     },
   );
 
@@ -368,8 +368,12 @@ function createHOSTFS(
         code = ERRNO_CODES.ENOTDIR;
       } else if (msg.includes("already exists")) {
         code = ERRNO_CODES.EEXIST;
+      } else if (msg.includes("read-only") || msg.includes("erofs")) {
+        code = ERRNO_CODES.EROFS;
       } else if (msg.includes("permission")) {
         code = ERRNO_CODES.EACCES;
+      } else if (msg.includes("too large")) {
+        code = ERRNO_CODES.EFBIG;
       } else if (msg.includes("not empty")) {
         code = ERRNO_CODES.ENOTEMPTY;
       }
@@ -552,7 +556,16 @@ function createHOSTFS(
           } else {
             content = backend.readFile(path);
           }
-        } catch (_e) {
+        } catch (e) {
+          // The bridge refuses a file its buffer cannot carry; that is a
+          // size limit, not a missing file, and it is checked before the
+          // create fallback: an append opens with O_CREAT, and treating the
+          // failed read as an empty file would write only the appended bytes
+          // back over the whole file on close.
+          const message = e instanceof Error ? e.message : String(e);
+          if (/too large/i.test(message)) {
+            throw new FS.ErrnoError(ERRNO_CODES.EFBIG);
+          }
           if (isCreate && isWrite) {
             content = new Uint8Array(0);
           } else {
