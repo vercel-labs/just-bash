@@ -22,6 +22,7 @@ import {
 } from "../encoding.js";
 import type {
   CpOptions,
+  CreateExclusiveOptions,
   DirentEntry,
   FsStat,
   IFileSystem,
@@ -34,6 +35,7 @@ import {
   DEFAULT_DIR_MODE,
   DEFAULT_FILE_MODE,
   dirname,
+  joinPath,
   MAX_SYMLINK_DEPTH,
   resolveSymlinkTarget,
   resolvePath as resolveVPath,
@@ -1023,6 +1025,84 @@ export class OverlayFs implements IFileSystem {
       // No symlink was followed, let readdirCore handle the ENOENT
       return { normalized, outsideOverlay: false };
     }
+  }
+
+  /**
+   * Atomically create a private file or directory that must not already
+   * exist. Overlay writes land in the in-memory layer, and JS execution is
+   * single-threaded, so the existence check and the insert cannot interleave.
+   * The new entry shadows anything on the real filesystem underneath, so a
+   * symlink already occupying the name is never written through.
+   */
+  async createExclusive(
+    path: string,
+    options: CreateExclusiveOptions,
+  ): Promise<void> {
+    const syscall = options.directory ? "mkdir" : "open";
+    validatePath(path, syscall);
+    this.assertWritable(`${syscall} '${path}'`);
+    const normalized = normalizePath(path);
+
+    if (await this.existsInOverlay(normalized)) {
+      throw new Error(`EEXIST: file already exists, ${syscall} '${path}'`);
+    }
+
+    // Resolve symlinks in the parent, but never in the final component, and
+    // require the parent to be a directory. Storing under an unresolved key
+    // would create an entry that later lookups — which do resolve — could not
+    // find, and an unchecked parent would allow a child beneath a file.
+    const parent = dirname(normalized);
+    let target = normalized;
+    if (parent !== "/") {
+      let resolvedParent: string;
+      try {
+        resolvedParent = await this.realpath(parent);
+      } catch {
+        throw new Error(
+          `ENOENT: no such file or directory, ${syscall} '${path}'`,
+        );
+      }
+      const parentStat = await this.stat(resolvedParent).catch(() => null);
+      if (!parentStat) {
+        throw new Error(
+          `ENOENT: no such file or directory, ${syscall} '${path}'`,
+        );
+      }
+      if (!parentStat.isDirectory) {
+        throw new Error(`ENOTDIR: not a directory, ${syscall} '${path}'`);
+      }
+      target = joinPath(
+        resolvedParent,
+        normalized.slice(normalized.lastIndexOf("/") + 1),
+      );
+      if (target !== normalized && (await this.existsInOverlay(target))) {
+        throw new Error(`EEXIST: file already exists, ${syscall} '${path}'`);
+      }
+    }
+
+    // Everything from here down is synchronous. The awaits above yield, so
+    // two concurrent calls can both observe absence; claiming the name
+    // without an intervening await is what makes the create exclusive
+    // between them.
+    if (this.memory.has(target)) {
+      throw new Error(`EEXIST: file already exists, ${syscall} '${path}'`);
+    }
+
+    this.setMemoryEntry(
+      target,
+      options.directory
+        ? { type: "directory", mode: options.mode, mtime: new Date() }
+        : {
+            type: "file",
+            content: new Uint8Array(0),
+            mode: options.mode,
+            mtime: new Date(),
+          },
+    );
+    // Clear any tombstone, as the adjacent mkdir/writeFile paths do. Without
+    // this, recreating a path that was removed from the real layer succeeds
+    // while staying invisible to stat/exists/readdir.
+    this.deleted.delete(target);
   }
 
   async readdir(path: string): Promise<string[]> {

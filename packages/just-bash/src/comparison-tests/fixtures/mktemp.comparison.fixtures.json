@@ -1,0 +1,96 @@
+{
+  "0348c9a0212ad42d": {
+    "command": "\n      file=$(mktemp XXXX.log.XXXX) &&\n      [[ \"$file\" =~ ^XXXX\\.log\\.[0-9A-Za-z]{4}$ ]] &&\n      test -f \"$file\" && echo preserved\n    ",
+    "files": {},
+    "stdout": "preserved\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "0f4125440c746c1b": {
+    "command": "\n      file=$(mktemp -p work sub/note.XXXXXX) &&\n      [[ \"$file\" =~ ^work/sub/note\\.[0-9A-Za-z]{6}$ ]] &&\n      test -f \"$file\" && echo nested\n    ",
+    "files": {
+      "work/sub/.keep": ""
+    },
+    "stdout": "nested\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1e2dbd17dafe331a": {
+    "command": "\n      dir=$(mktemp -dp work) &&\n      [[ \"$dir\" =~ ^work/tmp\\.[0-9A-Za-z]{10}$ ]] &&\n      stat -c '%F %a' \"$dir\"\n    ",
+    "files": {
+      "work/.keep": ""
+    },
+    "stdout": "directory 700\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "33ba7f97cce29bd3": {
+    "command": "\n        file=$(TMPDIR=work mktemp --tmpdir=) &&\n        [[ \"$file\" =~ ^work/tmp\\.[0-9A-Za-z]{10}$ ]] &&\n        test -f \"$file\" && echo created\n      ",
+    "files": {
+      "work/.keep": ""
+    },
+    "stdout": "created\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "37f0cec9dbe83caf": {
+    "command": "\n        file=$(mktemp --suffix=.txt note.XXXXXX) &&\n        [[ \"$file\" =~ ^note\\.[0-9A-Za-z]{6}\\.txt$ ]] &&\n        test -f \"$file\" && echo suffix\n      ",
+    "files": {},
+    "stdout": "suffix\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3c7ae7624fc1d92f": {
+    "command": "mktemp -q -p missing 2>&1",
+    "files": {},
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "554cb456daf00597": {
+    "command": "\n      file=$(TMPDIR=work mktemp) &&\n      [[ \"$file\" =~ ^work/tmp\\.[0-9A-Za-z]{10}$ ]] &&\n      test -f \"$file\" && stat -c '%a %s' \"$file\"\n    ",
+    "files": {
+      "work/.keep": ""
+    },
+    "stdout": "600 0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "81a4566a65dab84f": {
+    "command": "\n      file=$(mktemp -u -p missing note.XXXXXX) &&\n      [[ \"$file\" =~ ^missing/note\\.[0-9A-Za-z]{6}$ ]] &&\n      test ! -e \"$file\" && test ! -e missing && echo absent\n    ",
+    "files": {},
+    "stdout": "absent\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "88a8693a91db304b": {
+    "command": "\n        file=$(TMPDIR=work mktemp -p '') &&\n        [[ \"$file\" =~ ^work/tmp\\.[0-9A-Za-z]{10}$ ]] &&\n        test -f \"$file\" && echo created\n      ",
+    "files": {
+      "work/.keep": ""
+    },
+    "stdout": "created\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c198c11bc31eeff6": {
+    "command": "\n      file=$(mktemp note.XXXXXX) &&\n      [[ \"$file\" =~ ^note\\.[0-9A-Za-z]{6}$ ]] &&\n      test -f \"$file\" && echo relative\n    ",
+    "files": {},
+    "stdout": "relative\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "da73ef006f0ef4d9": {
+    "command": "\n        file=$(mktemp note.XXXXXX.txt) &&\n        [[ \"$file\" =~ ^note\\.[0-9A-Za-z]{6}\\.txt$ ]] &&\n        test -f \"$file\" && echo suffix\n      ",
+    "files": {},
+    "stdout": "suffix\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fc1a10215c0a582e": {
+    "command": "LC_ALL=C mktemp -q bad.XX 2>&1",
+    "files": {},
+    "stdout": "mktemp: too few X's in template 'bad.XX'\n",
+    "stderr": "",
+    "exitCode": 1
+  }
+}

@@ -17,6 +17,7 @@ const CATEGORIES = new Map<string, string[]>([
       "wc",
       "touch",
       "mkdir",
+      "mktemp",
       "rm",
       "cp",
       "mv",
