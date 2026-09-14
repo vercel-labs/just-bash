@@ -64,6 +64,18 @@ interface FdSnapshotEntry {
  * {@link restoreFds}. */
 export type FdSnapshot = Map<number, FdSnapshotEntry>;
 
+const activeFdSnapshots = new WeakMap<object, Set<FdSnapshot>>();
+
+function retainedSnapshotWritables(ctx: InterpreterContext): Set<WritableFile> {
+  const retained = new Set<WritableFile>();
+  for (const snapshot of activeFdSnapshots.get(ctx.state) ?? []) {
+    for (const entry of snapshot.values()) {
+      if (entry.writable) retained.add(entry.writable);
+    }
+  }
+  return retained;
+}
+
 /**
  * Parse the content of a read-write file descriptor.
  * Format: __rw__:pathLength:path:position:content
@@ -186,13 +198,15 @@ function attachWritable(
 
 /**
  * Closes candidate descriptions that no live shell descriptor still owns.
- * Newly opened command-scoped descriptions may be supplied because standard
- * descriptors do not always need an encoded table entry.
+ * Newly opened command-scoped descriptions may be supplied as candidates.
+ * Transaction-local standard routes may be supplied as retained owners because
+ * they do not always have an encoded table entry.
  */
 export function closeUnusedWritables(
   ctx: InterpreterContext,
   opened: readonly WritableFile[] = [],
-): Promise<void> | undefined {
+  retained: readonly WritableFile[] = [],
+): undefined {
   const candidates = new Set([
     ...(ctx.state.writableCloseCandidates ?? []),
     ...opened,
@@ -201,24 +215,26 @@ export function closeUnusedWritables(
   const active = new Set([
     ...(ctx.state.outputWriters?.values() ?? []),
     ...(ctx.state.inheritedOutputWriters ?? []),
+    ...retainedSnapshotWritables(ctx),
+    ...retained,
   ]);
   const closable = [...candidates]
     .reverse()
     .filter((writable) => !active.has(writable));
-  if (closable.length === 0) return undefined;
-  return closeWritables(ctx, closable);
+  closeWritables(ctx, closable);
+  return undefined;
 }
 
-async function closeWritables(
+function closeWritables(
   ctx: InterpreterContext,
   writables: readonly WritableFile[],
-): Promise<void> {
+): void {
   for (const writable of writables) {
     try {
-      await writable.close();
+      // Managed writers keep this promise registered with ExecutionScope,
+      // which applies the cleanup grace period and reports close failures.
+      void Promise.resolve(writable.close()).catch(() => undefined);
     } catch (error) {
-      // Preserve the result-oriented Bash.exec contract and any in-flight
-      // shell control flow. ExecutionScope reports cleanup failures as 126.
       try {
         ctx.executionScope.registerCleanup(() => Promise.reject(error));
       } catch {
@@ -340,6 +356,7 @@ export function setFdEntry(
 ): void {
   setRawFd(ctx, fd, encodeFdEntry(entry), entry.kind === "input");
   attachWritable(ctx, fd, entry.kind === "output" ? entry.writable : undefined);
+  closeUnusedWritables(ctx);
 }
 
 export function closeFd(ctx: InterpreterContext, fd: number): void {
@@ -507,6 +524,24 @@ export function rememberFd(
     writable: writableForFd(ctx, fd),
     aliases: group ? [...group].filter((member) => member !== fd) : [],
   });
+  if (writableForFd(ctx, fd)) {
+    let snapshots = activeFdSnapshots.get(ctx.state);
+    if (!snapshots) {
+      snapshots = new Set();
+      activeFdSnapshots.set(ctx.state, snapshots);
+    }
+    snapshots.add(snapshot);
+  }
+}
+
+/** Stop treating descriptions captured by the snapshot as active owners. */
+export function releaseFdSnapshot(
+  ctx: InterpreterContext,
+  snapshot: FdSnapshot,
+): void {
+  const snapshots = activeFdSnapshots.get(ctx.state);
+  snapshots?.delete(snapshot);
+  if (snapshots?.size === 0) activeFdSnapshots.delete(ctx.state);
 }
 
 /**
@@ -534,7 +569,10 @@ export function restoreFds(
   snapshot: FdSnapshot,
 ): void {
   const fds = ctx.state.fileDescriptors;
-  if (!fds) return;
+  if (!fds) {
+    releaseFdSnapshot(ctx, snapshot);
+    return;
+  }
   for (const [fd, { raw, isInput, writable, aliases }] of snapshot) {
     if (raw === undefined) {
       closeFd(ctx, fd);
@@ -548,4 +586,5 @@ export function restoreFds(
     const survivor = aliases.find((member) => fds.has(member));
     if (survivor !== undefined) joinAliasGroup(ctx, fd, survivor);
   }
+  releaseFdSnapshot(ctx, snapshot);
 }

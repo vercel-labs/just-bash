@@ -43,6 +43,7 @@ import {
   isFdOpen,
   moveFd,
   readFd,
+  releaseFdSnapshot,
   rememberFd,
   restoreFds,
   setFdEntry,
@@ -220,12 +221,12 @@ async function manageWritable(
     },
     close: () => {
       if (!closePromise) {
-        unregisterCleanup();
         try {
           closePromise = Promise.resolve(writable.close());
         } catch (error) {
           closePromise = Promise.reject(error);
         }
+        void closePromise.then(unregisterCleanup, () => undefined);
       }
       return closePromise;
     },
@@ -236,7 +237,7 @@ async function manageWritable(
     );
   } catch (error) {
     try {
-      await writable.close();
+      void Promise.resolve(writable.close()).catch(() => undefined);
     } catch {
       // The existing abort or limit failure remains authoritative.
     }
@@ -444,15 +445,26 @@ async function prepareRedirectionsWithState(
     );
   };
   const persistStandard = (fd: number | null, entry: FdEntry): void => {
-    if (fd !== null && fd < FIRST_USER_FD) standardRoutes.set(fd, entry);
+    if (fd === null || fd >= FIRST_USER_FD) return;
+    const previous = standardRoutes.get(fd);
+    standardRoutes.set(fd, entry);
     if (
-      transaction.policy === "persistent" &&
-      fd !== null &&
-      fd < FIRST_USER_FD
+      previous?.kind === "output" &&
+      previous.writable &&
+      previous.writable !==
+        (entry.kind === "output" ? entry.writable : undefined)
     ) {
+      ctx.state.writableCloseCandidates ??= new Set();
+      ctx.state.writableCloseCandidates.add(previous.writable);
+    }
+    if (transaction.policy === "persistent") {
       ctx.state.closedStandardFds?.delete(fd);
       setFdEntry(ctx, fd, entry);
     }
+    const retained = [...standardRoutes.values()].flatMap((route) =>
+      route.kind === "output" && route.writable ? [route.writable] : [],
+    );
+    closeUnusedWritables(ctx, [], retained);
   };
   const bindTemporaryStandard = (fd: number, entry: FdEntry): void => {
     standardRoutes.set(fd, entry);
@@ -1096,7 +1108,11 @@ export function createRedirectionTransaction(
         }
         ctx.state.nextFd = state.nextFd;
       }
-      return closeUnusedWritables(ctx, state.openedWritables);
+      releaseFdSnapshot(ctx, state.numericSnapshot);
+      releaseFdSnapshot(ctx, state.standardSnapshot);
+      releaseFdSnapshot(ctx, state.fdVariableSnapshot);
+      closeUnusedWritables(ctx, state.openedWritables);
+      return undefined;
     },
   };
 }

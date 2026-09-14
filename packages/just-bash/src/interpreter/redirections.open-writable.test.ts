@@ -19,6 +19,8 @@ function text(content: FileContent): string {
 class RecordingWritableFs extends InMemoryFs {
   readonly events: string[] = [];
   readonly commits: string[] = [];
+  activeWritables = 0;
+  maxActiveWritables = 0;
 
   override async writeFile(
     path: string,
@@ -50,6 +52,11 @@ class RecordingWritableFs extends InMemoryFs {
       await super.appendFile(path, "", "binary");
     }
 
+    this.activeWritables += 1;
+    this.maxActiveWritables = Math.max(
+      this.maxActiveWritables,
+      this.activeWritables,
+    );
     let closed = false;
     let position = 0;
     return {
@@ -73,6 +80,7 @@ class RecordingWritableFs extends InMemoryFs {
       close: async () => {
         if (closed) throw new Error("double close");
         closed = true;
+        this.activeWritables -= 1;
         this.commits.push(`${path}:${await super.readFile(path)}`);
         this.events.push(`close:${path}`);
       },
@@ -108,6 +116,19 @@ class AbortingOpenFs extends RecordingWritableFs {
     const writable = await super.openWritable(path, options);
     this.controller.abort();
     return writable;
+  }
+}
+
+class HangingCloseFs extends RecordingWritableFs {
+  override async openWritable(
+    path: string,
+    options: OpenWritableOptions,
+  ): Promise<WritableFile> {
+    const writable = await super.openWritable(path, options);
+    return {
+      write: writable.write,
+      close: () => new Promise(() => undefined),
+    };
   }
 }
 
@@ -167,11 +188,24 @@ describe("optional writable file descriptions", () => {
     expect(fs.events).toEqual([
       "open:truncate:/first",
       "open:truncate:/second",
+      "close:/first",
       "handle-write:/second:hello",
       "close:/second",
-      "close:/first",
     ]);
-    expect(fs.commits).toEqual(["/second:hello", "/first:"]);
+    expect(fs.commits).toEqual(["/first:", "/second:hello"]);
+  });
+
+  it("releases superseded redirects before opening the rest of a long chain", async () => {
+    const fs = new RecordingWritableFs();
+    const bash = new Bash({ fs });
+
+    const result = await bash.exec(
+      "printf value > /first > /second > /third > /fourth",
+    );
+
+    expect(result).toMatchObject({ stdout: "", stderr: "", exitCode: 0 });
+    expect(fs.maxActiveWritables).toBe(2);
+    expect(fs.activeWritables).toBe(0);
   });
 
   it("preserves independent positions for separate opens of one path", async () => {
@@ -302,6 +336,30 @@ describe("optional writable file descriptions", () => {
     ]);
   });
 
+  it("retains a writer captured by an outer redirection snapshot", async () => {
+    const fs = new RecordingWritableFs();
+    const bash = new Bash({ fs });
+
+    const result = await bash.exec(
+      [
+        "exec 3> /persistent",
+        "{ :; } 3> /temporary",
+        "printf persistent >&3",
+        "exec 3>&-",
+      ].join("; "),
+    );
+
+    expect(result).toMatchObject({ stdout: "", stderr: "", exitCode: 0 });
+    expect(await fs.readFile("/persistent")).toBe("persistent");
+    expect(fs.events).toEqual([
+      "open:truncate:/persistent",
+      "open:truncate:/temporary",
+      "close:/temporary",
+      "handle-write:/persistent:persistent",
+      "close:/persistent",
+    ]);
+  });
+
   it("keeps a duplicated descriptor open until its final alias closes", async () => {
     const fs = new RecordingWritableFs();
     const bash = new Bash({ fs });
@@ -352,6 +410,25 @@ describe("optional writable file descriptions", () => {
       "handle-write:/out:value",
       "close:/out",
     ]);
+  });
+
+  it("bounds a writable close that never settles", async () => {
+    const fs = new HangingCloseFs();
+    const bash = new Bash({
+      fs,
+      defenseInDepth: false,
+      executionLimits: { maxExtensionCleanupTimeMs: 5 },
+    });
+    const started = Date.now();
+
+    const result = await bash.exec("printf value > /out");
+
+    expect(Date.now() - started).toBeLessThan(250);
+    expect(result).toMatchObject({
+      stdout: "",
+      stderr: "bash: execution cleanup failed\n",
+      exitCode: 126,
+    });
   });
 
   it("closes a writable acquired while execution is being cancelled", async () => {
