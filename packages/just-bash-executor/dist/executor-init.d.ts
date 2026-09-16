@@ -13,6 +13,7 @@ type SDKExecutor = {
     close: ExecutorSDKHandle["close"];
 } & Record<string, unknown>;
 export declare function initExecutorSDK(setup: ((sdk: ExecutorSDKHandle) => Promise<void>) | undefined, plugins: ExecutorConfig["plugins"] | undefined, onElicitation: ExecutorConfig["onElicitation"] | undefined): Promise<{
+    invokeTool: (path: string, args: unknown, abortSignal: AbortSignal) => Promise<unknown>;
     sdk: ExecutorSDKHandle;
     rawExecutor: SDKExecutor;
 }>;

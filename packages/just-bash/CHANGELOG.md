@@ -1,5 +1,156 @@
 # just-bash
 
+## 3.5.0
+
+### Minor Changes
+
+- [#413](https://github.com/vercel-labs/just-bash/pull/413) [`2d9d41f`](https://github.com/vercel-labs/just-bash/commit/2d9d41fd90ad024cf54a7bc0caa345af7966c410) Thanks [@trieloff](https://github.com/trieloff)! - `diff` now defaults to POSIX normal format (`2c2` / `<` / `---` / `>`) instead of unified, matching GNU diffutils and POSIX. **This changes the default output and will break anything parsing the previous unified-by-default output** — pass `-u` to keep unified.
+
+  Previously `-u` was parsed and discarded, `createTwoFilesPatch` was the only output path, and every invocation was prefixed with jsdiff's 67-character `===...===` banner, which is not valid output in any GNU format. Normal format was unreachable by any flag, so `diff a b | grep '^<'` — the canonical "lines only in A" idiom — silently matched nothing and exited cleanly on files that differ.
+
+  - `-u` / `--unified` now selects unified format, and `--normal` selects the default explicitly.
+  - New `-c` / `--context` for context format (`*** ` / `--- ` / `***************` / `! `).
+  - New `--version`.
+  - The `===` banner is gone from every format. The `-u` / `-c` file headers carry no timestamp, so output is reproducible; GNU puts each file's mtime there.
+  - Filenames in `-u` / `-c` headers are quoted and escaped as GNU does, so a filename containing a newline can no longer forge header or `@@` lines in the emitted patch.
+  - Two output styles at once (for example `diff -u -c`) is now an error, as in GNU: `diff: conflicting output style options`, exit 2.
+  - `\ No newline at end of file` is reported in all three formats.
+
+  `-q`, `-s`, `-i`, `-` for stdin, and the exit codes are unchanged.
+
+  Hunk selection is unchanged: where several equally minimal edit scripts exist, just-bash may group ambiguous changes differently than GNU. The output is always a correct, equally minimal patch, but the `NcN` line numbers can differ on such inputs.
+
+- [#380](https://github.com/vercel-labs/just-bash/pull/380) [`63cd013`](https://github.com/vercel-labs/just-bash/commit/63cd01319691db61d4f239335c58940257c1f864) Thanks [@caleb-vercel](https://github.com/caleb-vercel)! - Replace bespoke `secureFetch` with `guarded-fetch` 0.1.3 for the SSRF/DNS-rebinding/transport layer
+
+  `src/network/fetch.ts` becomes an adapter over
+  [`guarded-fetch`](https://www.npmjs.com/package/guarded-fetch) (0.1.3, Vercel,
+  Apache-2.0, undici-backed). The public `createSecureFetch` / `SecureFetch` /
+  `SecureFetchOptions` / `FetchResult` contract is unchanged, so Bash, curl, and
+  worker-bridge callers need no changes.
+
+  **Delegated**: SSRF/private-IP blocking, DNS-rebinding protection (connect-time
+  IP pinning), protocol allow-listing, URL validation.
+
+  **Retained**: path-prefix allow-list (guarded-fetch is hostname-only), firewall
+  header transforms, response-size limits, `FetchResult` translation, and error
+  mapping back to just-bash's domain errors.
+
+  **Redirects** are still driven here so firewall headers and path policy are
+  re-applied per hop. Method rewriting follows the fetch standard (301/302 rewrite
+  POST only, 303 rewrites all but GET/HEAD, 307/308 preserve both), the rewritten
+  method is re-checked against `allowedMethods`, and user credentials are dropped
+  on cross-origin hops.
+
+  **Transport**: with `denyPrivateRanges` on, requests use guarded-fetch's own
+  undici `fetch` — a host-wrapped `globalThis.fetch` (framework fetch cache, APM
+  agent, request mocking) can rebuild the init and drop the non-standard
+  `dispatcher`, silently reopening the rebinding window. With it off, no pinning
+  is promised and the ambient `fetch` is used.
+
+  **Browser**: no guarded transport exists (undici is Node-only), so the ambient
+  `fetch` path is kept and `denyPrivateRanges` fails closed with "DNS pinning
+  unavailable for private IP enforcement", matching the old
+  `DnsPinningUnavailableError`. The bundle contains no import of `guarded-fetch`.
+
+  **Not delegated**: header sanitization (`sanitizeHeaders: false`) — just-bash's
+  firewall headers are its own layer, and the sandbox may set Cookie/Host via
+  curl; and guarded-fetch's own redirect following, for the reason above.
+
+  ## Breaking-ish notes
+
+  - Node engine floor `>=20.18.1` → `>=20.19` (guarded-fetch's).
+  - `guarded-fetch` is externalized in the `build:lib`, `build:lib:cjs`, and
+    `build:browser` bundles. Consumers who re-bundle just-bash must mark it
+    external; `AGENTS.npm.md` now documents all six such packages.
+  - `NetworkConfig._dnsResolve` and `._createConnectionOwner` (both `@internal`)
+    can no longer be honored and now **throw**, rather than being accepted while a
+    weaker policy runs. `._fetch` replaces them for tests.
+  - Header keys arrive lowercased (undici `Headers`); a few assertions updated.
+  - A redirect hop blocked on its own address reports `RedirectNotAllowedError`
+    (curl 47) as before, and a resolution failure keeps its own message.
+
+  ## Tests
+
+  `dns-guarded-path.test.ts` covers the enforcing path by mocking
+  `node:dns/promises` (guarded-fetch is inlined in the vitest configs so the mock
+  reaches it): resolve-then-reject-private, fail-closed on resolution failure and
+  empty answers, allow-listed hosts still resolved (the regression guard for
+  `skipSsrfCheckForAllowedHosts`), per-hop re-resolution, and no resolution at all
+  when enforcement is off. `browser-build.test.ts` bundles the module the way
+  `build:browser` does and asserts no `guarded-fetch` import, no unhandled
+  rejection on import, ambient-`fetch` requests, and fail-closed enforcement.
+
+### Patch Changes
+
+- [#400](https://github.com/vercel-labs/just-bash/pull/400) [`f559fc1`](https://github.com/vercel-labs/just-bash/commit/f559fc1baadc6626fb88cb0446ac7740babb0d59) Thanks [@trieloff](https://github.com/trieloff)! - interpreter: give a bare assignment exit status 0 instead of the previous command's
+
+  A command with no command word — `x=1`, `arr=(a b)`, `> file`, a `$empty` that expands to nothing — reported whatever `$?` already held rather than success. Bash gives such a command status 0 unless a command substitution ran while expanding it.
+
+  The leak is invisible until something reads `$?`, and an `else` branch is where it bites: the branch runs with `$?` set to 1 by the condition that just failed, so an `else` branch ending in an assignment made the whole `if` report failure. Under `set -e` that ended the script with no output and no diagnostic:
+
+  ```bash
+  set -e
+  if false; then :; else x=1; fi
+  echo done                          # never ran
+  ```
+
+  A command substitution still sets the status where bash says it does. It counts from an assigned value or a redirection word, assignments expanded first and the last substitution winning: `x=$(exit 7)` is 7, `> /dev/null$(exit 5)` is 5, and `x=$(exit 7) > /dev/null$(exit 5)` is 5. A redirection onto fd 0 discards it and reports 0, matching bash 5.x, which forks a child to perform such a command's redirections. Process substitution never contributes, and neither does a command substitution in `PS4` under `set -x`.
+
+- [#389](https://github.com/vercel-labs/just-bash/pull/389) [`de3c2f3`](https://github.com/vercel-labs/just-bash/commit/de3c2f368ee1c11bab4d7250aaf43306e052a008) Thanks [@trieloff](https://github.com/trieloff)! - Implement `curl -D` / `--dump-header` (file, `-`, `--dump-header=`, redirect hops, `-f` dumps). `curl -I` header blocks now end with a blank line (`\r\n\r\n`), matching real curl.
+
+- [#378](https://github.com/vercel-labs/just-bash/pull/378) [`a2a5843`](https://github.com/vercel-labs/just-bash/commit/a2a5843e4b3526148c7bab04dcd7be8e859e713a) Thanks [@trieloff](https://github.com/trieloff)! - curl: don't build the stdout string when the body is written to a file
+
+  `curl -o FILE URL` (and `-O`) stringified the entire response body for stdout
+  and then immediately discarded it, holding a full UTF-16 copy of the payload in
+  memory alongside the bytes being written. Large downloads could exhaust memory
+  (a browser-hosted embedder OOM'd its renderer on a 250 MB download). The stdout
+  string is now skipped entirely on that path; `-v`, `--write-out`, `-I/--head`
+  and all other behaviour are unchanged.
+
+- [#365](https://github.com/vercel-labs/just-bash/pull/365) [`bbf3881`](https://github.com/vercel-labs/just-bash/commit/bbf38812f621081f9c3203b7f887d1e5cb12dcaa) Thanks [@mutewinter](https://github.com/mutewinter)! - Report gzip files from their header instead of inflating them. `file` no longer enters `file-type`'s nested gzip probe, which decompressed up to 16 MB of input to look for an inner tar and leaked an `AbortError` unhandled rejection after the command had already returned. Gzipped tar archives now read as `gzip compressed data` rather than `gzip archive data`, matching `file`.
+
+- [#397](https://github.com/vercel-labs/just-bash/pull/397) [`062ce00`](https://github.com/vercel-labs/just-bash/commit/062ce005c0a7676163852fb6f0c8590cbdaa1d45) Thanks [@taoche](https://github.com/taoche)! - Run lazy file providers in the defense-in-depth trusted scope during materialization. Host-supplied providers doing real async I/O (`setTimeout`, `fetch`, `process.env`) previously tripped the blocked-globals traps when a script first read the file mid-exec, surfacing as a `SecurityViolationError` (formerly a silent empty read / ENOENT). Fixes [#253](https://github.com/vercel-labs/just-bash/issues/253).
+
+- [#391](https://github.com/vercel-labs/just-bash/pull/391) [`43c37ce`](https://github.com/vercel-labs/just-bash/commit/43c37cea24cea8e2f9ed9eab38906f85836f3502) Thanks [@mutewinter](https://github.com/mutewinter)! - ln: report a refused symlink as a symlink failure, not as a hard link on a directory
+
+  `ln -s` against a filesystem constructed without symlink support failed with `ln: 'file.txt': hard link not allowed for directory`. Nothing in that sentence is true of the call: `-s` asks for a symbolic link rather than a hard one, and the named operand is the target rather than the directory the message blames.
+
+  Both link kinds shared one `EPERM` branch, which carried the hard-link wording unconditionally. `link` reports `EPERM` only for a directory, so that wording is right there and is kept. `symlink` reports it when the filesystem allows no symlinks at all, which is a different condition with a different remedy, and it now reads `ln: failed to create symbolic link 'link': Operation not permitted`, matching the shape GNU `ln` uses and the shape this command already uses for `File exists`.
+
+- [#363](https://github.com/vercel-labs/just-bash/pull/363) [`4de3cd6`](https://github.com/vercel-labs/just-bash/commit/4de3cd6e167bb54cf239aae92c45ac15cc9e2117) Thanks [@mutewinter](https://github.com/mutewinter)! - Append type indicators in `ls -l` only when `-F` asks for them. Long format previously suffixed every directory with `/` regardless, so a name read out of `ls -l` output carried a trailing slash that is not part of it, and `ls -l` disagreed with `ls` about what the same entry is called.
+
+- [#390](https://github.com/vercel-labs/just-bash/pull/390) [`b7f556f`](https://github.com/vercel-labs/just-bash/commit/b7f556fcbedc21ee4e346ad858f29c4d7d35a49e) Thanks [@trieloff](https://github.com/trieloff)! - Bound `ls` directory entry collections before per-entry work. A filesystem backend returning a very large directory could previously drive `ls` into sorting, statting, classifying and formatting every entry before any limit applied, and piping to `head` did not help because pipeline producers are materialized before consumers run. Oversized listings now fail with exit code 126 (`array element limit exceeded` / `filesystem traversal entry limit exceeded`), the recursive descent no longer fans out across sibling directories, and every operand of a multi-directory listing is charged to the same budget.
+
+- [#363](https://github.com/vercel-labs/just-bash/pull/363) [`4de3cd6`](https://github.com/vercel-labs/just-bash/commit/4de3cd6e167bb54cf239aae92c45ac15cc9e2117) Thanks [@mutewinter](https://github.com/mutewinter)! - Resolve `ls` operands as literal paths instead of matching them as glob patterns a second time. Pathname expansion is the shell's job, so an operand still holding `*`, `?` or `[` is a real filename; re-matching it made `ls 'report [1].pdf'` report an existing file as missing and stripped the leading directories from names containing `?` or `*`.
+
+- [#363](https://github.com/vercel-labs/just-bash/pull/363) [`4de3cd6`](https://github.com/vercel-labs/just-bash/commit/4de3cd6e167bb54cf239aae92c45ac15cc9e2117) Thanks [@mutewinter](https://github.com/mutewinter)! - Group `ls` operands the way GNU and BSD `ls` do. Non-directory operands now print first as a single unseparated block in sort order, then each directory prints under a `name:` label preceded by a blank line. Previously every operand was separated by a blank line, including plain files, so `find … -exec ls -l {} +` and `xargs ls -l` returned a listing with an empty line between each entry.
+
+- [#363](https://github.com/vercel-labs/just-bash/pull/363) [`4de3cd6`](https://github.com/vercel-labs/just-bash/commit/4de3cd6e167bb54cf239aae92c45ac15cc9e2117) Thanks [@mutewinter](https://github.com/mutewinter)! - Order `ls -R` sections by the active sort key, so `-t` and `-S` reach the descent rather than only each directory's own listing, and charge the traversal budget while resolving operands rather than only once the walk has started. Each operand costs one entry rather than two, `-d` charges its operands instead of returning before the budget sees them, and the metadata reads `-t` and `-S` need to sort are charged before they run.
+
+- [#363](https://github.com/vercel-labs/just-bash/pull/363) [`4de3cd6`](https://github.com/vercel-labs/just-bash/commit/4de3cd6e167bb54cf239aae92c45ac15cc9e2117) Thanks [@mutewinter](https://github.com/mutewinter)! - Implement `ls -t`. The flag was parsed and discarded, so `ls -lt` silently returned the same name-ordered listing as `ls -l` while `--help` documented it as "sort by time, newest first". `-S` and `-t` now follow GNU's precedence, where whichever is written last wins, and both break ties by name so a listing no longer depends on the order the filesystem returned entries in. Sort keys come from `lstat`, so a symlink orders on its own size and mtime rather than its target's.
+
+- [#399](https://github.com/vercel-labs/just-bash/pull/399) [`108c5cc`](https://github.com/vercel-labs/just-bash/commit/108c5ccf028e82bdcaabb2a5fd6b2640e56168f5) Thanks [@taoche](https://github.com/taoche)! - regex: cache compiled RE2 patterns across `UserRegex` constructions
+
+  Every `createUserRegex()` call recompiled its pattern from source
+  (`translateRegExp` → parse → simplify → compile). Commands that build a
+  `UserRegex` inside a per-row loop therefore recompiled the same pattern once per
+  row: jq's `test`/`match`/`capture`/`scan`/`splits`/`sub`/`gsub`, awk's `~`/`!~`
+  and `sub`/`gsub`/`match`/`split`, and sed's `s///` (which compiled the same
+  pattern twice per line for the `g` and Nth-occurrence paths). Compiling costs
+  ~23µs against ~1.5µs to match with an already-compiled pattern, so compilation
+  dominated these workloads.
+
+  Compiled patterns are now memoized in a 256-entry cache keyed on the pattern and
+  the RE2 flags, mirroring the existing glob regex cache in `src/utils/glob.ts`.
+  Patterns longer than 1024 characters are compiled but not retained, bounding the
+  cache's retained pattern source at 256 KiB. Only the compiled pattern is shared — `lastIndex`, the reusable matcher, result
+  limits and the abort signal stay per-instance, so matching semantics are
+  unchanged. Over 100k rows: jq `test()` 8.96s → 4.26s, awk `~` 4.15s → 2.55s,
+  awk `gsub` 7.16s → 6.10s, sed `s///g` 10.46s → 8.29s. Commands that already
+  hoisted compilation out of their loop (grep, rg) are unaffected.
+
+- [#394](https://github.com/vercel-labs/just-bash/pull/394) [`556a739`](https://github.com/vercel-labs/just-bash/commit/556a7397563f3db5b000329d58bc66fa0074ce77) Thanks [@cramforce](https://github.com/cramforce)! - Replace the custom js-exec QuickJS worker with run, using synchronous host bindings and native module loading while preserving filesystem, tools, process, fetch, output-limit, and cancellation behavior. Keep queue admission inside the JavaScript deadline, restore argv-only `spawnSync` execution, top-level-await module detection, optional tool exposure, and the historical 8 MiB per-call bridge ceiling. Make the aggregate bridge request ceiling configurable, bound filesystem and module reads before allocation, preserve module-loader and bootstrap diagnostics, and enforce source, generated guest configuration, and combined-output byte limits without allowing `process.exit()` to clear limit failures. Preserve binary `Buffer` filesystem writes and the `ArrayBuffer` filesystem contract, project command results before they cross into the guest, gate bootstrap-only host behavior to the bootstrap phase, parse guest stacks with bounded linear work, redact runtime stack paths, and forward cancellation through the companion executor into inline tool contexts and SDK Effect execution.
+
 ## 3.4.2
 
 ### Patch Changes
