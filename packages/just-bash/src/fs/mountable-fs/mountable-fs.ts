@@ -21,6 +21,20 @@ import {
 } from "../path-utils.js";
 
 /**
+ * How many entries a failed cross-mount copy names in its error. Only these
+ * are kept while the walk runs; the rest are counted, so a tree with thousands
+ * of symlinks the destination refuses (a node_modules) costs one error rather
+ * than one the size of the tree, in memory as well as in the message.
+ */
+const CROSS_MOUNT_COPY_FAILURES_REPORTED = 10;
+
+/** What a cross-mount copy could not copy: how many entries, and the first few. */
+interface CrossMountCopyFailures {
+  count: number;
+  named: string[];
+}
+
+/**
  * Configuration for a mount point
  */
 export interface MountConfig {
@@ -631,14 +645,38 @@ export class MountableFs implements IFileSystem {
 
   /**
    * Perform a cross-mount copy operation.
+   *
+   * A directory is copied entry by entry, and an entry that cannot be copied
+   * (a symlink the destination refuses to create, a file it refuses to write)
+   * does not end the walk: every other entry is still copied, and the failures
+   * are thrown together once the tree is done, the way GNU cp reports each
+   * entry it could not copy and exits 1 at the end. A directory that fails
+   * before its children are reached is one entry whose contents are missing
+   * with it, and is reported as such.
    */
   private async crossMountCopy(
     src: string,
     dest: string,
     options?: CpOptions,
   ): Promise<void> {
+    const failures: CrossMountCopyFailures = { count: 0, named: [] };
     const srcStat = await this.lstat(src);
+    await this.crossMountCopyEntry(src, dest, srcStat, options, failures);
+    if (failures.count > 0) {
+      const unnamed = failures.count - failures.named.length;
+      throw new Error(
+        `copied all but ${failures.count} ${failures.count === 1 ? "entry" : "entries"}: ${failures.named.join("; ")}${unnamed > 0 ? `; and ${unnamed} more` : ""}`,
+      );
+    }
+  }
 
+  private async crossMountCopyEntry(
+    src: string,
+    dest: string,
+    srcStat: FsStat,
+    options: CpOptions | undefined,
+    failures: CrossMountCopyFailures,
+  ): Promise<void> {
     if (srcStat.isFile) {
       const content = await this.readFileBuffer(src);
       await this.writeFile(dest, content);
@@ -652,7 +690,27 @@ export class MountableFs implements IFileSystem {
       for (const child of children) {
         const srcChild = joinPath(src, child);
         const destChild = joinPath(dest, child);
-        await this.crossMountCopy(srcChild, destChild, options);
+        let childStat: FsStat | undefined;
+        try {
+          childStat = await this.lstat(srcChild);
+          await this.crossMountCopyEntry(
+            srcChild,
+            destChild,
+            childStat,
+            options,
+            failures,
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          const entry = childStat?.isDirectory
+            ? `${srcChild} and everything in it`
+            : srcChild;
+          failures.count++;
+          if (failures.named.length < CROSS_MOUNT_COPY_FAILURES_REPORTED) {
+            failures.named.push(`${entry}: ${message}`);
+          }
+        }
       }
     } else if (srcStat.isSymbolicLink) {
       const target = await this.readlink(src);
