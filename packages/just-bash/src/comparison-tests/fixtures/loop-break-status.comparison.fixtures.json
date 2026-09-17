@@ -1,0 +1,198 @@
+{
+  "006bc43fb313b6c9": {
+    "command": "for ((i = 0; i < 2; i++)); do false; continue; done; echo $?",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "023cd3605b9db97a": {
+    "command": "for i in 1 2; do for j in 1; do false; continue 2; done; done; echo $?",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "0544b9575ccf71db": {
+    "command": "f() { false; return; }; f; echo $?",
+    "files": {},
+    "stdout": "1\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "05e37d5258ac8d62": {
+    "command": "for i in 1 2; do false; done; echo $?; n=0; while [ $n -lt 2 ]; do n=$((n + 1)); false; done; echo $?; for i in; do false; done; echo $?",
+    "files": {},
+    "stdout": "1\n1\n0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "0d7874e0ddf31dc8": {
+    "command": "for i in 1 2; do if [ $i = 1 ]; then true; continue; fi; false; done; echo $?",
+    "files": {},
+    "stdout": "1\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2329337be6ac432b": {
+    "command": "while :; do break; done; echo $?",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "24c1f735a7019e11": {
+    "command": "n=0; while { n=$((n + 1)); [ $n -lt 3 ] && { false; continue; }; }; do :; done; echo $?",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "299bd46eb8662485": {
+    "command": "while :; do false; break; done; echo $?",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "357d80143744d7bf": {
+    "command": "n=0; while [ $n -lt 2 ]; do n=$((n + 1)); false; continue; done; echo $?",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3b013e753238af97": {
+    "command": "until false; do false; break; done; echo $?",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "43d94b07ca1c3811": {
+    "command": "for i in 1 2; do echo \"$i:$?\"; false; continue; done; echo $?",
+    "files": {},
+    "stdout": "1:0\n2:0\n0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5ed37431d0a50927": {
+    "command": "for i in 1 2; do false; break; done; echo $?",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "72ed56c94ddc4208": {
+    "command": "n=0; while [ $n -lt 2 ]; do echo \"$n:$?\"; n=$((n + 1)); false; continue; done; echo $?",
+    "files": {},
+    "stdout": "0:0\n1:0\n0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "760a1ecb1bfeecc1": {
+    "command": "set -euo pipefail; for i in 1 2; do [ $i -eq 0 ] && continue; continue; done; echo ok",
+    "files": {},
+    "stdout": "ok\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "77150d2dfa64cf31": {
+    "command": "n=0; until [ $n -ge 2 ]; do n=$((n + 1)); false; continue; done; echo $?",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7fbd7dfbb9f00fc9": {
+    "command": "for i in 1; do for j in 1; do false; break 2; done; done; echo $?",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "81d35bdd1aacd26a": {
+    "command": "n=0; until [ $n -ge 2 ]; do echo \"$n:$?\"; n=$((n + 1)); false; continue; done; echo $?",
+    "files": {},
+    "stdout": "0:1\n1:1\n0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "90bc2dfb82a3f68b": {
+    "command": "for i in 1 2; do echo \"$i:$?\"; for j in 1; do false; continue 2; done; done; echo $?",
+    "files": {},
+    "stdout": "1:0\n2:0\n0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "95bbf0219dc5ee1b": {
+    "command": "for ((i = 0; i < 2; i++)); do echo \"$i:$?\"; false; continue; done; echo $?",
+    "files": {},
+    "stdout": "0:0\n1:0\n0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a76af2246651dcb9": {
+    "command": "while false || { false; break; }; do :; done; echo $?",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a784ee279947d4a1": {
+    "command": "for ((i = 0; i < 3; i++)); do false; break; done; echo $?",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a978e55722126210": {
+    "command": "for a in 1; do false; break 5; done; echo $?",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "acfe152fb49953a3": {
+    "command": "for a in 1; do for b in 1; do for c in 1; do false; break 3; done; done; done; echo $?",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "afbde77994b84c93": {
+    "command": "for i in 1; do for j in 1; do false; break; done; done; echo $?",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d31e409797784999": {
+    "command": "for i in 1 2; do false; continue; done; echo $?",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d9ca16cb51388721": {
+    "command": "for i in 1; do for j in 1; do false; break; done; echo \"after=$?\"; done",
+    "files": {},
+    "stdout": "after=0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "db1e7c449bf507ce": {
+    "command": "set -euo pipefail; while :; do [ 5 -eq 0 ] && break; break; done; echo ok",
+    "files": {},
+    "stdout": "ok\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ff43c35222631d15": {
+    "command": "for i in 1; do if :; then false; break; fi; done; echo $?; for i in 1; do case $i in 1) false; break;; esac; done; echo $?",
+    "files": {},
+    "stdout": "0\n0\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
