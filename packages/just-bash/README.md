@@ -102,7 +102,7 @@ duplicating internal defaults.
 
 ### Navigation & Environment
 
-`basename`, `cd`, `dirname`, `du`, `echo`, `env`, `export`, `find`, `hostname`, `printenv`, `pwd`, `tee`
+`basename`, `cd`, `dirname`, `du`, `echo`, `env`, `export`, `find`, `hostname`, `printenv`, `pwd`, `realpath`, `tee`
 
 ### Shell Utilities
 
