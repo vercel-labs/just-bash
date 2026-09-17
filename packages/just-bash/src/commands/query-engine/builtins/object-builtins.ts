@@ -23,6 +23,16 @@ function maxResultElements(ctx: EvalContext): number {
   return ctx.limits.maxArrayElements;
 }
 
+function makeEntry(
+  key: string | number,
+  value: unknown,
+): Record<string, unknown> {
+  const entry: Record<string, unknown> = Object.create(null);
+  safeSet(entry, "key", key);
+  safeSet(entry, "value", value);
+  return entry;
+}
+
 function assertResultPush(ctx: EvalContext, length: number): void {
   const limit = maxResultElements(ctx);
   if (length >= limit) {
@@ -117,6 +127,15 @@ export function evalObjectBuiltin(
     }
 
     case "to_entries": {
+      if (Array.isArray(value)) {
+        if (value.length > maxResultElements(ctx)) {
+          throw new ExecutionLimitError(
+            `query result element limit exceeded (${maxResultElements(ctx)})`,
+            "array_elements",
+          );
+        }
+        return [value.map((item, index) => makeEntry(index, item))];
+      }
       const toEntriesObj = asQueryRecord(value);
       if (toEntriesObj) {
         const keys = Object.keys(toEntriesObj);
@@ -126,14 +145,7 @@ export function evalObjectBuiltin(
             "array_elements",
           );
         }
-        return [
-          keys.map((key) => {
-            const entry: Record<string, unknown> = Object.create(null);
-            safeSet(entry, "key", key);
-            safeSet(entry, "value", toEntriesObj[key]);
-            return entry;
-          }),
-        ];
+        return [keys.map((key) => makeEntry(key, toEntriesObj[key]))];
       }
       return [null];
     }
@@ -174,9 +186,7 @@ export function evalObjectBuiltin(
         }
         const mapped: QueryValue[] = [];
         for (const key of keys) {
-          const entry: Record<string, unknown> = Object.create(null);
-          safeSet(entry, "key", key);
-          safeSet(entry, "value", withEntriesObj[key]);
+          const entry = makeEntry(key, withEntriesObj[key]);
           const values = evaluate(entry, args[0], ctx);
           if (mapped.length > maxResultElements(ctx) - values.length) {
             throw new ExecutionLimitError(
@@ -288,7 +298,7 @@ export function evalObjectBuiltin(
     case "tonumber":
       if (typeof value === "number") return [value];
       if (typeof value === "string") {
-        const n = Number(value);
+        const n = value.trim() === "" ? Number.NaN : Number(value);
         if (Number.isNaN(n)) {
           throw new Error(
             `${JSON.stringify(value)} cannot be parsed as a number`,
