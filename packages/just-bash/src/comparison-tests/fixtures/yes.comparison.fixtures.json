@@ -1,0 +1,66 @@
+{
+  "0294fc355aeceb01": {
+    "command": "yes n | head -2",
+    "files": {},
+    "stdout": "n\nn\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "0db72c7020ecd913": {
+    "command": "yes -- -x | head -2",
+    "files": {},
+    "stdout": "-x\n-x\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "376abd7f23fa5054": {
+    "command": "yes | head -3",
+    "files": {},
+    "stdout": "y\ny\ny\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "46f40986aa54b9d3": {
+    "command": "yes | head -5000 | wc -l",
+    "files": {},
+    "stdout": "5000\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "4b012c6515d179df": {
+    "command": "yes a b c | head -2",
+    "files": {},
+    "stdout": "a b c\na b c\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "67c83a8b598bb1ac": {
+    "command": "yes '' | head -2 | wc -c",
+    "files": {},
+    "stdout": "2\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "7df5bcd8482d31d5": {
+    "command": "yes - | head -2",
+    "files": {},
+    "stdout": "-\n-\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "ea5593dc3a596d8d": {
+    "command": "yes yes | head -4 | sort -u",
+    "files": {},
+    "stdout": "yes\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}
