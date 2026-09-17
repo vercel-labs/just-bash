@@ -1,0 +1,62 @@
+{
+  "f7d7b188bd421f71": {
+    "command": "stat -c '%s' file.txt",
+    "files": {
+      "file.txt": "hello world"
+    },
+    "stdout": "11\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "677edb3d0ea90e66": {
+    "command": "stat -c '%a %A %f %F' file.txt",
+    "files": {
+      "file.txt": "hello world"
+    },
+    "stdout": "644 -rw-r--r-- 81a4 regular file\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "261ac1f4f95deac0": {
+    "command": "stat -c '%a %A %f %F' dir",
+    "files": {
+      "dir/file.txt": "hello"
+    },
+    "stdout": "755 drwxr-xr-x 41ed directory\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "7dc0770658668bc8": {
+    "command": "stat -c 'pct=%% unknown=%q' file.txt",
+    "files": {
+      "file.txt": "hello world"
+    },
+    "stdout": "pct=% unknown=?\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "e8e4c22a3cc233f0": {
+    "command": "stat -c '[%5s][%-5s]' file.txt",
+    "files": {
+      "file.txt": "hello world"
+    },
+    "stdout": "[   11][11   ]\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "95d40abb10093e5d": {
+    "command": "stat -c 'trailing %' file.txt",
+    "files": {
+      "file.txt": "hello world"
+    },
+    "stdout": "trailing %\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}
