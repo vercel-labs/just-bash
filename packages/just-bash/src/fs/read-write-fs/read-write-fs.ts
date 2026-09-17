@@ -15,6 +15,7 @@ import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { type ByteString, unsafeBytesFromLatin1 } from "../../encoding.js";
+import { assertDestinationParentDirectory } from "../destination-parent.js";
 import {
   type FileContent,
   fromBuffer,
@@ -31,7 +32,10 @@ import type {
   RmOptions,
   WriteFileOptions,
 } from "../interface.js";
-import { resolvePath as resolveVPath } from "../path-utils.js";
+import {
+  isSameOrDescendantPath,
+  resolvePath as resolveVPath,
+} from "../path-utils.js";
 import {
   isPathWithinRoot,
   normalizePath,
@@ -765,7 +769,6 @@ export class ReadWriteFs implements IFileSystem {
     // cp operates on the source directory entry itself, including when it is
     // a symlink. Validate its parent without resolving the final component.
     const srcCanonical = this.validateParent(srcReal, src);
-    const destCanonical = this.resolveAndValidate(destReal, dest);
     let srcStat: fs.Stats;
     try {
       srcStat = await fs.promises.lstat(srcCanonical);
@@ -776,6 +779,19 @@ export class ReadWriteFs implements IFileSystem {
       }
       this.sanitizeError(e, src, "cp");
     }
+
+    if (srcStat.isDirectory()) {
+      if (!options?.recursive) {
+        throw new Error(`EISDIR: is a directory, cp '${src}'`);
+      }
+      if (isSameOrDescendantPath(src, dest)) {
+        throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
+      }
+    }
+
+    await assertDestinationParentDirectory(this, dest);
+    const destCanonical = this.resolveAndValidate(destReal, dest);
+
     if (
       srcStat.isDirectory() &&
       isPathWithinRoot(destCanonical, srcCanonical)
@@ -815,20 +831,6 @@ export class ReadWriteFs implements IFileSystem {
       await this.preflightCopyTree(srcCanonical, src);
     } catch (e) {
       this.sanitizeError(e, src, "cp");
-    }
-
-    // Match fs.cp's behavior for a missing destination hierarchy. Validate
-    // again after creating it so the path used for replacement reflects the
-    // directory entries that now exist.
-    if (srcStat.isFile() || srcStat.isSymbolicLink()) {
-      try {
-        await fs.promises.mkdir(nodePath.dirname(destCanonical), {
-          recursive: true,
-        });
-        this.resolveAndValidate(destReal, dest);
-      } catch (e) {
-        this.sanitizeError(e, dest, "cp");
-      }
     }
 
     try {
@@ -913,7 +915,14 @@ export class ReadWriteFs implements IFileSystem {
         destinationReal,
         virtualDestination,
       );
-      await fs.promises.mkdir(destination, { recursive: true });
+      try {
+        await fs.promises.mkdir(destination);
+      } catch (e) {
+        const err = e as NodeJS.ErrnoException;
+        if (err.code !== "EEXIST") throw e;
+        const destinationStat = await fs.promises.stat(destination);
+        if (!destinationStat.isDirectory()) throw e;
+      }
       // A pre-existing child symlink, or a parent swap during mkdir, must not
       // redirect subsequent recursive entries outside the sandbox.
       destination = this.resolveAndValidate(
@@ -1108,7 +1117,6 @@ export class ReadWriteFs implements IFileSystem {
     // directory entries — it does NOT follow the final symlink component.
     // resolveAndValidate would resolve through symlinks, breaking symlink moves.
     const srcCanonical = this.validateParent(srcReal, src);
-    const destCanonical = this.validateParent(destReal, dest);
     let sourceStat: fs.Stats;
     try {
       sourceStat = await fs.promises.lstat(srcCanonical);
@@ -1119,6 +1127,13 @@ export class ReadWriteFs implements IFileSystem {
       }
       this.sanitizeError(e, src, "mv");
     }
+    if (sourceStat.isDirectory() && isSameOrDescendantPath(src, dest)) {
+      throw new Error(`EINVAL: cannot move '${src}' into itself, '${dest}'`);
+    }
+
+    await assertDestinationParentDirectory(this, dest);
+    const destCanonical = this.validateParent(destReal, dest);
+
     if (
       sourceStat.isDirectory() &&
       this.isSameOrDescendantIdentity(srcCanonical, destCanonical)
@@ -1157,14 +1172,6 @@ export class ReadWriteFs implements IFileSystem {
         throw e;
       }
       // For other errors, let the rename below handle it
-    }
-
-    // Ensure destination parent directory exists
-    const destDir = nodePath.dirname(destCanonical);
-    try {
-      await fs.promises.mkdir(destDir, { recursive: true });
-    } catch (e) {
-      this.sanitizeError(e, dest, "mv");
     }
 
     try {

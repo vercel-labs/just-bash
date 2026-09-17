@@ -187,10 +187,13 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
 
       // This should NOT write to the real outside path
       const targetPath = path.join(outsideDir, "stolen.txt");
-      await rwfs.cp("/source.txt", targetPath);
+      await expect(rwfs.cp("/source.txt", targetPath)).rejects.toThrow(
+        "ENOENT",
+      );
 
       // Real outside directory should not have the file
       expect(fs.existsSync(targetPath)).toBe(false);
+      expect(await rwfs.exists("/source.txt")).toBe(true);
     });
 
     it("should not move from outside root", async () => {
@@ -205,12 +208,15 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
       expect(await rwfs.exists("/to-move.txt")).toBe(true);
 
       const targetPath = path.join(outsideDir, "moved.txt");
-      // Note: mv to outside path maps to a deep nested path inside root
-      // which may fail with ENOENT if parent dirs don't exist
-      await rwfs.mv("/to-move.txt", targetPath);
+      // The absolute-looking destination is a virtual path inside the root,
+      // and its missing parent must not be created implicitly.
+      await expect(rwfs.mv("/to-move.txt", targetPath)).rejects.toThrow(
+        "ENOENT",
+      );
 
       // Real outside directory should not have the file
       expect(fs.existsSync(targetPath)).toBe(false);
+      expect(await rwfs.exists("/to-move.txt")).toBe(true);
     });
   });
 
