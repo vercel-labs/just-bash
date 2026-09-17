@@ -92,9 +92,15 @@ noscript pre {
 
 .lite-terminal-cursor {
   display: inline-block;
-  vertical-align: text-bottom;
+  vertical-align: baseline;
   pointer-events: none;
-  opacity: 1;
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  line-height: inherit;
+  font: inherit;
+  background-color: var(--cursor-bg, var(--term-cursor, #fff));
+  color: var(--cursor-block-fg, #000);
 }
 
 .lite-terminal-cursor.blink {
@@ -102,8 +108,14 @@ noscript pre {
 }
 
 @keyframes lite-terminal-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+  0%, 100% {
+    background-color: var(--cursor-bg, var(--term-cursor, #fff));
+    color: var(--cursor-block-fg, #000);
+  }
+  50% {
+    background-color: transparent;
+    color: var(--cursor-text-color, inherit);
+  }
 }
 
 /* Lite Terminal text styles */
