@@ -12,6 +12,8 @@ Usage: js-exec [OPTIONS] [-c CODE | FILE] [ARGS...]
 
 Options:
   -c CODE          Execute inline code
+  -e, --eval CODE  Execute inline code (same as -c)
+  -p, --print EXPR Evaluate an expression and print its value
   -m, --module     Enable ES module mode (import/export)
   --strip-types    Accepted for compatibility; type stripping is automatic
   --version, -V    Show version
@@ -46,16 +48,30 @@ Limits:
 
 interface ParsedArgs {
   code: string | null;
+  print: boolean;
   scriptFile: string | null;
   showVersion: boolean;
   scriptArgs: string[];
   isModule: boolean;
 }
 
+/** Options that take inline code, spelled the way `js-exec` and `node` take them. */
+const INLINE_CODE_OPTIONS: Record<string, { print: boolean }> = Object.assign(
+  Object.create(null) as Record<string, { print: boolean }>,
+  {
+    "--eval": { print: false },
+    "--print": { print: true },
+    "-c": { print: false },
+    "-e": { print: false },
+    "-p": { print: true },
+  },
+);
+
 function parseArgs(args: string[]): ParsedArgs | ExecResult {
   const result: ParsedArgs = {
     code: null,
     isModule: false,
+    print: false,
     scriptArgs: [],
     scriptFile: null,
     showVersion: false,
@@ -71,16 +87,26 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
       // Node-compatible flag as an explicit compatibility alias.
       continue;
     }
-    if (arg === "-c") {
-      if (index + 1 >= args.length) {
-        return {
-          exitCode: 2,
-          stderr: "js-exec: option requires an argument -- 'c'\n",
-          stdout: "",
-        };
+    // `--eval=CODE` and `--print=CODE` carry the code in the same argument.
+    const separator = arg.startsWith("--") ? arg.indexOf("=") : -1;
+    const option = separator === -1 ? arg : arg.slice(0, separator);
+    const inline = INLINE_CODE_OPTIONS[option];
+    if (inline !== undefined) {
+      if (separator !== -1) {
+        result.code = arg.slice(separator + 1);
+        result.scriptArgs = args.slice(index + 1);
+      } else {
+        if (index + 1 >= args.length) {
+          return {
+            exitCode: 2,
+            stderr: `js-exec: option requires an argument -- '${option.replace(/^-+/, "")}'\n`,
+            stdout: "",
+          };
+        }
+        result.code = args[index + 1];
+        result.scriptArgs = args.slice(index + 2);
       }
-      result.code = args[index + 1];
-      result.scriptArgs = args.slice(index + 2);
+      result.print = inline.print;
       return result;
     }
     if (arg === "--version" || arg === "-V") {
@@ -112,6 +138,80 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
   return result;
 }
 
+/**
+ * Whether every quote in `code` is closed, so that a `//` or a `/*` at its
+ * end is a comment rather than the inside of a string.
+ */
+function quotesBalanced(code: string): boolean {
+  let open: string | undefined;
+  for (let index = 0; index < code.length; index++) {
+    const char = code[index];
+    if (open === undefined) {
+      if (char === "'" || char === '"' || char === "`") open = char;
+    } else if (char === "\\") {
+      index++;
+    } else if (char === open) {
+      open = undefined;
+    }
+  }
+  return open === undefined;
+}
+
+/**
+ * The program without the trailing semicolons and comments that end a typed
+ * expression (`1; // two`), so it can sit in an expression position.
+ */
+function trailingExpression(code: string): string {
+  let expression = code;
+  for (;;) {
+    const trimmed = expression.trimEnd();
+    let next = trimmed;
+    if (trimmed.endsWith(";")) {
+      next = trimmed.slice(0, -1);
+    } else if (trimmed.endsWith("*/")) {
+      const start = trimmed.lastIndexOf("/*");
+      if (start !== -1 && quotesBalanced(trimmed.slice(0, start))) {
+        next = trimmed.slice(0, start);
+      }
+    } else {
+      // A `//` inside a string, or one whose first slash is escaped (the
+      // end of a regex like /https:\/\//), is not a comment.
+      let commentStart = trimmed.indexOf("//", trimmed.lastIndexOf("\n") + 1);
+      while (
+        commentStart !== -1 &&
+        (trimmed[commentStart - 1] === "\\" ||
+          !quotesBalanced(trimmed.slice(0, commentStart)))
+      ) {
+        commentStart = trimmed.indexOf("//", commentStart + 1);
+      }
+      if (commentStart !== -1) next = trimmed.slice(0, commentStart);
+    }
+    if (next === expression) return expression;
+    expression = next;
+  }
+}
+
+/**
+ * How `-p` prints a value: strings as they are, and the rest the way node
+ * inspects them for the kinds `console.log`'s JSON would lose (a RegExp as
+ * `{}`, a Symbol or a function as nothing). Objects and arrays stay JSON,
+ * as they are everywhere in this runtime. A declaration, so it hoists above
+ * the expression and the expression keeps its place on line 1.
+ */
+const PRINT_VALUE = `function __jbPrint(v) { console.log(typeof v === 'string' ? v : typeof v === 'symbol' ? v.toString() : typeof v === 'bigint' ? v + 'n' : typeof v === 'function' ? (v.name ? '[Function: ' + v.name + ']' : '[Function (anonymous)]') : v instanceof RegExp ? String(v) : v instanceof Date ? v.toISOString() : v instanceof Error ? String(v) + (v.stack ? '\\n' + v.stack : '') : v === undefined || v === null || typeof v === 'number' || typeof v === 'boolean' ? String(v) : (function () { try { return JSON.stringify(v); } catch (_) { return String(v); } })()); }`;
+
+/**
+ * `-p` prints the value of one expression, which is what node prints for a
+ * single expression statement; an empty program prints `undefined`, as
+ * node does. A program of several statements is a syntax error here. The
+ * newline after the expression keeps a comment inside it from swallowing
+ * the closing parenthesis.
+ */
+function printSource(code: string): string {
+  const expression = trailingExpression(code);
+  return `__jbPrint((${expression === "" ? "undefined" : expression}\n));\n${PRINT_VALUE}`;
+}
+
 export const jsExecCommand: RuntimeCommand = {
   name: "js-exec",
   async execute(args, ctx) {
@@ -127,7 +227,7 @@ export const jsExecCommand: RuntimeCommand = {
     let source: string;
     let scriptPath: string;
     if (parsed.code !== null) {
-      source = parsed.code;
+      source = parsed.print ? printSource(parsed.code) : parsed.code;
       scriptPath = "-c";
     } else if (parsed.scriptFile !== null) {
       const filePath = ctx.fs.resolvePath(ctx.cwd, parsed.scriptFile);
@@ -155,7 +255,7 @@ export const jsExecCommand: RuntimeCommand = {
       return {
         exitCode: 2,
         stderr:
-          "js-exec: no input provided (use -c CODE or provide a script file)\n",
+          "js-exec: no input provided (use -c CODE, -e CODE, or provide a script file)\n",
         stdout: "",
       };
     }

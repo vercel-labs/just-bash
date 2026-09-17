@@ -34,7 +34,7 @@ function walkDir(dir, depth) {
   return result;
 }
 
-var root = process.argv[1] || "/home/user";
+var root = process.argv[2] || "/home/user";
 var tree = walkDir(root);
 var output = JSON.stringify(tree, null, 2);
 fs.writeFileSync("/tmp/tree.json", output);
