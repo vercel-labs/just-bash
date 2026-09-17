@@ -121,7 +121,9 @@ export async function handleArrayDefaultValue(
     // Outer parameter is a scalar variable
     const varName = paramPart.parameter;
     const isSet = await isVariableSet(ctx, varName);
-    const varValue = await getVariable(ctx, varName);
+    // ${var:-word}, ${var:=word} and ${var:+word} all handle unset variables
+    // themselves, so nounset must not fire while probing the current value.
+    const varValue = await getVariable(ctx, varName, false);
     const isEmpty = varValue === "";
     const checkEmpty = op.checkEmpty ?? false;
 
