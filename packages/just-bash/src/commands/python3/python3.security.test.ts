@@ -119,7 +119,7 @@ describe("python3 security", () => {
       );
 
       expect(result.stdout).toBe("");
-      expect(result.stderr).toContain("[Errno 27]");
+      expect(result.stderr).toContain("OSError: [Errno 22] File too large");
       expect(result.exitCode).toBe(1);
       const bytes = await env.fs.readFileBuffer("/tmp/truncated.bin");
       expect(bytes.byteLength).toBeLessThanOrEqual(128);
