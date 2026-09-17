@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
@@ -12,7 +12,29 @@ interface PackResult {
   files: Array<{ path: string }>;
 }
 
+interface PackageManifest {
+  optionalDependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+}
+
 describe("published package declarations", () => {
+  it("keeps native codecs opt-in", async () => {
+    const manifest = JSON.parse(
+      await readFile(resolve(packageRoot, "package.json"), "utf8"),
+    ) as PackageManifest;
+
+    expect(manifest.optionalDependencies).toBeUndefined();
+    expect(manifest.peerDependencies).toMatchObject({
+      "@mongodb-js/zstd": "^7.0.0",
+      "node-liblzma": "^2.2.0",
+    });
+    expect(manifest.peerDependenciesMeta).toMatchObject({
+      "@mongodb-js/zstd": { optional: true },
+      "node-liblzma": { optional: true },
+    });
+  });
+
   it("includes declaration trees referenced by public declarations", async () => {
     const npmCache = await mkdtemp(resolve(tmpdir(), "just-bash-npm-cache-"));
 
