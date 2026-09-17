@@ -1366,6 +1366,15 @@ async function runPython(input: WorkerInput): Promise<WorkerOutput> {
 
     Module = await createPythonModule({
       noInitialRun: true,
+      // Emscripten's Node glue otherwise takes the program name from
+      // process.argv[1], which in a worker is this file's absolute host path.
+      // CPython gets it as argv[0] and as the `_` environment variable, so
+      // it leaked into the guest (`sys.executable`, `os.environ['_']`), and
+      // its length shifts the initial heap layout: at some lengths (200
+      // characters, a pnpm store path) Py_FinalizeEx aborts with
+      // "gilstate_tss_clear: failed to clear current tstate" after the
+      // program has run, and every invocation exits 1.
+      thisProgram: "python3",
       preRun: [onPreRun],
       print: onPrint,
       printErr: onPrintErr,

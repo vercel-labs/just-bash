@@ -27,6 +27,24 @@ python3 -c "import os; print(os.environ['VAR1'], os.environ['VAR2'], os.environ[
       expect(result.exitCode).toBe(0);
     });
 
+    it("names the interpreter python3, not the worker's host path", async () => {
+      // Emscripten reads the program name off process.argv[1], which in a
+      // worker thread is worker.js's absolute path on the host. CPython
+      // exposes it as sys.executable and as the `_` variable, and its
+      // length decides the initial heap layout, which at some lengths makes
+      // Py_FinalizeEx abort after the program has run.
+      const env = new Bash({ python: true });
+      const result = await env.exec(
+        `python3 -c "import os, sys; print(os.environ.get('_')); print(repr(sys.executable))"`,
+      );
+      expect(result.stderr).toBe("");
+      // sys.executable is empty because no file named python3 exists on the
+      // guest's PATH, which is what CPython reports for a program it cannot
+      // locate; what matters is that neither carries a host path.
+      expect(result.stdout).toBe("python3\n''\n");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should handle env vars with spaces", async () => {
       const env = new Bash({ python: true });
       const result = await env.exec(`
