@@ -80,7 +80,7 @@
     "knip": "knip",
     "test": "vitest",
     "test:run": "vitest run --exclude src/security/fuzzing/ --exclude src/commands/python3/ --exclude src/commands/sqlite3/ --exclude src/commands/js-exec/ --exclude src/agent-examples/python-scripting.test.ts",
-    "test:dist": "vitest run src/cli/just-bash.bundle.test.ts src/package-contents.test.ts",
+    "test:dist": "vitest run src/cli/just-bash.bundle.test.ts src/package-contents.test.ts src/bundle-cjs.test.ts",
     "test:unit": "vitest run --config vitest.unit.config.ts",
     "test:wasm": "vitest run --config vitest.wasm.config.ts",
     "test:comparison": "vitest run --config vitest.comparison.config.ts",
