@@ -163,6 +163,8 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
 type QueuedExecution = {
   /** Unforgeable ownership marker for this queue slot. */
   executionId: symbol;
+  /** Resolved before the bridge is armed, so a missing worker fails fast. */
+  workerPath: string;
   input: WorkerInput;
   settle: (result: WorkerOutput) => void;
   requireDefenseContext?: boolean;
@@ -341,10 +343,9 @@ function processNextExecution(queueState: QueueState): void {
   // per worker lifetime, not per execution).
   let worker: Worker;
   try {
-    const workerPath = findWorkerPath();
     worker = DefenseInDepthBox.runTrusted(
       // @banned-pattern-ignore: constructor is immediately owned by next.controller lifecycle
-      () => new Worker(workerPath, { workerData: next.input }),
+      () => new Worker(next.workerPath, { workerData: next.input }),
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -525,6 +526,19 @@ async function executePython(
   scriptPath?: string,
   scriptArgs: string[] = [],
 ): Promise<ExecResult> {
+  // Before the shared buffer, the bridge and the controller exist: a failure here
+  // must be reported as it stands, not wait for the bridge's own deadline.
+  let workerPath: string;
+  try {
+    workerPath = _internals.findWorkerPath();
+  } catch (error) {
+    return {
+      stdout: "",
+      stderr: `python3: ${sanitizeHostErrorMessage(getErrorMessage(error))}\n`,
+      exitCode: 1,
+    };
+  }
+
   const sharedBuffer = createSharedBuffer();
   const bridgeHandler = new BridgeHandler(
     sharedBuffer,
@@ -576,6 +590,7 @@ async function executePython(
     let settled = false;
     const queueEntry: QueuedExecution = {
       executionId: Symbol("python3 execution"),
+      workerPath,
       input: workerInput,
       settle: (result) => {
         if (settled) return;
