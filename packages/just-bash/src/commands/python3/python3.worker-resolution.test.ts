@@ -8,6 +8,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Bash } from "../../Bash.js";
 import { _internals } from "./python3.js";
 
 describe("python3 findWorkerPath()", () => {
@@ -57,4 +58,28 @@ describe("python3 findWorkerPath()", () => {
       /python3 worker not found.*pnpm build/,
     );
   });
+});
+
+describe("python3 with an unresolvable worker", () => {
+  it("fails immediately instead of waiting for the python timeout", async () => {
+    const original = _internals.findWorkerPath;
+    _internals.findWorkerPath = () => {
+      throw new Error(
+        "python3 worker not found. Run 'pnpm build' to compile the worker.",
+      );
+    };
+
+    try {
+      const env = new Bash({ python: true });
+      const startedAt = Date.now();
+      const result = await env.exec('python3 -c "print(1 + 1)"');
+
+      expect(result.stderr).toContain("python3 worker not found");
+      expect(result.exitCode).toBe(1);
+      // Not 124: the bridge must not be left running for maxPythonTimeoutMs.
+      expect(Date.now() - startedAt).toBeLessThan(5_000);
+    } finally {
+      _internals.findWorkerPath = original;
+    }
+  }, 45_000);
 });
