@@ -42,6 +42,11 @@ export async function handleCd(
   } else if (remainingArgs[0] === "~") {
     target = ctx.state.env.get("HOME") || "/";
   } else if (remainingArgs[0] === "-") {
+    // A shell started without OLDPWD in its environment has no previous
+    // directory yet.
+    if (!ctx.state.previousDir) {
+      return failure("bash: cd: OLDPWD not set\n");
+    }
     target = ctx.state.previousDir;
     printPath = true; // cd - prints the new directory
   } else {
