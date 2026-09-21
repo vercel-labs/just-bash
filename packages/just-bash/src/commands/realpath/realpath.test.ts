@@ -121,21 +121,30 @@ describe("realpath", () => {
   });
 
   it("handles help, option termination, and unknown options", async () => {
-    const env = new Bash({ files: { "/-name": "content\n" } });
+    const env = new Bash({
+      files: { "/-name": "content\n", "/--help": "content\n" },
+    });
 
     const help = await env.exec("realpath --help");
     const terminated = await env.exec("realpath -- /-name");
+    const terminatedHelp = await env.exec("realpath -- --help");
     const unknown = await env.exec("realpath -x /-name");
     const missing = await env.exec("realpath");
+    const empty = await env.exec("realpath ''");
 
     expect(help.stdout).toContain("Usage: realpath FILE...");
     expect(help.exitCode).toBe(0);
     expect(terminated.stdout).toBe("/-name\n");
     expect(terminated.exitCode).toBe(0);
+    expect(terminatedHelp.stdout).toBe("/--help\n");
+    expect(terminatedHelp.exitCode).toBe(0);
     expect(unknown.stderr).toBe("realpath: invalid option -- 'x'\n");
     expect(unknown.exitCode).toBe(1);
     expect(missing.stderr).toBe("realpath: missing operand\n");
     expect(missing.exitCode).toBe(1);
+    expect(empty.stdout).toBe("");
+    expect(empty.stderr).toBe("realpath: '': No such file or directory\n");
+    expect(empty.exitCode).toBe(1);
   });
 
   it("is available through command filtering and remains overridable", async () => {

@@ -8,7 +8,7 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
-import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { showHelp, unknownOption } from "../help.js";
 
 const realpathHelp = {
   name: "realpath",
@@ -38,16 +38,15 @@ export const realpathCommand: RuntimeCommand = {
     args: string[],
     ctx: RuntimeCommandContext,
   ): Promise<ExecResult> {
-    if (hasHelpFlag(args)) {
-      return showHelp(realpathHelp);
-    }
-
     let argIdx = 0;
     while (argIdx < args.length && args[argIdx].startsWith("-")) {
       const arg = args[argIdx];
       if (arg === "--") {
         argIdx++;
         break;
+      }
+      if (arg === "--help") {
+        return showHelp(realpathHelp);
       }
       return unknownOption("realpath", arg);
     }
@@ -62,6 +61,12 @@ export const realpathCommand: RuntimeCommand = {
     let hasError = false;
 
     for (const file of files) {
+      if (file === "") {
+        hasError = true;
+        stderr += "realpath: '': No such file or directory\n";
+        continue;
+      }
+
       try {
         const resolved = await ctx.fs.realpathFromCwd({
           cwd: ctx.cwd,
