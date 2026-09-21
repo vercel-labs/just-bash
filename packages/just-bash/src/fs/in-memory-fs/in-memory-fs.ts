@@ -587,7 +587,8 @@ export class InMemoryFs implements IFileSystem {
 
     let pending = normalized;
     let resolvedPath = "/";
-    const seen = new Set<string>();
+    // A symlink can be revisited when an earlier target adds a different
+    // suffix. The depth bound catches cycles without rejecting valid paths.
     let symlinkDepth = 0;
 
     while (pending !== "/") {
@@ -601,12 +602,6 @@ export class InMemoryFs implements IFileSystem {
       const entry = this.data.get(candidate);
 
       if (entry?.type === "symlink") {
-        if (seen.has(candidate)) {
-          throw new Error(
-            `ELOOP: too many levels of symbolic links, open '${path}'`,
-          );
-        }
-        seen.add(candidate);
         symlinkDepth++;
         if (symlinkDepth >= MAX_SYMLINK_DEPTH) {
           throw new Error(

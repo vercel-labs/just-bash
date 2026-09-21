@@ -36,7 +36,7 @@ describe("InMemoryFs realpath", () => {
     );
   });
 
-  it("allows a symlink to be revisited with a different suffix", async () => {
+  it("allows symlink revisits with a different suffix across operations", async () => {
     const fs = new InMemoryFs({
       "/real/sub": "content\n",
     });
@@ -44,5 +44,13 @@ describe("InMemoryFs realpath", () => {
     await fs.symlink("/link/sub", "/real/hop");
 
     await expect(fs.realpath("/link/hop")).resolves.toBe("/real/sub");
+    await expect(fs.readFile("/link/hop")).resolves.toBe("content\n");
+    await expect(fs.stat("/link/hop")).resolves.toMatchObject({
+      isFile: true,
+    });
+    await expect(fs.exists("/link/hop")).resolves.toBe(true);
+    await expect(
+      fs.utimes("/link/hop", new Date(), new Date()),
+    ).resolves.toBeUndefined();
   });
 });
