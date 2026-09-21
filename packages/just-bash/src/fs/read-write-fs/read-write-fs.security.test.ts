@@ -687,6 +687,14 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
       const result = await rwfs.realpath("/subdir/nested.txt");
       expect(result).toBe("/subdir/nested.txt");
     });
+
+    it("should resolve a relative operand from a virtual cwd", async () => {
+      const result = await rwfs.realpathFromCwd({
+        cwd: "/subdir",
+        operand: "nested.txt",
+      });
+      expect(result).toBe("/subdir/nested.txt");
+    });
   });
 
   describe("mkdir escape via pre-existing OS symlink", () => {

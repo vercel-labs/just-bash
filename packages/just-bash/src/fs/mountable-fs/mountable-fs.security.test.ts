@@ -427,6 +427,9 @@ describe("MountableFs Security", () => {
 
       const resolved = await mfs.realpath("/mnt/link");
       expect(resolved).toBe("/mnt/real.txt");
+      await expect(
+        mfs.realpathFromCwd({ cwd: "/mnt", operand: "link" }),
+      ).resolves.toBe("/mnt/real.txt");
     });
 
     it("should return mount point for realpath at mount root", async () => {

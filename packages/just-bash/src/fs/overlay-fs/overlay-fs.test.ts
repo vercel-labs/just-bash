@@ -424,6 +424,20 @@ describe("OverlayFs", () => {
       const stat = await overlay.lstat("/link");
       expect(stat.isSymbolicLink).toBe(true);
     });
+
+    it("should resolve a relative operand from a virtual cwd", async () => {
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
+
+      await overlay.writeFile("/target.txt", "target content");
+
+      await expect(
+        overlay.realpathFromCwd({ cwd: "/", operand: "target.txt" }),
+      ).resolves.toBe("/target.txt");
+    });
   });
 
   describe("copy and move", () => {

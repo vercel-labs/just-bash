@@ -280,6 +280,13 @@ export interface IFileSystem {
   realpath(path: string): Promise<string>;
 
   /**
+   * Resolve a shell operand relative to a virtual working directory, then
+   * canonicalize the resulting path with realpath().
+   * @throws Error if the resolved path does not exist or contains a broken symlink
+   */
+  realpathFromCwd(options: { cwd: string; operand: string }): Promise<string>;
+
+  /**
    * Set access and modification times of a file
    * @param path - The file path
    * @param atime - Access time (currently ignored, kept for API compatibility)

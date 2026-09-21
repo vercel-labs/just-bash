@@ -629,6 +629,13 @@ export class MountableFs implements IFileSystem {
     return resolvedRelative;
   }
 
+  async realpathFromCwd(options: {
+    cwd: string;
+    operand: string;
+  }): Promise<string> {
+    return this.realpath(this.resolvePath(options.cwd, options.operand));
+  }
+
   /**
    * Perform a cross-mount copy operation.
    */

@@ -62,10 +62,11 @@ export const realpathCommand: RuntimeCommand = {
     let hasError = false;
 
     for (const file of files) {
-      const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-
       try {
-        const resolved = await ctx.fs.realpath(filePath);
+        const resolved = await ctx.fs.realpathFromCwd({
+          cwd: ctx.cwd,
+          operand: file,
+        });
         stdout += `${resolved}\n`;
       } catch (error) {
         if (

@@ -953,6 +953,13 @@ export class InMemoryFs implements IFileSystem {
     return resolved;
   }
 
+  async realpathFromCwd(options: {
+    cwd: string;
+    operand: string;
+  }): Promise<string> {
+    return this.realpath(this.resolvePath(options.cwd, options.operand));
+  }
+
   /**
    * Set access and modification times of a file
    * @param path - The file path
