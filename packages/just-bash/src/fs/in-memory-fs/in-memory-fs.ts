@@ -584,37 +584,44 @@ export class InMemoryFs implements IFileSystem {
     const normalized = normalizePath(path);
     if (normalized === "/") return "/";
 
-    const parts = normalized.slice(1).split("/");
-    let resolvedPath = "";
+    let pending = normalized;
+    let resolvedPath = "/";
     const seen = new Set<string>();
+    let symlinkDepth = 0;
 
-    for (const part of parts) {
-      resolvedPath = `${resolvedPath}/${part}`;
+    while (pending !== "/") {
+      const parts = pending.slice(1).split("/");
+      const part = parts.shift();
+      if (part === undefined || part === "") break;
+
+      const candidate = resolvePath(resolvedPath, part);
 
       // Check if this path component is a symlink
-      let entry = this.data.get(resolvedPath);
-      let loopCount = 0;
-      const maxLoops = MAX_SYMLINK_DEPTH; // Prevent infinite loops
+      const entry = this.data.get(candidate);
 
-      while (entry && entry.type === "symlink" && loopCount < maxLoops) {
-        if (seen.has(resolvedPath)) {
+      if (entry?.type === "symlink") {
+        if (seen.has(candidate)) {
           throw new Error(
             `ELOOP: too many levels of symbolic links, open '${path}'`,
           );
         }
-        seen.add(resolvedPath);
+        seen.add(candidate);
+        symlinkDepth++;
+        if (symlinkDepth >= MAX_SYMLINK_DEPTH) {
+          throw new Error(
+            `ELOOP: too many levels of symbolic links, open '${path}'`,
+          );
+        }
 
-        // Resolve the symlink
-        resolvedPath = resolveSymlinkTarget(resolvedPath, entry.target);
-        entry = this.data.get(resolvedPath);
-        loopCount++;
+        const target = resolveSymlinkTarget(candidate, entry.target);
+        pending =
+          parts.length > 0 ? resolvePath(target, parts.join("/")) : target;
+        resolvedPath = "/";
+        continue;
       }
 
-      if (loopCount >= maxLoops) {
-        throw new Error(
-          `ELOOP: too many levels of symbolic links, open '${path}'`,
-        );
-      }
+      resolvedPath = candidate;
+      pending = parts.length > 0 ? `/${parts.join("/")}` : "/";
     }
 
     return resolvedPath;
