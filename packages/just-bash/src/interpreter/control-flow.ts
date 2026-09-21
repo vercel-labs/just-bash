@@ -21,7 +21,8 @@ import type {
   WhileNode,
 } from "../ast/types.js";
 import { utf8ByteLength } from "../encoding.js";
-import type { ExecResult } from "../types.js";
+import { orderedOutput, textChunks } from "../output-chunks.js";
+import type { ExecResult, OutputChunk } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
 import { matchPattern } from "./conditionals.js";
 import {
@@ -82,11 +83,16 @@ function resolveLoopStdin(
 class CompoundOutput {
   private stdoutChunks: string[] = [];
   private stderrChunks: string[] = [];
+  // The same pieces in the order they arrived, which is the order the body
+  // wrote them. Undefined once anything appended here brought no order of its
+  // own, since from that point on the sequence no longer accounts for the two
+  // strings above.
+  private orderedChunks: OutputChunk[] | undefined = [];
   private totalBytes = 0;
 
   constructor(private readonly ctx: InterpreterContext) {}
 
-  append(stdout: string, stderr: string): void {
+  append(stdout: string, stderr: string, chunks?: OutputChunk[]): void {
     const addedBytes = utf8ByteLength(stdout) + utf8ByteLength(stderr);
     if (addedBytes > this.ctx.limits.maxOutputSize - this.totalBytes) {
       throwExecutionLimit(
@@ -96,21 +102,33 @@ class CompoundOutput {
     }
     if (stdout) this.stdoutChunks.push(stdout);
     if (stderr) this.stderrChunks.push(stderr);
+    const added = orderedOutput(chunks, stdout, stderr);
+    if (this.orderedChunks && added) {
+      for (const chunk of added) this.orderedChunks.push(chunk);
+    } else {
+      this.orderedChunks = undefined;
+    }
     this.totalBytes += addedBytes;
+  }
+
+  /** Append a child result, keeping the order it recorded for its own body. */
+  appendResult(result: ExecResult): void {
+    this.append(result.stdout, result.stderr, result.internalOutputChunks);
   }
 
   /** Append output synthesized here rather than relayed from a child. */
   appendUnaccounted(stdout: string, stderr: string): void {
     this.ctx.executionScope.appendOutput("stdout", stdout, "control-flow");
     this.ctx.executionScope.appendOutput("stderr", stderr, "control-flow");
-    this.append(stdout, stderr);
+    this.append(stdout, stderr, textChunks(stdout, stderr));
   }
 
-  replace(stdout: string, stderr: string): void {
+  replace(stdout: string, stderr: string, chunks?: OutputChunk[]): void {
     this.stdoutChunks = [];
     this.stderrChunks = [];
+    this.orderedChunks = [];
     this.totalBytes = 0;
-    this.append(stdout, stderr);
+    this.append(stdout, stderr, chunks);
   }
 
   get stdout(): string {
@@ -121,6 +139,11 @@ class CompoundOutput {
     return this.stderrChunks.join("");
   }
 
+  /** The write order recorded so far, for handing to an outer scope. */
+  get chunks(): OutputChunk[] | undefined {
+    return this.orderedChunks;
+  }
+
   /** Preserve child accounting while relaying compound-command output. */
   build(exitCode: number): ExecResult {
     const stdout = this.stdout;
@@ -129,6 +152,9 @@ class CompoundOutput {
       stdout,
       stderr,
       exitCode,
+      ...(this.orderedChunks?.length && {
+        internalOutputChunks: [...this.orderedChunks],
+      }),
       internalOutputAccounting: {
         stdout: utf8ByteLength(stdout),
         stderr: utf8ByteLength(stderr),
@@ -146,7 +172,7 @@ async function executeBoundedStatements(
   try {
     for (const statement of statements) {
       const statementResult = await ctx.executeStatement(statement);
-      output.append(statementResult.stdout, statementResult.stderr);
+      output.appendResult(statementResult);
       exitCode = statementResult.exitCode;
     }
   } catch (error) {
@@ -157,7 +183,7 @@ async function executeBoundedStatements(
       error instanceof ExecutionLimitError ||
       error instanceof SubshellExitError
     ) {
-      error.prependOutput(output.stdout, output.stderr);
+      error.prependOutput(output.stdout, output.stderr, output.chunks);
       throw error;
     }
     output.appendUnaccounted("", `${getErrorMessage(error)}\n`);
@@ -184,7 +210,11 @@ async function executeIfBody(
   for (const clause of node.clauses) {
     // Condition evaluation should not trigger errexit
     const condResult = await executeCondition(ctx, clause.condition);
-    output.append(condResult.stdout, condResult.stderr);
+    output.append(
+      condResult.stdout,
+      condResult.stderr,
+      condResult.internalOutputChunks,
+    );
 
     if (condResult.exitCode === 0) {
       return executeBoundedStatements(ctx, clause.body, output);
@@ -263,7 +293,7 @@ async function executeForBody(
       try {
         for (const stmt of node.body) {
           const stmtResult = await ctx.executeStatement(stmt);
-          output.append(stmtResult.stdout, stmtResult.stderr);
+          output.appendResult(stmtResult);
           exitCode = stmtResult.exitCode;
         }
       } catch (error) {
@@ -272,8 +302,9 @@ async function executeForBody(
           output.stdout,
           output.stderr,
           ctx.state.loopDepth,
+          output.chunks,
         );
-        output.replace(loopResult.stdout, loopResult.stderr);
+        output.replace(loopResult.stdout, loopResult.stderr, loopResult.chunks);
         if (loopResult.action === "break") break;
         if (loopResult.action === "continue") continue;
         if (loopResult.action === "error") {
@@ -347,7 +378,7 @@ async function executeCStyleForBody(
       try {
         for (const stmt of node.body) {
           const stmtResult = await ctx.executeStatement(stmt);
-          output.append(stmtResult.stdout, stmtResult.stderr);
+          output.appendResult(stmtResult);
           exitCode = stmtResult.exitCode;
         }
       } catch (error) {
@@ -356,8 +387,9 @@ async function executeCStyleForBody(
           output.stdout,
           output.stderr,
           ctx.state.loopDepth,
+          output.chunks,
         );
-        output.replace(loopResult.stdout, loopResult.stderr);
+        output.replace(loopResult.stdout, loopResult.stderr, loopResult.chunks);
         if (loopResult.action === "break") break;
         if (loopResult.action === "continue") {
           // Still need to run the update expression on continue
@@ -433,27 +465,29 @@ async function executeWhileBody(
       try {
         for (const stmt of node.condition) {
           const result = await ctx.executeStatement(stmt);
-          output.append(result.stdout, result.stderr);
+          output.appendResult(result);
           conditionExitCode = result.exitCode;
         }
       } catch (error) {
         // break/continue in condition should affect THIS while loop
         if (error instanceof BreakError) {
-          output.append(error.stdout, error.stderr);
+          output.append(error.stdout, error.stderr, error.outputChunks);
           if (error.levels > 1 && ctx.state.loopDepth > 1) {
             error.levels--;
             error.stdout = output.stdout;
             error.stderr = output.stderr;
+            error.outputChunks = output.chunks;
             ctx.state.inCondition = savedInCondition;
             throw error;
           }
           shouldBreak = true;
         } else if (error instanceof ContinueError) {
-          output.append(error.stdout, error.stderr);
+          output.append(error.stdout, error.stderr, error.outputChunks);
           if (error.levels > 1 && ctx.state.loopDepth > 1) {
             error.levels--;
             error.stdout = output.stdout;
             error.stderr = output.stderr;
+            error.outputChunks = output.chunks;
             ctx.state.inCondition = savedInCondition;
             throw error;
           }
@@ -473,7 +507,7 @@ async function executeWhileBody(
       try {
         for (const stmt of node.body) {
           const stmtResult = await ctx.executeStatement(stmt);
-          output.append(stmtResult.stdout, stmtResult.stderr);
+          output.appendResult(stmtResult);
           exitCode = stmtResult.exitCode;
         }
       } catch (error) {
@@ -482,8 +516,9 @@ async function executeWhileBody(
           output.stdout,
           output.stderr,
           ctx.state.loopDepth,
+          output.chunks,
         );
-        output.replace(loopResult.stdout, loopResult.stderr);
+        output.replace(loopResult.stdout, loopResult.stderr, loopResult.chunks);
         if (loopResult.action === "break") break;
         if (loopResult.action === "continue") continue;
         if (loopResult.action === "error") {
@@ -544,14 +579,18 @@ async function executeUntilBody(
 
       // Condition evaluation should not trigger errexit
       const condResult = await executeCondition(ctx, node.condition);
-      output.append(condResult.stdout, condResult.stderr);
+      output.append(
+        condResult.stdout,
+        condResult.stderr,
+        condResult.internalOutputChunks,
+      );
 
       if (condResult.exitCode === 0) break;
 
       try {
         for (const stmt of node.body) {
           const stmtResult = await ctx.executeStatement(stmt);
-          output.append(stmtResult.stdout, stmtResult.stderr);
+          output.appendResult(stmtResult);
           exitCode = stmtResult.exitCode;
         }
       } catch (error) {
@@ -560,8 +599,9 @@ async function executeUntilBody(
           output.stdout,
           output.stderr,
           ctx.state.loopDepth,
+          output.chunks,
         );
-        output.replace(loopResult.stdout, loopResult.stderr);
+        output.replace(loopResult.stdout, loopResult.stderr, loopResult.chunks);
         if (loopResult.action === "break") break;
         if (loopResult.action === "continue") continue;
         if (loopResult.action === "error") {
@@ -633,7 +673,11 @@ async function executeCaseBody(
 
     if (matched) {
       const bodyResult = await executeBoundedStatements(ctx, item.body, output);
-      output.replace(bodyResult.stdout, bodyResult.stderr);
+      output.replace(
+        bodyResult.stdout,
+        bodyResult.stderr,
+        bodyResult.internalOutputChunks,
+      );
       exitCode = bodyResult.exitCode;
 
       // Handle different terminators:

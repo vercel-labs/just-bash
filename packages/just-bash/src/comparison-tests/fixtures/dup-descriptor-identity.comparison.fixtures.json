@@ -1,0 +1,62 @@
+{
+  "2fb08143d04d4847": {
+    "command": "exec 3>a; { printf O; printf E >&2; } 4>&3 3>b 1>&3 2>&4; printf \"a=[%s] b=[%s]\\n\" \"$(cat a)\" \"$(cat b)\"",
+    "files": {},
+    "stdout": "a=[E] b=[O]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "38f5a42b5da739e1": {
+    "command": "{ printf O; printf E >&2; } 3>a 1>&3 3>b 2>&3; printf \"a=[%s] b=[%s]\\n\" \"$(cat a)\" \"$(cat b)\"",
+    "files": {},
+    "stdout": "a=[O] b=[E]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4216771579ea5a9e": {
+    "command": "{ eval 'echo O1; echo E1 >&2; echo O2; exit'; } 2>&1",
+    "files": {},
+    "stdout": "O1\nE1\nO2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "46e21fc5888499a6": {
+    "command": "exec 3>a; { printf O; printf E >&2; } 1>&3 3>b 2>&3; printf \"a=[%s] b=[%s]\\n\" \"$(cat a)\" \"$(cat b)\"",
+    "files": {
+      "b": ""
+    },
+    "stdout": "a=[O] b=[E]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "73b34cd39171c73e": {
+    "command": "exec 3>a; exec 4>&3; { printf O; printf E >&2; } 1>&3 3>b 2>&4; printf \"a=[%s] b=[%s]\\n\" \"$(cat a)\" \"$(cat b)\"",
+    "files": {},
+    "stdout": "a=[OE] b=[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "89631be81ecf86d2": {
+    "command": "{ echo O1; echo E1 >&2; echo O2; exit 3; } 2>&1 | cat",
+    "files": {},
+    "stdout": "O1\nE1\nO2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8bd1bae334ad351f": {
+    "command": "exec 3>a; exec 4>b; { printf O; printf E >&2; } 1>&3 3>&4 2>&3; printf \"a=[%s] b=[%s]\\n\" \"$(cat a)\" \"$(cat b)\"",
+    "files": {},
+    "stdout": "a=[O] b=[E]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a31d3489be2d05c9": {
+    "command": "exec 3>a; { printf O; printf E >&2; } 1>&3 2>&3; printf \"a=[%s] b=[%s]\\n\" \"$(cat a)\" \"$(cat b)\"",
+    "files": {
+      "b": ""
+    },
+    "stdout": "a=[OE] b=[]\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

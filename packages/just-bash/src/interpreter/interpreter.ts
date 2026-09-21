@@ -260,7 +260,7 @@ export class Interpreter {
         // ExitError always propagates up to terminate the script
         // This allows 'eval exit 42' and 'source exit.sh' to exit properly
         if (error instanceof ExitError) {
-          error.prependOutput(output.stdout, output.stderr);
+          error.prependOutput(output.stdout, output.stderr, output.chunks);
           throw error;
         }
         // PosixFatalError terminates the script in POSIX mode
@@ -392,7 +392,7 @@ export class Interpreter {
         if (error instanceof BreakError || error instanceof ContinueError) {
           // If we're inside a loop, propagate the error up (for eval/source inside loops)
           if (this.ctx.state.loopDepth > 0) {
-            error.prependOutput(output.stdout, output.stderr);
+            error.prependOutput(output.stdout, output.stderr, output.chunks);
             throw error;
           }
           // Outside loops (level exceeded loop depth), silently continue with next statement
@@ -402,7 +402,7 @@ export class Interpreter {
         }
         // Handle return - prepend accumulated output before propagating
         if (error instanceof ReturnError) {
-          error.prependOutput(output.stdout, output.stderr);
+          error.prependOutput(output.stdout, output.stderr, output.chunks);
           throw error;
         }
         throw error;
@@ -522,7 +522,11 @@ export class Interpreter {
       !innerWasSafe
     ) {
       const error = new ErrexitError(exitCode);
-      error.prependOutput(statementOutput.stdout, statementOutput.stderr);
+      error.prependOutput(
+        statementOutput.stdout,
+        statementOutput.stderr,
+        statementOutput.chunks,
+      );
       throw error;
     }
 
@@ -727,6 +731,7 @@ export class Interpreter {
           node.redirections,
           preparedRedirections.targets,
           preparedRedirections.dupSources,
+          preparedRedirections.openedEntries,
           preparedRedirections.standardRoutes,
         );
         transaction.finish();
@@ -994,6 +999,7 @@ export class Interpreter {
       node.redirections,
       preparedRedirections.targets,
       preparedRedirections.dupSources,
+      preparedRedirections.openedEntries,
       preparedRedirections.standardRoutes,
       cmdResult.internalProducerCommand ?? commandName,
       cmdResult.internalProducerOmitsShellPrefix,
