@@ -438,6 +438,55 @@ describe("OverlayFs", () => {
         overlay.realpathFromCwd({ cwd: "/", operand: "target.txt" }),
       ).resolves.toBe("/target.txt");
     });
+
+    it("should resolve dot segments after following a symlink", async () => {
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
+
+      await overlay.mkdir("/target/dir", { recursive: true });
+      await overlay.writeFile("/target/file.txt", "content");
+      await overlay.symlink("/target/dir", "/link");
+
+      await expect(overlay.realpath("/link/..")).resolves.toBe("/target");
+      await expect(overlay.realpath("/link/../file.txt")).resolves.toBe(
+        "/target/file.txt",
+      );
+    });
+
+    it("should resolve dot segments after a real filesystem symlink", async () => {
+      fs.mkdirSync(path.join(tempDir, "target", "dir"), {
+        recursive: true,
+      });
+      fs.writeFileSync(path.join(tempDir, "target", "file.txt"), "content");
+      fs.symlinkSync("target/dir", path.join(tempDir, "link"));
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
+
+      await expect(overlay.realpath("/link/..")).resolves.toBe("/target");
+      await expect(overlay.realpath("/link/../file.txt")).resolves.toBe(
+        "/target/file.txt",
+      );
+    });
+
+    it("should allow a symlink to be revisited with a different suffix", async () => {
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
+
+      await overlay.writeFile("/real/sub", "content");
+      await overlay.symlink("/real", "/link");
+      await overlay.symlink("/link/sub", "/real/hop");
+
+      await expect(overlay.realpath("/link/hop")).resolves.toBe("/real/sub");
+    });
   });
 
   describe("copy and move", () => {

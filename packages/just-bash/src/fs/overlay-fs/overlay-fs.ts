@@ -35,6 +35,7 @@ import {
   DEFAULT_FILE_MODE,
   dirname,
   MAX_SYMLINK_DEPTH,
+  resolvePathPreservingDotSegments,
   resolveSymlinkTarget,
   resolvePath as resolveVPath,
   SYMLINK_MODE,
@@ -1373,129 +1374,102 @@ export class OverlayFs implements IFileSystem {
    */
   async realpath(path: string): Promise<string> {
     validatePath(path, "realpath");
-    const normalized = normalizePath(path);
-    const seen = new Set<string>();
+    const rawPath = path.startsWith("/") ? path : `/${path}`;
+    const pending = rawPath.split("/");
+    const resolvedParts: string[] = [];
+    let symlinkDepth = 0;
 
-    // Helper to resolve symlinks iteratively
-    const resolveAll = async (p: string): Promise<string> => {
-      const parts = p === "/" ? [] : p.slice(1).split("/");
-      let resolved = "";
+    while (pending.length > 0) {
+      const part = pending.shift();
+      if (part === undefined || part === "" || part === ".") continue;
+      if (part === "..") {
+        resolvedParts.pop();
+        continue;
+      }
 
-      for (const part of parts) {
-        resolved = `${resolved}/${part}`;
+      const resolved = `/${[...resolvedParts, part].join("/")}`;
+      if (this.deleted.has(resolved)) {
+        throw new Error(
+          `ENOENT: no such file or directory, realpath '${path}'`,
+        );
+      }
 
-        // Check for loops
-        if (seen.has(resolved)) {
+      const entry = this.memory.get(resolved);
+      if (entry?.type === "symlink") {
+        symlinkDepth++;
+        if (symlinkDepth >= MAX_SYMLINK_DEPTH) {
           throw new Error(
             `ELOOP: too many levels of symbolic links, realpath '${path}'`,
           );
         }
+        const targetParts = entry.target.startsWith("/")
+          ? entry.target.split("/")
+          : [...resolvedParts, ...entry.target.split("/")];
+        pending.splice(0, pending.length, ...targetParts, ...pending);
+        resolvedParts.length = 0;
+        continue;
+      }
 
-        // Check if deleted
-        if (this.deleted.has(resolved)) {
-          throw new Error(
-            `ENOENT: no such file or directory, realpath '${path}'`,
-          );
-        }
-
-        // Check memory layer first
-        let entry = this.memory.get(resolved);
-        let loopCount = 0;
-        const maxLoops = MAX_SYMLINK_DEPTH;
-
-        while (entry && entry.type === "symlink" && loopCount < maxLoops) {
-          seen.add(resolved);
-          resolved = this.resolveSymlink(resolved, entry.target);
-          loopCount++;
-
-          if (seen.has(resolved)) {
-            throw new Error(
-              `ELOOP: too many levels of symbolic links, realpath '${path}'`,
-            );
-          }
-
-          if (this.deleted.has(resolved)) {
-            throw new Error(
-              `ENOENT: no such file or directory, realpath '${path}'`,
-            );
-          }
-
-          entry = this.memory.get(resolved);
-        }
-
-        if (loopCount >= maxLoops) {
-          throw new Error(
-            `ELOOP: too many levels of symbolic links, realpath '${path}'`,
-          );
-        }
-
-        // If not in memory, check real filesystem.
-        // Use canonical paths for I/O to close the TOCTOU gap.
-        if (!entry) {
-          const realPath = this.toRealPath(resolved);
-          const canonical = this.resolveRealPath_(realPath);
-          if (canonical) {
-            try {
-              const stat = await fs.promises.lstat(canonical);
-              if (stat.isSymbolicLink()) {
-                if (!this.allowSymlinks) {
-                  throw new Error(
-                    `ENOENT: no such file or directory, realpath '${path}'`,
-                  );
-                }
-                const rawTarget = await fs.promises.readlink(canonical);
-                const virtualTarget = this.realTargetToVirtual(
-                  resolved,
-                  rawTarget,
-                );
-                seen.add(resolved);
-                resolved = this.resolveSymlink(resolved, virtualTarget);
-
-                // Continue resolving from the new path
-                // We need to restart from this point to handle nested symlinks
-                return resolveAll(resolved);
-              }
-            } catch (e) {
-              if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+      if (!entry) {
+        const realPath = this.toRealPath(resolved);
+        const canonicalWithBase = this.resolveRealPathParent_(realPath);
+        let exists = false;
+        if (canonicalWithBase) {
+          try {
+            const stat = await fs.promises.lstat(canonicalWithBase);
+            exists = true;
+            if (stat.isSymbolicLink()) {
+              if (!this.allowSymlinks) {
                 throw new Error(
                   `ENOENT: no such file or directory, realpath '${path}'`,
                 );
               }
-              this.sanitizeError(e, path, "realpath");
-            }
-          } else if (!this.allowSymlinks) {
-            // resolveRealPath_ rejected this path (symlink traversal
-            // detected). Use parent validation + lstat to check whether
-            // this specific component is a symlink and throw ENOENT.
-            const canonicalWithBase = this.resolveRealPathParent_(realPath);
-            if (canonicalWithBase) {
-              try {
-                const stat = await fs.promises.lstat(canonicalWithBase);
-                if (stat.isSymbolicLink()) {
-                  throw new Error(
-                    `ENOENT: no such file or directory, realpath '${path}'`,
-                  );
-                }
-              } catch (e) {
-                if (
-                  (e as Error).message?.includes("ENOENT") ||
-                  (e as Error).message?.includes("ELOOP")
-                ) {
-                  throw new Error(
-                    `ENOENT: no such file or directory, realpath '${path}'`,
-                  );
-                }
-                this.sanitizeError(e, path, "realpath");
+              symlinkDepth++;
+              if (symlinkDepth >= MAX_SYMLINK_DEPTH) {
+                throw new Error(
+                  `ELOOP: too many levels of symbolic links, realpath '${path}'`,
+                );
               }
+              const rawTarget = await fs.promises.readlink(canonicalWithBase);
+              const virtualTarget = this.realTargetToVirtual(
+                resolved,
+                rawTarget,
+              );
+              const target = rawTarget.startsWith("/")
+                ? virtualTarget
+                : rawTarget;
+              const targetParts = target.startsWith("/")
+                ? target.split("/")
+                : [...resolvedParts, ...target.split("/")];
+              pending.splice(0, pending.length, ...targetParts, ...pending);
+              resolvedParts.length = 0;
+              continue;
+            }
+          } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            if (code === "ENOENT" || code === "ENOTDIR") {
+              // The final existence check below reports the virtual ENOENT.
+            } else if (code === "ELOOP") {
+              throw new Error(
+                `ELOOP: too many levels of symbolic links, realpath '${path}'`,
+              );
+            } else {
+              this.sanitizeError(error, path, "realpath");
             }
           }
         }
+        if (!exists && pending.length > 0) {
+          throw new Error(
+            `ENOENT: no such file or directory, realpath '${path}'`,
+          );
+        }
       }
 
-      return resolved || "/";
-    };
+      resolvedParts.push(part);
+    }
 
-    const result = await resolveAll(normalized);
+    const result =
+      resolvedParts.length > 0 ? `/${resolvedParts.join("/")}` : "/";
 
     // Verify the final path exists
     const exists = await this.existsInOverlay(result);
@@ -1510,7 +1484,12 @@ export class OverlayFs implements IFileSystem {
     cwd: string;
     operand: string;
   }): Promise<string> {
-    return this.realpath(this.resolvePath(options.cwd, options.operand));
+    return this.realpath(
+      resolvePathPreservingDotSegments({
+        base: options.cwd,
+        path: options.operand,
+      }),
+    );
   }
 
   /**

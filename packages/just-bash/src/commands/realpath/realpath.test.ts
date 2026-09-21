@@ -34,6 +34,23 @@ describe("realpath", () => {
     expect(result.exitCode).toBe(0);
   });
 
+  it("resolves dot segments after following a symlink", async () => {
+    const env = new Bash({
+      cwd: "/work",
+      files: {
+        "/target/file.txt": "content\n",
+        "/target/dir/keep": "",
+      },
+    });
+    await env.fs.symlink("/target/dir", "/work/link");
+
+    const result = await env.exec("realpath link/../file.txt");
+
+    expect(result.stdout).toBe("/target/file.txt\n");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
+
   it("preserves whitespace and newlines in canonical paths", async () => {
     const env = new Bash({
       cwd: "/work",

@@ -695,6 +695,19 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
       });
       expect(result).toBe("/subdir/nested.txt");
     });
+
+    it("should resolve dot segments after following a symlink", async () => {
+      fs.mkdirSync(path.join(tempDir, "target", "dir"), {
+        recursive: true,
+      });
+      fs.writeFileSync(path.join(tempDir, "target", "file.txt"), "content");
+      fs.symlinkSync("target/dir", path.join(tempDir, "link"));
+
+      await expect(rwfs.realpath("/link/..")).resolves.toBe("/target");
+      await expect(rwfs.realpath("/link/../file.txt")).resolves.toBe(
+        "/target/file.txt",
+      );
+    });
   });
 
   describe("mkdir escape via pre-existing OS symlink", () => {

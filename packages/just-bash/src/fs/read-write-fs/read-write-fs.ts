@@ -31,7 +31,10 @@ import type {
   RmOptions,
   WriteFileOptions,
 } from "../interface.js";
-import { resolvePath as resolveVPath } from "../path-utils.js";
+import {
+  resolvePathPreservingDotSegments,
+  resolvePath as resolveVPath,
+} from "../path-utils.js";
 import {
   isPathWithinRoot,
   normalizePath,
@@ -149,6 +152,17 @@ export class ReadWriteFs implements IFileSystem {
     const normalized = normalizePath(virtualPath);
     const realPath = nodePath.join(this.root, normalized);
     return nodePath.resolve(realPath);
+  }
+
+  /**
+   * Convert a virtual path without collapsing dot segments. Physical
+   * realpath resolution must process those segments after symlink expansion.
+   */
+  private toRealPathPreservingDotSegments(virtualPath: string): string {
+    const absolute = virtualPath.startsWith("/")
+      ? virtualPath
+      : `/${virtualPath}`;
+    return this.root === "/" ? absolute : `${this.root}${absolute}`;
   }
 
   async readFile(
@@ -1639,7 +1653,7 @@ export class ReadWriteFs implements IFileSystem {
    */
   async realpath(path: string): Promise<string> {
     validatePath(path, "realpath");
-    const realPath = this.toRealPath(path);
+    const realPath = this.toRealPathPreservingDotSegments(path);
 
     // Validate the path respects the symlink policy before resolving.
     // Without this, realpath() would follow symlinks that other methods
@@ -1686,7 +1700,12 @@ export class ReadWriteFs implements IFileSystem {
     cwd: string;
     operand: string;
   }): Promise<string> {
-    return this.realpath(this.resolvePath(options.cwd, options.operand));
+    return this.realpath(
+      resolvePathPreservingDotSegments({
+        base: options.cwd,
+        path: options.operand,
+      }),
+    );
   }
 
   /**

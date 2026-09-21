@@ -94,6 +94,20 @@ export function resolvePath(base: string, path: string): string {
 }
 
 /**
+ * Join a path to a base directory without collapsing dot segments.
+ * Physical realpath resolution must process those segments after expanding
+ * any symlink that precedes them.
+ */
+export function resolvePathPreservingDotSegments(options: {
+  base: string;
+  path: string;
+}): string {
+  const { base, path } = options;
+  if (path.startsWith("/")) return path;
+  return base === "/" ? `/${path}` : `${base}/${path}`;
+}
+
+/**
  * Join a parent path with a child name.
  * Handles the root-path edge case (`"/" + "child"` → `"/child"`).
  */

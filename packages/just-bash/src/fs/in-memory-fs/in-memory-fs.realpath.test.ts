@@ -19,4 +19,30 @@ describe("InMemoryFs realpath", () => {
       fs.realpathFromCwd({ cwd: "/target", operand: "docs/file.txt" }),
     ).resolves.toBe("/target/docs/file.txt");
   });
+
+  it("resolves dot segments after following a symlink", async () => {
+    const fs = new InMemoryFs({
+      "/target/file.txt": "content\n",
+      "/target/dir/keep": "",
+    });
+    await fs.symlink("/target/dir", "/work-link");
+
+    await expect(fs.realpath("/work-link/..")).resolves.toBe("/target");
+    await expect(fs.realpath("/work-link/../file.txt")).resolves.toBe(
+      "/target/file.txt",
+    );
+    await expect(fs.realpath("/missing/../target/file.txt")).rejects.toThrow(
+      "ENOENT",
+    );
+  });
+
+  it("allows a symlink to be revisited with a different suffix", async () => {
+    const fs = new InMemoryFs({
+      "/real/sub": "content\n",
+    });
+    await fs.symlink("/real", "/link");
+    await fs.symlink("/link/sub", "/real/hop");
+
+    await expect(fs.realpath("/link/hop")).resolves.toBe("/real/sub");
+  });
 });
