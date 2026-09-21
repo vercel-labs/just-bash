@@ -43,10 +43,10 @@ describe("realpath command - Real Bash Comparison", () => {
     expect(realResult.stdout.endsWith("/target/file.txt\n")).toBe(true);
   });
 
-  it("fails for a missing path", async () => {
+  it("fails for a missing intermediate path", async () => {
     const env = await setupFiles(testDir, {});
-    const envResult = await env.exec("realpath missing");
-    const realResult = await runRealBash("realpath missing", testDir);
+    const envResult = await env.exec("realpath missing/child");
+    const realResult = await runRealBash("realpath missing/child", testDir);
 
     expect(envResult.exitCode).toBe(realResult.exitCode);
     expect(envResult.stdout).toBe("");
