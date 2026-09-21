@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 
 describe("realpath", () => {
   it("resolves files, directories, and relative operands", async () => {
@@ -97,6 +98,20 @@ describe("realpath", () => {
       "realpath: '/missing': No such file or directory\n",
     );
     expect(result.exitCode).toBe(1);
+  });
+
+  it("bounds output while processing multiple operands", async () => {
+    const env = new Bash({
+      files: { "/file": "content\n" },
+      executionLimits: { maxOutputSize: 6 },
+    });
+
+    const result = await env.exec("realpath /file /file");
+
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+    expect(result.stderr).toContain(
+      "realpath: output size limit exceeded (6 bytes)",
+    );
   });
 
   it("fails for broken and circular symlinks", async () => {

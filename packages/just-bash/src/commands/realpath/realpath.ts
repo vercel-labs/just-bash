@@ -1,3 +1,4 @@
+import { utf8ByteLength } from "../../encoding.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import {
   ExecutionAbortedError,
@@ -59,11 +60,35 @@ export const realpathCommand: RuntimeCommand = {
     let stdout = "";
     let stderr = "";
     let hasError = false;
+    const maxOutputBytes = Math.min(
+      ctx.limits.maxOutputSize,
+      ctx.limits.maxStringLength,
+    );
+    let outputBytes = 0;
+
+    const appendOutput = (options: {
+      stream: "stdout" | "stderr";
+      value: string;
+    }): void => {
+      const bytes = utf8ByteLength(options.value);
+      if (bytes > maxOutputBytes - outputBytes) {
+        throw new ExecutionLimitError(
+          `realpath: output size limit exceeded (${maxOutputBytes} bytes)`,
+          "output_size",
+        );
+      }
+      outputBytes += bytes;
+      if (options.stream === "stdout") stdout += options.value;
+      else stderr += options.value;
+    };
 
     for (const file of files) {
       if (file === "") {
         hasError = true;
-        stderr += "realpath: '': No such file or directory\n";
+        appendOutput({
+          stream: "stderr",
+          value: "realpath: '': No such file or directory\n",
+        });
         continue;
       }
 
@@ -72,7 +97,7 @@ export const realpathCommand: RuntimeCommand = {
           cwd: ctx.cwd,
           operand: file,
         });
-        stdout += `${resolved}\n`;
+        appendOutput({ stream: "stdout", value: `${resolved}\n` });
       } catch (error) {
         if (
           error instanceof ExecutionLimitError ||
@@ -82,7 +107,10 @@ export const realpathCommand: RuntimeCommand = {
         }
 
         hasError = true;
-        stderr += `realpath: '${file}': ${formatRealpathError(error)}\n`;
+        appendOutput({
+          stream: "stderr",
+          value: `realpath: '${file}': ${formatRealpathError(error)}\n`,
+        });
       }
     }
 
