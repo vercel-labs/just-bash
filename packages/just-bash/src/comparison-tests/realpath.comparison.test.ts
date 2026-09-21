@@ -1,3 +1,5 @@
+import { accessSync, constants } from "node:fs";
+import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   cleanupTestDir,
@@ -5,6 +7,25 @@ import {
   runRealBash,
   setupFiles,
 } from "./fixture-runner.js";
+
+function hasExecutable(name: string): boolean {
+  return (process.env.PATH ?? "").split(delimiter).some((directory) => {
+    try {
+      accessSync(join(directory, name), constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+const hasHostRealpath = hasExecutable("realpath");
+
+/*
+ * `realpath` is not a POSIX utility and is missing on some supported hosts.
+ * Keep these comparisons when available without making the host tool a test prerequisite.
+ */
+const hostIt = hasHostRealpath ? it : it.skip;
 
 describe("realpath command - Real Bash Comparison", () => {
   // Host realpath may canonicalize a temporary /var root to /private/var;
@@ -19,7 +40,7 @@ describe("realpath command - Real Bash Comparison", () => {
     await cleanupTestDir(testDir);
   });
 
-  it("canonicalizes a regular file", async () => {
+  hostIt("canonicalizes a regular file", async () => {
     const env = await setupFiles(testDir, { "file.txt": "content\n" });
     const envResult = await env.exec("realpath file.txt");
     const realResult = await runRealBash("realpath file.txt", testDir);
@@ -29,7 +50,7 @@ describe("realpath command - Real Bash Comparison", () => {
     expect(realResult.stdout.endsWith("/file.txt\n")).toBe(true);
   });
 
-  it("follows a symlink chain", async () => {
+  hostIt("follows a symlink chain", async () => {
     const env = await setupFiles(testDir, { "target/file.txt": "content\n" });
     const setup = "ln -s target intermediate && ln -s intermediate linked";
     const envSetup = await env.exec(setup);
@@ -43,7 +64,7 @@ describe("realpath command - Real Bash Comparison", () => {
     expect(realResult.stdout.endsWith("/target/file.txt\n")).toBe(true);
   });
 
-  it("fails for a missing intermediate path", async () => {
+  hostIt("fails for a missing intermediate path", async () => {
     const env = await setupFiles(testDir, {});
     const envResult = await env.exec("realpath missing/child");
     const realResult = await runRealBash("realpath missing/child", testDir);
