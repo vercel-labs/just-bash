@@ -708,6 +708,15 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
         "/target/file.txt",
       );
     });
+
+    it("should not probe a host sibling through excursion-and-return segments", async () => {
+      const probe = `/../${path.basename(outsideDir)}/../${path.basename(tempDir)}/allowed.txt`;
+
+      await expect(rwfs.realpath(probe)).rejects.toThrow("ENOENT");
+      await expect(
+        rwfs.realpathFromCwd({ cwd: "/", operand: probe.slice(1) }),
+      ).rejects.toThrow("ENOENT");
+    });
   });
 
   describe("mkdir escape via pre-existing OS symlink", () => {

@@ -32,6 +32,7 @@ import type {
   WriteFileOptions,
 } from "../interface.js";
 import {
+  MAX_SYMLINK_DEPTH,
   resolvePathPreservingDotSegments,
   resolvePath as resolveVPath,
 } from "../path-utils.js";
@@ -152,17 +153,6 @@ export class ReadWriteFs implements IFileSystem {
     const normalized = normalizePath(virtualPath);
     const realPath = nodePath.join(this.root, normalized);
     return nodePath.resolve(realPath);
-  }
-
-  /**
-   * Convert a virtual path without collapsing dot segments. Physical
-   * realpath resolution must process those segments after symlink expansion.
-   */
-  private toRealPathPreservingDotSegments(virtualPath: string): string {
-    const absolute = virtualPath.startsWith("/")
-      ? virtualPath
-      : `/${virtualPath}`;
-    return this.root === "/" ? absolute : `${this.root}${absolute}`;
   }
 
   async readFile(
@@ -1653,47 +1643,133 @@ export class ReadWriteFs implements IFileSystem {
    */
   async realpath(path: string): Promise<string> {
     validatePath(path, "realpath");
-    const realPath = this.toRealPathPreservingDotSegments(path);
+    const rawPath = path.startsWith("/") ? path : `/${path}`;
+    /*
+     * User operands are rooted in the virtual filesystem, so `..` clamps at
+     * `/`. Symlink targets are physical references and must instead be
+     * rejected when their `..` segments would leave that virtual root.
+     */
+    const pending: Array<{ part: string; rejectEscape: boolean }> = rawPath
+      .split("/")
+      .map((part) => ({ part, rejectEscape: false }));
+    const resolvedParts: string[] = [];
+    let symlinkDepth = 0;
 
-    // Validate the path respects the symlink policy before resolving.
-    // Without this, realpath() would follow symlinks that other methods
-    // (readFile, stat, etc.) correctly reject via resolveAndValidate().
-    // Convert EACCES to ENOENT because realpath semantically "doesn't find"
-    // the canonical path rather than "denies access".
-    try {
-      this.resolveAndValidate(realPath, path);
-    } catch {
+    const notFound = (): never => {
       throw new Error(`ENOENT: no such file or directory, realpath '${path}'`);
+    };
+    const tooManyLinks = (): never => {
+      throw new Error(
+        `ELOOP: too many levels of symbolic links, realpath '${path}'`,
+      );
+    };
+    const requireValue = <T>(value: T | undefined): T => {
+      if (value === undefined) return notFound();
+      return value;
+    };
+
+    while (pending.length > 0) {
+      const item = pending.shift();
+      if (item === undefined) continue;
+      const { part } = item;
+      if (part === "" || part === ".") continue;
+      if (part === "..") {
+        if (item.rejectEscape && resolvedParts.length === 0) {
+          notFound();
+        }
+        resolvedParts.pop();
+        continue;
+      }
+
+      const resolved = `/${[...resolvedParts, part].join("/")}`;
+      const realPath = this.toRealPath(resolved);
+      let canonicalEntryValue: string | undefined;
+      try {
+        // The parent is resolved through the normal sandbox gate, while the
+        // final component remains available to inspect as a symlink.
+        canonicalEntryValue = this.validateParent(realPath, path);
+      } catch {
+        notFound();
+      }
+      const canonicalEntry = requireValue(canonicalEntryValue);
+
+      let statValue: fs.Stats | undefined;
+      try {
+        statValue = await fs.promises.lstat(canonicalEntry);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ENOENT" || code === "ELOOP" || code === "ENOTDIR") {
+          notFound();
+        }
+        this.sanitizeError(error, path, "realpath");
+      }
+      const stat = requireValue(statValue);
+
+      if (stat.isSymbolicLink()) {
+        if (!this.allowSymlinks) notFound();
+
+        symlinkDepth++;
+        if (symlinkDepth >= MAX_SYMLINK_DEPTH) tooManyLinks();
+
+        let rawTargetValue: string | undefined;
+        try {
+          rawTargetValue = await fs.promises.readlink(canonicalEntry);
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === "ENOENT" || code === "ENOTDIR") {
+            notFound();
+          }
+          this.sanitizeError(error, path, "realpath");
+        }
+        const rawTarget = requireValue(rawTargetValue);
+
+        if (nodePath.isAbsolute(rawTarget)) {
+          const roots = [this.root, this.canonicalRoot];
+          let virtualTarget: string | undefined;
+          for (const root of roots) {
+            const prefix = root.endsWith(nodePath.sep)
+              ? root
+              : `${root}${nodePath.sep}`;
+            const alternatePrefix =
+              nodePath.sep === "/" ? undefined : `${root}/`;
+            if (rawTarget === root) {
+              virtualTarget = "/";
+              break;
+            }
+            if (rawTarget.startsWith(prefix)) {
+              virtualTarget = `/${rawTarget.slice(prefix.length)}`;
+              break;
+            }
+            if (alternatePrefix && rawTarget.startsWith(alternatePrefix)) {
+              virtualTarget = `/${rawTarget.slice(alternatePrefix.length)}`;
+              break;
+            }
+          }
+          if (virtualTarget === undefined) notFound();
+          const target = requireValue(virtualTarget);
+
+          resolvedParts.length = 0;
+          pending.unshift(
+            ...target.split("/").map((targetPart) => ({
+              part: targetPart,
+              rejectEscape: true,
+            })),
+          );
+        } else {
+          pending.unshift(
+            ...rawTarget.split("/").map((targetPart) => ({
+              part: targetPart,
+              rejectEscape: true,
+            })),
+          );
+        }
+        continue;
+      }
+
+      resolvedParts.push(part);
     }
 
-    let resolved: string;
-    try {
-      resolved = await fs.promises.realpath(realPath);
-    } catch (e) {
-      const err = e as NodeJS.ErrnoException;
-      if (err.code === "ENOENT") {
-        throw new Error(
-          `ENOENT: no such file or directory, realpath '${path}'`,
-        );
-      }
-      if (err.code === "ELOOP") {
-        throw new Error(
-          `ELOOP: too many levels of symbolic links, realpath '${path}'`,
-        );
-      }
-      this.sanitizeError(e, path, "realpath");
-    }
-
-    // Convert back to virtual path (relative to root)
-    // Use canonicalRoot (computed at construction) for consistent comparison
-    // with resolveAndValidate. Use boundary-safe prefix check to prevent
-    // /data matching /datastore.
-    if (isPathWithinRoot(resolved, this.canonicalRoot)) {
-      const relative = resolved.slice(this.canonicalRoot.length);
-      return relative || "/";
-    }
-    // Resolved path is outside root - reject it to prevent sandbox escape
-    throw new Error(`ENOENT: no such file or directory, realpath '${path}'`);
+    return resolvedParts.length > 0 ? `/${resolvedParts.join("/")}` : "/";
   }
 
   async realpathFromCwd(options: {
