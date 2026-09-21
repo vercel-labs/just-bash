@@ -51,6 +51,7 @@ import {
   validatePath,
   validateRootDirectory,
 } from "../real-fs-utils.js";
+import { type RealpathOptions, realpathCheckpoint } from "../realpath-utils.js";
 
 /** Error patterns that are safe to pass through (contain virtual paths, not real ones). */
 const OVERLAY_PASSTHROUGH_ERRORS = ["ELOOP", "EFBIG", "EPERM"] as const;
@@ -1372,16 +1373,27 @@ export class OverlayFs implements IFileSystem {
    * Resolve all symlinks in a path to get the canonical physical path.
    * This is equivalent to POSIX realpath().
    */
-  async realpath(path: string): Promise<string> {
+  async realpath(path: string, options: RealpathOptions = {}): Promise<string> {
     validatePath(path, "realpath");
     const rawPath = path.startsWith("/") ? path : `/${path}`;
-    const pending = rawPath.split("/");
+    const pending = rawPath.split("/").reverse();
     const resolvedParts: string[] = [];
     let symlinkDepth = 0;
+    let work = 0;
+    const pushTarget = (targetParts: string[]): void => {
+      for (let index = targetParts.length - 1; index >= 0; index--) {
+        pending.push(targetParts[index]);
+      }
+    };
 
     while (pending.length > 0) {
-      const part = pending.shift();
-      if (part === undefined || part === "" || part === ".") continue;
+      const part = pending.pop();
+      if (part === undefined) continue;
+      await realpathCheckpoint({
+        signal: options.signal,
+        work: ++work,
+      });
+      if (part === "" || part === ".") continue;
       if (part === "..") {
         resolvedParts.pop();
         continue;
@@ -1405,7 +1417,7 @@ export class OverlayFs implements IFileSystem {
         const targetParts = entry.target.startsWith("/")
           ? entry.target.split("/")
           : [...resolvedParts, ...entry.target.split("/")];
-        pending.splice(0, pending.length, ...targetParts, ...pending);
+        pushTarget(targetParts);
         resolvedParts.length = 0;
         continue;
       }
@@ -1441,7 +1453,7 @@ export class OverlayFs implements IFileSystem {
               const targetParts = target.startsWith("/")
                 ? target.split("/")
                 : [...resolvedParts, ...target.split("/")];
-              pending.splice(0, pending.length, ...targetParts, ...pending);
+              pushTarget(targetParts);
               resolvedParts.length = 0;
               continue;
             }
@@ -1483,12 +1495,14 @@ export class OverlayFs implements IFileSystem {
   async realpathFromCwd(options: {
     cwd: string;
     operand: string;
+    signal?: AbortSignal;
   }): Promise<string> {
     return this.realpath(
       resolvePathPreservingDotSegments({
         base: options.cwd,
         path: options.operand,
       }),
+      { signal: options.signal },
     );
   }
 

@@ -1,4 +1,5 @@
 import type { ByteString } from "../encoding.js";
+import type { RealpathOptions } from "./realpath-utils.js";
 
 /**
  * Supported buffer encodings
@@ -277,14 +278,16 @@ export interface IFileSystem {
    * Used by pwd -P and cd -P for symlink resolution.
    * @throws Error if path doesn't exist or contains a broken symlink
    */
-  realpath(path: string): Promise<string>;
+  realpath(path: string, options?: RealpathOptions): Promise<string>;
 
   /**
    * Resolve a shell operand relative to a virtual working directory, then
    * canonicalize the resulting path with realpath().
    * @throws Error if the resolved path does not exist or contains a broken symlink
    */
-  realpathFromCwd(options: { cwd: string; operand: string }): Promise<string>;
+  realpathFromCwd(
+    options: { cwd: string; operand: string } & RealpathOptions,
+  ): Promise<string>;
 
   /**
    * Set access and modification times of a file

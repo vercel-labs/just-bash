@@ -45,6 +45,7 @@ import {
   validatePath,
   validateRootDirectory,
 } from "../real-fs-utils.js";
+import { type RealpathOptions, realpathCheckpoint } from "../realpath-utils.js";
 
 /** Error patterns that are safe to pass through (contain virtual paths, not real ones). */
 const RW_PASSTHROUGH_ERRORS = [
@@ -1641,7 +1642,7 @@ export class ReadWriteFs implements IFileSystem {
    * Resolve all symlinks in a path to get the canonical physical path.
    * This is equivalent to POSIX realpath().
    */
-  async realpath(path: string): Promise<string> {
+  async realpath(path: string, options: RealpathOptions = {}): Promise<string> {
     validatePath(path, "realpath");
     const rawPath = path.startsWith("/") ? path : `/${path}`;
     /*
@@ -1651,9 +1652,11 @@ export class ReadWriteFs implements IFileSystem {
      */
     const pending: Array<{ part: string; rejectEscape: boolean }> = rawPath
       .split("/")
-      .map((part) => ({ part, rejectEscape: false }));
+      .map((part) => ({ part, rejectEscape: false }))
+      .reverse();
     const resolvedParts: string[] = [];
     let symlinkDepth = 0;
+    let work = 0;
 
     const notFound = (): never => {
       throw new Error(`ENOENT: no such file or directory, realpath '${path}'`);
@@ -1667,10 +1670,19 @@ export class ReadWriteFs implements IFileSystem {
       if (value === undefined) return notFound();
       return value;
     };
+    const pushTarget = (targetParts: string[]): void => {
+      for (let index = targetParts.length - 1; index >= 0; index--) {
+        pending.push({ part: targetParts[index], rejectEscape: true });
+      }
+    };
 
     while (pending.length > 0) {
-      const item = pending.shift();
+      const item = pending.pop();
       if (item === undefined) continue;
+      await realpathCheckpoint({
+        signal: options.signal,
+        work: ++work,
+      });
       const { part } = item;
       if (part === "" || part === ".") continue;
       if (part === "..") {
@@ -1749,19 +1761,9 @@ export class ReadWriteFs implements IFileSystem {
           const target = requireValue(virtualTarget);
 
           resolvedParts.length = 0;
-          pending.unshift(
-            ...target.split("/").map((targetPart) => ({
-              part: targetPart,
-              rejectEscape: true,
-            })),
-          );
+          pushTarget(target.split("/"));
         } else {
-          pending.unshift(
-            ...rawTarget.split("/").map((targetPart) => ({
-              part: targetPart,
-              rejectEscape: true,
-            })),
-          );
+          pushTarget(rawTarget.split("/"));
         }
         continue;
       }
@@ -1775,12 +1777,14 @@ export class ReadWriteFs implements IFileSystem {
   async realpathFromCwd(options: {
     cwd: string;
     operand: string;
+    signal?: AbortSignal;
   }): Promise<string> {
     return this.realpath(
       resolvePathPreservingDotSegments({
         base: options.cwd,
         path: options.operand,
       }),
+      { signal: options.signal },
     );
   }
 

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
-import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
+import {
+  ExecutionAbortedError,
+  ExecutionLimitError,
+} from "../../interpreter/errors.js";
 
 describe("realpath", () => {
   it("resolves files, directories, and relative operands", async () => {
@@ -112,6 +116,37 @@ describe("realpath", () => {
     expect(result.stderr).toContain(
       "realpath: output size limit exceeded (6 bytes)",
     );
+  });
+
+  it("yields while processing redundant path components", async () => {
+    const fs = new InMemoryFs({ "/target": "content\n" });
+    const operand = `${"./".repeat(20_000)}target`;
+    let timerRan = false;
+    const timer = setTimeout(() => {
+      timerRan = true;
+    }, 0);
+
+    const result = await fs.realpathFromCwd({ cwd: "/", operand });
+
+    clearTimeout(timer);
+    expect(result).toBe("/target");
+    expect(timerRan).toBe(true);
+  });
+
+  it("stops redundant path processing when aborted", async () => {
+    const fs = new InMemoryFs({ "/target": "content\n" });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 0);
+
+    await expect(
+      fs.realpathFromCwd({
+        cwd: "/",
+        operand: `${"./".repeat(20_000)}target`,
+        signal: controller.signal,
+      }),
+    ).rejects.toBeInstanceOf(ExecutionAbortedError);
+
+    clearTimeout(timer);
   });
 
   it("fails for broken and circular symlinks", async () => {

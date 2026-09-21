@@ -20,6 +20,7 @@ import {
   resolvePathPreservingDotSegments,
   validatePath,
 } from "../path-utils.js";
+import { type RealpathOptions, realpathCheckpoint } from "../realpath-utils.js";
 
 /**
  * Configuration for a mount point
@@ -599,7 +600,7 @@ export class MountableFs implements IFileSystem {
    * Resolve all symlinks in a path to get the canonical physical path.
    * This is equivalent to POSIX realpath().
    */
-  async realpath(path: string): Promise<string> {
+  async realpath(path: string, options: RealpathOptions = {}): Promise<string> {
     const rawPath = path.startsWith("/") ? path : `/${path}`;
     const normalized = normalizePath(rawPath);
 
@@ -607,6 +608,7 @@ export class MountableFs implements IFileSystem {
     // symlinks before applying any following `..` components. Normalizing the
     // complete path first would turn `/mnt/link/..` into `/mnt` too early.
     let bestMatch: MountEntry | null = null;
+    let work = 0;
     for (const entry of this.mounts.values()) {
       const relativePath = rawPath.slice(entry.mountPoint.length) || "/";
       let mountDepth = 0;
@@ -614,6 +616,10 @@ export class MountableFs implements IFileSystem {
         rawPath === entry.mountPoint ||
         rawPath.startsWith(`${entry.mountPoint}/`);
       for (const part of relativePath.split("/")) {
+        await realpathCheckpoint({
+          signal: options.signal,
+          work: ++work,
+        });
         if (!staysInMount || part === "" || part === ".") continue;
         if (part === "..") {
           if (mountDepth === 0) staysInMount = false;
@@ -638,8 +644,10 @@ export class MountableFs implements IFileSystem {
         rawPath === bestMatch.mountPoint
           ? "/"
           : rawPath.slice(bestMatch.mountPoint.length) || "/";
-      const resolvedRelative =
-        await bestMatch.filesystem.realpath(relativePath);
+      const resolvedRelative = await bestMatch.filesystem.realpath(
+        relativePath,
+        options,
+      );
       if (resolvedRelative === "/") return bestMatch.mountPoint;
       return `${bestMatch.mountPoint}${resolvedRelative}`;
     }
@@ -657,6 +665,7 @@ export class MountableFs implements IFileSystem {
     // Get realpath from the underlying filesystem
     const resolvedRelative = await fs.realpath(
       fs === this.baseFs ? rawPath : relativePath,
+      options,
     );
 
     // Find the mount point for this path
@@ -677,12 +686,14 @@ export class MountableFs implements IFileSystem {
   async realpathFromCwd(options: {
     cwd: string;
     operand: string;
+    signal?: AbortSignal;
   }): Promise<string> {
     return this.realpath(
       resolvePathPreservingDotSegments({
         base: options.cwd,
         path: options.operand,
       }),
+      { signal: options.signal },
     );
   }
 

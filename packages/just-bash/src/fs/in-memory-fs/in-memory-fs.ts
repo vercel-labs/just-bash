@@ -39,6 +39,7 @@ import {
   SYMLINK_MODE,
   validatePath,
 } from "../path-utils.js";
+import { type RealpathOptions, realpathCheckpoint } from "../realpath-utils.js";
 
 // Re-export for backwards compatibility
 export type {
@@ -627,17 +628,31 @@ export class InMemoryFs implements IFileSystem {
    * Resolve a path component-by-component so a `..` component is applied
    * after the symlink immediately before it has been expanded.
    */
-  private resolvePhysicalPathWithSymlinks(path: string): string {
+  private async resolvePhysicalPathWithSymlinks(
+    path: string,
+    options: RealpathOptions,
+  ): Promise<string> {
     const initialPath = path.startsWith("/") ? path : `/${path}`;
     if (initialPath === "/") return "/";
 
-    let pending = initialPath.split("/");
+    const pending = initialPath.split("/").reverse();
     const resolvedParts: string[] = [];
     let symlinkDepth = 0;
+    let work = 0;
+    const pushTarget = (targetParts: string[]): void => {
+      for (let index = targetParts.length - 1; index >= 0; index--) {
+        pending.push(targetParts[index]);
+      }
+    };
 
     while (pending.length > 0) {
-      const part = pending.shift();
-      if (part === undefined || part === "" || part === ".") continue;
+      const part = pending.pop();
+      if (part === undefined) continue;
+      await realpathCheckpoint({
+        signal: options.signal,
+        work: ++work,
+      });
+      if (part === "" || part === ".") continue;
 
       if (part === "..") {
         resolvedParts.pop();
@@ -662,7 +677,7 @@ export class InMemoryFs implements IFileSystem {
         const targetParts = entry.target.startsWith("/")
           ? entry.target.split("/")
           : [...resolvedParts, ...entry.target.split("/")];
-        pending = [...targetParts, ...pending];
+        pushTarget(targetParts);
         resolvedParts.length = 0;
         continue;
       }
@@ -986,10 +1001,10 @@ export class InMemoryFs implements IFileSystem {
    * Resolve all symlinks in a path to get the canonical physical path.
    * This is equivalent to POSIX realpath().
    */
-  async realpath(path: string): Promise<string> {
+  async realpath(path: string, options: RealpathOptions = {}): Promise<string> {
     validatePath(path, "realpath");
     // resolvePathWithSymlinks already resolves all symlinks
-    const resolved = this.resolvePhysicalPathWithSymlinks(path);
+    const resolved = await this.resolvePhysicalPathWithSymlinks(path, options);
 
     // Verify the path exists
     if (!this.data.has(resolved)) {
@@ -1002,12 +1017,14 @@ export class InMemoryFs implements IFileSystem {
   async realpathFromCwd(options: {
     cwd: string;
     operand: string;
+    signal?: AbortSignal;
   }): Promise<string> {
     return this.realpath(
       resolvePathPreservingDotSegments({
         base: options.cwd,
         path: options.operand,
       }),
+      { signal: options.signal },
     );
   }
 
