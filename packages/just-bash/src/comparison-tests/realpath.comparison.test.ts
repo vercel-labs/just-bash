@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { accessSync, constants } from "node:fs";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -20,12 +21,18 @@ function hasExecutable(name: string): boolean {
 }
 
 const hasHostRealpath = hasExecutable("realpath");
+const hasGnuRealpath =
+  hasHostRealpath &&
+  spawnSync("realpath", ["--version"], { encoding: "utf8" }).stdout.includes(
+    "GNU coreutils",
+  );
 
 /*
  * `realpath` is not a POSIX utility and is missing on some supported hosts.
  * Keep these comparisons when available without making the host tool a test prerequisite.
  */
 const hostIt = hasHostRealpath ? it : it.skip;
+const gnuIt = hasGnuRealpath ? it : it.skip;
 
 describe("realpath command - Real Bash Comparison", () => {
   // Host realpath may canonicalize a temporary /var root to /private/var;
@@ -74,5 +81,32 @@ describe("realpath command - Real Bash Comparison", () => {
     expect(realResult.stdout).toBe("");
     expect(envResult.stderr).toContain("realpath:");
     expect(realResult.stderr).toContain("realpath:");
+  });
+
+  gnuIt("accepts missing and dangling final components", async () => {
+    const env = await setupFiles(testDir, {});
+    const setup = "ln -s missing-target dangling";
+    const envSetup = await env.exec(setup);
+    const realSetup = await runRealBash(setup, testDir);
+    const envResult = await env.exec("realpath missing/ dangling/");
+    const realResult = await runRealBash(
+      "realpath missing/ dangling/",
+      testDir,
+    );
+
+    expect(envSetup.exitCode).toBe(realSetup.exitCode);
+    expect(envResult.exitCode).toBe(realResult.exitCode);
+    expect(
+      envResult.stdout
+        .split("\n")
+        .slice(0, 2)
+        .map((value) => value.slice(value.lastIndexOf("/"))),
+    ).toEqual(["/missing", "/missing-target"]);
+    expect(
+      realResult.stdout
+        .split("\n")
+        .slice(0, 2)
+        .map((value) => value.slice(value.lastIndexOf("/"))),
+    ).toEqual(["/missing", "/missing-target"]);
   });
 });

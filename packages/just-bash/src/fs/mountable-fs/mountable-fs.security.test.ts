@@ -428,7 +428,7 @@ describe("MountableFs Security", () => {
       const resolved = await mfs.realpath("/mnt/link");
       expect(resolved).toBe("/mnt/real.txt");
       await expect(
-        mfs.realpathFromCwd({ cwd: "/mnt", operand: "link" }),
+        mfs.realpathFromCwd({ cwd: "/mnt", path: "link" }),
       ).resolves.toBe("/mnt/real.txt");
     });
 

@@ -16,7 +16,7 @@ describe("InMemoryFs realpath", () => {
       "content\n",
     );
     await expect(
-      fs.realpathFromCwd({ cwd: "/target", operand: "docs/file.txt" }),
+      fs.realpathFromCwd({ cwd: "/target", path: "docs/file.txt" }),
     ).resolves.toBe("/target/docs/file.txt");
   });
 

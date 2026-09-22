@@ -935,7 +935,7 @@ async function executeWithRunInner(
               async () =>
                 await ctx.fs.realpathFromCwd({
                   cwd: ctx.cwd,
-                  operand: path,
+                  path,
                 }),
             ),
           fsRename: (from: string, to: string) =>

@@ -95,11 +95,11 @@ describe("realpath", () => {
   it("reports each failed operand while continuing", async () => {
     const env = new Bash({ files: { "/one": "1", "/two": "2" } });
 
-    const result = await env.exec("realpath /one /missing /two");
+    const result = await env.exec("realpath /one /missing/child /two");
 
     expect(result.stdout).toBe("/one\n/two\n");
     expect(result.stderr).toBe(
-      "realpath: '/missing': No such file or directory\n",
+      "realpath: '/missing/child': No such file or directory\n",
     );
     expect(result.exitCode).toBe(1);
   });
@@ -126,7 +126,7 @@ describe("realpath", () => {
       timerRan = true;
     }, 0);
 
-    const result = await fs.realpathFromCwd({ cwd: "/", operand });
+    const result = await fs.realpathFromCwd({ cwd: "/", path: operand });
 
     clearTimeout(timer);
     expect(result).toBe("/target");
@@ -141,7 +141,7 @@ describe("realpath", () => {
     await expect(
       fs.realpathFromCwd({
         cwd: "/",
-        operand: `${"./".repeat(20_000)}target`,
+        path: `${"./".repeat(20_000)}target`,
         signal: controller.signal,
       }),
     ).rejects.toBeInstanceOf(ExecutionAbortedError);
@@ -149,7 +149,7 @@ describe("realpath", () => {
     clearTimeout(timer);
   });
 
-  it("fails for broken and circular symlinks", async () => {
+  it("resolves a dangling final symlink and fails for a circular symlink", async () => {
     const env = new Bash({ files: { "/target": "content\n" } });
     await env.fs.symlink("/missing", "/broken");
     await env.fs.symlink("/loop-two", "/loop-one");
@@ -158,11 +158,9 @@ describe("realpath", () => {
     const broken = await env.exec("realpath /broken");
     const circular = await env.exec("realpath /loop-one");
 
-    expect(broken.exitCode).toBe(1);
-    expect(broken.stdout).toBe("");
-    expect(broken.stderr).toBe(
-      "realpath: '/broken': No such file or directory\n",
-    );
+    expect(broken.exitCode).toBe(0);
+    expect(broken.stdout).toBe("/missing\n");
+    expect(broken.stderr).toBe("");
     expect(circular.exitCode).toBe(1);
     expect(circular.stdout).toBe("");
     expect(circular.stderr).toBe(
@@ -172,12 +170,17 @@ describe("realpath", () => {
 
   it("handles help, option termination, and unknown options", async () => {
     const env = new Bash({
-      files: { "/-name": "content\n", "/--help": "content\n" },
+      files: {
+        "/-": "content\n",
+        "/-name": "content\n",
+        "/--help": "content\n",
+      },
     });
 
     const help = await env.exec("realpath --help");
     const terminated = await env.exec("realpath -- /-name");
     const terminatedHelp = await env.exec("realpath -- --help");
+    const dash = await env.exec("realpath -");
     const unknown = await env.exec("realpath -x /-name");
     const missing = await env.exec("realpath");
     const empty = await env.exec("realpath ''");
@@ -188,6 +191,8 @@ describe("realpath", () => {
     expect(terminated.exitCode).toBe(0);
     expect(terminatedHelp.stdout).toBe("/--help\n");
     expect(terminatedHelp.exitCode).toBe(0);
+    expect(dash.stdout).toBe("/-\n");
+    expect(dash.exitCode).toBe(0);
     expect(unknown.stderr).toBe("realpath: invalid option -- 'x'\n");
     expect(unknown.exitCode).toBe(1);
     expect(missing.stderr).toBe("realpath: missing operand\n");
@@ -195,6 +200,16 @@ describe("realpath", () => {
     expect(empty.stdout).toBe("");
     expect(empty.stderr).toBe("realpath: '': No such file or directory\n");
     expect(empty.exitCode).toBe(1);
+  });
+
+  it("reports a non-directory path component", async () => {
+    const env = new Bash({ files: { "/file": "content\n" } });
+
+    const result = await env.exec("realpath /file/child");
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("realpath: '/file/child': Not a directory\n");
+    expect(result.exitCode).toBe(1);
   });
 
   it("is available through command filtering and remains overridable", async () => {

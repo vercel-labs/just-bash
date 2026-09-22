@@ -691,7 +691,7 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
     it("should resolve a relative operand from a virtual cwd", async () => {
       const result = await rwfs.realpathFromCwd({
         cwd: "/subdir",
-        operand: "nested.txt",
+        path: "nested.txt",
       });
       expect(result).toBe("/subdir/nested.txt");
     });
@@ -714,7 +714,7 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
 
       await expect(rwfs.realpath(probe)).rejects.toThrow("ENOENT");
       await expect(
-        rwfs.realpathFromCwd({ cwd: "/", operand: probe.slice(1) }),
+        rwfs.realpathFromCwd({ cwd: "/", path: probe.slice(1) }),
       ).rejects.toThrow("ENOENT");
     });
   });

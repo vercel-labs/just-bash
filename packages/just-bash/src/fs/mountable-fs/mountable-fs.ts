@@ -17,10 +17,9 @@ import {
   joinPath,
   normalizePath,
   resolvePath,
-  resolvePathPreservingDotSegments,
   validatePath,
 } from "../path-utils.js";
-import { type RealpathOptions, realpathCheckpoint } from "../realpath-utils.js";
+import { registerAdapter, resolveFsPath } from "../physical-path.js";
 
 /**
  * Configuration for a mount point
@@ -70,6 +69,8 @@ export class MountableFs implements IFileSystem {
 
   constructor(options?: MountableFsOptions) {
     this.baseFs = options?.base ?? new InMemoryFs();
+    const mounts = () => this.getMounts();
+    registerAdapter({ fs: this, base: this.baseFs, mounts });
 
     // Add initial mounts
     if (options?.mounts) {
@@ -600,101 +601,17 @@ export class MountableFs implements IFileSystem {
    * Resolve all symlinks in a path to get the canonical physical path.
    * This is equivalent to POSIX realpath().
    */
-  async realpath(path: string, options: RealpathOptions = {}): Promise<string> {
-    const rawPath = path.startsWith("/") ? path : `/${path}`;
-    const normalized = normalizePath(rawPath);
-
-    // Route the raw suffix into a mount so the mounted filesystem can resolve
-    // symlinks before applying any following `..` components. Normalizing the
-    // complete path first would turn `/mnt/link/..` into `/mnt` too early.
-    let bestMatch: MountEntry | null = null;
-    let work = 0;
-    for (const entry of this.mounts.values()) {
-      const relativePath = rawPath.slice(entry.mountPoint.length) || "/";
-      let mountDepth = 0;
-      let staysInMount =
-        rawPath === entry.mountPoint ||
-        rawPath.startsWith(`${entry.mountPoint}/`);
-      for (const part of relativePath.split("/")) {
-        await realpathCheckpoint({
-          signal: options.signal,
-          work: ++work,
-        });
-        if (!staysInMount || part === "" || part === ".") continue;
-        if (part === "..") {
-          if (mountDepth === 0) staysInMount = false;
-          else mountDepth--;
-        } else {
-          mountDepth++;
-        }
-      }
-
-      if (staysInMount) {
-        if (
-          bestMatch === null ||
-          entry.mountPoint.length > bestMatch.mountPoint.length
-        ) {
-          bestMatch = entry;
-        }
-      }
-    }
-
-    if (bestMatch) {
-      const relativePath =
-        rawPath === bestMatch.mountPoint
-          ? "/"
-          : rawPath.slice(bestMatch.mountPoint.length) || "/";
-      const resolvedRelative = await bestMatch.filesystem.realpath(
-        relativePath,
-        options,
-      );
-      if (resolvedRelative === "/") return bestMatch.mountPoint;
-      return `${bestMatch.mountPoint}${resolvedRelative}`;
-    }
-
-    // Check if this is exactly a mount point
-    const mountEntry = this.mounts.get(normalized);
-    if (mountEntry) {
-      // Mount point itself - return the mount point path
-      return normalized;
-    }
-
-    // Route to the appropriate filesystem
-    const { fs, relativePath } = this.routePath(path);
-
-    // Get realpath from the underlying filesystem
-    const resolvedRelative = await fs.realpath(
-      fs === this.baseFs ? rawPath : relativePath,
-      options,
-    );
-
-    // Find the mount point for this path
-    for (const [mp, _entry] of this.mounts) {
-      if (normalized === mp || normalized.startsWith(`${mp}/`)) {
-        // Path is within this mount - reconstruct full path
-        if (resolvedRelative === "/") {
-          return mp;
-        }
-        return `${mp}${resolvedRelative}`;
-      }
-    }
-
-    // Path is in the base filesystem
-    return resolvedRelative;
+  async realpath(path: string): Promise<string> {
+    validatePath(path, "realpath");
+    return resolveFsPath({ fs: this, path });
   }
 
   async realpathFromCwd(options: {
     cwd: string;
-    operand: string;
+    path: string;
     signal?: AbortSignal;
   }): Promise<string> {
-    return this.realpath(
-      resolvePathPreservingDotSegments({
-        base: options.cwd,
-        path: options.operand,
-      }),
-      { signal: options.signal },
-    );
+    return resolveFsPath({ fs: this, ...options });
   }
 
   /**

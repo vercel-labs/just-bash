@@ -364,7 +364,7 @@ export class BridgeHandler {
     try {
       const realpath = await this.fs.realpathFromCwd({
         cwd: this.cwd,
-        operand: this.protocol.getPath(),
+        path: this.protocol.getPath(),
       });
       this.protocol.setResultFromString(realpath);
       this.protocol.setStatus(Status.SUCCESS);

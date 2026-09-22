@@ -227,6 +227,25 @@ describe("js-exec Node.js compatibility", () => {
       expect(result.exitCode).toBe(0);
     });
 
+    it("should resolve dot segments after a symlink", async () => {
+      const env = new Bash({
+        javascript: true,
+        cwd: "/work",
+        files: {
+          "/target/file.txt": "real",
+          "/target/dir/keep": "",
+        },
+      });
+      await env.fs.symlink("/target/dir", "/work/link");
+
+      const result = await env.exec(
+        `js-exec -c "console.log(fs.realpathSync('link/../file.txt'))"`,
+      );
+
+      expect(result.stdout).toBe("/target/file.txt\n");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should support rename", async () => {
       const env = new Bash({ javascript: true });
       const result = await env.exec(

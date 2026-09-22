@@ -3,6 +3,7 @@ import {
   unsafeBytesFromLatin1,
   utf8ByteLength,
 } from "../../encoding.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import { fromBuffer, getEncoding, toBuffer } from "../encoding.js";
 import type {
@@ -34,12 +35,11 @@ import {
   MAX_SYMLINK_DEPTH,
   normalizePath,
   resolvePath,
-  resolvePathPreservingDotSegments,
   resolveSymlinkTarget,
   SYMLINK_MODE,
   validatePath,
 } from "../path-utils.js";
-import { type RealpathOptions, realpathCheckpoint } from "../realpath-utils.js";
+import { registerAdapter, resolveFsPath } from "../physical-path.js";
 
 // Re-export for backwards compatibility
 export type {
@@ -62,6 +62,8 @@ export interface InMemoryFsOptions {
   /** Aggregate materialized file bytes retained by this filesystem. */
   maxTotalBytes?: number;
 }
+
+type ResolveOptions = { path: string; op: string };
 
 // Text encoder for legacy string content conversion
 const textEncoder = new TextEncoder();
@@ -88,6 +90,17 @@ export class InMemoryFs implements IFileSystem {
   private retainedBytes = 0;
   /** Number of directory entries retaining each hard-link-compatible buffer. */
   private contentReferences = new WeakMap<Uint8Array, number>();
+
+  private async resolveExisting(options: ResolveOptions): Promise<string> {
+    try {
+      return await resolveFsPath({ fs: this, ...options });
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.startsWith("ENOENT:"))
+        throw error;
+      const path = normalizePath(options.path);
+      return resolveFsPath({ fs: this, ...options, path });
+    }
+  }
 
   private materializedContent(entry: FsEntry | undefined): FileContent | null {
     return entry?.type === "file" && "content" in entry ? entry.content : null;
@@ -215,6 +228,7 @@ export class InMemoryFs implements IFileSystem {
       mode: DEFAULT_DIR_MODE,
       mtime: new Date(),
     });
+    registerAdapter({ fs: this, entries: this.data });
 
     if (initialFiles) {
       for (const [path, value] of Object.entries(initialFiles)) {
@@ -341,7 +355,7 @@ export class InMemoryFs implements IFileSystem {
   async readFileBuffer(path: string): Promise<Uint8Array> {
     validatePath(path, "open");
     // Resolve all symlinks in the path (including intermediate components)
-    const resolvedPath = this.resolvePathWithSymlinks(path);
+    const resolvedPath = await this.resolveExisting({ path, op: "open" });
     const entry = this.data.get(resolvedPath);
 
     if (!entry) {
@@ -437,9 +451,10 @@ export class InMemoryFs implements IFileSystem {
       return false;
     }
     try {
-      const resolvedPath = this.resolvePathWithSymlinks(path);
+      const resolvedPath = await this.resolveExisting({ path, op: "access" });
       return this.data.has(resolvedPath);
-    } catch {
+    } catch (error) {
+      rethrowFatalExecutionError(error);
       // Path resolution failed (e.g., broken symlink in path)
       return false;
     }
@@ -448,7 +463,7 @@ export class InMemoryFs implements IFileSystem {
   async stat(path: string): Promise<FsStat> {
     validatePath(path, "stat");
     // Resolve all symlinks in the path (including intermediate components)
-    const resolvedPath = this.resolvePathWithSymlinks(path);
+    const resolvedPath = await this.resolveExisting({ path, op: "stat" });
     let entry = this.data.get(resolvedPath);
 
     if (!entry) {
@@ -575,117 +590,6 @@ export class InMemoryFs implements IFileSystem {
 
     // Append the final component without resolving
     return `${resolvedPath}/${parts[parts.length - 1]}`;
-  }
-
-  /**
-   * Resolve all symlinks in a path, including intermediate components.
-   * For example: /home/user/linkdir/file.txt where linkdir is a symlink to "subdir"
-   * would resolve to /home/user/subdir/file.txt
-   */
-  private resolvePathWithSymlinks(path: string): string {
-    const normalized = normalizePath(path);
-    if (normalized === "/") return "/";
-
-    let pending = normalized;
-    let resolvedPath = "/";
-    // A symlink can be revisited when an earlier target adds a different
-    // suffix. The depth bound catches cycles without rejecting valid paths.
-    let symlinkDepth = 0;
-
-    while (pending !== "/") {
-      const parts = pending.slice(1).split("/");
-      const part = parts.shift();
-      if (part === undefined || part === "") break;
-
-      const candidate = resolvePath(resolvedPath, part);
-
-      // Check if this path component is a symlink
-      const entry = this.data.get(candidate);
-
-      if (entry?.type === "symlink") {
-        symlinkDepth++;
-        if (symlinkDepth >= MAX_SYMLINK_DEPTH) {
-          throw new Error(
-            `ELOOP: too many levels of symbolic links, open '${path}'`,
-          );
-        }
-
-        const target = resolveSymlinkTarget(candidate, entry.target);
-        pending =
-          parts.length > 0 ? resolvePath(target, parts.join("/")) : target;
-        resolvedPath = "/";
-        continue;
-      }
-
-      resolvedPath = candidate;
-      pending = parts.length > 0 ? `/${parts.join("/")}` : "/";
-    }
-
-    return resolvedPath;
-  }
-
-  /**
-   * Resolve a path component-by-component so a `..` component is applied
-   * after the symlink immediately before it has been expanded.
-   */
-  private async resolvePhysicalPathWithSymlinks(
-    path: string,
-    options: RealpathOptions,
-  ): Promise<string> {
-    const initialPath = path.startsWith("/") ? path : `/${path}`;
-    if (initialPath === "/") return "/";
-
-    const pending = initialPath.split("/").reverse();
-    const resolvedParts: string[] = [];
-    let symlinkDepth = 0;
-    let work = 0;
-    const pushTarget = (targetParts: string[]): void => {
-      for (let index = targetParts.length - 1; index >= 0; index--) {
-        pending.push(targetParts[index]);
-      }
-    };
-
-    while (pending.length > 0) {
-      const part = pending.pop();
-      if (part === undefined) continue;
-      await realpathCheckpoint({
-        signal: options.signal,
-        work: ++work,
-      });
-      if (part === "" || part === ".") continue;
-
-      if (part === "..") {
-        resolvedParts.pop();
-        continue;
-      }
-
-      const candidate = `/${[...resolvedParts, part].join("/")}`;
-      const entry = this.data.get(candidate);
-
-      if (!entry && pending.length > 0) {
-        throw new Error(`ENOENT: no such file or directory, open '${path}'`);
-      }
-
-      if (entry?.type === "symlink") {
-        symlinkDepth++;
-        if (symlinkDepth >= MAX_SYMLINK_DEPTH) {
-          throw new Error(
-            `ELOOP: too many levels of symbolic links, open '${path}'`,
-          );
-        }
-
-        const targetParts = entry.target.startsWith("/")
-          ? entry.target.split("/")
-          : [...resolvedParts, ...entry.target.split("/")];
-        pushTarget(targetParts);
-        resolvedParts.length = 0;
-        continue;
-      }
-
-      resolvedParts.push(part);
-    }
-
-    return resolvedParts.length > 0 ? `/${resolvedParts.join("/")}` : "/";
   }
 
   async mkdir(path: string, options?: MkdirOptions): Promise<void> {
@@ -1001,31 +905,17 @@ export class InMemoryFs implements IFileSystem {
    * Resolve all symlinks in a path to get the canonical physical path.
    * This is equivalent to POSIX realpath().
    */
-  async realpath(path: string, options: RealpathOptions = {}): Promise<string> {
+  async realpath(path: string): Promise<string> {
     validatePath(path, "realpath");
-    // resolvePathWithSymlinks already resolves all symlinks
-    const resolved = await this.resolvePhysicalPathWithSymlinks(path, options);
-
-    // Verify the path exists
-    if (!this.data.has(resolved)) {
-      throw new Error(`ENOENT: no such file or directory, realpath '${path}'`);
-    }
-
-    return resolved;
+    return resolveFsPath({ fs: this, path });
   }
 
   async realpathFromCwd(options: {
     cwd: string;
-    operand: string;
+    path: string;
     signal?: AbortSignal;
   }): Promise<string> {
-    return this.realpath(
-      resolvePathPreservingDotSegments({
-        base: options.cwd,
-        path: options.operand,
-      }),
-      { signal: options.signal },
-    );
+    return resolveFsPath({ fs: this, ...options });
   }
 
   /**
@@ -1036,8 +926,7 @@ export class InMemoryFs implements IFileSystem {
    */
   async utimes(path: string, _atime: Date, mtime: Date): Promise<void> {
     validatePath(path, "utimes");
-    const normalized = normalizePath(path);
-    const resolved = this.resolvePathWithSymlinks(normalized);
+    const resolved = await this.resolveExisting({ path, op: "utimes" });
     const entry = this.data.get(resolved);
 
     if (!entry) {

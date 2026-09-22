@@ -21,6 +21,7 @@ import {
   getEncoding,
   toBuffer,
 } from "../encoding.js";
+import { createHostPathAccess } from "../host-path-access.js";
 import type {
   CpOptions,
   DirentEntry,
@@ -31,21 +32,15 @@ import type {
   RmOptions,
   WriteFileOptions,
 } from "../interface.js";
-import {
-  MAX_SYMLINK_DEPTH,
-  resolvePathPreservingDotSegments,
-  resolvePath as resolveVPath,
-} from "../path-utils.js";
+import { resolvePath as resolveVPath } from "../path-utils.js";
+import { registerAdapter, resolveFsPath } from "../physical-path.js";
 import {
   isPathWithinRoot,
   normalizePath,
-  resolveCanonicalPath,
-  resolveCanonicalPathNoSymlinks,
   sanitizeFsError,
   validatePath,
   validateRootDirectory,
 } from "../real-fs-utils.js";
-import { type RealpathOptions, realpathCheckpoint } from "../realpath-utils.js";
 
 /** Error patterns that are safe to pass through (contain virtual paths, not real ones). */
 const RW_PASSTHROUGH_ERRORS = [
@@ -102,6 +97,7 @@ export class ReadWriteFs implements IFileSystem {
   private readonly maxCopyOnWriteSize: number;
   private readonly maxCopySize: number;
   private readonly allowSymlinks: boolean;
+  private readonly hostPaths: ReturnType<typeof createHostPathAccess>;
 
   constructor(options: ReadWriteFsOptions) {
     this.root = nodePath.resolve(options.root);
@@ -115,6 +111,13 @@ export class ReadWriteFs implements IFileSystem {
 
     // Compute canonical root (resolves symlinks like /var -> /private/var on macOS)
     this.canonicalRoot = fs.realpathSync(this.root);
+    this.hostPaths = createHostPathAccess({
+      root: this.root,
+      canonicalRoot: this.canonicalRoot,
+      virtualRoot: "/",
+      allowSymlinks: this.allowSymlinks,
+    });
+    registerAdapter({ fs: this, lookup: this.hostPaths.lookup });
   }
 
   /**
@@ -124,10 +127,8 @@ export class ReadWriteFs implements IFileSystem {
    * between validation and use.
    * Throws EACCES if the path escapes the root.
    */
-  private resolveAndValidate(realPath: string, virtualPath: string): string {
-    const canonical = this.allowSymlinks
-      ? resolveCanonicalPath(realPath, this.canonicalRoot)
-      : resolveCanonicalPathNoSymlinks(realPath, this.root, this.canonicalRoot);
+  private resolveAndValidate(_realPath: string, virtualPath: string): string {
+    const canonical = this.hostPaths.resolvePath({ path: virtualPath });
     if (canonical === null) {
       throw new Error(
         `EACCES: permission denied, '${virtualPath}' resolves outside sandbox`,
@@ -142,9 +143,11 @@ export class ReadWriteFs implements IFileSystem {
    * Returns the canonical parent joined with the original basename.
    */
   private validateParent(realPath: string, virtualPath: string): string {
-    const parent = nodePath.dirname(realPath);
-    const canonicalParent = this.resolveAndValidate(parent, virtualPath);
-    return nodePath.join(canonicalParent, nodePath.basename(realPath));
+    const canonical = this.hostPaths.resolveParent({ path: virtualPath });
+    if (canonical === null) {
+      return this.resolveAndValidate(realPath, virtualPath);
+    }
+    return canonical;
   }
 
   /**
@@ -1642,150 +1645,17 @@ export class ReadWriteFs implements IFileSystem {
    * Resolve all symlinks in a path to get the canonical physical path.
    * This is equivalent to POSIX realpath().
    */
-  async realpath(path: string, options: RealpathOptions = {}): Promise<string> {
+  async realpath(path: string): Promise<string> {
     validatePath(path, "realpath");
-    const rawPath = path.startsWith("/") ? path : `/${path}`;
-    /*
-     * User operands are rooted in the virtual filesystem, so `..` clamps at
-     * `/`. Symlink targets are physical references and must instead be
-     * rejected when their `..` segments would leave that virtual root.
-     */
-    const pending: Array<{ part: string; rejectEscape: boolean }> = rawPath
-      .split("/")
-      .map((part) => ({ part, rejectEscape: false }))
-      .reverse();
-    const resolvedParts: string[] = [];
-    let symlinkDepth = 0;
-    let work = 0;
-
-    const notFound = (): never => {
-      throw new Error(`ENOENT: no such file or directory, realpath '${path}'`);
-    };
-    const tooManyLinks = (): never => {
-      throw new Error(
-        `ELOOP: too many levels of symbolic links, realpath '${path}'`,
-      );
-    };
-    const requireValue = <T>(value: T | undefined): T => {
-      if (value === undefined) return notFound();
-      return value;
-    };
-    const pushTarget = (targetParts: string[]): void => {
-      for (let index = targetParts.length - 1; index >= 0; index--) {
-        pending.push({ part: targetParts[index], rejectEscape: true });
-      }
-    };
-
-    while (pending.length > 0) {
-      const item = pending.pop();
-      if (item === undefined) continue;
-      await realpathCheckpoint({
-        signal: options.signal,
-        work: ++work,
-      });
-      const { part } = item;
-      if (part === "" || part === ".") continue;
-      if (part === "..") {
-        if (item.rejectEscape && resolvedParts.length === 0) {
-          notFound();
-        }
-        resolvedParts.pop();
-        continue;
-      }
-
-      const resolved = `/${[...resolvedParts, part].join("/")}`;
-      const realPath = this.toRealPath(resolved);
-      let canonicalEntryValue: string | undefined;
-      try {
-        // The parent is resolved through the normal sandbox gate, while the
-        // final component remains available to inspect as a symlink.
-        canonicalEntryValue = this.validateParent(realPath, path);
-      } catch {
-        notFound();
-      }
-      const canonicalEntry = requireValue(canonicalEntryValue);
-
-      let statValue: fs.Stats | undefined;
-      try {
-        statValue = await fs.promises.lstat(canonicalEntry);
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code === "ENOENT" || code === "ELOOP" || code === "ENOTDIR") {
-          notFound();
-        }
-        this.sanitizeError(error, path, "realpath");
-      }
-      const stat = requireValue(statValue);
-
-      if (stat.isSymbolicLink()) {
-        if (!this.allowSymlinks) notFound();
-
-        symlinkDepth++;
-        if (symlinkDepth >= MAX_SYMLINK_DEPTH) tooManyLinks();
-
-        let rawTargetValue: string | undefined;
-        try {
-          rawTargetValue = await fs.promises.readlink(canonicalEntry);
-        } catch (error) {
-          const code = (error as NodeJS.ErrnoException).code;
-          if (code === "ENOENT" || code === "ENOTDIR") {
-            notFound();
-          }
-          this.sanitizeError(error, path, "realpath");
-        }
-        const rawTarget = requireValue(rawTargetValue);
-
-        if (nodePath.isAbsolute(rawTarget)) {
-          const roots = [this.root, this.canonicalRoot];
-          let virtualTarget: string | undefined;
-          for (const root of roots) {
-            const prefix = root.endsWith(nodePath.sep)
-              ? root
-              : `${root}${nodePath.sep}`;
-            const alternatePrefix =
-              nodePath.sep === "/" ? undefined : `${root}/`;
-            if (rawTarget === root) {
-              virtualTarget = "/";
-              break;
-            }
-            if (rawTarget.startsWith(prefix)) {
-              virtualTarget = `/${rawTarget.slice(prefix.length)}`;
-              break;
-            }
-            if (alternatePrefix && rawTarget.startsWith(alternatePrefix)) {
-              virtualTarget = `/${rawTarget.slice(alternatePrefix.length)}`;
-              break;
-            }
-          }
-          if (virtualTarget === undefined) notFound();
-          const target = requireValue(virtualTarget);
-
-          resolvedParts.length = 0;
-          pushTarget(target.split("/"));
-        } else {
-          pushTarget(rawTarget.split("/"));
-        }
-        continue;
-      }
-
-      resolvedParts.push(part);
-    }
-
-    return resolvedParts.length > 0 ? `/${resolvedParts.join("/")}` : "/";
+    return resolveFsPath({ fs: this, path });
   }
 
   async realpathFromCwd(options: {
     cwd: string;
-    operand: string;
+    path: string;
     signal?: AbortSignal;
   }): Promise<string> {
-    return this.realpath(
-      resolvePathPreservingDotSegments({
-        base: options.cwd,
-        path: options.operand,
-      }),
-      { signal: options.signal },
-    );
+    return resolveFsPath({ fs: this, ...options });
   }
 
   /**

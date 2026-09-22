@@ -23,6 +23,7 @@ function formatRealpathError(error: unknown): string {
     error instanceof Error ? error.message : String(error),
   );
   if (/ENOENT|no such file/i.test(message)) return "No such file or directory";
+  if (/ENOTDIR|not a directory/i.test(message)) return "Not a directory";
   if (/ELOOP|too many levels/i.test(message)) {
     return "Too many levels of symbolic links";
   }
@@ -40,7 +41,11 @@ export const realpathCommand: RuntimeCommand = {
     ctx: RuntimeCommandContext,
   ): Promise<ExecResult> {
     let argIdx = 0;
-    while (argIdx < args.length && args[argIdx].startsWith("-")) {
+    while (
+      argIdx < args.length &&
+      args[argIdx] !== "-" &&
+      args[argIdx].startsWith("-")
+    ) {
       const arg = args[argIdx];
       if (arg === "--") {
         argIdx++;
@@ -95,7 +100,7 @@ export const realpathCommand: RuntimeCommand = {
       try {
         const resolved = await ctx.fs.realpathFromCwd({
           cwd: ctx.cwd,
-          operand: file,
+          path: file,
           signal: ctx.signal,
         });
         appendOutput({ stream: "stdout", value: `${resolved}\n` });
