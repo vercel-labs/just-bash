@@ -19,6 +19,7 @@ import {
   resolvePath,
   validatePath,
 } from "../path-utils.js";
+import type { ResolveFsPathOptions } from "../physical-path.js";
 import { registerAdapter, resolveFsPath } from "../physical-path.js";
 
 /**
@@ -606,11 +607,9 @@ export class MountableFs implements IFileSystem {
     return resolveFsPath({ fs: this, path });
   }
 
-  async realpathFromCwd(options: {
-    cwd: string;
-    path: string;
-    signal?: AbortSignal;
-  }): Promise<string> {
+  async realpathFromCwd(
+    options: Pick<ResolveFsPathOptions, "cwd" | "path" | "signal">,
+  ): Promise<string> {
     return resolveFsPath({ fs: this, ...options });
   }
 

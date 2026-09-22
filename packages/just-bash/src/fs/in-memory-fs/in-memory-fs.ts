@@ -39,6 +39,7 @@ import {
   SYMLINK_MODE,
   validatePath,
 } from "../path-utils.js";
+import type { ResolveFsPathOptions } from "../physical-path.js";
 import { registerAdapter, resolveFsPath } from "../physical-path.js";
 
 // Re-export for backwards compatibility
@@ -62,8 +63,6 @@ export interface InMemoryFsOptions {
   /** Aggregate materialized file bytes retained by this filesystem. */
   maxTotalBytes?: number;
 }
-
-type ResolveOptions = { path: string; op: string };
 
 // Text encoder for legacy string content conversion
 const textEncoder = new TextEncoder();
@@ -91,7 +90,9 @@ export class InMemoryFs implements IFileSystem {
   /** Number of directory entries retaining each hard-link-compatible buffer. */
   private contentReferences = new WeakMap<Uint8Array, number>();
 
-  private async resolveExisting(options: ResolveOptions): Promise<string> {
+  private async resolveExisting(
+    options: Pick<ResolveFsPathOptions, "path" | "op">,
+  ): Promise<string> {
     try {
       return await resolveFsPath({ fs: this, ...options });
     } catch (error) {
@@ -910,11 +911,9 @@ export class InMemoryFs implements IFileSystem {
     return resolveFsPath({ fs: this, path });
   }
 
-  async realpathFromCwd(options: {
-    cwd: string;
-    path: string;
-    signal?: AbortSignal;
-  }): Promise<string> {
+  async realpathFromCwd(
+    options: Pick<ResolveFsPathOptions, "cwd" | "path" | "signal">,
+  ): Promise<string> {
     return resolveFsPath({ fs: this, ...options });
   }
 
