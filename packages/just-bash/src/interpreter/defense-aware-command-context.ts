@@ -167,6 +167,12 @@ function wrapFileSystem(
       component,
       "fs.realpath",
     ),
+    realpathFromCwd: wrapFunction(
+      fs.realpathFromCwd.bind(fs),
+      requireDefenseContext,
+      component,
+      "fs.realpathFromCwd",
+    ),
     utimes: wrapFunction(
       fs.utimes.bind(fs),
       requireDefenseContext,

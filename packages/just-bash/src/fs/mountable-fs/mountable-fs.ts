@@ -19,6 +19,8 @@ import {
   resolvePath,
   validatePath,
 } from "../path-utils.js";
+import type { ResolveFsPathOptions } from "../physical-path.js";
+import { registerAdapter, resolveFsPath } from "../physical-path.js";
 
 /**
  * Configuration for a mount point
@@ -68,6 +70,8 @@ export class MountableFs implements IFileSystem {
 
   constructor(options?: MountableFsOptions) {
     this.baseFs = options?.base ?? new InMemoryFs();
+    const mounts = () => this.getMounts();
+    registerAdapter({ fs: this, base: this.baseFs, mounts });
 
     // Add initial mounts
     if (options?.mounts) {
@@ -599,34 +603,14 @@ export class MountableFs implements IFileSystem {
    * This is equivalent to POSIX realpath().
    */
   async realpath(path: string): Promise<string> {
-    const normalized = normalizePath(path);
+    validatePath(path, "realpath");
+    return resolveFsPath({ fs: this, path });
+  }
 
-    // Check if this is exactly a mount point
-    const mountEntry = this.mounts.get(normalized);
-    if (mountEntry) {
-      // Mount point itself - return the mount point path
-      return normalized;
-    }
-
-    // Route to the appropriate filesystem
-    const { fs, relativePath } = this.routePath(path);
-
-    // Get realpath from the underlying filesystem
-    const resolvedRelative = await fs.realpath(relativePath);
-
-    // Find the mount point for this path
-    for (const [mp, _entry] of this.mounts) {
-      if (normalized === mp || normalized.startsWith(`${mp}/`)) {
-        // Path is within this mount - reconstruct full path
-        if (resolvedRelative === "/") {
-          return mp;
-        }
-        return `${mp}${resolvedRelative}`;
-      }
-    }
-
-    // Path is in the base filesystem
-    return resolvedRelative;
+  async realpathFromCwd(
+    options: Pick<ResolveFsPathOptions, "cwd" | "path" | "signal">,
+  ): Promise<string> {
+    return resolveFsPath({ fs: this, ...options });
   }
 
   /**

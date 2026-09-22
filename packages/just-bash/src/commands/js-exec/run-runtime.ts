@@ -931,7 +931,13 @@ async function executeWithRunInner(
           fsChmod: (path: string, mode: number) =>
             attempt(async () => await ctx.fs.chmod(resolve(path), mode)),
           fsRealpath: (path: string) =>
-            attempt(async () => await ctx.fs.realpath(resolve(path))),
+            attempt(
+              async () =>
+                await ctx.fs.realpathFromCwd({
+                  cwd: ctx.cwd,
+                  path,
+                }),
+            ),
           fsRename: (from: string, to: string) =>
             attempt(async () => await ctx.fs.mv(resolve(from), resolve(to))),
           fsCopy: (from: string, to: string) =>

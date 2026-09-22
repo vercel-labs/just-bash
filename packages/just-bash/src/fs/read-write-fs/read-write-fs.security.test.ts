@@ -687,6 +687,36 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
       const result = await rwfs.realpath("/subdir/nested.txt");
       expect(result).toBe("/subdir/nested.txt");
     });
+
+    it("should resolve a relative operand from a virtual cwd", async () => {
+      const result = await rwfs.realpathFromCwd({
+        cwd: "/subdir",
+        path: "nested.txt",
+      });
+      expect(result).toBe("/subdir/nested.txt");
+    });
+
+    it("should resolve dot segments after following a symlink", async () => {
+      fs.mkdirSync(path.join(tempDir, "target", "dir"), {
+        recursive: true,
+      });
+      fs.writeFileSync(path.join(tempDir, "target", "file.txt"), "content");
+      fs.symlinkSync("target/dir", path.join(tempDir, "link"));
+
+      await expect(rwfs.realpath("/link/..")).resolves.toBe("/target");
+      await expect(rwfs.realpath("/link/../file.txt")).resolves.toBe(
+        "/target/file.txt",
+      );
+    });
+
+    it("should not probe a host sibling through excursion-and-return segments", async () => {
+      const probe = `/../${path.basename(outsideDir)}/../${path.basename(tempDir)}/allowed.txt`;
+
+      await expect(rwfs.realpath(probe)).rejects.toThrow("ENOENT");
+      await expect(
+        rwfs.realpathFromCwd({ cwd: "/", path: probe.slice(1) }),
+      ).rejects.toThrow("ENOENT");
+    });
   });
 
   describe("mkdir escape via pre-existing OS symlink", () => {

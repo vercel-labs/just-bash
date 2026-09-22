@@ -1,4 +1,5 @@
 import type { ByteString } from "../encoding.js";
+import type { ResolveFsPathOptions } from "./physical-path.js";
 
 /**
  * Supported buffer encodings
@@ -278,6 +279,15 @@ export interface IFileSystem {
    * @throws Error if path doesn't exist or contains a broken symlink
    */
   realpath(path: string): Promise<string>;
+
+  /**
+   * Resolve a shell operand relative to a virtual working directory, then
+   * canonicalize the resulting path with realpath().
+   * A missing final component is allowed, matching GNU realpath's default behavior.
+   */
+  realpathFromCwd(
+    options: Pick<ResolveFsPathOptions, "cwd" | "path" | "signal">,
+  ): Promise<string>;
 
   /**
    * Set access and modification times of a file

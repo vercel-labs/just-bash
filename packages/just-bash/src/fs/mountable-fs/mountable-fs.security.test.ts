@@ -427,6 +427,38 @@ describe("MountableFs Security", () => {
 
       const resolved = await mfs.realpath("/mnt/link");
       expect(resolved).toBe("/mnt/real.txt");
+      await expect(
+        mfs.realpathFromCwd({ cwd: "/mnt", path: "link" }),
+      ).resolves.toBe("/mnt/real.txt");
+    });
+
+    it("should resolve dot segments after a mounted symlink", async () => {
+      const mounted = new InMemoryFs({
+        "/target/file.txt": "content",
+        "/target/dir/keep": "",
+      });
+      await mounted.symlink("/target/dir", "/link");
+
+      const mfs = new MountableFs();
+      mfs.mount("/mnt", mounted);
+
+      await expect(mfs.realpath("/mnt/link/..")).resolves.toBe("/mnt/target");
+      await expect(mfs.realpath("/mnt/link/../file.txt")).resolves.toBe(
+        "/mnt/target/file.txt",
+      );
+    });
+
+    it("should preserve dot segments in the base filesystem", async () => {
+      const base = new InMemoryFs({
+        "/target/file.txt": "content",
+        "/target/dir/keep": "",
+      });
+      await base.symlink("/target/dir", "/link");
+      const mfs = new MountableFs({ base });
+
+      await expect(mfs.realpath("/link/../file.txt")).resolves.toBe(
+        "/target/file.txt",
+      );
     });
 
     it("should return mount point for realpath at mount root", async () => {

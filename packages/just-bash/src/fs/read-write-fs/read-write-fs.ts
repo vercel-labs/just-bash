@@ -21,6 +21,7 @@ import {
   getEncoding,
   toBuffer,
 } from "../encoding.js";
+import { createHostPathAccess } from "../host-path-access.js";
 import type {
   CpOptions,
   DirentEntry,
@@ -32,11 +33,11 @@ import type {
   WriteFileOptions,
 } from "../interface.js";
 import { resolvePath as resolveVPath } from "../path-utils.js";
+import type { ResolveFsPathOptions } from "../physical-path.js";
+import { registerAdapter, resolveFsPath } from "../physical-path.js";
 import {
   isPathWithinRoot,
   normalizePath,
-  resolveCanonicalPath,
-  resolveCanonicalPathNoSymlinks,
   sanitizeFsError,
   validatePath,
   validateRootDirectory,
@@ -97,6 +98,7 @@ export class ReadWriteFs implements IFileSystem {
   private readonly maxCopyOnWriteSize: number;
   private readonly maxCopySize: number;
   private readonly allowSymlinks: boolean;
+  private readonly hostPaths: ReturnType<typeof createHostPathAccess>;
 
   constructor(options: ReadWriteFsOptions) {
     this.root = nodePath.resolve(options.root);
@@ -110,6 +112,13 @@ export class ReadWriteFs implements IFileSystem {
 
     // Compute canonical root (resolves symlinks like /var -> /private/var on macOS)
     this.canonicalRoot = fs.realpathSync(this.root);
+    this.hostPaths = createHostPathAccess({
+      root: this.root,
+      canonicalRoot: this.canonicalRoot,
+      virtualRoot: "/",
+      allowSymlinks: this.allowSymlinks,
+    });
+    registerAdapter({ fs: this, lookup: this.hostPaths.lookup });
   }
 
   /**
@@ -119,10 +128,8 @@ export class ReadWriteFs implements IFileSystem {
    * between validation and use.
    * Throws EACCES if the path escapes the root.
    */
-  private resolveAndValidate(realPath: string, virtualPath: string): string {
-    const canonical = this.allowSymlinks
-      ? resolveCanonicalPath(realPath, this.canonicalRoot)
-      : resolveCanonicalPathNoSymlinks(realPath, this.root, this.canonicalRoot);
+  private resolveAndValidate(_realPath: string, virtualPath: string): string {
+    const canonical = this.hostPaths.resolvePath({ path: virtualPath });
     if (canonical === null) {
       throw new Error(
         `EACCES: permission denied, '${virtualPath}' resolves outside sandbox`,
@@ -137,9 +144,11 @@ export class ReadWriteFs implements IFileSystem {
    * Returns the canonical parent joined with the original basename.
    */
   private validateParent(realPath: string, virtualPath: string): string {
-    const parent = nodePath.dirname(realPath);
-    const canonicalParent = this.resolveAndValidate(parent, virtualPath);
-    return nodePath.join(canonicalParent, nodePath.basename(realPath));
+    const canonical = this.hostPaths.resolveParent({ path: virtualPath });
+    if (canonical === null) {
+      return this.resolveAndValidate(realPath, virtualPath);
+    }
+    return canonical;
   }
 
   /**
@@ -1639,47 +1648,13 @@ export class ReadWriteFs implements IFileSystem {
    */
   async realpath(path: string): Promise<string> {
     validatePath(path, "realpath");
-    const realPath = this.toRealPath(path);
+    return resolveFsPath({ fs: this, path });
+  }
 
-    // Validate the path respects the symlink policy before resolving.
-    // Without this, realpath() would follow symlinks that other methods
-    // (readFile, stat, etc.) correctly reject via resolveAndValidate().
-    // Convert EACCES to ENOENT because realpath semantically "doesn't find"
-    // the canonical path rather than "denies access".
-    try {
-      this.resolveAndValidate(realPath, path);
-    } catch {
-      throw new Error(`ENOENT: no such file or directory, realpath '${path}'`);
-    }
-
-    let resolved: string;
-    try {
-      resolved = await fs.promises.realpath(realPath);
-    } catch (e) {
-      const err = e as NodeJS.ErrnoException;
-      if (err.code === "ENOENT") {
-        throw new Error(
-          `ENOENT: no such file or directory, realpath '${path}'`,
-        );
-      }
-      if (err.code === "ELOOP") {
-        throw new Error(
-          `ELOOP: too many levels of symbolic links, realpath '${path}'`,
-        );
-      }
-      this.sanitizeError(e, path, "realpath");
-    }
-
-    // Convert back to virtual path (relative to root)
-    // Use canonicalRoot (computed at construction) for consistent comparison
-    // with resolveAndValidate. Use boundary-safe prefix check to prevent
-    // /data matching /datastore.
-    if (isPathWithinRoot(resolved, this.canonicalRoot)) {
-      const relative = resolved.slice(this.canonicalRoot.length);
-      return relative || "/";
-    }
-    // Resolved path is outside root - reject it to prevent sandbox escape
-    throw new Error(`ENOENT: no such file or directory, realpath '${path}'`);
+  async realpathFromCwd(
+    options: Pick<ResolveFsPathOptions, "cwd" | "path" | "signal">,
+  ): Promise<string> {
+    return resolveFsPath({ fs: this, ...options });
   }
 
   /**
