@@ -49,6 +49,8 @@ export class AwkInterpreter {
     this.assertDefenseContext("program initialization");
     this.program = program;
     this.ctx.output = "";
+    this.ctx.outputBytes = 0;
+    this.ctx.lastOutputCode = -1;
 
     // Register user-defined functions
     for (const func of program.functions) {
