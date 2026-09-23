@@ -135,6 +135,8 @@ export class ReadWriteFs implements IFileSystem {
    * Validate the parent directory of a path (for operations like lstat/readlink
    * that should not follow the final component's symlink).
    * Returns the canonical parent joined with the original basename.
+   * The root's parent is outside the sandbox and always fails this check,
+   * so callers that accept the root validate it with resolveAndValidate().
    */
   private validateParent(realPath: string, virtualPath: string): string {
     const parent = nodePath.dirname(realPath);
@@ -614,7 +616,10 @@ export class ReadWriteFs implements IFileSystem {
   async lstat(path: string): Promise<FsStat> {
     validatePath(path, "lstat");
     const realPath = this.toRealPath(path);
-    const canonical = this.validateParent(realPath, path);
+    const canonical =
+      realPath === this.root
+        ? this.resolveAndValidate(realPath, path)
+        : this.validateParent(realPath, path);
 
     try {
       const stat = await fs.promises.lstat(canonical);
@@ -1581,7 +1586,10 @@ export class ReadWriteFs implements IFileSystem {
   async readlink(path: string): Promise<string> {
     validatePath(path, "readlink");
     const realPath = this.toRealPath(path);
-    const canonical = this.validateParent(realPath, path);
+    const canonical =
+      realPath === this.root
+        ? this.resolveAndValidate(realPath, path)
+        : this.validateParent(realPath, path);
 
     try {
       const rawTarget = await fs.promises.readlink(canonical);
