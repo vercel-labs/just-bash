@@ -37,6 +37,49 @@ describe("sort -h (human numeric)", () => {
     expect(result.stdout).toBe("1G\n1M\n1K\n");
     expect(result.exitCode).toBe(0);
   });
+
+  it("should sort du output by the size that leads each line", async () => {
+    const env = new Bash({
+      files: {
+        "/du.txt": "872M\t./a\n912K\t./b\n935M\t./c\n1.5G\t./d\n4.0K\t./e\n",
+      },
+    });
+    const result = await env.exec("sort -h /du.txt");
+    expect(result.stdout).toBe(
+      "4.0K\t./e\n912K\t./b\n872M\t./a\n935M\t./c\n1.5G\t./d\n",
+    );
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("should put the largest du entry first with -rh", async () => {
+    const env = new Bash({
+      files: { "/du.txt": "872M\t./a\n1.5G\t./d\n912K\t./b\n" },
+    });
+    const result = await env.exec("sort -rh /du.txt | head -1");
+    expect(result.stdout).toBe("1.5G\t./d\n");
+  });
+
+  it("should not read the next word as a suffix, matching GNU sort", async () => {
+    // Expected order taken from GNU coreutils 9.4 on the same input.
+    const env = new Bash({
+      files: {
+        "/test.txt":
+          "10 mangoes\n20K\n2 apple\n1e3\n 12 main.ts\n5\n 3 util.ts\n",
+      },
+    });
+    const result = await env.exec("sort -h /test.txt");
+    expect(result.stdout).toBe(
+      "1e3\n2 apple\n 3 util.ts\n5\n10 mangoes\n 12 main.ts\n20K\n",
+    );
+  });
+
+  it("should read a size followed by other text in a keyed field", async () => {
+    const env = new Bash({
+      files: { "/test.txt": "a 10MiB used\nb 2KiB used\nc 1GiB used\n" },
+    });
+    const result = await env.exec("sort -k2 -h /test.txt");
+    expect(result.stdout).toBe("b 2KiB used\na 10MiB used\nc 1GiB used\n");
+  });
 });
 
 describe("sort -V (version)", () => {
