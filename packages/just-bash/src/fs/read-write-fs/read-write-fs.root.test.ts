@@ -40,6 +40,43 @@ describe("ReadWriteFs root directory", () => {
   });
 
   it.each([
+    false,
+    true,
+  ])("fails closed when the root is swapped for a symlink outside the sandbox (allowSymlinks: %s)", async (allowSymlinks) => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "rwfs-root-swap-"));
+    const relocated = `${sandbox}-relocated`;
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "rwfs-outside-"));
+    try {
+      const rwfs = new ReadWriteFs({ root: sandbox, allowSymlinks });
+
+      // Replace the sandbox root with a symlink to an unrelated directory.
+      // The canonical root recorded at construction no longer matches where
+      // the root resolves, so the root branch must reject the path instead of
+      // reading outside the sandbox.
+      fs.renameSync(sandbox, relocated);
+      fs.symlinkSync(outside, sandbox, "dir");
+
+      await expect(rwfs.lstat("/")).rejects.toThrow("resolves outside sandbox");
+      await expect(rwfs.readlink("/")).rejects.toThrow(
+        "resolves outside sandbox",
+      );
+    } finally {
+      fs.rmSync(sandbox, { force: true });
+      fs.rmSync(relocated, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects removing the root and keeps its contents", async () => {
+    const rwfs = new ReadWriteFs({ root });
+
+    await expect(
+      rwfs.rm("/", { recursive: true, force: true }),
+    ).rejects.toThrow("EACCES");
+    expect(fs.existsSync(path.join(root, "a.txt"))).toBe(true);
+  });
+
+  it.each([
     ["find .", ".\n./a.txt\n./sub\n./sub/b.txt\n"],
     ["find /", "/\n/a.txt\n/sub\n/sub/b.txt\n"],
     ["find . -name '*.txt'", "./a.txt\n./sub/b.txt\n"],
