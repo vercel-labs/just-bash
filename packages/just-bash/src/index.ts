@@ -141,3 +141,18 @@ export type {
   IFileSystem,
   ResolvedCommandContext,
 } from "./types.js";
+export {
+  defineWasiCommand,
+  defineWasmCommand,
+  type WasiCommandOptions,
+} from "./wasm/index.js";
+export type {
+  WasmAdapter,
+  WasmAdapterContext,
+  WasmCommandOptions,
+  WasmFileStat,
+  WasmFileSystem,
+  WasmInputStream,
+  WasmOutputStream,
+  WasmWasiContext,
+} from "./wasm/types.js";

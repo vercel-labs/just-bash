@@ -818,6 +818,7 @@ const SKIP_PATTERNS = [
   /prototype-pollution\.test/, // These test the protection
   /src\/commands\/python3\/worker\.js$/, // Generated artifact, source is worker.ts
   /src\/commands\/sqlite3\/worker\.js$/, // Generated artifact, source is worker.ts
+  /src\/wasm\/wasm-worker(?:\.browser)?\.js$/, // Generated artifacts; TS sources are linted and check:worker-sync checks regeneration
   /scripts\/check-banned-patterns\.js$/, // Self-lint script contains pattern definitions by design
 ];
 

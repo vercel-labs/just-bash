@@ -1,6 +1,10 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": ["src/cli/just-bash.ts", "src/wasm/wasi/runtime.ts"],
+  "entry": [
+    "src/cli/just-bash.ts",
+    "src/wasm/worker.node.ts",
+    "src/wasm/worker.browser.ts"
+  ],
   "project": ["src/**/*.ts"],
   "ignore": [
     "src/**/*.test.ts",
@@ -8,11 +12,6 @@
     "src/banned-patterns-test.ts",
     "src/security/fuzzing/**"
   ],
-  "ignoreIssues": {
-    "src/wasm/protocol.ts": ["exports"],
-    "src/wasm/wasi/abi.ts": ["exports"],
-    "src/wasm/wasi/filesystem.ts": ["exports"]
-  },
   "ignoreBinaries": ["tsx"],
   "rules": {
     "unlisted": "off",

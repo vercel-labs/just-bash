@@ -88,6 +88,12 @@ The following components are **trusted** and outside the scope of just-bash's ru
 
 **TB5 — Data → Variable/Key Space**: User-controlled data becomes JS object keys (env vars, AWK variables, associative array keys). Must use null-prototype objects or Maps to prevent prototype pollution.
 
+**TB6 — Opt-in WASM Guest → Host Bridge**: `defineWasmCommand` instantiates a
+host-supplied wasm32 module in a disposable worker. Its default WASI adapter
+installs only Preview 1 functions; explicit trusted JavaScript adapters choose
+their guest imports. The host owns descriptor capabilities and serves virtual
+filesystem requests through a bounded shared-memory bridge.
+
 ---
 
 ## 3. Attack Surface Inventory
@@ -222,6 +228,72 @@ The following components are **trusted** and outside the scope of just-bash's ru
 | JSON/Math mutation | Poison shared utility objects | Frozen by defense-in-depth (strategy: "freeze") | `src/security/blocked-globals.ts` |
 
 ---
+
+### 3.10 WebAssembly Commands (When Registered)
+
+The embedding application chooses command names, module bytes/loaders, and
+limits. Guest instructions, arguments, paths, and output are untrusted.
+JavaScript loaders/adapters, the built-in WASI runtime, the host bridge, and the
+configured filesystem remain trusted components. WebAssembly and the restricted
+import surface form the guest isolation boundary; workers provide termination.
+
+| Vector | Defense | Files |
+| --- | --- | --- |
+| Arbitrary JavaScript or host imports | Accept only `wasi_snapshot_preview1` function imports; require exported `memory` and `_start` | `src/wasm/wasi/runtime.ts` |
+| Guest infinite loop | Host deadline/abort closes the bridge and terminates the worker | `src/wasm/command.ts`, `src/worker-lifecycle.ts` |
+| Unbounded linear memory/table growth | Rewrite declared maxima before instantiation; reject oversized initial allocations, multiple/shared/memory64 memories, and non-funcref tables | `src/wasm/module.ts` |
+| Access outside virtual filesystem | Preopen virtual `/`; validate descriptor rights, relative paths, and resolved symlink containment on the host | `src/wasm/wasi/filesystem.ts` |
+| Host environment disclosure | Pass exported shell environment and virtual `PWD`; Node workers inherit no host environment or loader flags | `src/wasm/command.ts`, `src/wasm/index.ts` |
+| Network/process access | No network, subprocess, dynamic library, or JS execution capability is provided to the guest | `src/wasm/wasi/runtime.ts` |
+| Oversized bridge/output/file operations | 64 KiB I/O frames, bounded iovecs, file/output/descriptor limits, and execution-scope work/live-byte accounting | `src/wasm/protocol.ts`, `src/wasm/wasi/filesystem.ts` |
+| Late guest work after cancellation | Close the descriptor table and bridge, check authority after asynchronous reads and before subsequent mutations, terminate worker | `src/wasm/command.ts`, `src/wasm/wasi/filesystem.ts` |
+
+The Preview 1 runtime is implemented in this repository without an external WASI
+dependency. Its ABI layer checks guest pointer ranges, encodes little-endian
+structures explicitly, and bounds scatter/gather I/O before bridging to the
+host (`src/wasm/wasi/memory.ts`, `src/wasm/wasi/runtime-fs.ts`).
+
+The bridge declares named descriptor operations in `src/wasm/wasi/requests.ts`.
+The host validates their fields, descriptor rights, paths, and byte counts at
+runtime. Deadline and cancellation handling use `WorkerLifecycle`, which is also
+used by the Python and SQLite worker request controller.
+
+The import restrictions in the table describe the default WASI adapter.
+Custom adapters are host-registered JavaScript modules loaded by absolute URL,
+never by a guest-supplied path. They run in the worker's JavaScript realm with
+its host authority. Their explicitly supplied imports define the guest's
+capabilities; imported callback arguments, pointers, and lengths must be treated
+as untrusted. The runner rewrites both defined and imported memory/table maxima
+before compilation. `ctx.instantiate()` permits one call per invocation.
+WebAssembly import matching checks that supplied imported memories/tables have
+compatible maxima. Guest start sections run during instantiation in adapter
+mode; the default WASI adapter continues to require an explicit `_start`.
+
+Adapter code is trusted to use `ctx.instantiate()` or pass `ctx.module` to an
+SDK that instantiates internally. The compiled module retains its memory/table
+bounds per instance; the adapter must ensure the SDK creates only one instance.
+The runner cannot enforce that count when the SDK uses raw WebAssembly APIs.
+Arbitrary adapter allocations, additional instances, Node imports, and external
+I/O are outside the runner's resource and capability guarantees. An SDK's own
+host imports and network requests are governed by the adapter, not the default
+WASI runtime or the shell's network configuration. Workers terminate adapter
+and guest JavaScript execution on deadline; external operations already
+accepted by the host cannot be rolled back.
+
+WASI clocks and random bytes are available to the guest. The full configured
+virtual root is exposed, including disk access deliberately granted through a
+`ReadWriteFs`. Descriptor paths rely on the filesystem's existing confinement;
+concurrent namespace changes by another filesystem user are unsupported.
+Deleting an open path or replacing an open destination returns `EBUSY` because
+`IFileSystem` does not expose persistent inode handles. A mutation already
+accepted by a trusted asynchronous filesystem cannot be rolled back by abort.
+Trusted loaders must honor their abort signal to stop external work.
+
+Module size, linear-memory, table, worker heap, and shell budgets reduce memory
+exposure but are not a hard total process/RSS bound; WebAssembly compilation and
+runtime metadata add overhead. Runtime/compiler vulnerabilities and dependency
+compromise remain outside the isolation guarantee. Browser hosts must provide
+workers and cross-origin isolation for `SharedArrayBuffer`.
 
 ## 4. Known Gaps & Residual Risks
 

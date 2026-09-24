@@ -1,0 +1,56 @@
+{
+  "5306df7d3d73debc": {
+    "command": "export PATH=\"$PWD:$PATH\"; wasi-fixture exit 42",
+    "files": {
+      "input.txt": "hello café\nsecond line\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 42
+  },
+  "5c3c50f5c468f986": {
+    "command": "export PATH=\"$PWD:$PATH\"; wasi-fixture cat \"$PWD/input.txt\" | grep café",
+    "files": {
+      "input.txt": "hello café\nsecond line\n"
+    },
+    "stdout": "hello café\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8a5c368cde6e7b35": {
+    "command": "export PATH=\"$PWD:$PATH\"; wasi-fixture fs",
+    "files": {
+      "input.txt": "hello café\nsecond line\n"
+    },
+    "stdout": "aZc\nsize=3\nfile=b\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9378dbad1b582012": {
+    "command": "export PATH=\"$PWD:$PATH\"; wasi-fixture binary > bytes; base64 < bytes",
+    "files": {
+      "input.txt": "hello café\nsecond line\n"
+    },
+    "stdout": "AP+Aw6kK\n",
+    "stderr": "diagnostic café\n",
+    "exitCode": 0
+  },
+  "a9923098e005189d": {
+    "command": "export PATH=\"$PWD:$PATH\"; wasi-fixture write \"$PWD/result\" first; wasi-fixture append \"$PWD/result\" second; cat result",
+    "files": {
+      "input.txt": "hello café\nsecond line\n"
+    },
+    "stdout": "firstsecond",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "eaf9b2e41cc62fc8": {
+    "command": "export PATH=\"$PWD:$PATH\"; wasi-fixture args 'two words' '$(echo literal)' café",
+    "files": {
+      "input.txt": "hello café\nsecond line\n"
+    },
+    "stdout": "[two words]\n[$(echo literal)]\n[café]\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
