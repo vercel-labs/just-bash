@@ -16,6 +16,28 @@ import { formatMode } from "../format-mode.js";
 // Use a larger batch size for find to maximize parallel I/O
 const FIND_BATCH_SIZE = 500;
 
+/**
+ * Wait for every node in a batch before failing on any of them.
+ *
+ * `Promise.all` rejects on the first failure and leaves the rest of the batch
+ * running. Those siblings finish after `find` has returned, once the command's
+ * execution has been deactivated, and the defense-in-depth box blocks the
+ * rejection handler `Promise.all` attached to each of them and re-raises the
+ * error on a promise nothing holds: one unhandled rejection per sibling, which
+ * ends a Node process that has no handler. Waiting keeps every continuation
+ * inside the execution that started it. The failure reported is the first in
+ * traversal order.
+ */
+async function settleBatch<T>(work: readonly Promise<T>[]): Promise<T[]> {
+  const settled = await Promise.allSettled(work);
+  const values: T[] = [];
+  for (const result of settled) {
+    if (result.status === "rejected") throw result.reason;
+    values.push(result.value);
+  }
+  return values;
+}
+
 // Tracing helpers
 interface TraceCounters {
   readdirCalls: number;
@@ -665,7 +687,7 @@ export const findCommand: RuntimeCommand = {
             );
             const batch = workQueue.slice(workCursor, batchEnd);
             workCursor = batchEnd;
-            const nodes = await Promise.all(
+            const nodes = await settleBatch(
               batch.map((q) => processNode(q.item)),
             );
             traceCounters.batchCount++;
@@ -768,7 +790,7 @@ export const findCommand: RuntimeCommand = {
             );
             const batch = workQueue.slice(workCursor, batchEnd);
             workCursor = batchEnd;
-            const processed: Array<NodeWithOrder | null> = await Promise.all(
+            const processed: Array<NodeWithOrder | null> = await settleBatch(
               batch.map(async ({ item, orderIndex }) => {
                 const node = await processNode(item);
                 return node ? { node, orderIndex } : null;
