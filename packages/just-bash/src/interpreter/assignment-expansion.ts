@@ -39,12 +39,13 @@ export async function expandLocalArrayAssignment(
     fullLiteral += value;
     fullLiteralBytes += bytes;
   }
-  const arrayMatch = fullLiteral.match(/^([a-zA-Z_][a-zA-Z0-9_]*)=\(/);
+  const arrayMatch = fullLiteral.match(/^([a-zA-Z_][a-zA-Z0-9_]*)(\+?=)\(/);
   if (!arrayMatch || !fullLiteral.endsWith(")")) {
     return null;
   }
 
   const name = arrayMatch[1];
+  const operator = arrayMatch[2];
   const elements: string[] = [];
   const literalElements: boolean[] = [];
   let inArrayContent = false;
@@ -214,15 +215,18 @@ export async function expandLocalArrayAssignment(
   }
 
   // Build result string with proper quoting
-  const resultChunks = [`${name}=(`];
+  const resultChunks = [`${name}${operator}(`];
   let resultBytes = utf8ByteLength(resultChunks[0]);
   for (let index = 0; index < elements.length; index++) {
     const elem = elements[index];
-    // Don't quote keyed elements like ['key']=value or [index]=value
-    // These need to be parsed by the declare builtin as-is
+    // Keep the keyed prefix visible to declare, but quote the already-expanded
+    // value. Without this, an element such as [key]="two words" is rebuilt as
+    // [key]=two words and declare's array parser retains only "two".
     let quoted: string;
-    if (/^\[.+\]=/.test(elem)) {
-      quoted = elem;
+    const keyedMatch = elem.match(/^(\[[^\]]+\]=)(.*)$/s);
+    if (keyedMatch) {
+      const value = keyedMatch[2].replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      quoted = `${keyedMatch[1]}"${value}"`;
     } else if (elem === "") {
       // Empty strings must be quoted to be preserved
       quoted = "''";
