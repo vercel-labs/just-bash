@@ -60,7 +60,7 @@ export class WorkerLifecycle {
   }
 
   async terminate(
-    worker: { terminate(): Promise<unknown> } | null | undefined,
+    worker: { terminate(): unknown } | null | undefined,
   ): Promise<boolean> {
     if (!worker) return true;
     try {
