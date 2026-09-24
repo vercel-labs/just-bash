@@ -422,9 +422,17 @@ export class Interpreter {
     scriptPath: string,
     args: string[],
     stdin = "",
+    stdinOwned = false,
+    stdinClosed = false,
   ): Promise<ExecResult> {
-    return executeUserScriptHelper(this.ctx, scriptPath, args, stdin, (ast) =>
-      this.executeScript(ast),
+    return executeUserScriptHelper(
+      this.ctx,
+      scriptPath,
+      args,
+      stdin,
+      stdinOwned,
+      stdinClosed,
+      (ast) => this.executeScript(ast),
     );
   }
 
@@ -530,8 +538,8 @@ export class Interpreter {
   }
 
   private async executePipeline(node: PipelineNode): Promise<ExecResult> {
-    return executePipelineHelper(this.ctx, node, (cmd, stdin) =>
-      this.executeCommand(cmd, stdin),
+    return executePipelineHelper(this.ctx, node, (cmd, stdin, stdinOwned) =>
+      this.executeCommand(cmd, stdin, stdinOwned),
     );
   }
 
@@ -545,11 +553,17 @@ export class Interpreter {
     node: CommandNode,
     stdin: string,
     stdinOwned = false,
+    stdinClosed = false,
   ): Promise<ExecResult> {
     const procSubMark = markProcessSubstitutions(this.ctx);
     let result: ExecResult;
     try {
-      result = await this.executeCommandInner(node, stdin, stdinOwned);
+      result = await this.executeCommandInner(
+        node,
+        stdin,
+        stdinOwned,
+        stdinClosed,
+      );
     } catch (error) {
       await releaseProcessSubstitutions(this.ctx, procSubMark).catch(
         () => undefined,
@@ -574,29 +588,30 @@ export class Interpreter {
     node: CommandNode,
     stdin: string,
     stdinOwned: boolean,
+    stdinClosed: boolean,
   ): Promise<ExecResult> {
     this.assertDefenseContext("command");
 
     this.ctx.coverage?.hit(`bash:cmd:${node.type}`);
     switch (node.type) {
       case "SimpleCommand":
-        return this.executeSimpleCommand(node, stdin);
+        return this.executeSimpleCommand(node, stdin, stdinOwned, stdinClosed);
       case "If":
-        return executeIf(this.ctx, node);
+        return executeIf(this.ctx, node, stdin, stdinOwned, stdinClosed);
       case "For":
-        return executeFor(this.ctx, node);
+        return executeFor(this.ctx, node, stdin, stdinOwned, stdinClosed);
       case "CStyleFor":
-        return executeCStyleFor(this.ctx, node);
+        return executeCStyleFor(this.ctx, node, stdin, stdinOwned, stdinClosed);
       case "While":
-        return executeWhile(this.ctx, node, stdin);
+        return executeWhile(this.ctx, node, stdin, stdinOwned, stdinClosed);
       case "Until":
-        return executeUntil(this.ctx, node, stdin);
+        return executeUntil(this.ctx, node, stdin, stdinOwned, stdinClosed);
       case "Case":
-        return executeCase(this.ctx, node);
+        return executeCase(this.ctx, node, stdin, stdinOwned, stdinClosed);
       case "Subshell":
-        return this.executeSubshell(node, stdin, stdinOwned);
+        return this.executeSubshell(node, stdin, stdinOwned, stdinClosed);
       case "Group":
-        return this.executeGroup(node, stdin, stdinOwned);
+        return this.executeGroup(node, stdin, stdinOwned, stdinClosed);
       case "FunctionDef":
         return executeFunctionDef(this.ctx, node);
       case "ArithmeticCommand":
@@ -611,12 +626,20 @@ export class Interpreter {
   private async executeSimpleCommand(
     node: SimpleCommandNode,
     stdin: string,
+    stdinOwned = false,
+    stdinClosed = false,
   ): Promise<ExecResult> {
     let transaction: RedirectionTransaction | undefined;
     try {
-      return await this.executeSimpleCommandInner(node, stdin, (created) => {
-        transaction = created;
-      });
+      return await this.executeSimpleCommandInner(
+        node,
+        stdin,
+        stdinOwned,
+        stdinClosed,
+        (created) => {
+          transaction = created;
+        },
+      );
     } catch (error) {
       transaction?.finish();
       if (error instanceof GlobError) {
@@ -632,6 +655,8 @@ export class Interpreter {
   private async executeSimpleCommandInner(
     node: SimpleCommandNode,
     stdin: string,
+    stdinOwned: boolean,
+    stdinClosed: boolean,
     onTransaction: (transaction: RedirectionTransaction) => void,
   ): Promise<ExecResult> {
     // Update currentLine for $LINENO
@@ -879,7 +904,27 @@ export class Interpreter {
       return preparedRedirectionError(preparedRedirections);
     }
     const stdinSourceFd = preparedRedirections.stdinSourceFd;
-    const stdinRedirected = preparedRedirections.stdin !== undefined;
+    // Two things a command can be told about fd 0. It owns the descriptor when
+    // a redirection gave it one here or the pipeline it sits in did, which
+    // decides whether eval, a function, or `command` read their own stream or
+    // the enclosing one; `0<&-` counts, since a closed fd 0 is still not the
+    // shell's. It is connected when something is on the other end: a
+    // redirection or a pipe that this command carries, or, for an fd 0 no
+    // redirection touched (`<&0` included), whatever the command inherited:
+    // an owned stream from the caller, bytes, or the enclosing scope's stream,
+    // each of which can itself be a closed fd 0 carried down from a `0<&-`
+    // higher up. A closed fd 0 is connected to nothing.
+    const stdinRedirected =
+      stdinOwned || preparedRedirections.stdin !== undefined;
+    const fd0 = preparedRedirections.standardRoutes.get(0);
+    const stdinConnected =
+      fd0 === undefined || (fd0.kind === "dup-in" && fd0.sourceFd === 0)
+        ? stdinOwned
+          ? !stdinClosed || stdin !== ""
+          : stdin !== "" ||
+            (this.ctx.state.groupStdin !== undefined &&
+              !this.ctx.state.groupStdinClosed)
+        : fd0.kind !== "closed";
     if (preparedRedirections.stdin !== undefined) {
       stdin = preparedRedirections.stdin;
     }
@@ -959,6 +1004,7 @@ export class Interpreter {
         false,
         stdinSourceFd,
         stdinRedirected,
+        stdinConnected,
       );
     } catch (error) {
       // For break/continue, we still need to apply redirections before propagating
@@ -1086,13 +1132,15 @@ export class Interpreter {
     useDefaultPath = false,
     stdinSourceFd = -1,
     stdinRedirected = false,
+    stdinConnected = false,
   ): Promise<ExecResult> {
     const dispatchCtx: BuiltinDispatchContext = {
       ctx: this.ctx,
-      runCommand: (name, a, qa, s, sf, udp, ssf, sr) =>
-        this.runCommand(name, a, qa, s, sf, udp, ssf, sr),
+      runCommand: (name, a, qa, s, sf, udp, ssf, sr, sc) =>
+        this.runCommand(name, a, qa, s, sf, udp, ssf, sr, sc),
       buildExportedEnv: () => this.buildExportedEnv(),
-      executeUserScript: (path, a, s) => this.executeUserScript(path, a, s),
+      executeUserScript: (path, a, s, so, sc) =>
+        this.executeUserScript(path, a, s, so, sc),
     };
 
     // Try builtin dispatch first
@@ -1106,6 +1154,7 @@ export class Interpreter {
       useDefaultPath,
       stdinSourceFd,
       stdinRedirected,
+      stdinConnected,
     );
 
     if (builtinResult !== null)
@@ -1120,6 +1169,8 @@ export class Interpreter {
       args,
       stdin,
       useDefaultPath,
+      stdinRedirected,
+      stdinConnected,
     );
     return { ...externalResult, internalProducerCommand: commandName };
   }
@@ -1143,6 +1194,7 @@ export class Interpreter {
     node: SubshellNode,
     stdin = "",
     stdinOwned = false,
+    stdinClosed = false,
   ): Promise<ExecResult> {
     return executeSubshellHelper(
       this.ctx,
@@ -1150,6 +1202,7 @@ export class Interpreter {
       stdin,
       (stmt) => this.executeStatement(stmt),
       stdinOwned,
+      stdinClosed,
     );
   }
 
@@ -1157,6 +1210,7 @@ export class Interpreter {
     node: GroupNode,
     stdin = "",
     stdinOwned = false,
+    stdinClosed = false,
   ): Promise<ExecResult> {
     return executeGroupHelper(
       this.ctx,
@@ -1164,6 +1218,7 @@ export class Interpreter {
       stdin,
       (stmt) => this.executeStatement(stmt),
       stdinOwned,
+      stdinClosed,
     );
   }
 

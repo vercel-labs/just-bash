@@ -24,6 +24,7 @@ import type { InterpreterContext } from "./types.js";
 export type ExecuteCommandFn = (
   node: CommandNode,
   stdin: string,
+  stdinOwned?: boolean,
 ) => Promise<ExecResult>;
 
 /**
@@ -94,7 +95,11 @@ export async function executePipeline(
     const outputCheckpoint = ctx.executionScope.outputBytesUsed;
     try {
       ctx.state.commandCount = ctx.executionScope.chargeCommand();
-      result = await executeCommand(command, stdin);
+      // Every stage after the first owns its fd 0: the previous stage's
+      // stdout is its stdin even when that output is empty, the same way a
+      // redirection from an empty file is. Passing the bytes alone loses
+      // that, since `""` also means "no pipe, inherit the shell's stdin".
+      result = await executeCommand(command, stdin, !isFirst);
     } catch (error) {
       // BadSubstitutionError should fail the command but not abort the script
       if (error instanceof BadSubstitutionError) {

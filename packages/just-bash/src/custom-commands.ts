@@ -55,19 +55,15 @@ export interface CommandContextOptions
 export function createCommandContext(
   options: CommandContextOptions,
 ): RuntimeCommandContext {
-  const {
-    executionLimits,
-    executionLimitProfile,
-    fs,
-    stdin = EMPTY_BYTES,
-    ...overrides
-  } = options;
+  const { executionLimits, executionLimitProfile, fs, stdin, ...overrides } =
+    options;
   return {
     fs,
     fsIdentity: overrides.fsIdentity ?? getFileSystemIdentity(fs),
     cwd: "/",
     env: new Map(),
-    stdin,
+    stdin: stdin ?? EMPTY_BYTES,
+    stdinConnected: stdin !== undefined,
     limits: resolveLimits(executionLimits, executionLimitProfile),
     ...overrides,
   };

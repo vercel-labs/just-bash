@@ -1,0 +1,89 @@
+{
+  "02aaa715c31fdb80": {
+    "command": "{ printf \"a\\nb\\n\" | if true; then read x; echo \"if=[$x]\"; fi; read y; echo \"y=[$y]\"; } < outer.txt",
+    "files": {
+      "outer.txt": "outer\n"
+    },
+    "stdout": "if=[a]\ny=[outer]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "10dcaaf4e55919fb": {
+    "command": "{ printf \"\" | if true; then read x; echo \"if=[$x] status=$?\"; fi; read y; echo \"y=[$y]\"; } < outer.txt",
+    "files": {
+      "outer.txt": "outer\n"
+    },
+    "stdout": "if=[] status=1\ny=[outer]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2e1d991b46bb026e": {
+    "command": "printf \"a\\nb\\n\" | source ./lib.sh",
+    "files": {
+      "lib.sh": "read x; echo \"sourced=[$x]\"\n"
+    },
+    "stdout": "sourced=[a]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "622260a3da8c33cd": {
+    "command": "printf \"a\\nb\\n\" | if true; then cat; fi",
+    "files": {},
+    "stdout": "a\nb\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6a81d09a9bd779d6": {
+    "command": "printf \"a\\nb\\n\" | case y in y) read x; echo \"case=[$x]\" ;; esac",
+    "files": {},
+    "stdout": "case=[a]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6c4a663937a69eb6": {
+    "command": "printf \"a\\nb\\n\" | { source ./lib.sh; read y; echo \"y=[$y]\"; }",
+    "files": {
+      "lib.sh": "read x; echo \"sourced=[$x]\"\n"
+    },
+    "stdout": "sourced=[a]\ny=[b]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6e67fb3cf1464082": {
+    "command": "printf \"a\\nb\\n\" | if true; then read x; echo \"if=[$x]\"; fi",
+    "files": {},
+    "stdout": "if=[a]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8a40c2e6610df1ed": {
+    "command": "printf \"a\\nb\\n\" | if false; then :; else read x; echo \"else=[$x]\"; fi",
+    "files": {},
+    "stdout": "else=[a]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b215e352b3f8d30d": {
+    "command": "printf \"a\\nb\\n\" | if true; then read x; echo \"if=[$x]\"; fi < own.txt",
+    "files": {
+      "own.txt": "own\n"
+    },
+    "stdout": "if=[own]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d033b2b3eacd9116": {
+    "command": "printf \"a\\nb\\n\" | for ((i = 0; i < 2; i++)); do read x; echo \"for$i=[$x]\"; done",
+    "files": {},
+    "stdout": "for0=[a]\nfor1=[b]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f7474656278f8dfe": {
+    "command": "printf \"a\\nb\\n\" | for i in 1 2 3; do read x; echo \"for$i=[$x]\"; done",
+    "files": {},
+    "stdout": "for1=[a]\nfor2=[b]\nfor3=[]\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

@@ -11,6 +11,15 @@ import type { InterpreterContext } from "../types.js";
 export async function handleSource(
   ctx: InterpreterContext,
   args: string[],
+  stdin = "",
+  /**
+   * A pipe or a redirection gave this `source` its own fd 0. Empty content is
+   * still ownership: `printf '' | source file` means an empty stream inside,
+   * where an unredirected `source` shares the shell's stdin.
+   */
+  stdinRedirected = false,
+  /** The fd 0 this `source` was given is closed (`source file 0<&-`). */
+  stdinClosed = false,
 ): Promise<ExecResult> {
   // Handle -- to end options (ignored like bash does)
   let sourceArgs = args;
@@ -98,7 +107,21 @@ export async function handleSource(
   // Save and restore current source context for BASH_SOURCE tracking
   const savedSource = ctx.state.currentSource;
 
+  // `source` runs in the current shell, so like `eval` it restores only the
+  // stdin it actually replaced: the file's commands read the pipe or file
+  // that fed the `source` command, and share the shell's fd 0 otherwise.
+  const savedGroupStdin = ctx.state.groupStdin;
+  const savedGroupStdinClosed = ctx.state.groupStdinClosed;
+  const ownsStdin = stdinRedirected || stdin !== "";
+
   const cleanup = (): void => {
+    if (
+      ownsStdin ||
+      (savedGroupStdin !== undefined && ctx.state.groupStdin === undefined)
+    ) {
+      ctx.state.groupStdin = savedGroupStdin;
+      ctx.state.groupStdinClosed = savedGroupStdinClosed;
+    }
     ctx.state.sourceDepth--;
     ctx.state.currentSource = savedSource;
     // Restore positional parameters if we changed them
@@ -123,6 +146,10 @@ export async function handleSource(
   }
   // Set current source to the file being sourced (for function definitions)
   ctx.state.currentSource = filename;
+  if (ownsStdin) {
+    ctx.state.groupStdin = stdin;
+    ctx.state.groupStdinClosed = stdin === "" && stdinClosed;
+  }
   try {
     const ast = parse(content);
     const result = await ctx.executeScript(ast);

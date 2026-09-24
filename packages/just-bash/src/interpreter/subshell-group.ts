@@ -33,6 +33,7 @@ import {
 import { getErrorMessage } from "./helpers/errors.js";
 import { failure, result } from "./helpers/result.js";
 import {
+  ownedStdinClosed,
   type PreparedRedirections,
   withPreparedRedirections,
 } from "./redirections.js";
@@ -55,6 +56,8 @@ export async function executeSubshell(
   executeStatement: ExecuteStatementFn,
   /** See `executeGroup`: empty content can still be an owned, empty fd 0. */
   stdinOwned = false,
+  /** See `executeGroup`. */
+  stdinClosed = false,
 ): Promise<ExecResult> {
   const parentLoopDepth = ctx.state.loopDepth;
   const parentDescriptors = new Map<number, FdEntry>();
@@ -78,6 +81,7 @@ export async function executeSubshell(
           prepared.stdin ?? stdin,
           executeStatement,
           stdinOwned || prepared.stdin !== undefined,
+          ownedStdinClosed(prepared, stdin, stdinClosed),
         ),
     );
   } finally {
@@ -112,10 +116,12 @@ async function executeSubshellBody(
   stdin: string,
   executeStatement: ExecuteStatementFn,
   stdinOwned: boolean,
+  stdinClosed: boolean,
 ): Promise<ExecResult> {
   // Save any existing groupStdin and set new one from pipeline
   if (stdinOwned || stdin) {
     ctx.state.groupStdin = stdin;
+    ctx.state.groupStdinClosed = stdinClosed;
   }
 
   const output = new ExecutionOutputAccumulator(ctx.executionScope, "subshell");
@@ -230,9 +236,23 @@ export async function executeGroup(
    * say whether it came from `< empty-file` or from no redirection at all.
    */
   stdinOwned = false,
+  /**
+   * The fd 0 the caller gave this group is closed (`f 0<&-`), which an owned
+   * empty `stdin` cannot say either: the body reads EOF the same way, but a
+   * command inside asking whether fd 0 is connected must hear no.
+   */
+  stdinClosed = false,
 ): Promise<ExecResult> {
   return withPreparedRedirections(ctx, node.redirections, stdin, (prepared) =>
-    executeGroupBody(ctx, node, stdin, executeStatement, stdinOwned, prepared),
+    executeGroupBody(
+      ctx,
+      node,
+      stdin,
+      executeStatement,
+      stdinOwned,
+      stdinClosed,
+      prepared,
+    ),
   );
 }
 
@@ -242,6 +262,7 @@ async function executeGroupBody(
   stdin: string,
   executeStatement: ExecuteStatementFn,
   stdinOwned: boolean,
+  stdinClosed: boolean,
   prepared: PreparedRedirections,
 ): Promise<ExecResult> {
   const output = new ExecutionOutputAccumulator(ctx.executionScope, "group");
@@ -266,8 +287,10 @@ async function executeGroupBody(
   // *second* line: putting the saved position back would replay a line the
   // inner group already consumed.
   const savedGroupStdin = ctx.state.groupStdin;
+  const savedGroupStdinClosed = ctx.state.groupStdinClosed;
   if (ownsStdin) {
     ctx.state.groupStdin = effectiveStdin;
+    ctx.state.groupStdinClosed = ownedStdinClosed(prepared, stdin, stdinClosed);
   }
   const restoreGroupStdin = (): void => {
     // A shared stdin can be consumed down to "" but never taken away:
@@ -280,6 +303,7 @@ async function executeGroupBody(
       (savedGroupStdin !== undefined && ctx.state.groupStdin === undefined)
     ) {
       ctx.state.groupStdin = savedGroupStdin;
+      ctx.state.groupStdinClosed = savedGroupStdinClosed;
     }
   };
 
@@ -330,6 +354,8 @@ export async function executeUserScript(
   scriptPath: string,
   args: string[],
   stdin: string,
+  stdinOwned: boolean,
+  stdinClosed: boolean,
   executeScript: ExecuteScriptFn,
 ): Promise<ExecResult> {
   // Read the script content
@@ -356,8 +382,12 @@ export async function executeUserScript(
   ctx.state.parentHasLoopContext = parentLoopDepth > 0;
   ctx.state.loopDepth = 0;
   ctx.state.bashPid = ctx.state.nextVirtualPid++;
-  if (stdin) {
+  // The script's commands read the stream the caller handed it, which an
+  // empty pipe, an empty-file redirection, or a closed fd 0 all hand over as
+  // no bytes at all.
+  if (stdinOwned || stdin) {
     ctx.state.groupStdin = stdin;
+    ctx.state.groupStdinClosed = stdin === "" && stdinClosed;
   }
   ctx.state.currentSource = scriptPath;
 
