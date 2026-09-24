@@ -17,6 +17,15 @@
     "stderr": "",
     "exitCode": 0
   },
+  "0fa36816524f9244": {
+    "command": "jq -c 'del(.a | objects | .b | numbers)' input.json",
+    "files": {
+      "input.json": "{\"a\":{\"b\":1}}"
+    },
+    "stdout": "{\"a\":{}}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "1152a4497a66503d": {
     "command": "jq -c '[path(.arr[])]' input.json",
     "files": {
@@ -26,12 +35,48 @@
     "stderr": "",
     "exitCode": 0
   },
+  "1c8c7174832b6511": {
+    "command": "jq -c 'del(.a[.i])' input.json",
+    "files": {
+      "input.json": "{\"i\":\"y\",\"a\":{\"i\":\"x\",\"x\":1,\"y\":2}}"
+    },
+    "stdout": "{\"i\":\"y\",\"a\":{\"i\":\"x\",\"x\":1}}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "289b0bdaa9e9b553": {
+    "command": "jq -c 'del(.[] | scalars)' input.json",
+    "files": {
+      "input.json": "[null,false,3,\"x\",[],{}]"
+    },
+    "stdout": "[[],{}]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "32248b709831b614": {
+    "command": "jq -c 'del(.[] | numbers)' input.json",
+    "files": {
+      "input.json": "[null,false,3,\"x\",[],{}]"
+    },
+    "stdout": "[null,false,\"x\",[],{}]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "3cdc356e23996643": {
     "command": "jq -c 'del(.arr[0], .arr[1].x)' input.json",
     "files": {
       "input.json": "{\"arr\":[{\"x\":1},{\"x\":2},{\"x\":3}]}"
     },
     "stdout": "{\"arr\":[{},{\"x\":3}]}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "42796df86681d9b0": {
+    "command": "jq -c 'del(.a | numbers)' input.json",
+    "files": {
+      "input.json": "{\"a\":\"keep\"}"
+    },
+    "stdout": "{\"a\":\"keep\"}\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -116,6 +161,15 @@
     "stderr": "",
     "exitCode": 0
   },
+  "87856ae1161d5c99": {
+    "command": "jq -c 'del(.[] | values)' input.json",
+    "files": {
+      "input.json": "[null,false,3,\"x\",[],{}]"
+    },
+    "stdout": "[null]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "8c5ed0c1dbf1d7ce": {
     "command": "jq -c '[path(.arr[] | select(. == \"b\"))]' input.json",
     "files": {
@@ -125,12 +179,30 @@
     "stderr": "",
     "exitCode": 0
   },
+  "8cd2e44189938741": {
+    "command": "jq -c 'del(.a | numbers)' input.json",
+    "files": {
+      "input.json": "{\"a\":3}"
+    },
+    "stdout": "{}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "93af2bc1587eddc7": {
     "command": "jq -c 'del(.arr[] | select(. == \"b\"))' input.json",
     "files": {
       "input.json": "{\"arr\":[\"b\",\"a\",\"b\",\"b\",\"c\",\"b\"]}"
     },
     "stdout": "{\"arr\":[\"a\",\"c\"]}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9a010900318d8180": {
+    "command": "jq -c 'del(.[] | arrays)' input.json",
+    "files": {
+      "input.json": "[null,false,3,\"x\",[],{}]"
+    },
+    "stdout": "[null,false,3,\"x\",{}]\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -179,6 +251,15 @@
     "stderr": "",
     "exitCode": 0
   },
+  "ac9e273b5a76e80e": {
+    "command": "jq -c 'path(.a[.i])' input.json",
+    "files": {
+      "input.json": "{\"i\":\"y\",\"a\":{\"i\":\"x\",\"x\":1,\"y\":2}}"
+    },
+    "stdout": "[\"a\",\"y\"]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "ba1a107f6da68c6c": {
     "command": "jq -c '[path(.arr[] | select(.drop) | .v)]' input.json",
     "files": {
@@ -194,6 +275,24 @@
       "input.json": "{\"arr\":[1,2]}"
     },
     "stdout": "{\"arr\":[1,2]}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c01ca5ff2090bf40": {
+    "command": "jq -c 'del(.[] | objects)' input.json",
+    "files": {
+      "input.json": "[null,false,3,\"x\",[],{}]"
+    },
+    "stdout": "[null,false,3,\"x\",[]]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c2fffea14206dc89": {
+    "command": "jq -c 'del(.[] | strings)' input.json",
+    "files": {
+      "input.json": "[null,false,3,\"x\",[],{}]"
+    },
+    "stdout": "[null,false,3,[],{}]\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -233,6 +332,24 @@
     "stderr": "",
     "exitCode": 0
   },
+  "ed5ceb2ad2a0ccd0": {
+    "command": "jq -c 'del(.[] | nulls)' input.json",
+    "files": {
+      "input.json": "[null,false,3,\"x\",[],{}]"
+    },
+    "stdout": "[false,3,\"x\",[],{}]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f56699d65f3ed39a": {
+    "command": "jq -c 'del(.[] | booleans)' input.json",
+    "files": {
+      "input.json": "[null,false,3,\"x\",[],{}]"
+    },
+    "stdout": "[null,3,\"x\",[],{}]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "fafa6ef59aab2b56": {
     "command": "jq -c 'del(.arr[] | select(. == \"b\"))' input.json",
     "files": {
@@ -257,6 +374,15 @@
       "input.json": "{\"arr\":[{\"x\":1},{\"x\":2}]}"
     },
     "stdout": "{\"arr\":[{\"x\":1},{}]}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fd2dd2d580600378": {
+    "command": "jq -c 'del(.[] | iterables)' input.json",
+    "files": {
+      "input.json": "[null,false,3,\"x\",[],{}]"
+    },
+    "stdout": "[null,false,3,\"x\"]\n",
     "stderr": "",
     "exitCode": 0
   }

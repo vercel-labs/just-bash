@@ -8,6 +8,15 @@
     "stderr": "",
     "exitCode": 0
   },
+  "0d6568e81cbf8072": {
+    "command": "jq -c 'try (.value -= 1) catch .' input.json",
+    "files": {
+      "input.json": "{\"value\":[1,2]}"
+    },
+    "stdout": "\"array ([1,2]) and number (1) cannot be subtracted\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "11137c3ed3bccfe4": {
     "command": "jq -c '.value *= {\"a\":{\"c\":2}}' input.json",
     "files": {
@@ -26,12 +35,30 @@
     "stderr": "",
     "exitCode": 0
   },
+  "407c6e5ebf09a049": {
+    "command": "jq -c '.value *= -1' input.json",
+    "files": {
+      "input.json": "{\"value\":\"ab\"}"
+    },
+    "stdout": "{\"value\":null}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "46e7695879e9070e": {
     "command": "jq -c '.n -= 3' input.json",
     "files": {
       "input.json": "{\"n\":8}"
     },
     "stdout": "{\"n\":5}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5bd308aac0d0d97f": {
+    "command": "jq -c 'try (.value += \"x\") catch .' input.json",
+    "files": {
+      "input.json": "{\"value\":4}"
+    },
+    "stdout": "\"number (4) and string (\\\"x\\\") cannot be added\"\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -89,12 +116,48 @@
     "stderr": "",
     "exitCode": 0
   },
+  "d5d1349f08e9b838": {
+    "command": "jq -c 'try (.value /= 2) catch .' input.json",
+    "files": {
+      "input.json": "{\"value\":{\"a\":1}}"
+    },
+    "stdout": "\"object ({\\\"a\\\":1}) and number (2) cannot be divided\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e4902be785a0b797": {
+    "command": "jq -c 'try (.value *= true) catch .' input.json",
+    "files": {
+      "input.json": "{\"value\":[]}"
+    },
+    "stdout": "\"array ([]) and boolean (true) cannot be multiplied\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e626f274a27d1caf": {
+    "command": "jq -c 'try (.value %= 3) catch .' input.json",
+    "files": {
+      "input.json": "{\"value\":\"a\"}"
+    },
+    "stdout": "\"string (\\\"a\\\") and number (3) cannot be divided (remainder)\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "ea240b6efc988d88": {
     "command": "jq -c '.value %= 3' input.json",
     "files": {
       "input.json": "{\"value\":8}"
     },
     "stdout": "{\"value\":2}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f3bcb25e09c00715": {
+    "command": "jq -c '.value *= \"ab\"' input.json",
+    "files": {
+      "input.json": "{\"value\":2}"
+    },
+    "stdout": "{\"value\":\"abab\"}\n",
     "stderr": "",
     "exitCode": 0
   },

@@ -16,6 +16,13 @@ describe("jq arithmetic assignment", () => {
   });
 
   it.each([
+    ['{"value":[1,2]}', "try (.value -= 1) catch ."],
+    ['{"value":{"a":1}}', "try (.value /= 2) catch ."],
+    ['{"value":"a"}', "try (.value %= 3) catch ."],
+    ['{"value":4}', 'try (.value += "x") catch .'],
+    ['{"value":[]}', "try (.value *= true) catch ."],
+    ['{"value":2}', '.value *= "ab"'],
+    ['{"value":"ab"}', ".value *= -1"],
     ["{}", '.arr += ["a"]'],
     ['{"arr":["a","b","c"]}', '.arr -= ["b"]'],
     ['{"arr":["b","a","b","c"]}', '.arr -= ["b"]'],

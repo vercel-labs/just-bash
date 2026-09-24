@@ -16,6 +16,22 @@ describe("jq filtered deletion and paths", () => {
   });
 
   it.each([
+    ['{"a":3}', "del(.a | numbers)"],
+    ['{"a":"keep"}', "del(.a | numbers)"],
+    ['{"a":{"b":1}}', "del(.a | objects | .b | numbers)"],
+    ...[
+      "numbers",
+      "strings",
+      "booleans",
+      "nulls",
+      "arrays",
+      "objects",
+      "iterables",
+      "scalars",
+      "values",
+    ].map((name) => ['[null,false,3,"x",[],{}]', `del(.[] | ${name})`]),
+    ['{"i":"y","a":{"i":"x","x":1,"y":2}}', "del(.a[.i])"],
+    ['{"i":"y","a":{"i":"x","x":1,"y":2}}', "path(.a[.i])"],
     ['{"arr":["a","b","c"]}', 'del(.arr[] | select(. == "b"))'],
     ['{"arr":["b","a","b","b","c","b"]}', 'del(.arr[] | select(. == "b"))'],
     ['{"arr":["a","b"]}', 'del(.arr[] | select(. == "missing"))'],

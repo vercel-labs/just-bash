@@ -11,6 +11,7 @@ import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { assertDefenseContext } from "../../security/defense-context.js";
 import type { FeatureCoverageWriter } from "../../types.js";
 import { utf8ByteLength } from "../printf/escapes.js";
+import { subtractArrays } from "./array-subtraction.js";
 import {
   evalArrayBuiltin,
   evalControlBuiltin,
@@ -1391,6 +1392,23 @@ function applyDel(
   return removePaths(root, deletion);
 }
 
+function arithmeticTypeError(
+  left: QueryValue,
+  right: QueryValue,
+  operation: string,
+): Error {
+  const describe = (value: QueryValue): string => {
+    const type =
+      value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+    const json = JSON.stringify(value) ?? "null";
+    const preview = json.length > 15 ? `${json.slice(0, 11)}...` : json;
+    return `${type} (${preview})`;
+  };
+  return new Error(
+    `${describe(left)} and ${describe(right)} cannot be ${operation}`,
+  );
+}
+
 function evalBinaryOp(
   value: QueryValue,
   op: string,
@@ -1466,32 +1484,27 @@ function evalBinaryOp(
           ) {
             return nullPrototypeMerge(l, r);
           }
-          return null;
+          throw arithmeticTypeError(l, r, "added");
         case "-":
           if (typeof l === "number" && typeof r === "number") return l - r;
           if (Array.isArray(l) && Array.isArray(r)) {
-            const rSet = new Set(r.map((x) => JSON.stringify(x)));
-            return l.filter((x) => !rSet.has(JSON.stringify(x)));
+            return subtractArrays(l, r, ctx);
           }
-          if (typeof l === "string" && typeof r === "string") {
-            // jq: strings cannot be subtracted - format truncates long strings
-            // jq format: "string (\"truncated...) - no closing quote when truncated
-            const formatStr = (s: string) =>
-              s.length > 10 ? `"${s.slice(0, 10)}...` : JSON.stringify(s);
-            throw new Error(
-              `string (${formatStr(l)}) and string (${formatStr(r)}) cannot be subtracted`,
-            );
-          }
-          return null;
+          throw arithmeticTypeError(l, r, "subtracted");
         case "*":
           if (typeof l === "number" && typeof r === "number") return l * r;
-          if (typeof l === "string" && typeof r === "number") {
-            if (!Number.isFinite(r)) {
-              throw new Error(`invalid string repetition count: ${r}`);
+          if (
+            (typeof l === "string" && typeof r === "number") ||
+            (typeof l === "number" && typeof r === "string")
+          ) {
+            const text = typeof l === "string" ? l : (r as string);
+            const count = typeof l === "number" ? l : (r as number);
+            if (!Number.isFinite(count)) {
+              throw new Error(`invalid string repetition count: ${count}`);
             }
-            const repeatCount = Math.trunc(r);
+            const repeatCount = Math.trunc(count);
             if (repeatCount < 0) return null;
-            const inputBytes = utf8ByteLength(l);
+            const inputBytes = utf8ByteLength(text);
             const maxStringLength = ctx.limits.maxStringLength;
             if (
               inputBytes > 0 &&
@@ -1502,7 +1515,7 @@ function evalBinaryOp(
                 "string_length",
               );
             }
-            return l.repeat(repeatCount);
+            return text.repeat(repeatCount);
           }
           {
             const lObj = asQueryRecord(l);
@@ -1514,7 +1527,7 @@ function evalBinaryOp(
               });
             }
           }
-          return null;
+          throw arithmeticTypeError(l, r, "multiplied");
         case "/":
           if (typeof l === "number" && typeof r === "number") {
             if (r === 0) {
@@ -1525,7 +1538,7 @@ function evalBinaryOp(
             return l / r;
           }
           if (typeof l === "string" && typeof r === "string") return l.split(r);
-          return null;
+          throw arithmeticTypeError(l, r, "divided");
         case "%":
           if (typeof l === "number" && typeof r === "number") {
             if (r === 0) {
@@ -1544,7 +1557,7 @@ function evalBinaryOp(
             }
             return l % r;
           }
-          return null;
+          throw arithmeticTypeError(l, r, "divided (remainder)");
         case "==":
           return deepEqual(l, r);
         case "!=":
@@ -1952,6 +1965,19 @@ function getPathValue(
   return current ?? null;
 }
 
+const PATH_PRESERVING_BUILTINS = new Set([
+  "select",
+  "numbers",
+  "strings",
+  "booleans",
+  "nulls",
+  "arrays",
+  "objects",
+  "iterables",
+  "scalars",
+  "values",
+]);
+
 function collectPaths(
   value: QueryValue,
   expr: AstNode,
@@ -2099,7 +2125,7 @@ function collectPaths(
     appendPath(currentPath);
     return;
   }
-  if (expr.type === "Call" && expr.name === "select") {
+  if (expr.type === "Call" && PATH_PRESERVING_BUILTINS.has(expr.name)) {
     for (const _result of results) appendPath(currentPath);
     return;
   }
