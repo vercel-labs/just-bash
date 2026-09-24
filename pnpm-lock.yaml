@@ -104,6 +104,15 @@ importers:
         specifier: workspace:*
         version: link:../../packages/just-bash
 
+  examples/libfx:
+    dependencies:
+      just-bash:
+        specifier: workspace:*
+        version: link:../../packages/just-bash
+      libfx:
+        specifier: 0.0.10
+        version: 0.0.10
+
   examples/website:
     dependencies:
       '@vercel/analytics':
@@ -3402,6 +3411,10 @@ packages:
   levn@0.4.1:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
     engines: {node: '>= 0.8.0'}
+
+  libfx@0.0.10:
+    resolution: {integrity: sha512-rkslSgwmmeTghQkJYYeFBIn6VRnSMZsPC6eNB86PVtkzOLLjYAr9KY3xBAq8aUdr0YcD2SgLqOojpH3vLC4xtw==}
+    engines: {node: '>=20'}
 
   lightningcss-android-arm64@1.32.0:
     resolution: {integrity: sha512-YK7/ClTt4kAK0vo6w3X+Pnm0D2cf2vPHbhOXdoNti1Ga0al1P4TBZhwjATvjNwLEBCnKvjJc2jQgHXH0NEwlAg==}
@@ -7960,6 +7973,8 @@ snapshots:
     dependencies:
       prelude-ls: 1.2.1
       type-check: 0.4.0
+
+  libfx@0.0.10: {}
 
   lightningcss-android-arm64@1.32.0:
     optional: true
