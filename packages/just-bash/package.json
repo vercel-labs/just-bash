@@ -128,8 +128,16 @@
     "undici": "^7.29.0",
     "yaml": "^2.9.0"
   },
-  "optionalDependencies": {
+  "peerDependencies": {
     "@mongodb-js/zstd": "^7.0.0",
     "node-liblzma": "^2.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@mongodb-js/zstd": {
+      "optional": true
+    },
+    "node-liblzma": {
+      "optional": true
+    }
   }
 }
