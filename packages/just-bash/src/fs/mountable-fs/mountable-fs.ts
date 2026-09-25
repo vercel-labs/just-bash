@@ -48,6 +48,12 @@ interface MountEntry {
   filesystem: IFileSystem;
 }
 
+// Sync writes that InMemoryFs and OverlayFs add to IFileSystem
+type SyncWrites = Partial<{
+  mkdirSync(path: string, options?: MkdirOptions): void;
+  writeFileSync(path: string, content: string | Uint8Array): void;
+}>;
+
 /**
  * A filesystem that supports mounting other filesystems at specific paths.
  *
@@ -413,6 +419,32 @@ export class MountableFs implements IFileSystem {
 
     const { fs, relativePath } = this.routePath(path);
     return fs.mkdir(relativePath, options);
+  }
+
+  /**
+   * Synchronous mkdir, routed to the filesystem that owns the path.
+   * @throws Error if that filesystem has no synchronous writes
+   */
+  mkdirSync(path: string, options?: MkdirOptions): void {
+    const { fs, relativePath } = this.routePath(path);
+    const target = fs as SyncWrites;
+    if (!target.mkdirSync) {
+      throw new Error(`ENOSYS: function not implemented, mkdir '${path}'`);
+    }
+    target.mkdirSync(relativePath, options);
+  }
+
+  /**
+   * Synchronous writeFile, routed to the filesystem that owns the path.
+   * @throws Error if that filesystem has no synchronous writes
+   */
+  writeFileSync(path: string, content: string | Uint8Array): void {
+    const { fs, relativePath } = this.routePath(path);
+    const target = fs as SyncWrites;
+    if (!target.writeFileSync) {
+      throw new Error(`ENOSYS: function not implemented, write '${path}'`);
+    }
+    target.writeFileSync(relativePath, content);
   }
 
   async readdir(path: string): Promise<string[]> {

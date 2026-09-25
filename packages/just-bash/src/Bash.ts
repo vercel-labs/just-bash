@@ -30,6 +30,7 @@ import { ExecutionScope } from "./execution-scope.js";
 import { InMemoryFs } from "./fs/in-memory-fs/in-memory-fs.js";
 import { initFilesystem } from "./fs/init.js";
 import type { IFileSystem, InitialFiles } from "./fs/interface.js";
+import { MountableFs } from "./fs/mountable-fs/mountable-fs.js";
 import { sanitizeErrorMessage } from "./fs/sanitize-error.js";
 import {
   mapToRecord,
@@ -485,7 +486,10 @@ export class Bash {
       gid: this.state.virtualGid,
     });
 
-    if (cwd !== "/" && fs instanceof InMemoryFs) {
+    if (
+      cwd !== "/" &&
+      (fs instanceof InMemoryFs || fs instanceof MountableFs)
+    ) {
       try {
         fs.mkdirSync(cwd, { recursive: true });
       } catch {
