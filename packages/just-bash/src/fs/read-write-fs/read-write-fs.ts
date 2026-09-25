@@ -11,10 +11,12 @@
  * New methods must use these gates — never access the real FS directly.
  */
 
+import { AsyncResource } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { type ByteString, unsafeBytesFromLatin1 } from "../../encoding.js";
+import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import {
   type FileContent,
   fromBuffer,
@@ -369,21 +371,30 @@ export class ReadWriteFs implements IFileSystem {
     }
   }
 
+  /**
+   * Run one mutation per root at a time, each started in its caller's
+   * context. Settle with await: defense-in-depth drops .then() callbacks
+   * once an execution ends, which would leave the root locked.
+   */
   private async withFilesystemMutation<T>(
     operation: () => Promise<T>,
   ): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       ReadWriteFs.pendingMutations.push({
         root: this.canonicalRoot,
-        start: () => {
-          ReadWriteFs.activeMutationRoots.add(this.canonicalRoot);
-          void operation()
-            .then(resolve, reject)
-            .finally(() => {
+        start: AsyncResource.bind(
+          DefenseInDepthBox.bindCurrentContext(async () => {
+            ReadWriteFs.activeMutationRoots.add(this.canonicalRoot);
+            try {
+              resolve(await operation());
+            } catch (error) {
+              reject(error);
+            } finally {
               ReadWriteFs.activeMutationRoots.delete(this.canonicalRoot);
               ReadWriteFs.drainMutationQueue();
-            });
-        },
+            }
+          }),
+        ),
       });
       ReadWriteFs.drainMutationQueue();
     });
@@ -430,7 +441,10 @@ export class ReadWriteFs implements IFileSystem {
     return randomBytes(16).toString("hex");
   }
 
-  /** Open a bounded copy source, avoiding atime updates where permitted. */
+  /**
+   * Open a bounded copy source, avoiding atime updates where permitted.
+   * Opens are awaited for the same .then() reason as withFilesystemMutation.
+   */
   private async openCopySource(
     canonical: string,
   ): Promise<fs.promises.FileHandle> {
@@ -440,7 +454,7 @@ export class ReadWriteFs implements IFileSystem {
       fs.constants as typeof fs.constants & { O_NOATIME?: number }
     ).O_NOATIME;
     if (process.platform !== "linux" || noAtime === undefined) {
-      return fs.promises.open(canonical, flags);
+      return await fs.promises.open(canonical, flags);
     }
 
     // O_NOATIME can be exposed by a Node runtime, but the kernel rejects it
@@ -450,7 +464,7 @@ export class ReadWriteFs implements IFileSystem {
       return await fs.promises.open(canonical, flags | noAtime);
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EPERM") throw e;
-      return fs.promises.open(canonical, flags);
+      return await fs.promises.open(canonical, flags);
     }
   }
 
