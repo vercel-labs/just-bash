@@ -60,11 +60,30 @@ interface CachedFile {
   lease: { release(): void } | undefined;
 }
 
+interface CachedDirectory {
+  names: string[];
+  lease: { release(): void } | undefined;
+}
+
 function cacheIdentity(stat: FsStat): string | undefined {
   if (stat.identity !== undefined) return stat.identity;
   if (stat.dev !== undefined && stat.ino !== undefined)
     return `${stat.dev}:${stat.ino}`;
   return undefined;
+}
+
+function sameFileIdentity(source: FsStat, target: FsStat): boolean {
+  if (!source.isFile || !target.isFile) return false;
+  if (source.identity !== undefined && target.identity !== undefined)
+    return source.identity === target.identity;
+  return (
+    source.dev !== undefined &&
+    source.ino !== undefined &&
+    target.dev !== undefined &&
+    target.ino !== undefined &&
+    String(source.dev) === String(target.dev) &&
+    String(source.ino) === String(target.ino)
+  );
 }
 
 function fileStat(stat: FsStat): FileStat {
@@ -112,6 +131,7 @@ function bigint(value: unknown): bigint {
 export class WasiFileSystem {
   private readonly fds = new Map<number, Descriptor>();
   private readonly fileCache = new Map<string, CachedFile>();
+  private readonly directoryCache = new Map<number, CachedDirectory>();
   private readonly fallbackInodes = new Map<
     string,
     { ino: string; lease: { release(): void } | undefined }
@@ -157,6 +177,7 @@ export class WasiFileSystem {
     this.stderr += this.stderrDecoder.decode();
     for (const lease of this.outputLeases.splice(0)) lease.release();
     this.clearFileCache();
+    this.clearDirectoryCaches();
     for (const { lease } of this.fallbackInodes.values()) lease?.release();
     this.fallbackInodes.clear();
     this.fds.clear();
@@ -274,6 +295,49 @@ export class WasiFileSystem {
     return result;
   }
 
+  private hasOpenPath(path: string): boolean {
+    for (const fd of this.fds.values()) {
+      if (fd.path === path || fd.path.startsWith(`${path}/`)) return true;
+    }
+    return false;
+  }
+
+  private async rename(source: string, target: string): Promise<void> {
+    const stat = await this.ctx.fs.lstat(source);
+    this.check();
+    if (source === target) return;
+    let destination: FsStat | undefined;
+    try {
+      destination = await this.ctx.fs.lstat(target);
+      this.check();
+    } catch (error) {
+      if (errnoFrom(error) !== WASI.ERRNO_NOENT) throw error;
+    }
+    if (destination && sameFileIdentity(stat, destination)) return;
+    if (source === "/" || target === "/" || this.hasOpenPath(target))
+      throw new WasiError(WASI.ERRNO_BUSY);
+    if (stat.isDirectory && target.startsWith(`${source}/`))
+      throw new WasiError(WASI.ERRNO_INVAL);
+    if (destination) {
+      if (stat.isDirectory !== destination.isDirectory)
+        throw new WasiError(
+          stat.isDirectory ? WASI.ERRNO_NOTDIR : WASI.ERRNO_ISDIR,
+        );
+      if (destination.isDirectory && (await this.ctx.fs.readdir(target)).length)
+        throw new WasiError(WASI.ERRNO_NOTEMPTY);
+    }
+    this.check();
+    this.clearDirectoryCaches();
+    await this.ctx.fs.mv(source, target);
+    this.check();
+    this.invalidate(source, true);
+    this.invalidate(target, true);
+    for (const fd of this.fds.values()) {
+      if (fd.path === source || fd.path.startsWith(`${source}/`))
+        fd.path = target + fd.path.slice(source.length);
+    }
+  }
+
   private invalidate(
     path: string,
     recursive = false,
@@ -294,6 +358,44 @@ export class WasiFileSystem {
   private clearFileCache(): void {
     for (const cached of this.fileCache.values()) cached.lease?.release();
     this.fileCache.clear();
+  }
+
+  private clearDirectoryCache(id: number): void {
+    this.directoryCache.get(id)?.lease?.release();
+    this.directoryCache.delete(id);
+  }
+
+  private clearDirectoryCaches(): void {
+    for (const cached of this.directoryCache.values()) cached.lease?.release();
+    this.directoryCache.clear();
+  }
+
+  private async directoryEntries(
+    id: number,
+    fd: Descriptor,
+  ): Promise<string[]> {
+    const cached = this.directoryCache.get(id);
+    if (cached) return cached.names;
+    const names = await this.ctx.fs.readdir(fd.path);
+    this.check();
+    if (names.length > this.ctx.limits.maxTraversalEntries)
+      throw new Error("WASI directory entry limit exceeded");
+    // Retain the enumeration across cookies. Count the array and UTF-16 names
+    // against live bytes instead of keeping an unbounded host-side snapshot.
+    let bytes = 0;
+    for (const name of names) {
+      if (typeof name !== "string") throw new WasiError(WASI.ERRNO_IO);
+      bytes += 24 + name.length * 2;
+      if (bytes > this.ctx.limits.maxLiveBytes)
+        throw new Error("WASI directory snapshot exceeds live byte limit");
+    }
+    this.ctx.executionScope?.consumeWork(names.length, "WASI directory scan");
+    const lease = this.ctx.executionScope?.reserveBytes(
+      bytes,
+      "WASI directory snapshot",
+    );
+    this.directoryCache.set(id, { names, lease });
+    return names;
   }
 
   private async fileBytes(path: string): Promise<Uint8Array> {
@@ -494,6 +596,7 @@ export class WasiFileSystem {
       if (openFlags & WASI.OFLAGS_DIRECTORY)
         throw new WasiError(WASI.ERRNO_INVAL);
       this.check();
+      this.clearDirectoryCaches();
       await this.ctx.fs.writeFile(resolved, new Uint8Array());
       this.invalidate(resolved);
       stat = await this.ctx.fs.stat(resolved);
@@ -542,6 +645,7 @@ export class WasiFileSystem {
         break;
       case "close":
         this.fd(id);
+        this.clearDirectoryCache(id);
         this.fds.delete(id);
         break;
       case "read":
@@ -621,6 +725,25 @@ export class WasiFileSystem {
       case "datasync":
         this.fd(id, WASI.RIGHTS_FD_DATASYNC);
         break;
+      case "readdir": {
+        const fd = this.fd(id, WASI.RIGHTS_FD_READDIR);
+        if (fd.type !== WASI.FILETYPE_DIRECTORY)
+          throw new WasiError(WASI.ERRNO_NOTDIR);
+        const cookie = integer(request.cookie);
+        const names = await this.directoryEntries(id, fd);
+        if (cookie >= names.length) {
+          result = null;
+          break;
+        }
+        const name = text(names[cookie]);
+        if (!name || name.includes("/") || name === "." || name === "..")
+          throw new WasiError(WASI.ERRNO_IO);
+        const stat = await this.ctx.fs.lstat(
+          this.ctx.fs.resolvePath(fd.path, name),
+        );
+        result = { name, next: cookie + 1, ...this.fileStat(stat) };
+        break;
+      }
       case "pathstat": {
         const path = await this.resolve(
           this.fd(id, WASI.RIGHTS_PATH_FILESTAT_GET),
@@ -628,6 +751,104 @@ export class WasiFileSystem {
           !!integer(request.flags, 1),
         );
         result = this.fileStat(await this.ctx.fs.lstat(path));
+        break;
+      }
+      case "mkdir": {
+        const path = await this.resolve(
+          this.fd(id, WASI.RIGHTS_PATH_CREATE_DIRECTORY),
+          text(request.path),
+          false,
+        );
+        this.check();
+        this.clearDirectoryCaches();
+        await this.ctx.fs.mkdir(path);
+        break;
+      }
+      case "unlink":
+      case "rmdir": {
+        const directory = request.op === "rmdir";
+        const path = await this.resolve(
+          this.fd(
+            id,
+            directory
+              ? WASI.RIGHTS_PATH_REMOVE_DIRECTORY
+              : WASI.RIGHTS_PATH_UNLINK_FILE,
+          ),
+          text(request.path),
+          false,
+        );
+        const stat = await this.ctx.fs.lstat(path);
+        this.check();
+        if (directory !== stat.isDirectory)
+          throw new WasiError(directory ? WASI.ERRNO_NOTDIR : WASI.ERRNO_ISDIR);
+        // IFileSystem has path operations, not persistent inode handles. Refuse
+        // to invalidate an open descriptor rather than retargeting it later.
+        if (this.hasOpenPath(path)) throw new WasiError(WASI.ERRNO_BUSY);
+        this.clearDirectoryCaches();
+        await this.ctx.fs.rm(path);
+        this.invalidate(path, directory, cacheIdentity(stat));
+        break;
+      }
+      case "readlink": {
+        const size = integer(request.size, RPC_BYTES);
+        const path = await this.resolve(
+          this.fd(id, WASI.RIGHTS_PATH_READLINK),
+          text(request.path),
+          false,
+        );
+        const target = await this.ctx.fs.readlink(path);
+        this.check();
+        if (typeof target !== "string") throw new WasiError(WASI.ERRNO_IO);
+        // Four extra bytes complete any UTF-8 character crossing the limit.
+        const bytes = new Uint8Array(size + 4);
+        const { written } = encoder.encodeInto(target, bytes);
+        return bytes.subarray(0, Math.min(size, written));
+      }
+      case "symlink": {
+        const path = await this.resolve(
+          this.fd(id, WASI.RIGHTS_PATH_SYMLINK),
+          text(request.path),
+          false,
+        );
+        this.check();
+        this.clearDirectoryCaches();
+        await this.ctx.fs.symlink(text(request.target), path);
+        break;
+      }
+      case "rename":
+      case "link": {
+        const rename = request.op === "rename";
+        const source = await this.resolve(
+          this.fd(
+            id,
+            rename
+              ? WASI.RIGHTS_PATH_RENAME_SOURCE
+              : WASI.RIGHTS_PATH_LINK_SOURCE,
+          ),
+          text(request.path),
+          request.op === "link" && !!integer(request.flags, 1),
+        );
+        const target = await this.resolve(
+          this.fd(
+            integer(request.targetFd),
+            rename
+              ? WASI.RIGHTS_PATH_RENAME_TARGET
+              : WASI.RIGHTS_PATH_LINK_TARGET,
+          ),
+          text(request.targetPath),
+          false,
+        );
+        this.check();
+        if (rename) await this.rename(source, target);
+        else {
+          // IFileSystem.link does not promise to hard-link a symlink entry.
+          // Some backends follow it, which would bypass the directory fd.
+          const sourceStat = await this.ctx.fs.lstat(source);
+          this.check();
+          if (sourceStat.isSymbolicLink) throw new WasiError(WASI.ERRNO_NOTSUP);
+          this.clearDirectoryCaches();
+          await this.ctx.fs.link(source, target);
+        }
         break;
       }
       default:
