@@ -8,6 +8,11 @@
     "src/banned-patterns-test.ts",
     "src/security/fuzzing/**"
   ],
+  "ignoreIssues": {
+    "src/wasm/protocol.ts": ["exports"],
+    "src/wasm/wasi/abi.ts": ["exports"],
+    "src/wasm/wasi/filesystem.ts": ["exports"]
+  },
   "ignoreBinaries": ["tsx"],
   "rules": {
     "unlisted": "off",
