@@ -192,4 +192,41 @@ describe("sed command - Real Bash Comparison", () => {
       await compareOutputs(env, testDir, "sed 's/hello/[&]/' test.txt");
     });
   });
+
+  describe("a/i/c text leading whitespace", () => {
+    it("should keep the blanks after a\\ in an indented file", async () => {
+      const env = await setupFiles(testDir, {
+        "test.yaml": "Order:\n  type: object\n",
+      });
+      await compareOutputs(env, testDir, "sed '1a\\  example: 1' test.yaml");
+    });
+
+    it("should keep a tab after i\\", async () => {
+      const env = await setupFiles(testDir, {
+        "test.txt": "a\nb\n",
+      });
+      await compareOutputs(env, testDir, "sed '2i\\\tindented' test.txt");
+    });
+
+    it("should keep the blanks after c\\", async () => {
+      const env = await setupFiles(testDir, {
+        "test.txt": "a\nb\n",
+      });
+      await compareOutputs(env, testDir, "sed '2c\\    four' test.txt");
+    });
+
+    it("should strip every leading blank in the one-line form", async () => {
+      const env = await setupFiles(testDir, {
+        "test.txt": "a\nb\n",
+      });
+      await compareOutputs(env, testDir, "sed '1a   plain' test.txt");
+    });
+
+    it("should turn escaped blanks into blanks", async () => {
+      const env = await setupFiles(testDir, {
+        "test.txt": "a\nb\n",
+      });
+      await compareOutputs(env, testDir, "sed '1a\\ \\ text' test.txt");
+    });
+  });
 });

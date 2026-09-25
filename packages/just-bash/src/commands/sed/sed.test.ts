@@ -446,7 +446,7 @@ describe("sed command", () => {
         cwd: "/",
       });
       const result = await env.exec("sed '2a\\ appended' /test.txt");
-      expect(result.stdout).toBe("line 1\nline 2\nappended\nline 3\n");
+      expect(result.stdout).toBe("line 1\nline 2\n appended\nline 3\n");
     });
 
     it("should append text after every line", async () => {
@@ -455,7 +455,7 @@ describe("sed command", () => {
         cwd: "/",
       });
       const result = await env.exec("sed 'a\\ ---' /test.txt");
-      expect(result.stdout).toBe("a\n---\nb\n---\n");
+      expect(result.stdout).toBe("a\n ---\nb\n ---\n");
     });
 
     it("should append text after last line", async () => {
@@ -464,7 +464,7 @@ describe("sed command", () => {
         cwd: "/",
       });
       const result = await env.exec("sed '$a\\ footer' /test.txt");
-      expect(result.stdout).toBe("first\nlast\nfooter\n");
+      expect(result.stdout).toBe("first\nlast\n footer\n");
     });
   });
 
@@ -475,7 +475,7 @@ describe("sed command", () => {
         cwd: "/",
       });
       const result = await env.exec("sed '2i\\ inserted' /test.txt");
-      expect(result.stdout).toBe("line 1\ninserted\nline 2\nline 3\n");
+      expect(result.stdout).toBe("line 1\n inserted\nline 2\nline 3\n");
     });
 
     it("should insert text before first line", async () => {
@@ -484,7 +484,7 @@ describe("sed command", () => {
         cwd: "/",
       });
       const result = await env.exec("sed '1i\\ header' /test.txt");
-      expect(result.stdout).toBe("header\ncontent\n");
+      expect(result.stdout).toBe(" header\ncontent\n");
     });
 
     it("should insert text before every line", async () => {
@@ -493,7 +493,7 @@ describe("sed command", () => {
         cwd: "/",
       });
       const result = await env.exec("sed 'i\\ >' /test.txt");
-      expect(result.stdout).toBe(">\na\n>\nb\n");
+      expect(result.stdout).toBe(" >\na\n >\nb\n");
     });
   });
 
@@ -504,7 +504,7 @@ describe("sed command", () => {
         cwd: "/",
       });
       const result = await env.exec("sed '1c\\ new line' /test.txt");
-      expect(result.stdout).toBe("new line\n");
+      expect(result.stdout).toBe(" new line\n");
     });
 
     it("should change specific line number", async () => {
@@ -513,7 +513,7 @@ describe("sed command", () => {
         cwd: "/",
       });
       const result = await env.exec("sed '2c\\ replaced' /test.txt");
-      expect(result.stdout).toBe("line 1\nreplaced\nline 3\n");
+      expect(result.stdout).toBe("line 1\n replaced\nline 3\n");
     });
   });
 

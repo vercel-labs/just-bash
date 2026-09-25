@@ -755,8 +755,13 @@ export class SedLexer {
     // 2. a text (GNU extension one-liner, text after space)
     // 3. a\text (backslash followed by text on same line)
 
-    let hasBackslash = false;
-    // Traditional a\ syntax: only consume backslash if followed by newline or space
+    // Skip blanks after the command
+    while (this.peek() === " " || this.peek() === "\t") {
+      this.advance();
+    }
+
+    // a\ syntax: consume backslash if followed by newline or blank. Blanks
+    // after it are part of the text (GNU). Otherwise it's an escape sequence
     if (
       this.peek() === "\\" &&
       this.pos + 1 < this.input.length &&
@@ -764,29 +769,11 @@ export class SedLexer {
         this.input[this.pos + 1] === " " ||
         this.input[this.pos + 1] === "\t")
     ) {
-      hasBackslash = true;
       this.advance();
-    }
-
-    // Skip optional space after command or backslash
-    if (this.peek() === " " || this.peek() === "\t") {
-      this.advance();
-    }
-
-    // Check for \ at start of text to preserve leading spaces (GNU extension)
-    // e.g., "a \   text" preserves "   text"
-    // Only consume backslash if followed by space, otherwise it's an escape sequence
-    if (
-      this.peek() === "\\" &&
-      this.pos + 1 < this.input.length &&
-      (this.input[this.pos + 1] === " " || this.input[this.pos + 1] === "\t")
-    ) {
-      this.advance();
-    }
-
-    // If we have backslash followed by newline, text is on next line(s)
-    if (hasBackslash && this.peek() === "\n") {
-      this.advance(); // consume newline
+      // Backslash followed by newline: text is on next line(s)
+      if (this.peek() === "\n") {
+        this.advance();
+      }
     }
 
     // Read text, handling multi-line continuation and escape sequences
@@ -806,7 +793,7 @@ export class SedLexer {
         break;
       }
 
-      // Handle escape sequences in text commands (\n, \t, \r)
+      // Handle escape sequences in text commands (\n, \t, \r, escaped blanks)
       if (ch === "\\" && this.pos + 1 < this.input.length) {
         const next = this.input[this.pos + 1];
         if (next === "n") {
@@ -823,6 +810,12 @@ export class SedLexer {
         }
         if (next === "r") {
           text += "\r";
+          this.advance();
+          this.advance();
+          continue;
+        }
+        if (next === " " || next === "\t") {
+          text += next;
           this.advance();
           this.advance();
           continue;
