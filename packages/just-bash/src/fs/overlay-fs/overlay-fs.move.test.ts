@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OverlayFs } from "./overlay-fs.js";
 
 describe("OverlayFs moves", () => {
@@ -61,6 +61,56 @@ describe("OverlayFs moves", () => {
 
     expect(await overlay.readFile("/source")).toBe("abcdef");
     await expect(overlay.lstat("/destination")).rejects.toThrow("ENOENT");
+  });
+
+  it("rejects an oversized backing tree before reading file bodies", async () => {
+    fs.mkdirSync(path.join(root, "tree"));
+    fs.writeFileSync(path.join(root, "tree", "a"), "aaa");
+    fs.writeFileSync(path.join(root, "tree", "b"), "bbb");
+    const overlay = new OverlayFs({ root, mountPoint: "/", maxMemoryBytes: 5 });
+    const reads = vi.spyOn(overlay, "readFileBuffer");
+
+    await expect(overlay.mv("/tree", "/moved")).rejects.toThrow("ENOSPC");
+
+    expect(reads).not.toHaveBeenCalled();
+    expect(await overlay.readdir("/tree")).toEqual(["a", "b"]);
+    await expect(overlay.lstat("/moved")).rejects.toThrow("ENOENT");
+  });
+
+  it("stops staging if a backing file grows after the size check", async () => {
+    fs.mkdirSync(path.join(root, "tree"));
+    fs.writeFileSync(path.join(root, "tree", "a"), "a");
+    fs.writeFileSync(path.join(root, "tree", "b"), "b");
+    const overlay = new OverlayFs({ root, mountPoint: "/", maxMemoryBytes: 2 });
+    const originalRead = overlay.readFileBuffer.bind(overlay);
+    const reads = vi
+      .spyOn(overlay, "readFileBuffer")
+      .mockImplementation((file) =>
+        file === "/tree/a"
+          ? Promise.resolve(new TextEncoder().encode("aa"))
+          : originalRead(file),
+      );
+
+    await expect(overlay.mv("/tree", "/moved")).rejects.toThrow("ENOSPC");
+
+    expect(reads.mock.calls.map(([file]) => file)).toEqual(["/tree/a"]);
+    reads.mockRestore();
+    expect(await overlay.readdir("/tree")).toEqual(["a", "b"]);
+    await expect(overlay.lstat("/moved")).rejects.toThrow("ENOENT");
+  });
+
+  it("moves a backing tree that exactly fits the memory limit", async () => {
+    fs.mkdirSync(path.join(root, "tree"));
+    fs.writeFileSync(path.join(root, "tree", "a"), "abc");
+    fs.writeFileSync(path.join(root, "tree", "b"), "de");
+    const overlay = new OverlayFs({ root, mountPoint: "/", maxMemoryBytes: 5 });
+
+    await overlay.mv("/tree", "/moved");
+
+    expect(await overlay.readFile("/moved/a")).toBe("abc");
+    expect(await overlay.readFile("/moved/b")).toBe("de");
+    await expect(overlay.lstat("/tree")).rejects.toThrow("ENOENT");
+    await expect(overlay.writeFile("/extra", "x")).rejects.toThrow("ENOSPC");
   });
 
   it("moves a real symlink entry without copying its target", async () => {

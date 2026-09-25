@@ -4,7 +4,12 @@ import {
   utf8ByteLength,
 } from "../../encoding.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
-import { fromBuffer, getEncoding, toBuffer } from "../encoding.js";
+import {
+  fromBuffer,
+  getEncoding,
+  toBuffer,
+  toOwnedBuffer,
+} from "../encoding.js";
 import type {
   BufferEncoding,
   CpOptions,
@@ -359,7 +364,7 @@ export class InMemoryFs implements IFileSystem {
       this.contentByteLength(content, encoding),
       linked !== undefined,
     );
-    const buffer = toBuffer(content, encoding);
+    const buffer = toOwnedBuffer(content, encoding);
 
     if (linked) {
       this.replaceLinkedContent(
@@ -412,15 +417,22 @@ export class InMemoryFs implements IFileSystem {
     const content = await DefenseInDepthBox.runTrustedAsync(async () =>
       entry.lazy(),
     );
+    this.assertCanAllocate(
+      path,
+      typeof content === "string"
+        ? utf8ByteLength(content)
+        : content.byteLength,
+    );
     const buffer =
-      typeof content === "string" ? textEncoder.encode(content) : content;
+      typeof content === "string"
+        ? textEncoder.encode(content)
+        : new Uint8Array(content);
     const materialized: FileEntry = {
       type: "file",
       content: buffer,
       mode: entry.mode,
       mtime: entry.mtime,
     };
-    this.assertCanAllocate(path, buffer.byteLength);
     this.setEntry(path, materialized);
     return materialized;
   }
@@ -459,13 +471,13 @@ export class InMemoryFs implements IFileSystem {
     if ("lazy" in entry) {
       const materialized = await this.materializeLazy(resolvedPath, entry);
       return materialized.content instanceof Uint8Array
-        ? materialized.content
+        ? new Uint8Array(materialized.content)
         : textEncoder.encode(materialized.content);
     }
 
-    // Return content as Uint8Array
+    // Keep the stored body private so callers cannot bypass contentVersion.
     if (entry.content instanceof Uint8Array) {
-      return entry.content;
+      return new Uint8Array(entry.content);
     }
     // Legacy string content - convert to Uint8Array
     return textEncoder.encode(entry.content);

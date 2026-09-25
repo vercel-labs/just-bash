@@ -33,4 +33,37 @@ describe("OverlayFs content versions", () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("isolates stored bytes from write, append, and read buffers", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "overlay-version-"));
+    try {
+      const overlay = new OverlayFs({ root, mountPoint: "/" });
+      const input = Uint8Array.of(65);
+      await overlay.writeFile("/file", input);
+      const initial = (await overlay.stat("/file")).contentVersion;
+
+      input[0] = 88;
+      const read = await overlay.readFileBuffer("/file");
+      read[0] = 89;
+      expect(await overlay.readFile("/file")).toBe("A");
+      expect((await overlay.stat("/file")).contentVersion).toBe(initial);
+
+      const append = Uint8Array.of(66);
+      await overlay.appendFile("/file", append);
+      const appended = (await overlay.stat("/file")).contentVersion;
+      append[0] = 90;
+      const combined = await overlay.readFileBuffer("/file");
+      combined[0] = 89;
+      expect(await overlay.readFile("/file")).toBe("AB");
+      expect((await overlay.stat("/file")).contentVersion).toBe(appended);
+      expect(appended).not.toBe(initial);
+
+      const syncInput = Uint8Array.of(67);
+      overlay.writeFileSync("/sync", syncInput);
+      syncInput[0] = 90;
+      expect(await overlay.readFile("/sync")).toBe("C");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
