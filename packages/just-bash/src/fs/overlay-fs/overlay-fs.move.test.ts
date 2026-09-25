@@ -79,4 +79,29 @@ describe("OverlayFs moves", () => {
     expect(await overlay.readlink("/moved")).toBe("target");
     expect(await overlay.readFile("/target")).toBe("content");
   });
+
+  it("does not expose a real symlink when symlinks are disabled", async () => {
+    fs.writeFileSync(path.join(root, "target"), "content");
+    fs.symlinkSync("target", path.join(root, "link"));
+    const overlay = new OverlayFs({ root, mountPoint: "/" });
+
+    await expect(overlay.readFile("/link")).rejects.toThrow("ENOENT");
+    await expect(overlay.mv("/link", "/moved")).rejects.toThrow("ENOENT");
+
+    expect((await overlay.lstat("/link")).isSymbolicLink).toBe(true);
+    await expect(overlay.lstat("/moved")).rejects.toThrow("ENOENT");
+  });
+
+  it("keeps a real directory intact if it contains a disabled symlink", async () => {
+    fs.mkdirSync(path.join(root, "tree"));
+    fs.writeFileSync(path.join(root, "tree", "target"), "content");
+    fs.symlinkSync("target", path.join(root, "tree", "link"));
+    const overlay = new OverlayFs({ root, mountPoint: "/" });
+
+    await expect(overlay.mv("/tree", "/moved")).rejects.toThrow("ENOENT");
+
+    expect(await overlay.readdir("/tree")).toEqual(["link", "target"]);
+    expect(await overlay.readFile("/tree/target")).toBe("content");
+    await expect(overlay.lstat("/moved")).rejects.toThrow("ENOENT");
+  });
 });

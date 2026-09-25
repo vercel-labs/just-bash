@@ -951,7 +951,17 @@ export class InMemoryFs implements IFileSystem {
       await this.mkdir(destNorm, { recursive: true });
       const children = await this.readdir(srcNorm);
       for (const child of children) {
-        await this.mv(joinPath(srcNorm, child), joinPath(destNorm, child));
+        const srcChild = joinPath(srcNorm, child);
+        const destChild = joinPath(destNorm, child);
+        await this.mv(srcChild, destChild);
+        // Renaming a file onto its own hard link is a no-op, but moving the
+        // enclosing directory must still remove the old child entry.
+        if (
+          this.data.has(srcChild) &&
+          this.data.get(srcChild) === this.data.get(destChild)
+        ) {
+          this.deleteEntry(srcChild);
+        }
       }
       this.deleteEntry(srcNorm);
       return;
