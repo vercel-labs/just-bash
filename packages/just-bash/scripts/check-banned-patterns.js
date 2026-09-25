@@ -741,6 +741,19 @@ const BANNED_PATTERNS = [
     ],
   },
   {
+    name: "Host-specific code in shared worker lifecycle",
+    pattern:
+      /^(?!\s*(?:\/\/|\/?\*)).*(?:\bfrom\s*["']node:|\b(?:import|require)\s*(?:\(\s*)?["']node:|\bnew\s+(?:globalThis\.)?Worker\s*\(|\b(?:globalThis\.)?(?:process|Buffer)\s*\.)/,
+    filePattern: /src\/worker-lifecycle\.ts$/,
+    message:
+      "WorkerLifecycle is shared by Node and browser hosts and must not depend on\n" +
+      "Node-only APIs or create a host worker.",
+    solutions: [
+      "Keep Node imports, process/Buffer access, and worker creation in host-specific modules",
+      "Pass a worker-like object into WorkerLifecycle",
+    ],
+  },
+  {
     name: "Undocumented command-local MAX constant",
     pattern:
       /\bconst\s+MAX_(?!(?:SQLITE_HEAP_LIMIT|DATE_MILLISECONDS|DATE_SECONDS|GREP_DEPTH|SLEEP_MS|PRINTF_WIDTH|DU_DEPTH|ARCHIVE_SIZE|ENTRIES|DATABASE_LOCK_WAITERS|OUTPUT_FILES|ARRAY_INDEX)\b)[A-Z0-9_]+\s*(?::[^=]+)?=/,
