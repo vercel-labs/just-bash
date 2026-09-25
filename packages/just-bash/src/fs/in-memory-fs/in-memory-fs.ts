@@ -4,7 +4,12 @@ import {
   utf8ByteLength,
 } from "../../encoding.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
-import { fromBuffer, getEncoding, toBuffer } from "../encoding.js";
+import {
+  fromBuffer,
+  getEncoding,
+  toBuffer,
+  toOwnedBuffer,
+} from "../encoding.js";
 import type {
   BufferEncoding,
   CpOptions,
@@ -80,12 +85,15 @@ function isFileInit(
 
 export class InMemoryFs implements IFileSystem {
   private data: Map<string, FsEntry> = new Map();
-  private entryIdentities = new WeakMap<FsEntry, string>();
+  private entryInodes = new WeakMap<FsEntry, number>();
   private nextEntryIdentity = 1;
   private readonly maxTotalBytes: number;
   private retainedBytes = 0;
   /** Number of directory entries retaining each hard-link-compatible buffer. */
   private contentReferences = new WeakMap<Uint8Array, number>();
+  private fileReferences = new WeakMap<FileEntry, number>();
+  private contentVersions = new WeakMap<FileEntry, number>();
+  private nextContentVersion = 1;
 
   private materializedContent(entry: FsEntry | undefined): FileContent | null {
     return entry?.type === "file" && "content" in entry ? entry.content : null;
@@ -98,19 +106,34 @@ export class InMemoryFs implements IFileSystem {
       : utf8ByteLength(content);
   }
 
-  private wouldReleaseBytes(entry: FsEntry | undefined): number {
+  private wouldReleaseBytes(
+    entry: FsEntry | undefined,
+    references = 1,
+  ): number {
     const content = this.materializedContent(entry);
     if (content === null) return 0;
-    if (!(content instanceof Uint8Array)) return this.storedByteLength(content);
-    return this.contentReferences.get(content) === 1 ? content.byteLength : 0;
+    if (!(content instanceof Uint8Array))
+      return this.storedByteLength(content) * references;
+    return this.contentReferences.get(content) === references
+      ? content.byteLength
+      : 0;
   }
 
   /**
    * Check a newly allocated, unique file body before creating its buffer.
    * Replacing the final reference to an old body credits those bytes.
    */
-  private assertCanAllocate(path: string, prospectiveBytes: number): void {
-    const releasedBytes = this.wouldReleaseBytes(this.data.get(path));
+  private assertCanAllocate(
+    path: string,
+    prospectiveBytes: number,
+    replacingLinks = false,
+  ): void {
+    const previous = this.data.get(path);
+    const references =
+      replacingLinks && previous?.type === "file" && "content" in previous
+        ? (this.fileReferences.get(previous) ?? 1)
+        : 1;
+    const releasedBytes = this.wouldReleaseBytes(previous, references);
     if (
       !Number.isSafeInteger(prospectiveBytes) ||
       prospectiveBytes < 0 ||
@@ -125,10 +148,13 @@ export class InMemoryFs implements IFileSystem {
   /** Replace one path while updating retained storage in constant time. */
   private setEntry(path: string, entry: FsEntry): void {
     const previous = this.data.get(path);
+    if (previous === entry) return;
     const previousContent = this.materializedContent(previous);
     const nextContent = this.materializedContent(entry);
 
     if (previousContent === nextContent) {
+      this.changeFileReferences(previous, -1);
+      this.changeFileReferences(entry, 1);
       this.data.set(path, entry);
       return;
     }
@@ -158,7 +184,59 @@ export class InMemoryFs implements IFileSystem {
       );
     }
     this.retainedBytes += addedBytes - releasedBytes;
+    this.changeFileReferences(previous, -1);
+    this.changeFileReferences(entry, 1);
     this.data.set(path, entry);
+  }
+
+  private changeFileReferences(
+    entry: FsEntry | undefined,
+    delta: number,
+  ): void {
+    if (entry?.type !== "file" || !("content" in entry)) return;
+    const count = (this.fileReferences.get(entry) ?? 0) + delta;
+    if (count > 0) this.fileReferences.set(entry, count);
+    else this.fileReferences.delete(entry);
+  }
+
+  /** Replace the body of one inode while all of its hard links keep sharing it. */
+  private replaceLinkedContent(
+    entry: FileEntry,
+    content: Uint8Array,
+    mode: number,
+    mtime: Date,
+  ): void {
+    const references = this.fileReferences.get(entry) ?? 1;
+    const previous = entry.content;
+    if (previous !== content) {
+      const releasedBytes = this.wouldReleaseBytes(entry, references);
+      const addedBytes = this.contentReferences.has(content)
+        ? 0
+        : content.byteLength;
+      if (
+        addedBytes >
+        this.maxTotalBytes - this.retainedBytes + releasedBytes
+      ) {
+        throw new Error(
+          `ENOSPC: in-memory filesystem byte limit exceeded (${this.maxTotalBytes} bytes)`,
+        );
+      }
+      if (previous instanceof Uint8Array) {
+        const remaining =
+          (this.contentReferences.get(previous) ?? 0) - references;
+        if (remaining > 0) this.contentReferences.set(previous, remaining);
+        else this.contentReferences.delete(previous);
+      }
+      this.contentReferences.set(
+        content,
+        (this.contentReferences.get(content) ?? 0) + references,
+      );
+      this.retainedBytes += addedBytes - releasedBytes;
+    }
+    entry.content = content;
+    entry.mode = mode;
+    entry.mtime = mtime;
+    this.contentVersions.set(entry, this.nextContentVersion++);
   }
 
   private deleteEntry(path: string): boolean {
@@ -172,6 +250,7 @@ export class InMemoryFs implements IFileSystem {
       else this.contentReferences.set(content, references - 1);
     }
     this.retainedBytes -= releasedBytes;
+    this.changeFileReferences(entry, -1);
     return this.data.delete(path);
   }
 
@@ -193,13 +272,26 @@ export class InMemoryFs implements IFileSystem {
     return utf8ByteLength(content);
   }
 
-  private identityFor(entry: FsEntry): string {
-    let identity = this.entryIdentities.get(entry);
-    if (!identity) {
-      identity = `memfs:${this.nextEntryIdentity++}`;
-      this.entryIdentities.set(entry, identity);
+  private inodeFor(entry: FsEntry): number {
+    let inode = this.entryInodes.get(entry);
+    if (inode === undefined) {
+      inode = this.nextEntryIdentity++;
+      this.entryInodes.set(entry, inode);
     }
-    return identity;
+    return inode;
+  }
+
+  private identityFor(entry: FsEntry): string {
+    return `memfs:${this.inodeFor(entry)}`;
+  }
+
+  private contentVersionFor(entry: FileEntry): number {
+    let version = this.contentVersions.get(entry);
+    if (version === undefined) {
+      version = this.nextContentVersion++;
+      this.contentVersions.set(entry, version);
+    }
+    return version;
   }
 
   constructor(initialFiles?: InitialFiles, options: InMemoryFsOptions = {}) {
@@ -260,12 +352,29 @@ export class InMemoryFs implements IFileSystem {
 
     // Store content - convert to Uint8Array for internal storage
     const encoding = getEncoding(options);
+    const existing = this.data.get(normalized);
+    const linked =
+      existing?.type === "file" &&
+      "content" in existing &&
+      (this.fileReferences.get(existing) ?? 0) > 1
+        ? existing
+        : undefined;
     this.assertCanAllocate(
       normalized,
       this.contentByteLength(content, encoding),
+      linked !== undefined,
     );
-    const buffer = toBuffer(content, encoding);
+    const buffer = toOwnedBuffer(content, encoding);
 
+    if (linked) {
+      this.replaceLinkedContent(
+        linked,
+        buffer,
+        metadata?.mode ?? linked.mode,
+        metadata?.mtime ?? new Date(),
+      );
+      return;
+    }
     this.setEntry(normalized, {
       type: "file",
       content: buffer,
@@ -308,15 +417,22 @@ export class InMemoryFs implements IFileSystem {
     const content = await DefenseInDepthBox.runTrustedAsync(async () =>
       entry.lazy(),
     );
+    this.assertCanAllocate(
+      path,
+      typeof content === "string"
+        ? utf8ByteLength(content)
+        : content.byteLength,
+    );
     const buffer =
-      typeof content === "string" ? textEncoder.encode(content) : content;
+      typeof content === "string"
+        ? textEncoder.encode(content)
+        : new Uint8Array(content);
     const materialized: FileEntry = {
       type: "file",
       content: buffer,
       mode: entry.mode,
       mtime: entry.mtime,
     };
-    this.assertCanAllocate(path, buffer.byteLength);
     this.setEntry(path, materialized);
     return materialized;
   }
@@ -355,13 +471,13 @@ export class InMemoryFs implements IFileSystem {
     if ("lazy" in entry) {
       const materialized = await this.materializeLazy(resolvedPath, entry);
       return materialized.content instanceof Uint8Array
-        ? materialized.content
+        ? new Uint8Array(materialized.content)
         : textEncoder.encode(materialized.content);
     }
 
-    // Return content as Uint8Array
+    // Keep the stored body private so callers cannot bypass contentVersion.
     if (entry.content instanceof Uint8Array) {
-      return entry.content;
+      return new Uint8Array(entry.content);
     }
     // Legacy string content - convert to Uint8Array
     return textEncoder.encode(entry.content);
@@ -407,10 +523,16 @@ export class InMemoryFs implements IFileSystem {
           : textEncoder.encode(
               "content" in materialized ? (materialized.content as string) : "",
             );
+      const linked =
+        "content" in materialized &&
+        (this.fileReferences.get(materialized) ?? 0) > 1
+          ? materialized
+          : undefined;
 
       this.assertCanAllocate(
         normalized,
         existingBuffer.byteLength + newByteLength,
+        linked !== undefined,
       );
       const newBuffer = toBuffer(content, encoding);
 
@@ -419,12 +541,20 @@ export class InMemoryFs implements IFileSystem {
       combined.set(existingBuffer);
       combined.set(newBuffer, existingBuffer.length);
 
-      this.setEntry(normalized, {
-        type: "file",
-        content: combined,
-        mode: materialized.mode,
-        mtime: new Date(),
-      });
+      if (linked)
+        this.replaceLinkedContent(
+          linked,
+          combined,
+          materialized.mode,
+          new Date(),
+        );
+      else
+        this.setEntry(normalized, {
+          type: "file",
+          content: combined,
+          mode: materialized.mode,
+          mtime: new Date(),
+        });
     } else {
       this.writeFileSync(path, content, options);
     }
@@ -476,7 +606,13 @@ export class InMemoryFs implements IFileSystem {
       mode: entry.mode,
       size,
       mtime: entry.mtime || new Date(),
+      dev: 0,
+      ino: this.inodeFor(entry),
       identity: this.identityFor(entry),
+      contentVersion:
+        entry.type === "file" && "content" in entry
+          ? this.contentVersionFor(entry)
+          : undefined,
     };
   }
 
@@ -499,6 +635,9 @@ export class InMemoryFs implements IFileSystem {
         mode: entry.mode,
         size: entry.target.length,
         mtime: entry.mtime || new Date(),
+        dev: 0,
+        ino: this.inodeFor(entry),
+        identity: this.identityFor(entry),
       };
     }
 
@@ -525,7 +664,13 @@ export class InMemoryFs implements IFileSystem {
       mode: entry.mode,
       size,
       mtime: entry.mtime || new Date(),
+      dev: 0,
+      ino: this.inodeFor(entry),
       identity: this.identityFor(entry),
+      contentVersion:
+        entry.type === "file" && "content" in entry
+          ? this.contentVersionFor(entry)
+          : undefined,
     };
   }
 
@@ -806,6 +951,7 @@ export class InMemoryFs implements IFileSystem {
     if (!source) {
       throw new Error(`ENOENT: no such file or directory, mv '${src}'`);
     }
+    if (source.type === "file" && this.data.get(destNorm) === source) return;
     if (
       source.type === "directory" &&
       isSameOrDescendantPath(srcNorm, destNorm)
@@ -817,7 +963,17 @@ export class InMemoryFs implements IFileSystem {
       await this.mkdir(destNorm, { recursive: true });
       const children = await this.readdir(srcNorm);
       for (const child of children) {
-        await this.mv(joinPath(srcNorm, child), joinPath(destNorm, child));
+        const srcChild = joinPath(srcNorm, child);
+        const destChild = joinPath(destNorm, child);
+        await this.mv(srcChild, destChild);
+        // Renaming a file onto its own hard link is a no-op, but moving the
+        // enclosing directory must still remove the old child entry.
+        if (
+          this.data.has(srcChild) &&
+          this.data.get(srcChild) === this.data.get(destChild)
+        ) {
+          this.deleteEntry(srcChild);
+        }
       }
       this.deleteEntry(srcNorm);
       return;
@@ -900,16 +1056,7 @@ export class InMemoryFs implements IFileSystem {
     }
 
     this.ensureParentDirs(newNorm);
-    // For hard links, we create a copy (simulating inode sharing)
-    // In a real fs, they'd share the same inode
-    const linkedEntry: FileEntry = {
-      type: "file",
-      content: (resolved as FileEntry).content,
-      mode: resolved.mode,
-      mtime: resolved.mtime,
-    };
-    this.entryIdentities.set(linkedEntry, this.identityFor(resolved));
-    this.setEntry(newNorm, linkedEntry);
+    this.setEntry(newNorm, resolved);
   }
 
   // Read the target of a symbolic link

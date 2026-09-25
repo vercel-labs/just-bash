@@ -88,6 +88,11 @@ export interface FsStat {
   dev?: number | bigint;
   ino?: number | bigint;
   identity?: string;
+  /**
+   * Changes whenever file contents change, including same-size writes that
+   * preserve mtime. Omit when the backend cannot provide a reliable version.
+   */
+  contentVersion?: number | string;
 }
 
 /**
@@ -221,7 +226,7 @@ export interface IFileSystem {
   cp(src: string, dest: string, options?: CpOptions): Promise<void>;
 
   /**
-   * Move/rename a file or directory
+   * Move/rename a directory entry without following a final symlink.
    */
   mv(src: string, dest: string): Promise<void>;
 

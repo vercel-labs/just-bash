@@ -51,6 +51,16 @@ export function toBuffer(
   return textEncoder.encode(content);
 }
 
+/** Convert caller-owned bytes to storage that cannot be mutated through the input. */
+export function toOwnedBuffer(
+  content: FileContent,
+  encoding?: BufferEncoding,
+): Uint8Array {
+  return content instanceof Uint8Array
+    ? new Uint8Array(content)
+    : toBuffer(content, encoding);
+}
+
 /**
  * Helper to convert Uint8Array to string with encoding
  */

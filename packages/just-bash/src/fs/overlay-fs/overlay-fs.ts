@@ -18,7 +18,7 @@ import {
   type FileContent,
   fromBuffer,
   getEncoding,
-  toBuffer,
+  toOwnedBuffer,
 } from "../encoding.js";
 import type {
   CpOptions,
@@ -59,6 +59,7 @@ interface MemoryFileEntry {
   content: Uint8Array;
   /** Append segments retained without copying the complete file per append. */
   appendChunks?: Uint8Array[];
+  contentVersion?: number;
   mode: number;
   mtime: Date;
   identity?: string;
@@ -76,9 +77,18 @@ interface MemorySymlinkEntry {
   target: string;
   mode: number;
   mtime: Date;
+  identity?: string;
 }
 
 type MemoryEntry = MemoryFileEntry | MemoryDirEntry | MemorySymlinkEntry;
+
+type StagedMoveEntry =
+  | { source: string; destination: string; entry: MemoryEntry }
+  | {
+      source: string;
+      destination: string;
+      backingFile: { size: number; mode: number; mtime: Date };
+    };
 
 export interface OverlayFsOptions {
   /**
@@ -123,6 +133,7 @@ export interface OverlayFsOptions {
 
 /** Default mount point for OverlayFs */
 const DEFAULT_MOUNT_POINT = "/home/user/project";
+const MEMORY_DEVICE = 0xffff_ffff;
 
 export class OverlayFs implements IFileSystem {
   private readonly root: string;
@@ -135,6 +146,7 @@ export class OverlayFs implements IFileSystem {
   private readonly memory: Map<string, MemoryEntry> = new Map();
   private readonly deleted: Set<string> = new Set();
   private nextMemoryIdentity = 1;
+  private nextContentVersion = 1;
   private retainedMemoryBytes = 0;
 
   private memoryEntryBytes(entry: MemoryEntry | undefined): number {
@@ -160,6 +172,9 @@ export class OverlayFs implements IFileSystem {
     const released = this.memoryEntryBytes(this.memory.get(path));
     const added = this.memoryEntryBytes(entry);
     this.assertMemoryCapacity(added, released);
+    if (entry.type === "file" && entry.contentVersion === undefined) {
+      entry.contentVersion = this.nextContentVersion++;
+    }
     this.memory.set(path, entry);
     this.retainedMemoryBytes += added - released;
   }
@@ -172,11 +187,14 @@ export class OverlayFs implements IFileSystem {
   }
 
   private identityFor(entry: MemoryEntry): string {
-    if (entry.type === "symlink") return "";
     if (!entry.identity) {
       entry.identity = `overlay:${this.nextMemoryIdentity++}`;
     }
     return entry.identity;
+  }
+
+  private inodeFor(entry: MemoryEntry): number {
+    return Number(this.identityFor(entry).slice("overlay:".length));
   }
 
   constructor(options: OverlayFsOptions) {
@@ -285,10 +303,13 @@ export class OverlayFs implements IFileSystem {
     if (parent !== "/") {
       this.mkdirSync(parent);
     }
-    const buffer =
-      content instanceof Uint8Array
-        ? content
-        : new TextEncoder().encode(content);
+    if (content instanceof Uint8Array) {
+      this.assertMemoryCapacity(
+        content.byteLength,
+        this.memoryEntryBytes(this.memory.get(normalized)),
+      );
+    }
+    const buffer = toOwnedBuffer(content);
     this.setMemoryEntry(normalized, {
       type: "file",
       content: buffer,
@@ -486,7 +507,7 @@ export class OverlayFs implements IFileSystem {
         );
       }
       if (!memEntry.appendChunks || memEntry.appendChunks.length === 0) {
-        return memEntry.content;
+        return new Uint8Array(memEntry.content);
       }
       const total = memEntry.appendChunks.reduce(
         (sum, chunk) => sum + chunk.byteLength,
@@ -504,7 +525,7 @@ export class OverlayFs implements IFileSystem {
       }
       memEntry.content = combined;
       memEntry.appendChunks = undefined;
-      return combined;
+      return new Uint8Array(combined);
     }
 
     // Fall back to real filesystem.  Use the canonical path for I/O to
@@ -572,7 +593,13 @@ export class OverlayFs implements IFileSystem {
     this.ensureParentDirs(normalized);
 
     const encoding = getEncoding(options);
-    const buffer = toBuffer(content, encoding);
+    if (content instanceof Uint8Array) {
+      this.assertMemoryCapacity(
+        content.byteLength,
+        this.memoryEntryBytes(this.memory.get(normalized)),
+      );
+    }
+    const buffer = toOwnedBuffer(content, encoding);
 
     this.setMemoryEntry(normalized, {
       type: "file",
@@ -592,7 +619,10 @@ export class OverlayFs implements IFileSystem {
     this.assertWritable(`append '${path}'`);
     const normalized = normalizePath(path);
     const encoding = getEncoding(options);
-    const newBuffer = toBuffer(content, encoding);
+    if (content instanceof Uint8Array) {
+      this.assertMemoryCapacity(content.byteLength);
+    }
+    const newBuffer = toOwnedBuffer(content, encoding);
 
     const existingEntry = this.memory.get(normalized);
     if (existingEntry?.type === "file") {
@@ -601,6 +631,7 @@ export class OverlayFs implements IFileSystem {
       existingEntry.appendChunks.push(newBuffer);
       this.retainedMemoryBytes += newBuffer.byteLength;
       existingEntry.mtime = new Date();
+      existingEntry.contentVersion = this.nextContentVersion++;
       this.deleted.delete(normalized);
       return;
     }
@@ -673,7 +704,11 @@ export class OverlayFs implements IFileSystem {
         mode: entry.mode,
         size,
         mtime: entry.mtime,
+        dev: MEMORY_DEVICE,
+        ino: this.inodeFor(entry),
         identity: this.identityFor(entry),
+        contentVersion:
+          entry.type === "file" ? (entry.contentVersion ?? 0) : undefined,
       };
     }
 
@@ -735,6 +770,9 @@ export class OverlayFs implements IFileSystem {
           mode: entry.mode,
           size: entry.target.length,
           mtime: entry.mtime,
+          dev: MEMORY_DEVICE,
+          ino: this.inodeFor(entry),
+          identity: this.identityFor(entry),
         };
       }
 
@@ -755,7 +793,11 @@ export class OverlayFs implements IFileSystem {
         mode: entry.mode,
         size,
         mtime: entry.mtime,
+        dev: MEMORY_DEVICE,
+        ino: this.inodeFor(entry),
         identity: this.identityFor(entry),
+        contentVersion:
+          entry.type === "file" ? (entry.contentVersion ?? 0) : undefined,
       };
     }
 
@@ -1154,10 +1196,138 @@ export class OverlayFs implements IFileSystem {
     }
   }
 
+  /** Stage move metadata without dereferencing symlinks or loading file bodies. */
+  private async stageMoveEntry(
+    source: string,
+    destination: string,
+    staged: StagedMoveEntry[],
+  ): Promise<void> {
+    const stat = await this.lstat(source);
+    if (stat.isSymbolicLink && !this.allowSymlinks) {
+      throw new Error(`ENOENT: no such file or directory, mv '${source}'`);
+    }
+    const existing = this.memory.get(source);
+    let stagedEntry: StagedMoveEntry;
+    if (existing) {
+      stagedEntry = { source, destination, entry: existing };
+    } else if (stat.isSymbolicLink) {
+      stagedEntry = {
+        source,
+        destination,
+        entry: {
+          type: "symlink",
+          target: await this.readlink(source),
+          mode: stat.mode,
+          mtime: stat.mtime,
+        },
+      };
+    } else if (stat.isDirectory) {
+      stagedEntry = {
+        source,
+        destination,
+        entry: { type: "directory", mode: stat.mode, mtime: stat.mtime },
+      };
+    } else if (stat.isFile) {
+      if (this.maxFileReadSize > 0 && stat.size > this.maxFileReadSize) {
+        throw new Error(
+          `EFBIG: file too large, read '${source}' (${stat.size} bytes, max ${this.maxFileReadSize})`,
+        );
+      }
+      stagedEntry = {
+        source,
+        destination,
+        backingFile: { size: stat.size, mode: stat.mode, mtime: stat.mtime },
+      };
+    } else {
+      throw new Error(`ENOTSUP: cannot move special file, mv '${source}'`);
+    }
+    staged.push(stagedEntry);
+    if (stat.isDirectory) {
+      for (const name of await this.readdir(source)) {
+        await this.stageMoveEntry(
+          this.resolvePath(source, name),
+          this.resolvePath(destination, name),
+          staged,
+        );
+      }
+    }
+  }
+
   async mv(src: string, dest: string): Promise<void> {
     this.assertWritable(`mv '${dest}'`);
-    await this.cp(src, dest, { recursive: true });
-    await this.rm(src, { recursive: true });
+    validatePath(src, "mv");
+    validatePath(dest, "mv");
+    const srcNorm = normalizePath(src);
+    const destNorm = normalizePath(dest);
+    const source = await this.lstat(srcNorm);
+    if (srcNorm === destNorm) return;
+    if (source.isDirectory && isSameOrDescendantPath(srcNorm, destNorm))
+      throw new Error(`EINVAL: cannot move '${src}' into itself, '${dest}'`);
+    try {
+      const destination = await this.lstat(destNorm);
+      if (source.isDirectory !== destination.isDirectory)
+        throw new Error(
+          `${source.isDirectory ? "ENOTDIR" : "EISDIR"}: incompatible move destination, mv '${dest}'`,
+        );
+      if (destination.isDirectory && (await this.readdir(destNorm)).length)
+        throw new Error(`ENOTEMPTY: directory not empty, mv '${dest}'`);
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.startsWith("ENOENT:"))
+        throw error;
+    }
+    const staged: StagedMoveEntry[] = [];
+    await this.stageMoveEntry(srcNorm, destNorm, staged);
+    let added = 0;
+    let released = 0;
+    for (const stagedEntry of staged) {
+      const { source, destination } = stagedEntry;
+      added +=
+        "entry" in stagedEntry
+          ? this.memoryEntryBytes(stagedEntry.entry)
+          : stagedEntry.backingFile.size;
+      released += this.memoryEntryBytes(this.memory.get(source));
+      released += this.memoryEntryBytes(this.memory.get(destination));
+    }
+    this.assertMemoryCapacity(added, released);
+
+    // Recheck actual lengths after each read in case a backing file changed.
+    const ready: Array<{
+      source: string;
+      destination: string;
+      entry: MemoryEntry;
+    }> = [];
+    for (const stagedEntry of staged) {
+      if ("entry" in stagedEntry) {
+        ready.push(stagedEntry);
+        continue;
+      }
+      const { source, destination, backingFile } = stagedEntry;
+      const content = await this.readFileBuffer(source);
+      added += content.byteLength - backingFile.size;
+      this.assertMemoryCapacity(added, released);
+      ready.push({
+        source,
+        destination,
+        entry: {
+          type: "file",
+          content,
+          mode: backingFile.mode,
+          mtime: backingFile.mtime,
+        },
+      });
+    }
+
+    this.ensureParentDirs(destNorm);
+    for (const { source, destination } of ready) {
+      this.deleteMemoryEntry(source);
+      this.deleteMemoryEntry(destination);
+      if (this.existsOnRealFs(source)) this.deleted.add(source);
+      else this.deleted.delete(source);
+    }
+    for (const { destination, entry } of ready) {
+      this.setMemoryEntry(destination, entry);
+      this.deleted.delete(destination);
+    }
   }
 
   resolvePath(base: string, rel: string): string {
@@ -1281,7 +1451,10 @@ export class OverlayFs implements IFileSystem {
       );
     }
 
-    const existingStat = await this.stat(existingNorm);
+    // A hard-link request must not dereference its final source entry. This
+    // backend cannot retain a symlink inode, so reject it instead of copying
+    // the target's contents.
+    const existingStat = await this.lstat(existingNorm);
     if (!existingStat.isFile) {
       throw new Error(`EPERM: operation not permitted, link '${existingPath}'`);
     }
@@ -1291,7 +1464,8 @@ export class OverlayFs implements IFileSystem {
       throw new Error(`EEXIST: file already exists, link '${newPath}'`);
     }
 
-    // Copy content to new location
+    // This backend copies file data instead of retaining a shared inode.
+    // Give the copy its own identity so callers do not mistake it for one.
     const content = await this.readFileBuffer(existingNorm);
     this.ensureParentDirs(newNorm);
     this.setMemoryEntry(newNorm, {
@@ -1299,7 +1473,6 @@ export class OverlayFs implements IFileSystem {
       content,
       mode: existingStat.mode,
       mtime: new Date(),
-      identity: existingStat.identity ?? `overlay:${this.nextMemoryIdentity++}`,
     });
     this.deleted.delete(newNorm);
   }

@@ -16,13 +16,25 @@ describe("InMemoryFs retained-byte accounting", () => {
     await expect(fs.writeFile("/other", "x")).resolves.toBeUndefined();
   });
 
-  it("does not credit an overwritten alias while another link retains it", async () => {
+  it("updates linked aliases within the same quota and inode", async () => {
     const fs = new InMemoryFs(undefined, { maxTotalBytes: 8 });
     await fs.writeFile("/original", "12345678");
     await fs.link("/original", "/alias");
+    const identity = (await fs.stat("/original")).identity;
 
-    await expect(fs.writeFile("/original", "x")).rejects.toThrow("ENOSPC");
-    expect(await fs.readFile("/original")).toBe("12345678");
+    await fs.writeFile("/original", "x");
+    expect(await fs.readFile("/alias")).toBe("x");
+    await fs.appendFile("/alias", "yz");
+    expect(await fs.readFile("/original")).toBe("xyz");
+    expect((await fs.stat("/alias")).identity).toBe(identity);
+    await fs.mv("/original", "/moved");
+    expect(await fs.readFile("/moved")).toBe("xyz");
+
+    await fs.writeFile("/other", "12345");
+    await fs.rm("/moved");
+    await expect(fs.writeFile("/alias", "12345678")).rejects.toThrow("ENOSPC");
+    await fs.rm("/other");
+    await fs.writeFile("/alias", "12345678");
     expect(await fs.readFile("/alias")).toBe("12345678");
   });
 
