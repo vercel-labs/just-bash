@@ -4,7 +4,7 @@
  * Builds an `ExecutorHandle` containing:
  *   - `commands`: bash namespace commands derived from inline tools and/or
  *     SDK-discovered tools, ready to pass to `new Bash({ customCommands })`
- *   - `invokeTool`: a `(path, argsJson) => Promise<string>` callback to wire
+ *   - `invokeTool`: a `(path, argsJson, abortSignal) => Promise<string>` callback to wire
  *     into `new Bash({ javascript: { invokeTool } })`
  *   - `sdk?`: the SDK handle when `setup` was provided, exposed for advanced
  *     use (e.g. listing sources)
@@ -19,7 +19,7 @@ export interface ExecutorHandle {
      * Routes inline tool calls directly and SDK-tool calls through the
      * approval/elicitation pipeline.
      */
-    invokeTool: (path: string, argsJson: string) => Promise<string>;
+    invokeTool: (path: string, argsJson: string, abortSignal?: AbortSignal) => Promise<string>;
     /**
      * SDK handle. Present only when `setup` was provided. Use it to inspect
      * sources, list tools, or close the executor when done.
