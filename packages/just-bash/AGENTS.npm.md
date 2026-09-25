@@ -66,7 +66,7 @@ const result = await bash.exec("cat input.txt | grep pattern");
 
 3. **No network by default**: `curl` doesn't exist unless you configure `network` options with URL allowlists.
 
-4. **No binaries/WASM**: Only built-in commands work. You cannot run node, python, or other binaries.
+4. **Host-configured commands**: The host can enable Python/JavaScript runtimes and register custom commands. WebAssembly requires host registration through `defineWasmCommand`: WASI Preview 1 commands use the default adapter, and other core WASM libraries need a trusted JavaScript adapter. A `.wasm` file is not automatically executable. Native executables are unsupported.
 
 5. **ReadWriteFs root separation**: If you use `ReadWriteFs`, point it at a workspace directory, not at the installed `just-bash` package or other trusted runtime code.
 
@@ -242,7 +242,7 @@ cat data.csv | awk -F',' '{sum += $3} END {print sum}'
 
 - **32-bit integers only**: Arithmetic operations use 32-bit signed integers
 - **No job control**: No `&`, `bg`, `fg`, or process suspension
-- **No external binaries**: Only built-in commands are available
+- **Command availability**: Optional runtimes and custom WASM commands require host configuration. Use `command -v NAME` to check whether a command is available.
 - **Execution limits**: Loops, recursion, command counts, and output sizes have configurable limits to prevent runaway execution (exit code 126 when exceeded)
 
 ## Error Handling

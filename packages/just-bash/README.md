@@ -77,6 +77,217 @@ in a terminable worker or process. Tests that invoke command objects directly
 can use `createCommandContext({ fs })` to get a fully resolved context without
 duplicating internal defaults.
 
+## WebAssembly Commands
+
+Register a WebAssembly binary with `defineWasmCommand`. WASI Preview 1 commands
+work by default; libraries with other interfaces use an explicit adapter.
+Each invocation runs in a disposable worker with a deadline and memory limits.
+The WASM runner and WASI adapter are implemented in this repository and add no
+third-party dependencies.
+
+### Example: libfx
+
+Run the WebAssembly agent from [vercel-labs/fx](https://github.com/vercel-labs/fx)
+as a shell command. The [libfx example](https://github.com/vercel-labs/just-bash/tree/main/examples/libfx)
+includes the adapter and setup instructions for Node.js with JSPI enabled.
+Install `libfx@0.0.10` in the consuming application to use its SDK and binary:
+
+```typescript
+import { readFile } from "node:fs/promises";
+import { Bash, defineWasmCommand } from "just-bash";
+
+const apiKey = process.env.AI_GATEWAY_API_KEY;
+if (!apiKey) throw new Error("Set AI_GATEWAY_API_KEY");
+const wasmUrl = new URL("./fx-core.wasm", import.meta.resolve("libfx/wasm"));
+const bash = new Bash({
+  cwd: "/project",
+  env: { AI_GATEWAY_API_KEY: apiKey, FX_MODEL: "google/gemini-2.5-flash-lite" },
+  files: { "/project/notes.md": "WASM commands support pipes and virtual files.\n" },
+  executionLimits: { maxExecutionTimeMs: 120_000 },
+  customCommands: [
+    defineWasmCommand("fx", {
+      wasm: new Uint8Array(await readFile(wasmUrl)),
+      adapter: new URL("./fx-adapter.mjs", import.meta.url),
+      timeoutMs: 120_000,
+    }),
+  ],
+});
+
+const result = await bash.exec(
+  'echo "Keep it brief." | fx "Read notes.md and summarize the release." > summary.md && cat summary.md',
+);
+console.log(result.stdout);
+```
+
+The adapter passes `ctx.module` to `createFxAgent` from `libfx/wasm`. The SDK
+supplies its own WASI and async host imports, while the adapter connects prompt
+input, text output, and a `read_file` tool to the shell. Gateway requests use the
+SDK's host `fetch`; the shell's network settings do not apply to adapter code.
+libfx is an example dependency only.
+
+### WASI commands
+
+The default adapter runs a **WASI Preview 1 command binary**. Its arguments,
+exported environment, stdin, stdout, and files connect to the shell:
+
+```typescript
+import { readFile } from "node:fs/promises";
+import { defineWasmCommand } from "just-bash";
+
+const tool = defineWasmCommand("tool", {
+  wasm: new Uint8Array(await readFile("./tool.wasm")),
+});
+```
+
+Register `tool` in `new Bash({ customCommands: [tool] })`.
+`defineWasiCommand` is also available as a shorthand that selects WASI explicitly.
+Binaries are supplied by your application; they are not bundled with just-bash.
+An asynchronous loader is also supported:
+`wasm` may be an async function that receives an `AbortSignal` and returns a
+`Uint8Array`. When fetching bytes, check `response.ok` before reading the body,
+as in the [browser example](#browser-setup).
+The loader runs as trusted host code and is called once per invocation.
+
+### WASM library adapters
+
+An adapter is a trusted JavaScript module whose default-exported function maps
+the shell's inputs to a library's exports:
+
+```typescript
+import { readFile } from "node:fs/promises";
+import { defineWasmCommand } from "just-bash";
+
+const rot13 = defineWasmCommand("rot13", {
+  wasm: new Uint8Array(await readFile("./rot13.wasm")),
+  adapter: new URL("./rot13-adapter.mjs", import.meta.url),
+});
+```
+
+Register `rot13` in `new Bash({ customCommands: [rot13] })`. The
+[library example](https://github.com/vercel-labs/just-bash/tree/main/examples/wasm-library)
+provides both files.
+
+For example, an adapter for a library exporting an `add` function could be:
+
+```typescript
+import type { WasmAdapter } from "just-bash";
+
+const adapter: WasmAdapter = async (ctx) => {
+  const numbers = ctx.args.map(Number);
+  if (numbers.length !== 2 || numbers.some((n) => !Number.isFinite(n))) {
+    ctx.stderr.write("Usage: add NUMBER NUMBER\n");
+    return 2;
+  }
+  const { exports } = await ctx.instantiate();
+  if (typeof exports.add !== "function") throw new Error("Missing add export");
+  ctx.stdout.write(`${exports.add(...numbers)}\n`);
+};
+export default adapter;
+```
+
+Compile the adapter to JavaScript and register its absolute module URL. Node
+loads local `file:` modules; browsers load served HTTP(S) modules. The adapter
+executes inside the invocation's worker and can use `ctx.stdin`, `ctx.stdout`,
+`ctx.stderr`, synchronous `ctx.fs` operations, and `ctx.env`. Adapter filesystem
+paths resolve relative to the shell cwd. Return an exit code or void for success.
+
+`ctx.instantiate(imports)` links explicit imports and enforces the supplied
+module's memory/table limits. It can be called once per invocation. Modules
+without memory or `_start` are supported, as are bounded imported memories and
+function tables. Adapters can also use `ctx.wasi.imports`, `ctx.wasi.start()` and
+`ctx.wasi.initialize()` for libraries that need WASI services.
+
+SDKs that instantiate internally can accept `ctx.module`, the compiled module
+with the same memory/table bounds. These bounds apply per instance. The trusted
+adapter must ensure the SDK creates only one instance; the runner does not
+enforce an instantiation count through the SDK. The libfx example uses this API.
+
+The [WASM library example](https://github.com/vercel-labs/just-bash/tree/main/examples/wasm-library)
+includes a freestanding C library, custom imports, an adapter, and shell pipelines.
+Adapters are trusted application code: their callbacks define what the guest
+can access and must validate guest pointers/lengths. Generated SDKs or Emscripten
+glue need integration with `ctx.instantiate()` or `ctx.module` and the virtual
+I/O APIs. The runner does not automatically infer a library's ABI, and module
+limits do not bound arbitrary JavaScript allocations or external operations
+in an adapter.
+
+### WASI compatibility
+
+The default WASI adapter supports the following:
+
+- Accepts wasm32 core modules importing `wasi_snapshot_preview1` and exporting
+  `memory` and `_start`. Other imports and Emscripten glue require a custom
+  adapter. WASI Preview 2 components, shared memories, and threads are unsupported
+  by the runner.
+- Supports file reads/writes, seeking, truncation, directory listing, stat,
+  rename, deletion, and links through the configured `IFileSystem`. Binary data
+  is preserved through pipes and redirections. Guest exit codes are returned.
+- **Guest paths start at `/`.** WASI Preview 1 has no portable initial cwd.
+  `PWD` contains the shell's working directory: use `tool "$PWD/notes.md"`
+  after `cd`, or use absolute virtual paths. The whole virtual root is preopened.
+- Sockets, subprocesses, polling/sleep, file allocation, and setting timestamps
+  are unsupported. Unsupported calls return a WASI error or fail the command.
+  Programs that need these facilities require adaptation.
+- Descriptors use virtual paths. Removing an open file/directory or replacing
+  an open destination returns `EBUSY`; rename updates open source descriptors.
+  Concurrent namespace mutation by another filesystem user is unsupported.
+- The module is compiled for each invocation. Large binaries have a noticeable
+  startup cost.
+
+### Limits
+
+| Option | Default | Scope |
+| --- | --- | --- |
+| `timeoutMs` | 30,000 | Loading, compilation, and execution |
+| `maxMemoryBytes` | 256 MiB | Linear memory per instance; rounded down to 64 KiB pages |
+| `maxModuleBytes` | 64 MiB | Supplied binary size |
+| `maxFileBytes` | 64 MiB | Individual file read/write size |
+| `maxTableElements` | 1,000,000 | Function table size per instance |
+
+Shell execution limits also apply, including output, file descriptors, work,
+worker messages, and live bytes. Memory and table maxima are enforced before
+instantiation. The resolved memory limit can be lower than `maxMemoryBytes`
+when the shell's remaining live byte budget is smaller. A timeout or cancellation
+terminates the worker (exit 124); module/runner failures return exit 126. A custom
+host loader must cooperate with its abort signal to stop its own external work.
+
+### Browser setup
+
+Import from `just-bash/browser`. Browser execution requires a Web Worker and
+`SharedArrayBuffer`; serve the page with these headers:
+
+```text
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+For bundlers such as Vite, pass the exported worker asset URL explicitly:
+
+```typescript
+import { Bash, defineWasmCommand } from "just-bash/browser";
+import workerUrl from "just-bash/wasm-worker?url";
+
+const bash = new Bash({
+  cwd: "/",
+  customCommands: [
+    defineWasmCommand("tool", {
+      workerUrl,
+      timeoutMs: 60_000,
+      wasm: async (signal) => {
+        const response = await fetch("/tool.wasm", { signal });
+        if (!response.ok) throw new Error("Could not load WASM command");
+        return new Uint8Array(await response.arrayBuffer());
+      },
+    }),
+  ],
+});
+```
+
+You can also copy `just-bash/wasm-worker` to a public asset directory and supply
+its URL (`just-bash/wasi-worker` is an alias). For custom adapters, serve the
+adapter and its dependencies as a separate JavaScript module. Hosts without
+cross-origin isolation cannot run these WebAssembly commands.
+
 <details>
 <summary><h2>Supported Commands</h2></summary>
 
@@ -688,6 +899,16 @@ The Node.js package requires Node `>=20.19`.
 - All execution happens without VM isolation. This does introduce additional risk. The code base was designed to be robust against prototype-pollution attacks and other break outs to the host JS engine and filesystem.
 - There is no network access by default. When enabled, requests are checked against URL prefix allow-lists and HTTP-method allow-lists.
 - Python and JavaScript execution are off by default as they represent additional security surface.
+- WASI commands are registered explicitly by the host. Guest code runs inside
+  WebAssembly with only WASI imports and the shell's virtual filesystem. It has
+  no direct host filesystem, network, process, or JavaScript access. A configured
+  `ReadWriteFs` still grants its usual writes to disk. The built-in WASI runtime and host
+  bridge are trusted code; workers provide termination, while WebAssembly and
+  the restricted imports provide guest isolation. Linear memory limits do not
+  constitute a total process memory limit.
+- Custom WebAssembly adapters are trusted JavaScript modules running inside the
+  worker. They define the guest's imports and can use the worker's host APIs.
+  Only register adapters you control; the guest cannot select its own adapter.
 - `js-exec` guest code runs inside the `run` package's QuickJS/WASM realm. Its
   primary isolation boundary is QuickJS plus the validated, bounded host
   bridge; guest JavaScript does not execute in the Node worker realm.
@@ -715,6 +936,9 @@ The Node.js package requires Node `>=20.19`.
 ## Browser Support
 
 The core shell (parsing, execution, filesystem, and all built-in commands) works in browser environments. The following features require Node.js and are unavailable in browsers: `python3`/`python`, `sqlite3`, `js-exec`, and `OverlayFs`/`ReadWriteFs` (which access the real filesystem).
+
+Opt-in [WebAssembly commands](#webassembly-commands) also support browsers with workers and
+cross-origin isolation.
 
 ## Default Layout
 
