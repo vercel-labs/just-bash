@@ -37,7 +37,7 @@ export function toBuffer(
   }
   if (encoding === "binary" || encoding === "latin1") {
     // Use chunked approach for large strings to avoid performance issues
-    const chunkSize = 65536; // 64KB chunks
+    const chunkSize = 8192; // 8KB chunks
     if (content.length <= chunkSize) {
       return Uint8Array.from(content, (c) => c.charCodeAt(0));
     }
@@ -65,7 +65,7 @@ export function fromBuffer(
     if (typeof Buffer !== "undefined") {
       return Buffer.from(buffer).toString("base64");
     }
-    const chunkSize = 65536;
+    const chunkSize = 8192;
     let binary = "";
     for (let i = 0; i < buffer.length; i += chunkSize) {
       const chunk = buffer.subarray(i, i + chunkSize);
@@ -85,7 +85,7 @@ export function fromBuffer(
     }
 
     // Browser fallback - String.fromCharCode(...buffer) fails with buffers > ~100KB
-    const chunkSize = 65536; // 64KB chunks
+    const chunkSize = 8192; // 8KB chunks
     if (buffer.length <= chunkSize) {
       return String.fromCharCode(...buffer);
     }
