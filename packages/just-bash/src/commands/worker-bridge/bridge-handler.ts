@@ -666,7 +666,13 @@ export class BridgeHandler {
     }
 
     this.protocol.setErrorCode(errorCode);
-    this.protocol.setResultFromString(message);
+    // Error replies must fit even when the caller chooses a tiny bridge.
+    // Otherwise reporting an oversized response would itself throw and leave
+    // the worker waiting for a status change until its execution deadline.
+    const encoded = new TextEncoder().encode(message);
+    this.protocol.setResult(
+      encoded.subarray(0, this.protocol.getDataCapacity()),
+    );
     this.protocol.setStatus(Status.ERROR);
   }
 }
