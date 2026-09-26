@@ -3,6 +3,7 @@ import type { CommandExecutionBudget } from "./execution-scope.js";
 import type { IFileSystem } from "./fs/interface.js";
 import type { ExecutionLimits } from "./limits.js";
 import type { SecureFetch } from "./network/index.js";
+import type { CommandStdio } from "./streams/command-stdio.js";
 
 /**
  * Lightweight interface for feature coverage tracking during fuzzing.
@@ -181,6 +182,8 @@ export interface RuntimeCommandContext {
    * actually holds UTF-8 — is the bug class this type prevents.
    */
   stdin: ByteString;
+  /** Chunked pipeline I/O, present only for commands that opt into streaming. */
+  stdio?: CommandStdio;
   /**
    * Execution limits configuration.
    * Fully resolved by Bash before a command is invoked.
@@ -296,6 +299,8 @@ export type ResolvedCommandContext = RuntimeCommandContext;
 
 export interface Command {
   name: string;
+  /** Use stdio instead of stdin when connected to a streaming pipeline. */
+  streaming?: boolean;
   /**
    * Host-provided commands are trusted by default for compatibility. Set this
    * to false to select the restricted extension boundary.

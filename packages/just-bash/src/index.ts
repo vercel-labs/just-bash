@@ -116,6 +116,8 @@ export {
   SecurityViolationError,
   SecurityViolationLogger,
 } from "./security/index.js";
+export type { CommandStdio } from "./streams/command-stdio.js";
+export { readCommandStdin } from "./streams/command-stdio.js";
 // Transform API
 export { BashTransformPipeline } from "./transform/pipeline.js";
 export type { CommandCollectorMetadata } from "./transform/plugins/command-collector.js";

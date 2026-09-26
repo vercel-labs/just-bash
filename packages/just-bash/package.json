@@ -47,6 +47,7 @@
     "dist/parser/*.d.ts",
     "dist/sandbox/*.d.ts",
     "dist/security/*.d.ts",
+    "dist/streams/*.d.ts",
     "dist/transform/**/*.d.ts",
     "dist/utils/*.d.ts",
     "vendor/cpython-emscripten/",

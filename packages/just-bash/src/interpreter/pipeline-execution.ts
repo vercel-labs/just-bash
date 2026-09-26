@@ -16,6 +16,7 @@ import type { ExecResult } from "../types.js";
 import { BadSubstitutionError, ErrexitError, ExitError } from "./errors.js";
 import { clearArray, cloneArrays, setArrayElement } from "./helpers/array.js";
 import { OK } from "./helpers/result.js";
+import type { StreamingPipelineResult } from "./streaming-pipeline.js";
 import type { InterpreterContext } from "./types.js";
 
 /**
@@ -33,6 +34,7 @@ export async function executePipeline(
   ctx: InterpreterContext,
   node: PipelineNode,
   executeCommand: ExecuteCommandFn,
+  executeStreaming?: () => Promise<StreamingPipelineResult | undefined>,
 ): Promise<ExecResult> {
   // Record start time for timed pipelines
   const startTime = node.timed ? _performanceNow() : 0;
@@ -60,7 +62,15 @@ export async function executePipeline(
   let sharedStdin = ctx.state.groupStdin;
   let sharedStdinSourceFd = ctx.state.groupStdinSourceFd;
 
-  for (let i = 0; i < node.commands.length; i++) {
+  const streamed = await executeStreaming?.();
+  if (streamed) {
+    lastResult = streamed.result;
+    pipestatusExitCodes.push(...streamed.statuses);
+    for (const status of streamed.statuses)
+      if (status !== 0) pipefailExitCode = status;
+  }
+
+  for (let i = 0; !streamed && i < node.commands.length; i++) {
     const command = node.commands[i];
     const isLast = i === node.commands.length - 1;
     const isFirst = i === 0;

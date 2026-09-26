@@ -19,6 +19,7 @@ import {
   SecurityViolationError,
 } from "../security/defense-in-depth-box.js";
 import { _Proxy } from "../security/trusted-globals.js";
+import { BrokenPipeError } from "../streams/byte-pipe.js";
 import { _clearFiniteTimeout, _setTimeoutIfFinite } from "../timers.js";
 import type {
   ExecResult,
@@ -285,6 +286,9 @@ function createRevocableCommandContext(
   const descriptors = Object.getOwnPropertyDescriptors(context);
   Object.assign(descriptors, {
     fs: dataDescriptor(wrapCapability(context.fs)),
+    stdio: dataDescriptor(
+      context.stdio ? wrapCapability(context.stdio) : undefined,
+    ),
     env: dataDescriptor(wrapCapability(context.env)),
     limits: dataDescriptor(Object.freeze({ ...context.limits })),
     exportedEnv: dataDescriptor(
@@ -765,11 +769,16 @@ export async function executeExternalCommand(
   // External commands - resolve via PATH
   // For command -p, use default PATH /usr/bin:/bin instead of $PATH
   const defaultPath = "/usr/bin:/bin";
-  const resolved = await resolveCommandHelper(
-    ctx,
-    commandName,
-    useDefaultPath ? defaultPath : undefined,
-  );
+  const pipelineCommand = ctx.pipelineCommand;
+  ctx.pipelineCommand = undefined;
+  const resolved =
+    pipelineCommand?.name === commandName && !useDefaultPath
+      ? pipelineCommand.resolved
+      : await resolveCommandHelper(
+          ctx,
+          commandName,
+          useDefaultPath ? defaultPath : undefined,
+        );
   if (!resolved) {
     // Check if this is a browser-excluded command for a more helpful error
     if (isBrowserExcludedCommand(commandName)) {
@@ -821,6 +830,30 @@ export async function executeExternalCommand(
     stdin || ctx.state.groupStdin || "",
   );
   let stdinAccessed = false;
+  let inheritedOutputBytes = 0;
+  const inheritOutput = async <T extends ExecResult>(
+    execution: Promise<T>,
+  ): Promise<T> => {
+    const result = await execution;
+    inheritedOutputBytes +=
+      (result.internalOutputAccounting?.stdout ?? 0) +
+      (result.internalOutputAccounting?.stderr ?? 0);
+    return result;
+  };
+  const exec: NonNullable<RuntimeCommandContext["exec"]> = (script, options) =>
+    ctx.execFn(script, options, false);
+  const execWithInheritedStdin: NonNullable<
+    RuntimeCommandContext["execWithInheritedStdin"]
+  > = (script, options) =>
+    ctx.execFn(
+      script,
+      {
+        ...options,
+        stdin: latin1FromBytes(effectiveStdin),
+        stdinKind: "bytes",
+      },
+      true,
+    );
 
   // Build exported environment for commands that need it (printenv, env, etc.)
   // Most builtins need access to the full env to modify state
@@ -883,7 +916,9 @@ export async function executeExternalCommand(
       }
     },
     exportedEnv,
+    stdio: ctx.stdio,
     get stdin() {
+      if (ctx.stdio) throw new Error("Streaming commands must read from stdio");
       stdinAccessed = true;
       return effectiveStdin;
     },
@@ -891,17 +926,9 @@ export async function executeExternalCommand(
     executionScope: cmd.internalIsExtension
       ? createCommandExecutionBudget(ctx.executionScope)
       : ctx.executionScope,
-    exec: (script, options) => ctx.execFn(script, options, false),
+    exec: (script, options) => inheritOutput(exec(script, options)),
     execWithInheritedStdin: (script, options) =>
-      ctx.execFn(
-        script,
-        {
-          ...options,
-          stdin: latin1FromBytes(effectiveStdin),
-          stdinKind: "bytes",
-        },
-        true,
-      ),
+      inheritOutput(execWithInheritedStdin(script, options)),
     fetch: ctx.fetch,
     getRegisteredCommands: () => Array.from(ctx.commands.keys()),
     sleep: ctx.sleep,
@@ -918,6 +945,14 @@ export async function executeExternalCommand(
   let revokeOriginalCommandContext = () => {};
   if (originalCommand) {
     const originalContextDescriptors = Object.getOwnPropertyDescriptors(cmdCtx);
+    originalContextDescriptors.exec = {
+      ...originalContextDescriptors.exec,
+      value: exec,
+    };
+    originalContextDescriptors.execWithInheritedStdin = {
+      ...originalContextDescriptors.execWithInheritedStdin,
+      value: execWithInheritedStdin,
+    };
     originalContextDescriptors.executionScope = {
       value: ctx.executionScope,
       enumerable: true,
@@ -940,9 +975,11 @@ export async function executeExternalCommand(
     cmdCtx.origCommand = (originalArgs) => {
       const executeOriginal = () =>
         originalCommand.execute(originalArgs, guardedOriginalCmdCtx);
-      return originalCommand.trusted
-        ? DefenseInDepthBox.runTrustedAsync(executeOriginal)
-        : DefenseInDepthBox.runUntrustedAsync(executeOriginal);
+      return inheritOutput(
+        originalCommand.trusted
+          ? DefenseInDepthBox.runTrustedAsync(executeOriginal)
+          : DefenseInDepthBox.runUntrustedAsync(executeOriginal),
+      );
     };
   }
   const revocable = createRevocableCommandContext(cmdCtx, commandName);
@@ -974,10 +1011,17 @@ export async function executeExternalCommand(
         ctx.state.signal,
       );
 
-    const commandResult = cmd.trusted
+    let commandResult = cmd.trusted
       ? // Trusted host-extension commands may opt in to unrestricted globals.
         await DefenseInDepthBox.runTrustedAsync(runBoundedCommand)
       : await runBoundedCommand();
+    if (ctx.stdio && cmd.internalIsExtension) {
+      commandResult = ctx.executionScope.accountResult(
+        commandResult,
+        commandName,
+        inheritedOutputBytes,
+      );
+    }
     return {
       ...commandResult,
       internalStdinConsumed:
@@ -985,6 +1029,8 @@ export async function executeExternalCommand(
         (stdinAccessed ? stdin.length : 0),
     };
   } catch (error) {
+    if (error instanceof BrokenPipeError)
+      return { stdout: "", stderr: "", exitCode: 141 };
     // ExecutionLimitError must propagate - these are safety limits
     if (error instanceof ExecutionLimitError) {
       throw error;

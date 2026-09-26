@@ -1,6 +1,7 @@
-import { latin1FromBytes, readBytesFrom } from "../../encoding.js";
+import { EMPTY_BYTES, latin1FromBytes, readBytesFrom } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { readCommandStdin } from "../../streams/command-stdio.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -61,6 +62,7 @@ interface CatOptions {
 
 export const catCommand: RuntimeCommand = {
   name: "cat",
+  streaming: true,
 
   async execute(
     args: string[],
@@ -110,12 +112,24 @@ export const catCommand: RuntimeCommand = {
       numberAll ||
       numberNonblank;
 
+    if (ctx.stdio && !transform && inputs.every((file) => file === "-")) {
+      for (;;) {
+        const chunk = await ctx.stdio.read();
+        if (chunk === null) break;
+        await ctx.stdio.write(chunk);
+      }
+      return { stdout: "", stderr: "", exitCode: 0 };
+    }
+
+    const stdin = inputs.includes("-")
+      ? await readCommandStdin(ctx)
+      : EMPTY_BYTES;
     let stream = "";
     for (const file of inputs) {
       try {
         const content =
           file === "-"
-            ? ctx.stdin
+            ? stdin
             : await readBytesFrom(ctx.fs, ctx.fs.resolvePath(ctx.cwd, file));
         const rawContent = latin1FromBytes(content);
         const contentLength = rawContent.length;

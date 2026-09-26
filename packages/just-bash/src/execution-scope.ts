@@ -325,6 +325,10 @@ export class ExecutionScope {
     this.outputBytes -= bytes;
   }
 
+  depthOf(kind: string): number {
+    return this.depthByKind.get(kind) ?? 0;
+  }
+
   enterDepth(kind: string, site?: string): ResourceLease;
   enterDepth(kind: string, maximum: number, site?: string): ResourceLease;
   enterDepth(
