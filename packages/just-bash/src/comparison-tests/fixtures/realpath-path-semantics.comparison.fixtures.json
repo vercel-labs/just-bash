@@ -1,0 +1,233 @@
+{
+  "0e06a45d71ca833d": {
+    "command": "realpath -L nosuch/.. 2>&1; echo rc=$?",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "realpath: nosuch/..: No such file or directory\nrc=1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "29354e67cd4a9ca3": {
+    "command": "realpath -m --relative-to=. sub/f.txt/.",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "sub/f.txt\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "3bd019c317305215": {
+    "command": "realpath nosuch/. 2>&1; echo rc=$?",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "realpath: nosuch/.: No such file or directory\nrc=1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "55ed3cb17bb7c150": {
+    "command": "ln -s sub/f.txt link && realpath link/ 2>&1; echo rc=$?",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "realpath: link/: Not a directory\nrc=1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "86f76a5279f1744e": {
+    "command": "realpath -s sub/f.txt/x 2>&1; echo rc=$?",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "realpath: sub/f.txt/x: Not a directory\nrc=1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "8e30bb174031f583": {
+    "command": "ln -s 'nosuch/' missingslash && realpath --relative-to=. missingslash",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "nosuch\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "929b20a93617410d": {
+    "command": "ln -s sub/f.txt link && realpath -s link/.. 2>&1; echo rc=$?",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "realpath: link/..: Not a directory\nrc=1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "99390dcc70f63396": {
+    "command": "realpath -s --relative-to=. nosuch/x/y",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "nosuch/x/y\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "a871ba4e66c3f225": {
+    "command": "realpath -L -m --relative-to=. nosuch/..",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": ".\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "aa6e506363652f79": {
+    "command": "ln -s other/deep d && realpath -s --relative-to=. d/g.txt",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "d/g.txt\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "b5bef6e9c63a2fab": {
+    "command": "ln -s other/deep d && realpath -L --relative-to=. d/../sub/f.txt",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "sub/f.txt\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "b7bb2c1255e252fc": {
+    "command": "realpath -L /..",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "/\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "beb7d5429f9c85f4": {
+    "command": "realpath -L --relative-to=. sub/./f.txt",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "sub/f.txt\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "c162795d59925a17": {
+    "command": "realpath sub/f.txt/.. 2>&1; echo rc=$?",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "realpath: sub/f.txt/..: Not a directory\nrc=1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "d324ab0ef3fbd008": {
+    "command": "realpath sub/f.txt/. 2>&1; echo rc=$?",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "realpath: sub/f.txt/.: Not a directory\nrc=1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "d7bbea594e7b23d8": {
+    "command": "realpath -s sub/f.txt/ 2>&1; echo rc=$?",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "realpath: sub/f.txt/: Not a directory\nrc=1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "e3ba8e4864b5c07c": {
+    "command": "realpath --relative-to=. nosuchdir/",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "nosuchdir\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "e643114b6c0f4a36": {
+    "command": "ln -s sub/f.txt link && realpath -L link/.. 2>&1; echo rc=$?",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "realpath: link/..: Not a directory\nrc=1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "f4e121c35395bf23": {
+    "command": "realpath -e --relative-to=. sub/.",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "sub\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "ff4f4b731f4675a3": {
+    "command": "ln -s 'sub/f.txt/' fileslash && realpath fileslash 2>&1; echo rc=$?",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "realpath: fileslash: Not a directory\nrc=1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "ffa42c6887c513d6": {
+    "command": "realpath -s -e nosuch/x 2>&1; echo rc=$?",
+    "files": {
+      "sub/f.txt": "hi\n",
+      "other/deep/g.txt": "there\n"
+    },
+    "stdout": "realpath: nosuch/x: No such file or directory\nrc=1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}
