@@ -2,6 +2,9 @@
 
 This example demonstrates how to extend just-bash with custom TypeScript commands.
 
+For WebAssembly commands, see the [libfx example](../libfx/README.md)
+or the [WASM library adapter example](../wasm-library/README.md).
+
 ## Commands Included
 
 - **uuid** - Generate random UUIDs (`uuid -n 5` for multiple)
@@ -77,4 +80,3 @@ Your command receives a context object with:
 - `env` - Environment variables
 - `stdin` - Standard input (from pipes)
 - `exec` - Function to run subcommands
-

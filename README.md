@@ -17,6 +17,17 @@ This repository hosts the [`just-bash`](./packages/just-bash) package and its ex
 
 See the package's own [README](./packages/just-bash/README.md) for usage documentation.
 
+## WebAssembly examples
+
+Register WASI commands or WASM libraries with
+[`defineWasmCommand`](./packages/just-bash/README.md#webassembly-commands).
+The runtime adds no third-party dependencies.
+
+| Example | Demonstrates |
+| --- | --- |
+| [libfx](./examples/libfx) | A WebAssembly agent from vercel-labs/fx, with prompts, virtual files, and pipelines |
+| [WASM library](./examples/wasm-library) | A freestanding C library with a JavaScript adapter and custom imports |
+
 ## Layout
 
 ```

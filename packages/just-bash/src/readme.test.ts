@@ -148,7 +148,11 @@ function addImpliedImports(code: string): string {
   const imports: string[] = [];
 
   // Check what's used and add appropriate imports
-  if (code.includes("Bash") && !code.includes('from "just-bash"')) {
+  if (
+    code.includes("Bash") &&
+    !code.includes('from "just-bash"') &&
+    !code.includes('from "just-bash/browser"')
+  ) {
     imports.push('import { Bash } from "just-bash";');
   }
   if (code.includes("defineCommand") && !code.includes('from "just-bash"')) {
@@ -187,8 +191,10 @@ function addImpliedImports(code: string): string {
   // Rename duplicate variable declarations to avoid redeclaration errors
   const scopedCode = renameDuplicateDeclarations(codeWithoutImports);
 
-  // Wrap non-import code in async IIFE to create separate scope
-  const wrappedCode = `(async () => {\n${scopedCode}\n})();`;
+  // Keep module exports at top level. Each block is compiled as its own file.
+  const wrappedCode = /(?:^|\n)export\s/.test(scopedCode)
+    ? scopedCode
+    : `(async () => {\n${scopedCode}\n})();`;
 
   if (allImports.length === 0) {
     return wrappedCode;
@@ -246,6 +252,13 @@ export function generateText(options: {
 `;
     fs.writeFileSync(path.join(tmpDir, "ai.d.ts"), aiTypes);
 
+    const workerUrlTypes = `declare module "just-bash/wasm-worker?url" {
+  const url: string;
+  export default url;
+}`;
+    const workerUrlTypesPath = path.join(tmpDir, "wasm-worker-url.d.ts");
+    fs.writeFileSync(workerUrlTypesPath, workerUrlTypes);
+
     // Create a single tsconfig for type checking all files
     const tsconfig = {
       compilerOptions: {
@@ -274,7 +287,7 @@ export function generateText(options: {
           ai: [path.join(tmpDir, "ai.d.ts")],
         },
       },
-      include: files,
+      include: [...files, workerUrlTypesPath],
     };
     fs.writeFileSync(
       path.join(tmpDir, "tsconfig.json"),
