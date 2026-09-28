@@ -131,10 +131,7 @@ export function encodeUtf8ToBytes(
 ): ByteString {
   if (!s) return s as unknown as ByteString;
   assertConversionSize(utf8ByteLength(s), maxBytes, "UTF-8 encode");
-  const bytes = utf8Encoder.encode(s);
-  let out = "";
-  for (let i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
-  return out as unknown as ByteString;
+  return bytesFromUint8Array(utf8Encoder.encode(s), maxBytes);
 }
 
 /** The empty `ByteString`. */
@@ -149,8 +146,18 @@ export function bytesFromUint8Array(
   maxBytes: number = DEFAULT_MAX_CONVERSION_BYTES,
 ): ByteString {
   assertConversionSize(buf.byteLength, maxBytes, "byte-string conversion");
+  // Per-byte concatenation creates a rope node for every byte. Batch the
+  // conversion without exceeding the engine's function-argument limit.
+  // Apply reads the typed array directly, avoiding spread's iterator overhead.
+  const chunkSize = 32768;
   let out = "";
-  for (let i = 0; i < buf.length; i++) out += String.fromCharCode(buf[i]);
+  for (let i = 0; i < buf.length; i += chunkSize) {
+    out += Reflect.apply(
+      String.fromCharCode,
+      null,
+      buf.subarray(i, i + chunkSize),
+    );
+  }
   return out as unknown as ByteString;
 }
 
