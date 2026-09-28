@@ -61,7 +61,7 @@ Each \`exec()\` call gets its own isolated shell state — environment variables
 Extend just-bash with your own TypeScript commands using \`defineCommand\`:
 
 \`\`\`typescript
-import { Bash, defineCommand } from "just-bash";
+import { Bash, decodeBytesToUtf8, defineCommand } from "just-bash";
 
 const hello = defineCommand("hello", async (args, ctx) => {
   const name = args[0] || "world";
@@ -69,7 +69,12 @@ const hello = defineCommand("hello", async (args, ctx) => {
 });
 
 const upper = defineCommand("upper", async (args, ctx) => {
-  return { stdout: ctx.stdin.toUpperCase(), stderr: "", exitCode: 0 };
+  // ctx.stdin is a ByteString — decode to text before string ops.
+  return {
+    stdout: decodeBytesToUtf8(ctx.stdin).toUpperCase(),
+    stderr: "",
+    exitCode: 0,
+  };
 });
 
 const bash = new Bash({ customCommands: [hello, upper] });
@@ -78,7 +83,242 @@ await bash.exec("hello Alice"); // "Hello, Alice!\\n"
 await bash.exec("echo 'test' | upper"); // "TEST\\n"
 \`\`\`
 
-Custom commands receive a \`CommandContext\` with \`fs\`, \`cwd\`, \`env\`, \`stdin\`, and \`exec\` (for subcommands), and work with pipes, redirections, and all shell features.
+Custom command callbacks receive a \`ResolvedCommandContext\` with \`fs\`, \`cwd\`,
+\`env\`, \`stdin\`, resolved \`limits\`, and \`exec\` (for subcommands), and work with
+pipes, redirections, and all shell features. The legacy \`CommandContext\` remains
+available for standalone context inputs; use \`createCommandContext({ fs })\` when
+calling a command directly with a fully resolved context.
+
+Host-provided commands preserve the legacy trusted default whether supplied to
+the \`Bash\` constructor, declared through \`defineCommand\`, loaded lazily, or
+added later with \`bash.registerCommand()\`. Set \`trusted: false\` (or use
+\`defineCommand(name, execute, { trusted: false })\`) to select the restricted
+extension boundary. Trusted commands run in the embedding process and should
+never execute guest-provided JavaScript.
+
+Every invocation is bound by \`maxExecutionTimeMs\`. On cancellation, just-bash
+revokes the command context immediately; \`maxExtensionCleanupTimeMs\` only
+bounds how long it waits for the now-authority-free command promise to settle.
+A late continuation cannot use \`ctx.fs\`, \`ctx.env\`, \`ctx.exec\`, or other context
+capabilities. Cleanup work that must run at scope closure can be registered with
+\`ctx.executionScope.registerCleanup()\`. A cleanup failure is returned as a
+generic exit-126 shell result rather than rejecting \`Bash.exec()\` or exposing
+host error details. JavaScript cannot forcibly stop arbitrary host code, so
+extensions requiring a hard guarantee against external side effects must run
+in a terminable worker or process. Tests that invoke command objects directly
+can use \`createCommandContext({ fs })\` to get a fully resolved context without
+duplicating internal defaults.
+
+## WebAssembly Commands
+
+Register a WebAssembly binary with \`defineWasmCommand\`. WASI Preview 1 commands
+work by default; libraries with other interfaces use an explicit adapter.
+Each invocation runs in a disposable worker with a deadline and memory limits.
+The WASM runner and WASI adapter are implemented in this repository and add no
+third-party dependencies.
+
+### Example: libfx
+
+Run the WebAssembly agent from [vercel-labs/fx](https://github.com/vercel-labs/fx)
+as a shell command. The [libfx example](https://github.com/vercel-labs/just-bash/tree/main/examples/libfx)
+includes the adapter and setup instructions for Node.js with JSPI enabled.
+Install \`libfx@0.0.10\` in the consuming application to use its SDK and binary:
+
+\`\`\`typescript
+import { readFile } from "node:fs/promises";
+import { Bash, defineWasmCommand } from "just-bash";
+
+const apiKey = process.env.AI_GATEWAY_API_KEY;
+if (!apiKey) throw new Error("Set AI_GATEWAY_API_KEY");
+const wasmUrl = new URL("./fx-core.wasm", import.meta.resolve("libfx/wasm"));
+const bash = new Bash({
+  cwd: "/project",
+  env: { AI_GATEWAY_API_KEY: apiKey, FX_MODEL: "google/gemini-2.5-flash-lite" },
+  files: { "/project/notes.md": "WASM commands support pipes and virtual files.\\n" },
+  executionLimits: { maxExecutionTimeMs: 120_000 },
+  customCommands: [
+    defineWasmCommand("fx", {
+      wasm: new Uint8Array(await readFile(wasmUrl)),
+      adapter: new URL("./fx-adapter.mjs", import.meta.url),
+      timeoutMs: 120_000,
+    }),
+  ],
+});
+
+const result = await bash.exec(
+  'echo "Keep it brief." | fx "Read notes.md and summarize the release." > summary.md && cat summary.md',
+);
+console.log(result.stdout);
+\`\`\`
+
+The adapter passes \`ctx.module\` to \`createFxAgent\` from \`libfx/wasm\`. The SDK
+supplies its own WASI and async host imports, while the adapter connects prompt
+input, text output, and a \`read_file\` tool to the shell. Gateway requests use the
+SDK's host \`fetch\`; the shell's network settings do not apply to adapter code.
+libfx is an example dependency only.
+
+### WASI commands
+
+The default adapter runs a **WASI Preview 1 command binary**. Its arguments,
+exported environment, stdin, stdout, and files connect to the shell:
+
+\`\`\`typescript
+import { readFile } from "node:fs/promises";
+import { defineWasmCommand } from "just-bash";
+
+const tool = defineWasmCommand("tool", {
+  wasm: new Uint8Array(await readFile("./tool.wasm")),
+});
+\`\`\`
+
+Register \`tool\` in \`new Bash({ customCommands: [tool] })\`.
+\`defineWasiCommand\` is also available as a shorthand that selects WASI explicitly.
+Binaries are supplied by your application; they are not bundled with just-bash.
+An asynchronous loader is also supported:
+\`wasm\` may be an async function that receives an \`AbortSignal\` and returns a
+\`Uint8Array\`. When fetching bytes, check \`response.ok\` before reading the body,
+as in the [browser example](#browser-setup).
+The loader runs as trusted host code and is called once per invocation.
+
+### WASM library adapters
+
+An adapter is a trusted JavaScript module whose default-exported function maps
+the shell's inputs to a library's exports:
+
+\`\`\`typescript
+import { readFile } from "node:fs/promises";
+import { defineWasmCommand } from "just-bash";
+
+const rot13 = defineWasmCommand("rot13", {
+  wasm: new Uint8Array(await readFile("./rot13.wasm")),
+  adapter: new URL("./rot13-adapter.mjs", import.meta.url),
+});
+\`\`\`
+
+Register \`rot13\` in \`new Bash({ customCommands: [rot13] })\`. The
+[library example](https://github.com/vercel-labs/just-bash/tree/main/examples/wasm-library)
+provides both files.
+
+For example, an adapter for a library exporting an \`add\` function could be:
+
+\`\`\`typescript
+import type { WasmAdapter } from "just-bash";
+
+const adapter: WasmAdapter = async (ctx) => {
+  const numbers = ctx.args.map(Number);
+  if (numbers.length !== 2 || numbers.some((n) => !Number.isFinite(n))) {
+    ctx.stderr.write("Usage: add NUMBER NUMBER\\n");
+    return 2;
+  }
+  const { exports } = await ctx.instantiate();
+  if (typeof exports.add !== "function") throw new Error("Missing add export");
+  ctx.stdout.write(\`\${exports.add(...numbers)}\\n\`);
+};
+export default adapter;
+\`\`\`
+
+Compile the adapter to JavaScript and register its absolute module URL. Node
+loads local \`file:\` modules; browsers load served HTTP(S) modules. The adapter
+executes inside the invocation's worker and can use \`ctx.stdin\`, \`ctx.stdout\`,
+\`ctx.stderr\`, synchronous \`ctx.fs\` operations, and \`ctx.env\`. Adapter filesystem
+paths resolve relative to the shell cwd. Return an exit code or void for success.
+
+\`ctx.instantiate(imports)\` links explicit imports and enforces the supplied
+module's memory/table limits. It can be called once per invocation. Modules
+without memory or \`_start\` are supported, as are bounded imported memories and
+function tables. Adapters can also use \`ctx.wasi.imports\`, \`ctx.wasi.start()\` and
+\`ctx.wasi.initialize()\` for libraries that need WASI services.
+
+SDKs that instantiate internally can accept \`ctx.module\`, the compiled module
+with the same memory/table bounds. These bounds apply per instance. The trusted
+adapter must ensure the SDK creates only one instance; the runner does not
+enforce an instantiation count through the SDK. The libfx example uses this API.
+
+The [WASM library example](https://github.com/vercel-labs/just-bash/tree/main/examples/wasm-library)
+includes a freestanding C library, custom imports, an adapter, and shell pipelines.
+Adapters are trusted application code: their callbacks define what the guest
+can access and must validate guest pointers/lengths. Generated SDKs or Emscripten
+glue need integration with \`ctx.instantiate()\` or \`ctx.module\` and the virtual
+I/O APIs. The runner does not automatically infer a library's ABI, and module
+limits do not bound arbitrary JavaScript allocations or external operations
+in an adapter.
+
+### WASI compatibility
+
+The default WASI adapter supports the following:
+
+- Accepts wasm32 core modules importing \`wasi_snapshot_preview1\` and exporting
+  \`memory\` and \`_start\`. Other imports and Emscripten glue require a custom
+  adapter. WASI Preview 2 components, shared memories, and threads are unsupported
+  by the runner.
+- Supports file reads/writes, seeking, truncation, directory listing, stat,
+  rename, deletion, and links through the configured \`IFileSystem\`. Binary data
+  is preserved through pipes and redirections. Guest exit codes are returned.
+- **Guest paths start at \`/\`.** WASI Preview 1 has no portable initial cwd.
+  \`PWD\` contains the shell's working directory: use \`tool "$PWD/notes.md"\`
+  after \`cd\`, or use absolute virtual paths. The whole virtual root is preopened.
+- Sockets, subprocesses, polling/sleep, file allocation, and setting timestamps
+  are unsupported. Unsupported calls return a WASI error or fail the command.
+  Programs that need these facilities require adaptation.
+- Descriptors use virtual paths. Removing an open file/directory or replacing
+  an open destination returns \`EBUSY\`; rename updates open source descriptors.
+  Concurrent namespace mutation by another filesystem user is unsupported.
+- The module is compiled for each invocation. Large binaries have a noticeable
+  startup cost.
+
+### Limits
+
+| Option | Default | Scope |
+| --- | --- | --- |
+| \`timeoutMs\` | 30,000 | Loading, compilation, and execution |
+| \`maxMemoryBytes\` | 256 MiB | Linear memory per instance; rounded down to 64 KiB pages |
+| \`maxModuleBytes\` | 64 MiB | Supplied binary size |
+| \`maxFileBytes\` | 64 MiB | Individual file read/write size |
+| \`maxTableElements\` | 1,000,000 | Function table size per instance |
+
+Shell execution limits also apply, including output, file descriptors, work,
+worker messages, and live bytes. Memory and table maxima are enforced before
+instantiation. The resolved memory limit can be lower than \`maxMemoryBytes\`
+when the shell's remaining live byte budget is smaller. A timeout or cancellation
+terminates the worker (exit 124); module/runner failures return exit 126. A custom
+host loader must cooperate with its abort signal to stop its own external work.
+
+### Browser setup
+
+Import from \`just-bash/browser\`. Browser execution requires a Web Worker and
+\`SharedArrayBuffer\`; serve the page with these headers:
+
+\`\`\`text
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+\`\`\`
+
+For bundlers such as Vite, pass the exported worker asset URL explicitly:
+
+\`\`\`typescript
+import { Bash, defineWasmCommand } from "just-bash/browser";
+import workerUrl from "just-bash/wasm-worker?url";
+
+const bash = new Bash({
+  cwd: "/",
+  customCommands: [
+    defineWasmCommand("tool", {
+      workerUrl,
+      timeoutMs: 60_000,
+      wasm: async (signal) => {
+        const response = await fetch("/tool.wasm", { signal });
+        if (!response.ok) throw new Error("Could not load WASM command");
+        return new Uint8Array(await response.arrayBuffer());
+      },
+    }),
+  ],
+});
+\`\`\`
+
+You can also copy \`just-bash/wasm-worker\` to a public asset directory and supply
+its URL (\`just-bash/wasi-worker\` is an alias). For custom adapters, serve the
+adapter and its dependencies as a separate JavaScript module. Hosts without
+cross-origin isolation cannot run these WebAssembly commands.
 
 <details>
 <summary><h2>Supported Commands</h2></summary>
@@ -168,6 +408,17 @@ await env.exec("while true; do sleep 1; done", { signal: controller.signal });
 await env.exec("cat <<EOF\\n  indented\\nEOF", { rawScript: true });
 \`\`\`
 
+### Timezone
+
+\`date\` defaults to UTC (\`%Z=UTC\`, \`%z=+0000\`) regardless of the host clock, so the sandbox does not leak the host timezone. To opt into a specific zone, pass \`TZ\` as an initial env var:
+
+\`\`\`typescript
+const bash = new Bash({ env: { TZ: "America/New_York" } });
+await bash.exec("date"); // Mon Jun  1 09:30:00 EDT 2026
+\`\`\`
+
+\`-u\` always forces UTC; an unset or invalid \`$TZ\` falls back to UTC. Setting \`TZ\` exposes that timezone to scripts running in the sandbox, so only pass a value you are comfortable revealing — forwarding the host's real \`$TZ\` (e.g. \`process.env.TZ\`) reintroduces the disclosure that the UTC default exists to prevent.
+
 \`exec()\` options:
 
 | Option | Type | Description |
@@ -205,12 +456,20 @@ const env = new Bash({
 import { Bash } from "just-bash";
 import { OverlayFs } from "just-bash/fs/overlay-fs";
 
-const overlay = new OverlayFs({ root: "/path/to/project" });
+const overlay = new OverlayFs({
+  root: "/path/to/project",
+  // Copy-on-write data is bounded independently from real-file reads.
+  maxMemoryBytes: 256 * 1024 * 1024,
+});
 const env = new Bash({ fs: overlay, cwd: overlay.getMountPoint() });
 
 await env.exec("cat package.json"); // reads from disk
 await env.exec('echo "modified" > package.json'); // stays in memory
 \`\`\`
+
+\`maxMemoryBytes\` defaults to 1 GiB and covers aggregate files retained in the
+copy-on-write layer, including append chunks. Set it to the deployment's memory
+budget when an \`OverlayFs\` is reused across executions.
 
 **ReadWriteFs** - Direct read-write access to a real directory. Use this if you want the agent to be able to write to your disk:
 
@@ -225,6 +484,53 @@ await env.exec('echo "hello" > file.txt'); // writes to real filesystem
 \`\`\`
 
 Keep \`ReadWriteFs\` pointed at a workspace directory, not at the installed \`just-bash\` package or any other trusted runtime code. Guest-writable roots should stay separate from trusted code.
+
+\`ReadWriteFs\` uses normal in-place filesystem operations for private regular
+files. For multiply-linked regular files, it isolates append and metadata
+changes by copying the file and replacing only the sandbox directory entry, so
+a host-created hard link cannot carry those changes beyond the configured root.
+Implicit copies are limited by \`maxCopyOnWriteSize\` (100 MB by default; set it
+to \`0\` to disable the limit). Overwrite does not need to copy existing content.
+Explicit \`cp\` copies can be limited with the opt-in \`maxCopySize\` option
+(unlimited by default). The portable copy path may materialize sparse-file
+holes, so embeddings that require a disk-allocation bound should configure
+\`maxCopySize\`.
+
+Shared-inode isolation has a few deliberate limitations:
+
+- Append, \`chmod\`, and \`utimes\` on a multiply-linked regular file require read
+  access to the file and write access to its parent directory. They fail with
+  \`EFBIG\` when the file exceeds \`maxCopyOnWriteSize\`.
+- Copies use \`O_NOATIME\` when the Node.js runtime exposes it and retry with
+  normal read semantics if the kernel returns \`EPERM\`. Runtimes and platforms
+  without \`O_NOATIME\` may update access-time metadata visible through another
+  hard link.
+- Do not mutate a \`ReadWriteFs\` root concurrently through direct host filesystem
+  APIs. Node.js does not expose the descriptor-relative operations needed to
+  make pathname validation atomic against an external actor. A concurrent host
+  append to a multiply-linked file may be lost when the isolated entry is
+  replaced.
+- Mutations in overlapping \`ReadWriteFs\` roots are serialized within the
+  process. Unrelated roots proceed independently. The queue is not cancellable
+  or bounded, so a large mutation can delay later operations in overlapping
+  roots even if the requesting script is subsequently aborted.
+- Content writes and appends to FIFOs, sockets, devices, and other special files
+  are rejected. This avoids indefinitely occupying an overlapping-root mutation
+  slot on a blocking special-file open. Metadata operations remain supported
+  for single-link special files; multiply-linked special files are rejected
+  because they cannot be isolated without changing their file type.
+- Private-file and single-link special-file metadata operations use pathname
+  APIs to preserve normal host permission semantics. They are not atomic
+  against a trusted host actor concurrently replacing that pathname with a
+  symlink. With \`allowSymlinks: false\`, symlinks present during normal path
+  validation are still rejected.
+- Copying a symlink preserves whether its guest target is absolute or relative.
+  Only symlinks whose resolved targets remain inside the root are copied.
+- Regular-file copies replace the destination entry to prevent writes through
+  hard links. Existing destinations must still be writable, and their parent
+  directory must be writable so the isolated entry can be committed. Thus a
+  writable destination in a non-writable directory cannot be copied over.
+  Copying over a FIFO, socket, device, or other special entry is rejected.
 
 **MountableFs** - Mount multiple filesystems at different paths. Combines read-only and read-write filesystems into a unified namespace:
 
@@ -384,7 +690,7 @@ await env.exec('js-exec -c "console.log(API_BASE)"');
 
 \`fs.readFileSync()\` returns a \`Buffer\` by default (matching Node.js). Pass an encoding like \`'utf8'\` to get a string.
 
-**Note:** The \`js-exec\` command only exists when \`javascript\` is configured. It is not available in browser environments. Execution runs in a QuickJS WASM sandbox with a 64 MB memory limit and configurable timeout (default: 10s, 60s with network).
+**Note:** The \`js-exec\` command only exists when \`javascript\` is configured. It is not available in browser environments. Execution uses the \`run\` package's QuickJS sandbox with a 64 MB memory limit and configurable timeout (30 seconds in the default \`normal\` profile and 10 seconds in the opt-in \`hardened\` profile). Enabling network access does not extend the configured deadline.
 
 #### Tool Invocation Hook
 
@@ -398,9 +704,10 @@ const bash = new Bash({
     // argsJson: '{"a":1,"b":2}'  (or "" for no args)
     // return:   JSON-stringified result, or "" for undefined
     // throw:    propagates as a sandbox exception
-    invokeTool: async (path, argsJson) => {
-      const args = argsJson ? JSON.parse(argsJson) : {};
+    invokeTool: async (path, argsJson, abortSignal) => {
+      const args = argsJson ? JSON.parse(argsJson) : undefined;
       if (path === "math.add") {
+        abortSignal.throwIfAborted();
         return JSON.stringify({ sum: args.a + args.b });
       }
       throw new Error(\`Unknown tool: \${path}\`);
@@ -410,6 +717,10 @@ const bash = new Bash({
 
 await bash.exec(\`js-exec -c 'console.log((await tools.math.add({a:3,b:4})).sum)'\`);
 \`\`\`
+
+The \`abortSignal\` fires when the JavaScript execution is canceled or times
+out. Tool implementations should forward it to network requests and other
+cancelable work so effects do not outlive the sandbox execution.
 
 The hook is generic — wire any tool framework through it (raw maps, MCP,
 Anthropic tool-use, etc.). For full GraphQL / OpenAPI / MCP discovery via
@@ -449,7 +760,7 @@ await env.exec('sqlite3 :memory: "SELECT 1 + 1"');
 await env.exec('sqlite3 data.db "SELECT * FROM users"');
 \`\`\`
 
-**Note:** SQLite is not available in browser environments. Queries run in a worker thread with a configurable timeout (default: 5 seconds) to prevent runaway queries from blocking execution.
+**Note:** SQLite is not available in browser environments. Queries run in a worker thread with a configurable timeout (30 seconds in the default \`normal\` profile and 5 seconds in the opt-in \`hardened\` profile) to prevent runaway queries from blocking execution.
 
 ## AST Transform Plugins
 
@@ -587,30 +898,79 @@ Bash protects against infinite loops and deep recursion with configurable limits
 
 \`\`\`typescript
 const env = new Bash({
+  // \`normal\` is the liberal, compatibility-oriented default. Use \`hardened\`
+  // for tighter untrusted-workload policy, then override individual resources.
+  executionLimitProfile: "hardened",
   executionLimits: {
     maxCallDepth: 100, // Max function recursion depth
-    maxCommandCount: 10000, // Max total commands executed
-    maxLoopIterations: 10000, // Max iterations per loop
-    maxAwkIterations: 10000, // Max iterations in awk programs
-    maxSedIterations: 10000, // Max iterations in sed scripts
+    maxCommandCount: 20000, // Shared across nested execution
+    maxSourceBytes: 8 * 1024 * 1024, // Shell source before parsing
+    maxFileSystemBytes: 256 * 1024 * 1024, // Retained default-FS data
+    maxOutputSize: 32 * 1024 * 1024, // Aggregate stdout + stderr bytes
+    maxArchiveBytes: 256 * 1024 * 1024, // Expanded archive bytes
+    maxDatabaseBytes: 128 * 1024 * 1024, // SQLite image bytes
+    maxExecutionTimeMs: 30_000, // Whole execution wall-clock deadline
+    maxExtensionCleanupTimeMs: 25, // Cancellation acknowledgement grace
   },
 });
 \`\`\`
 
-All limits have defaults. Error messages tell you which limit was hit. Increase as needed for your workload.
+All resources remain bounded by default in both profiles. Explicit values
+override the selected profile; non-negative safe integers and the legacy
+\`Infinity\` spelling are accepted. Infinite deadlines omit the corresponding
+platform timer rather than overflowing it; \`js-exec\` maps an infinite
+JavaScript deadline to \`run\`'s longest timeout (about 24.9 days). Invalid
+values are rejected when \`Bash\` is constructed. Error messages identify the
+resource that was hit.
 
 ## Security Model
+
+The Node.js package requires Node \`>=20.19\`.
 
 - The shell only has access to the provided filesystem.
 - All execution happens without VM isolation. This does introduce additional risk. The code base was designed to be robust against prototype-pollution attacks and other break outs to the host JS engine and filesystem.
 - There is no network access by default. When enabled, requests are checked against URL prefix allow-lists and HTTP-method allow-lists.
 - Python and JavaScript execution are off by default as they represent additional security surface.
+- WASI commands are registered explicitly by the host. Guest code runs inside
+  WebAssembly with only WASI imports and the shell's virtual filesystem. It has
+  no direct host filesystem, network, process, or JavaScript access. A configured
+  \`ReadWriteFs\` still grants its usual writes to disk. The built-in WASI runtime and host
+  bridge are trusted code; workers provide termination, while WebAssembly and
+  the restricted imports provide guest isolation. Linear memory limits do not
+  constitute a total process memory limit.
+- Custom WebAssembly adapters are trusted JavaScript modules running inside the
+  worker. They define the guest's imports and can use the worker's host APIs.
+  Only register adapters you control; the guest cannot select its own adapter.
+- \`js-exec\` guest code runs inside the \`run\` package's QuickJS/WASM realm. Its
+  primary isolation boundary is QuickJS plus the validated, bounded host
+  bridge; guest JavaScript does not execute in the Node worker realm.
 - Execution is protected against infinite loops and deep recursion with configurable limits.
+- Host-realm defense-in-depth uses the strongest scoped controls available on
+  each supported Node runtime. Where \`node:module.registerHooks()\` is present,
+  builtin ESM imports can also be denied only for the untrusted async context;
+  older runtimes retain best-effort scoped protection without failing existing
+  applications. It never installs a process-global deny-all loader. Query the
+  resolved capabilities with \`DefenseInDepthBox.getInstance().getStatus()\`.
+  Audit mode reports \`level: "none"\` because it records violations without
+  enforcing them.
+- Scoped defense uses reversible proxies for \`Reflect\`, \`JSON\`, and \`Math\` and
+  restores their host descriptors on deactivation. This is reported as
+  \`intrinsicProtection: "scoped-best-effort"\`: same-realm JavaScript that
+  cached an intrinsic or a mutation function before activation cannot be fully
+  revoked (including the direct \`delete\` operator). The separately named
+  \`processLifetimeIntrinsicHardening: true\` option permanently freezes those
+  objects and locks selected well-known Symbol descriptors; use it only in a
+  disposable or process-lifetime realm. Use an isolated worker/process when
+  complete protection and reversible host state are both required.
+- Node worker \`resourceLimits\` do not reliably cap the WebAssembly linear memory used by CPython or sql.js. Queue, deadline, file, database, bridge, and payload limits reduce exposure, but strong memory containment for these opt-in runtimes requires process/container isolation or a WASM build with a lower hard maximum.
 - Use [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) if you need a full VM with arbitrary binary execution.
 
 ## Browser Support
 
 The core shell (parsing, execution, filesystem, and all built-in commands) works in browser environments. The following features require Node.js and are unavailable in browsers: \`python3\`/\`python\`, \`sqlite3\`, \`js-exec\`, and \`OverlayFs\`/\`ReadWriteFs\` (which access the real filesystem).
+
+Opt-in [WebAssembly commands](#webassembly-commands) also support browsers with workers and
+cross-origin isolation.
 
 ## Default Layout
 
@@ -841,7 +1201,7 @@ limitations under the License.
 
 export const FILE_PACKAGE_JSON = `{
   "name": "just-bash",
-  "version": "2.14.3",
+  "version": "3.4.2",
   "description": "A simulated bash environment with virtual filesystem",
   "repository": {
     "type": "git",
@@ -923,9 +1283,11 @@ const result = await bash.exec("cat input.txt | grep pattern");
 
 3. **No network by default**: \`curl\` doesn't exist unless you configure \`network\` options with URL allowlists.
 
-4. **No binaries/WASM**: Only built-in commands work. You cannot run node, python, or other binaries.
+4. **Host-configured commands**: The host can enable Python/JavaScript runtimes and register custom commands. WebAssembly requires host registration through \`defineWasmCommand\`: WASI Preview 1 commands use the default adapter, and other core WASM libraries need a trusted JavaScript adapter. A \`.wasm\` file is not automatically executable. Native executables are unsupported.
 
 5. **ReadWriteFs root separation**: If you use \`ReadWriteFs\`, point it at a workspace directory, not at the installed \`just-bash\` package or other trusted runtime code.
+
+6. **UTC by default**: \`date\` always shows UTC (\`%Z=UTC\`, \`%z=+0000\`) unless the host opts in by passing \`TZ\` as an env var (e.g. \`new Bash({ env: { TZ: "America/New_York" } })\`). \`-u\` always forces UTC; an invalid \`$TZ\` falls back to UTC.
 
 ## Available Commands
 
@@ -1097,7 +1459,7 @@ cat data.csv | awk -F',' '{sum += $3} END {print sum}'
 
 - **32-bit integers only**: Arithmetic operations use 32-bit signed integers
 - **No job control**: No \`&\`, \`bg\`, \`fg\`, or process suspension
-- **No external binaries**: Only built-in commands are available
+- **Command availability**: Optional runtimes and custom WASM commands require host configuration. Use \`command -v NAME\` to check whether a command is available.
 - **Execution limits**: Loops, recursion, command counts, and output sizes have configurable limits to prevent runaway execution (exit code 126 when exceeded)
 
 ## Error Handling
@@ -1186,11 +1548,76 @@ Key types to explore:
 - \`BashOptions\` - Constructor options for \`new Bash()\`
 - \`ExecResult\` - Return type of \`bash.exec()\`
 - \`InitialFiles\` - File specification format
+
+## Bundling just-bash
+
+just-bash ships pre-bundled (\`dist/bundle/index.js\`, \`index.cjs\`), but a handful
+of dependencies are deliberately left **external** — the bundle imports them by
+name instead of inlining them. Under plain Node this is invisible: they are
+declared dependencies, so the package manager installs them and the imports
+resolve at runtime.
+
+It matters when you run just-bash through **another** bundler (Next.js,
+webpack, esbuild, rollup) for a serverless or edge target. That bundler will try
+to inline these, and some of them cannot be inlined. Mark all six as external:
+
+| Package | What it is |
+| --- | --- |
+| \`@mongodb-js/zstd\` | native binding (\`optionalDependencies\`) |
+| \`node-liblzma\` | native binding (\`optionalDependencies\`) |
+| \`sql.js\` | ships a \`.wasm\` asset |
+| \`run\` | embeds the QuickJS WASM runtime |
+| \`seek-bzip\` | CommonJS-only bzip2 decoder |
+| \`guarded-fetch\` | imports \`node:dns/promises\`, \`node:net\`, \`node:dns\` |
+
+\`guarded-fetch\` is the one that bites bundlers targeting a non-Node context:
+inlining it pulls in Node builtins, and a bundler whose chunking context has no
+concept of them fails the build (Turbopack reports \`the chunking context
+(unknown) does not support external modules (request: node:dns/promises)\`).
+
+Next.js 15+:
+
+\`\`\`ts
+// next.config.ts
+const nextConfig = {
+  serverExternalPackages: [
+    "just-bash",
+    "@mongodb-js/zstd",
+    "node-liblzma",
+    "seek-bzip",
+    "sql.js",
+    "run",
+    "guarded-fetch",
+  ],
+};
+\`\`\`
+
+Older Next.js uses \`experimental.serverComponentsExternalPackages\`. webpack:
+add them to \`externals\` (or use \`webpack-node-externals\`). esbuild/rollup:
+\`--external:<name>\` / \`external: [...]\`.
+
+**Node version**: just-bash requires Node \`>=20.19\` (\`guarded-fetch\`'s floor).
+
+**Optional dependencies**: \`@mongodb-js/zstd\` and \`node-liblzma\` are declared
+in \`optionalDependencies\`, so an install that cannot build them still succeeds.
+Only the compression they provide is lost: \`tar -J\` then exits non-zero with
+\`xz compression requires node-liblzma which failed to load\`, rather than
+crashing the interpreter. The other four are regular dependencies and are
+required.
 `;
 
 export const FILE_WTF_IS_THIS = `# just-bash website at https://justbash.dev/
 
 This is an interactive demo of **just-bash** running entirely in your browser, with an AI agent that can explore the source code.
+
+The paid-model \`/api/agent\` route is disabled by default in production. Set
+\`JUST_BASH_AGENT_API_TOKEN\` and have an authenticated same-origin gateway add
+\`Authorization: Bearer <token>\` to enable it. Never embed this server token in
+browser JavaScript. The route also bounds request history, output tokens,
+agent steps, retries, body-read and execution time, per-instance concurrency,
+and admission rate. Production deployments should also add distributed provider/edge
+per-principal rate and spend limits; an instance-local counter is not a global
+quota in a horizontally scaled deployment.
 
 ## Architecture
 

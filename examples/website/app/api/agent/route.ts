@@ -205,6 +205,7 @@ Key features of just-bash:
 - In-memory virtual filesystem
 - Supports common bash commands: ls, cat, grep, awk, sed, jq, etc.
 - Custom command support via defineCommand
+- Host-registered WebAssembly commands via defineWasmCommand, with WASI Preview 1 support and trusted adapters for other core WASM libraries
 - Network access control with URL allowlists
 
 Use cat to read files. Use head, tail to read parts of large files.
