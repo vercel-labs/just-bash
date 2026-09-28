@@ -17,6 +17,23 @@ const WORKERS = [
     js: "src/commands/sqlite3/worker.js",
     external: ["sql.js"],
   },
+  {
+    name: "wasm-node",
+    rebuild: "pnpm build:wasm",
+    ts: "src/wasm/worker.node.ts",
+    js: "src/wasm/wasm-worker.js",
+    minify: true,
+    legalComments: "eof",
+  },
+  {
+    name: "wasm-browser",
+    rebuild: "pnpm build:wasm",
+    ts: "src/wasm/worker.browser.ts",
+    js: "src/wasm/wasm-worker.browser.js",
+    platform: "browser",
+    minify: true,
+    legalComments: "eof",
+  },
 ];
 
 function normalize(content) {
@@ -43,6 +60,7 @@ async function main() {
   let failed = false;
 
   for (const worker of WORKERS) {
+    const rebuild = worker.rebuild ?? "pnpm build:worker";
     const tsPath = resolve(worker.ts);
     const jsPath = resolve(worker.js);
 
@@ -52,7 +70,7 @@ async function main() {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(
-        `[FAIL] Could not read ${jsPath}: ${message}\nRun: pnpm build:worker`,
+        `[FAIL] Could not read ${jsPath}: ${message}\nRun: ${rebuild}`,
       );
       failed = true;
       continue;
@@ -63,8 +81,10 @@ async function main() {
       const result = await build({
         entryPoints: [tsPath],
         bundle: true,
-        platform: "node",
+        platform: worker.platform ?? "node",
         format: "esm",
+        minify: worker.minify ?? false,
+        legalComments: worker.legalComments,
         write: false,
         external: worker.external,
         logLevel: "silent",
@@ -89,7 +109,7 @@ async function main() {
           `Generated hash: ${generatedHash}\n` +
           `Checked-in hash: ${existingHash}\n` +
           `First differing line: ${firstDiffLine}\n` +
-          "Run: pnpm build:worker",
+          `Run: ${rebuild}`,
       );
       failed = true;
     }
