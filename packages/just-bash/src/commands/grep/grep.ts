@@ -511,6 +511,7 @@ export const grepCommand: RuntimeCommand = {
         maxWork: getMatcherWorkLimit(ctx),
         maxMatches: ctx.limits.maxArrayElements,
         signal: ctx.signal,
+        budget: ctx.executionScope,
       });
       if (quietMode) {
         return { stdout: "", stderr: "", exitCode: result.matched ? 0 : 1 };
@@ -707,6 +708,7 @@ export const grepCommand: RuntimeCommand = {
                 ? content.toLowerCase()
                 : content;
               if (!preFilter.needles.some((n) => haystack.includes(n))) {
+                ctx.executionScope?.throwIfAborted("grep");
                 if (countOnly) {
                   const countStr = showFilename ? `${file}:0` : "0";
                   return {
@@ -739,6 +741,7 @@ export const grepCommand: RuntimeCommand = {
               maxWork: getMatcherWorkLimit(ctx),
               maxMatches: ctx.limits.maxArrayElements,
               signal: ctx.signal,
+              budget: ctx.executionScope,
             });
 
             return { file, result };
