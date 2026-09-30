@@ -198,6 +198,8 @@ interface EmscriptenStream {
   position: number;
   // Custom properties for HOSTFS
   hostContent?: Uint8Array;
+  // Logical file size; hostContent may have spare capacity after growing.
+  hostLength?: number;
   hostModified?: boolean;
   hostPath?: string;
 }
@@ -565,11 +567,12 @@ function createHOSTFS(
         }
 
         stream.hostContent = content;
+        stream.hostLength = content.length;
         stream.hostModified = isTruncate && isWrite;
         stream.hostPath = path;
 
         if (isAppend) {
-          stream.position = content.length;
+          stream.position = stream.hostLength;
         }
       },
 
@@ -577,9 +580,13 @@ function createHOSTFS(
         const hostPath = stream.hostPath;
         const hostContent = stream.hostContent;
         if (stream.hostModified && hostContent && hostPath) {
-          tryFSOperation(() => backend.writeFile(hostPath, hostContent));
+          const hostLength = stream.hostLength ?? hostContent.length;
+          tryFSOperation(() =>
+            backend.writeFile(hostPath, hostContent.subarray(0, hostLength)),
+          );
         }
         delete stream.hostContent;
+        delete stream.hostLength;
         delete stream.hostModified;
         delete stream.hostPath;
       },
@@ -594,7 +601,7 @@ function createHOSTFS(
         const content = stream.hostContent;
         if (!content) return 0;
 
-        const size = content.length;
+        const size = stream.hostLength ?? content.length;
         if (position >= size) return 0;
 
         const bytesToRead = Math.min(length, size - position);
@@ -621,17 +628,28 @@ function createHOSTFS(
         ) {
           throw new FS.ErrnoError(ERRNO_CODES.EFBIG);
         }
-        let content = stream.hostContent || new Uint8Array(0);
-        const newSize = Math.max(content.length, position + length);
+        // A zero-byte write must not extend the file after a seek past EOF.
+        if (length === 0) return 0;
 
-        if (newSize > content.length) {
-          const newContent = new Uint8Array(newSize);
-          newContent.set(content);
+        let content = stream.hostContent || new Uint8Array(0);
+        const currentLength = stream.hostLength ?? content.length;
+        const newLength = Math.max(currentLength, position + length);
+
+        if (newLength > content.length) {
+          // Geometric growth makes repeated small writes copy O(n) bytes in
+          // total, instead of O(n²). Spare capacity stays within the file limit.
+          const newCapacity = Math.min(
+            maxFileSize,
+            Math.max(newLength, content.length * 2),
+          );
+          const newContent = new Uint8Array(newCapacity);
+          newContent.set(content.subarray(0, currentLength));
           content = newContent;
           stream.hostContent = content;
         }
 
         content.set(buffer.subarray(offset, offset + length), position);
+        stream.hostLength = newLength;
         stream.hostModified = true;
         return length;
       },
@@ -651,7 +669,7 @@ function createHOSTFS(
         } else if (whence === SEEK_END) {
           if (FS.isFile(stream.node.mode)) {
             const content = stream.hostContent;
-            position += content ? content.length : 0;
+            position += stream.hostLength ?? content?.length ?? 0;
           }
         }
 
