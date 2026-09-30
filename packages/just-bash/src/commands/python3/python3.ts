@@ -477,6 +477,7 @@ async function executePython(
   ctx: RuntimeCommandContext,
   scriptPath?: string,
   scriptArgs: string[] = [],
+  source: WorkerInput["source"] = "inline",
 ): Promise<ExecResult> {
   const sharedBuffer = createSharedBuffer();
   const bridgeHandler = new BridgeHandler(
@@ -516,6 +517,7 @@ async function executePython(
     env: mapToRecord(ctx.env),
     args: scriptArgs,
     scriptPath,
+    source,
     timeoutMs,
     maxFileSize: ctx.limits.maxStringLength,
   };
@@ -653,6 +655,10 @@ export const python3Command: RuntimeCommand = {
 
     let pythonCode: string;
     let scriptPath: string | undefined;
+    // Where the program came from, which is what a traceback names it by:
+    // a script file by its path as typed, a program read from stdin as
+    // `<stdin>`, and `-c` code or an `-m` bootstrap as `<string>`.
+    let source: WorkerInput["source"] = "inline";
     let stdin = latin1FromBytes(ctx.stdin);
 
     if (parsed.code !== null) {
@@ -678,6 +684,7 @@ export const python3Command: RuntimeCommand = {
       pythonCode = decodeBytesToUtf8(ctx.stdin);
       stdin = "";
       scriptPath = "-";
+      source = "stdin";
     } else if (parsed.scriptFile !== null) {
       const filePath = ctx.fs.resolvePath(ctx.cwd, parsed.scriptFile);
 
@@ -692,6 +699,7 @@ export const python3Command: RuntimeCommand = {
       try {
         pythonCode = await ctx.fs.readFile(filePath);
         scriptPath = parsed.scriptFile;
+        source = "file";
       } catch (e) {
         const message = sanitizeErrorMessage((e as Error).message);
         return {
@@ -704,6 +712,7 @@ export const python3Command: RuntimeCommand = {
       pythonCode = decodeBytesToUtf8(ctx.stdin);
       stdin = "";
       scriptPath = "<stdin>";
+      source = "stdin";
     } else {
       return {
         stdout: "",
@@ -713,7 +722,14 @@ export const python3Command: RuntimeCommand = {
       };
     }
 
-    return executePython(pythonCode, stdin, ctx, scriptPath, parsed.scriptArgs);
+    return executePython(
+      pythonCode,
+      stdin,
+      ctx,
+      scriptPath,
+      parsed.scriptArgs,
+      source,
+    );
   },
 };
 
