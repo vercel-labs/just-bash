@@ -377,6 +377,113 @@ describe("InMemoryFs lazy files", () => {
     expect(stat.size).toBe(5);
   });
 
+  it("should use declared lazy size on stat without materializing", async () => {
+    const provider = vi.fn(() => "hello");
+    const fs = new InMemoryFs({
+      "/lazy.txt": { lazy: provider, size: 5 },
+    });
+
+    const stat = await fs.stat("/lazy.txt");
+
+    expect(stat.isFile).toBe(true);
+    expect(stat.size).toBe(5);
+    expect(provider).not.toHaveBeenCalled();
+  });
+
+  it("should use declared lazy size on lstat without materializing", async () => {
+    const provider = vi.fn(() => "hello");
+    const fs = new InMemoryFs({
+      "/lazy.txt": { lazy: provider, size: 5 },
+    });
+
+    const stat = await fs.lstat("/lazy.txt");
+
+    expect(stat.isFile).toBe(true);
+    expect(stat.size).toBe(5);
+    expect(provider).not.toHaveBeenCalled();
+  });
+
+  it("should still read declared-size lazy files on demand", async () => {
+    const provider = vi.fn(() => "hello");
+    const fs = new InMemoryFs({
+      "/lazy.txt": { lazy: provider, size: 5 },
+    });
+
+    await fs.stat("/lazy.txt");
+    const result = await fs.readFile("/lazy.txt");
+    await fs.readFile("/lazy.txt");
+
+    expect(result).toBe("hello");
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
+
+  it("should report actual size after materializing declared-size lazy files", async () => {
+    const provider = vi.fn(() => "hello");
+    const fs = new InMemoryFs({
+      "/lazy.txt": { lazy: provider, size: 999 },
+    });
+
+    const beforeRead = await fs.stat("/lazy.txt");
+    expect(beforeRead.size).toBe(999);
+    expect(provider).not.toHaveBeenCalled();
+
+    await fs.readFile("/lazy.txt");
+
+    const afterRead = await fs.stat("/lazy.txt");
+    expect(afterRead.size).toBe(5);
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
+
+  it("should support declared lazy size via writeFileLazy", async () => {
+    const provider = vi.fn(() => "dynamic content");
+    const fs = new InMemoryFs();
+    fs.writeFileLazy("/dynamic.txt", provider, { size: 15 });
+
+    const stat = await fs.stat("/dynamic.txt");
+
+    expect(stat.size).toBe(15);
+    expect(provider).not.toHaveBeenCalled();
+  });
+
+  it("should materialize lazy files with invalid declared size", async () => {
+    const provider = vi.fn(() => "hello");
+    const fs = new InMemoryFs({
+      "/lazy.txt": { lazy: provider, size: -1 },
+    });
+
+    const stat = await fs.stat("/lazy.txt");
+
+    expect(stat.size).toBe(5);
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
+
+  it("should avoid materializing declared-size lazy files during long listing", async () => {
+    const providers = Array.from({ length: 10 }, (_, i) =>
+      vi.fn(() => `file ${i}`),
+    );
+    const fs = new InMemoryFs(
+      Object.fromEntries(
+        providers.map((provider, i) => [
+          `/dir/file-${i}.txt`,
+          { lazy: provider, size: i + 1 },
+        ]),
+      ),
+    );
+
+    const names = await fs.readdir("/dir");
+    const stats = await Promise.all(
+      names.map((name) => fs.stat(`/dir/${name}`)),
+    );
+
+    expect(names).toHaveLength(10);
+    expect(stats.map((stat) => stat.size)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    ]);
+    for (const provider of providers) {
+      expect(provider).not.toHaveBeenCalled();
+    }
+  });
+
   it("should handle appendFile on lazy file", async () => {
     const fs = new InMemoryFs({
       "/lazy.txt": () => "hello",
