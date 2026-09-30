@@ -24,6 +24,8 @@ js-exec [OPTIONS] [-c CODE | FILE] [ARGS...]
 | Flag | Description |
 |------|-------------|
 | `-c CODE` | Execute inline code |
+| `-e CODE`, `--eval CODE` | Execute inline code (same as `-c`) |
+| `-p EXPR`, `--print EXPR` | Evaluate an expression and print its value |
 | `-m`, `--module` | Enable ES module mode (`import`/`export`) |
 | `--strip-types` | Compatibility alias; supported TypeScript syntax is always transformed |
 | `--version`, `-V` | Show version |
@@ -149,7 +151,7 @@ console.log(result.stdout);
 Available as a global or via `require('process')`.
 
 ```js
-process.argv        // [scriptPath, ...args]
+process.argv        // ["js-exec", scriptPath, ...args]; ["js-exec", ...args] for inline code
 process.cwd()       // current working directory
 process.exit(0)     // exit with code
 process.env         // environment variables (e.g. process.env.HOME)

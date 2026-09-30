@@ -198,6 +198,8 @@ const BUILTIN_EXPORTS: Record<string, string[]> = Object.assign(
     ],
     process: [
       "argv",
+      "argv0",
+      "execPath",
       "cwd",
       "exit",
       "env",
@@ -468,6 +470,8 @@ const guestSetupSource = (
   globalThis.env = ${serializedEnv};
   globalThis.process = {
     argv: ${serializedArgv},
+    argv0: 'js-exec',
+    execPath: 'js-exec',
     cwd: function() { return ${serializedCwd}; },
     env: globalThis.env,
     platform: 'linux',
@@ -813,7 +817,15 @@ async function executeWithRunInner(
     return Uint8Array.from(data);
   };
   const env = mapToRecord(ctx.env);
-  const argv = [options.scriptPath, ...options.scriptArgs];
+  // Node's shape: the executable, then the script for a file (nothing for
+  // inline code, as with `node -e`), then the arguments, so a file reads its
+  // arguments with `process.argv.slice(2)` and inline code with `slice(1)`,
+  // as under node.
+  const argv = [
+    "js-exec",
+    ...(options.scriptPath === "-c" ? [] : [options.scriptPath]),
+    ...options.scriptArgs,
+  ];
   const maxGuestInputBytes = Math.min(
     ctx.limits.maxWorkerMessageBytes,
     RUN_MAX_LIMIT_VALUE,
