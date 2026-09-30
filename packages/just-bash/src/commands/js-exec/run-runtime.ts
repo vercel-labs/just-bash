@@ -10,10 +10,13 @@ import {
   RunTimeoutError,
 } from "run";
 import { combineAbortSignals } from "../../abort-signals.js";
+import type { DirentEntry } from "../../fs/interface.js";
+import { joinPath } from "../../fs/path-utils.js";
 import {
   sanitizeErrorMessage,
   sanitizeHostErrorMessage,
 } from "../../fs/sanitize-error.js";
+import { FileTraversalBudget, traverseFileTree } from "../../fs/traversal.js";
 import { mapToRecord } from "../../helpers/env.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
@@ -167,6 +170,27 @@ const BUILTIN_EXPORTS: Record<string, string[]> = Object.assign(
       "rmdir",
       "rmdirSync",
       "promises",
+      "Dirent",
+      "Stats",
+    ],
+    "fs/promises": [
+      "readFile",
+      "writeFile",
+      "appendFile",
+      "stat",
+      "lstat",
+      "readdir",
+      "mkdir",
+      "rm",
+      "unlink",
+      "rmdir",
+      "access",
+      "symlink",
+      "readlink",
+      "chmod",
+      "realpath",
+      "rename",
+      "copyFile",
     ],
     os: [
       "platform",
@@ -232,6 +256,9 @@ const BUILTIN_EXPORTS: Record<string, string[]> = Object.assign(
 const builtInGlobalExpression = (name: string): string => {
   if (name === "fs" || name === "process" || name === "console") {
     return `globalThis.${name}`;
+  }
+  if (name === "fs/promises") {
+    return "globalThis.fs.promises";
   }
   if (name === "child_process") {
     return "globalThis[Symbol.for('jb:child_process')]";
@@ -312,28 +339,31 @@ const parseSourcePosition = (
 
 const parseGuestSourceLocation = (
   stack: string,
+  skip?: (location: GuestSourceLocation) => boolean,
 ): GuestSourceLocation | undefined => {
   for (const line of stack.slice(0, GUEST_STACK_SCAN_CHARS).split("\n")) {
     if (line.length > GUEST_STACK_LINE_SCAN_CHARS) continue;
     const trimmed = line.trimStart();
     if (!trimmed.startsWith("at ")) continue;
     const frame = trimmed.slice(3);
+    let location: GuestSourceLocation | undefined;
     if (frame.endsWith(")")) {
       const functionSeparator = frame.lastIndexOf(" (");
       if (functionSeparator > 0) {
-        const location = parseSourcePosition(
+        const position = parseSourcePosition(
           frame.slice(functionSeparator + 2, -1),
         );
-        if (location !== undefined) {
-          return {
-            ...location,
+        if (position !== undefined) {
+          location = {
+            ...position,
             functionName: frame.slice(0, functionSeparator),
           };
         }
       }
     }
-    const location = parseSourcePosition(frame);
-    if (location !== undefined) return location;
+    location ??= parseSourcePosition(frame);
+    if (location === undefined || skip?.(location) === true) continue;
+    return location;
   }
   return undefined;
 };
@@ -418,7 +448,15 @@ const formatGuestError = (
   }
   if (!(error instanceof Error) || error.stack === undefined) return message;
 
-  const location = parseGuestSourceLocation(error.stack);
+  // The runtime's own shims sit above the script in the entry source, or in
+  // the bootstrap module, so a failure inside one of them (an fs call, say)
+  // is reported at the first frame below them: the script's own line.
+  const location = parseGuestSourceLocation(
+    error.stack,
+    (frame) =>
+      (frame.file === "run.js" && frame.line <= sourceLineOffset) ||
+      frame.file.startsWith("just-bash:bootstrap:"),
+  );
   if (location === undefined) return message;
 
   let { column, file, functionName, line } = location;
@@ -478,33 +516,112 @@ const guestSetupSource = (
   };
 
   ${RUN_BUFFER_MODULE_SOURCE}
+  // A filesystem failure arrives as a libuv-shaped message whose path is
+  // relative to the mount it landed on. Rebuild it the way node does: the
+  // path as the caller wrote it in the message, and code, errno, syscall,
+  // path (and dest) on the error, so \`error.code === 'ENOENT'\` works.
+  var ERRNO = {
+    EACCES: -13, EBADF: -9, EEXIST: -17, EFBIG: -27, EINVAL: -22, EIO: -5,
+    EISDIR: -21, ELOOP: -40, EMFILE: -24, ENAMETOOLONG: -36, ENOENT: -2,
+    ENOSPC: -28, ENOTDIR: -20, ENOTEMPTY: -39, EPERM: -1, EROFS: -30, EXDEV: -18
+  };
+  var ERRNO_MESSAGE = /^(E[A-Z0-9]+): (.*?)(?:, [a-z]+ '.*')?$/;
+  function fsError(message, syscall, path, dest) {
+    var error = new Error(message);
+    var match = ERRNO_MESSAGE.exec(message);
+    if (match === null || syscall === undefined) return error;
+    error.code = match[1];
+    if (Object.prototype.hasOwnProperty.call(ERRNO, match[1])) error.errno = ERRNO[match[1]];
+    error.syscall = syscall;
+    error.path = String(path);
+    if (dest !== undefined) error.dest = String(dest);
+    error.message = match[1] + ': ' + match[2] + ', ' + syscall + " '" + path + "'" + (dest === undefined ? '' : " -> '" + dest + "'");
+    return error;
+  }
+  function unwrapFs(result, syscall, path, dest) {
+    if (!result || result.ok !== true) throw fsError(result && result.error || 'Host operation failed', syscall, path, dest);
+    return result.value;
+  }
+
+  // node's fs.Stats: type queries are methods, times are Dates.
+  function Stats(raw) {
+    var mtime = new Date(raw.mtime);
+    this.dev = 0;
+    this.mode = raw.mode;
+    this.nlink = 1;
+    this.uid = 0;
+    this.gid = 0;
+    this.rdev = 0;
+    this.blksize = 4096;
+    this.ino = 0;
+    this.size = raw.size;
+    this.blocks = Math.ceil(raw.size / 512);
+    this.atimeMs = this.mtimeMs = this.ctimeMs = this.birthtimeMs = mtime.getTime();
+    this.atime = new Date(mtime);
+    this.mtime = mtime;
+    this.ctime = new Date(mtime);
+    this.birthtime = new Date(mtime);
+    Object.defineProperty(this, '_kind', { value: raw });
+  }
+  Stats.prototype.isFile = function() { return this._kind.isFile === true; };
+  Stats.prototype.isDirectory = function() { return this._kind.isDirectory === true; };
+  Stats.prototype.isSymbolicLink = function() { return this._kind.isSymbolicLink === true; };
+  Stats.prototype.isBlockDevice = Stats.prototype.isCharacterDevice = Stats.prototype.isFIFO = Stats.prototype.isSocket = function() { return false; };
+
+  // node's fs.Dirent, from readdirSync(path, { withFileTypes: true }).
+  function Dirent(name, parentPath, raw) {
+    this.name = name;
+    this.parentPath = parentPath;
+    this.path = parentPath;
+    Object.defineProperty(this, '_kind', { value: raw });
+  }
+  Dirent.prototype.isFile = Stats.prototype.isFile;
+  Dirent.prototype.isDirectory = Stats.prototype.isDirectory;
+  Dirent.prototype.isSymbolicLink = Stats.prototype.isSymbolicLink;
+  Dirent.prototype.isBlockDevice = Dirent.prototype.isCharacterDevice = Dirent.prototype.isFIFO = Dirent.prototype.isSocket = Stats.prototype.isSocket;
+
   var fs = {
+    Dirent: Dirent,
+    Stats: Stats,
     readFileBuffer: function(path) {
-      var data = Buffer.from(unwrap(host.fsRead(path)), 'base64')._data;
+      var data = Buffer.from(unwrapFs(host.fsRead(path), 'open', path), 'base64')._data;
       return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
     },
     readFileSync: function(path, opts) {
-      var buffer = Buffer.from(unwrap(host.fsRead(path)), 'base64');
+      var buffer = Buffer.from(unwrapFs(host.fsRead(path), 'open', path), 'base64');
       var encoding = typeof opts === 'string' ? opts : opts && opts.encoding;
       return encoding ? buffer.toString(encoding) : buffer;
     },
-    writeFileSync: function(path, data) { unwrap(host.fsWrite(path, bytes(data))); },
-    appendFileSync: function(path, data) { unwrap(host.fsAppend(path, bytes(data))); },
-    statSync: function(path) { return unwrap(host.fsStat(path, false)); },
-    lstatSync: function(path) { return unwrap(host.fsStat(path, true)); },
-    readdirSync: function(path) { return unwrap(host.fsReaddir(path)); },
-    mkdirSync: function(path, opts) { unwrap(host.fsMkdir(path, Boolean(opts && opts.recursive))); },
-    rmSync: function(path, opts) { unwrap(host.fsRm(path, Boolean(opts && opts.recursive), Boolean(opts && opts.force))); },
+    writeFileSync: function(path, data) { unwrapFs(host.fsWrite(path, bytes(data)), 'open', path); },
+    appendFileSync: function(path, data) { unwrapFs(host.fsAppend(path, bytes(data)), 'open', path); },
+    statSync: function(path) { return new Stats(unwrapFs(host.fsStat(path, false), 'stat', path)); },
+    lstatSync: function(path) { return new Stats(unwrapFs(host.fsStat(path, true), 'lstat', path)); },
+    readdirSync: function(path, opts) {
+      var withFileTypes = Boolean(opts && typeof opts === 'object' && opts.withFileTypes);
+      var recursive = Boolean(opts && typeof opts === 'object' && opts.recursive);
+      var entries = unwrapFs(host.fsReaddir(path, withFileTypes || recursive, recursive), 'scandir', path);
+      if (!withFileTypes && !recursive) return entries;
+      var given = String(path);
+      var out = [];
+      for (var i = 0; i < entries.length; i++) {
+        var entry = entries[i];
+        var parent = entry.dir === '' ? given : given.replace(/\\/+$/, '') + '/' + entry.dir;
+        out.push(withFileTypes ? new Dirent(entry.name, parent, entry) : entry.dir === '' ? entry.name : entry.dir + '/' + entry.name);
+      }
+      return out;
+    },
+    mkdirSync: function(path, opts) { unwrapFs(host.fsMkdir(path, Boolean(opts && opts.recursive)), 'mkdir', path); },
+    rmSync: function(path, opts) { unwrapFs(host.fsRm(path, Boolean(opts && opts.recursive), Boolean(opts && opts.force)), 'rm', path); },
+    unlinkSync: function(path, opts) { unwrapFs(host.fsRm(path, Boolean(opts && opts.recursive), Boolean(opts && opts.force)), 'unlink', path); },
+    rmdirSync: function(path, opts) { unwrapFs(host.fsRm(path, Boolean(opts && opts.recursive), Boolean(opts && opts.force)), 'rmdir', path); },
     existsSync: function(path) { return unwrap(host.fsExists(path)); },
-    symlinkSync: function(target, path) { unwrap(host.fsSymlink(target, path)); },
-    readlinkSync: function(path) { return unwrap(host.fsReadlink(path)); },
-    chmodSync: function(path, mode) { unwrap(host.fsChmod(path, Number(mode))); },
-    realpathSync: function(path) { return unwrap(host.fsRealpath(path)); },
-    renameSync: function(from, to) { unwrap(host.fsRename(from, to)); },
-    copyFileSync: function(from, to) { unwrap(host.fsCopy(from, to)); }
+    symlinkSync: function(target, path) { unwrapFs(host.fsSymlink(target, path), 'symlink', target, path); },
+    readlinkSync: function(path) { return unwrapFs(host.fsReadlink(path), 'readlink', path); },
+    chmodSync: function(path, mode) { unwrapFs(host.fsChmod(path, Number(mode)), 'chmod', path); },
+    realpathSync: function(path) { return unwrapFs(host.fsRealpath(path), 'realpath', path); },
+    renameSync: function(from, to) { unwrapFs(host.fsRename(from, to), 'rename', from, to); },
+    copyFileSync: function(from, to) { unwrapFs(host.fsCopy(from, to), 'copyfile', from, to); }
   };
-  fs.unlinkSync = fs.rmSync;
-  fs.rmdirSync = fs.rmSync;
   function callbackUnsupported(name) {
     return function() { throw new Error('fs.' + name + '() with callbacks is not supported. Use fs.' + name + 'Sync() or fs.promises.' + name + '() instead.'); };
   }
@@ -521,9 +638,9 @@ const guestSetupSource = (
       catch (error) { return Promise.reject(error); }
     };
   })(names[i]);
-  fs.promises.unlink = fs.promises.rm;
-  fs.promises.rmdir = fs.promises.rm;
-  fs.promises.access = function(path) { return fs.existsSync(path) ? Promise.resolve() : Promise.reject(new Error('ENOENT: no such file or directory: ' + path)); };
+  fs.promises.unlink = function() { try { return Promise.resolve(fs.unlinkSync.apply(fs, arguments)); } catch (error) { return Promise.reject(error); } };
+  fs.promises.rmdir = function() { try { return Promise.resolve(fs.rmdirSync.apply(fs, arguments)); } catch (error) { return Promise.reject(error); } };
+  fs.promises.access = function(path) { return fs.existsSync(path) ? Promise.resolve() : Promise.reject(fsError('ENOENT: no such file or directory', 'access', path)); };
   globalThis.fs = fs;
 
   ${PATH_MODULE_SOURCE}
@@ -560,6 +677,7 @@ const guestSetupSource = (
 
   var modules = Object.create(null);
   modules.fs = fs;
+  modules['fs/promises'] = fs.promises;
   modules.path = globalThis[Symbol.for('jb:path')];
   modules.child_process = childProcess;
   modules.process = globalThis.process;
@@ -655,6 +773,45 @@ const enqueue = <T>(
     if (signal?.aborted) cancel();
     else processNextExecution();
   });
+};
+
+interface TypedDirent extends DirentEntry {
+  /** Directory holding the entry, relative to the listed one; "" at the top. */
+  dir: string;
+}
+
+/**
+ * One listing with types, from the filesystem's own when it offers it and
+ * from one lstat per entry otherwise, the latter under the traversal budget
+ * so a large directory cannot outrun the limits inside a single bridge call.
+ */
+const readdirWithTypes = async (
+  ctx: RuntimeCommandContext,
+  path: string,
+): Promise<DirentEntry[]> => {
+  if (ctx.fs.readdirWithFileTypes !== undefined) {
+    return await ctx.fs.readdirWithFileTypes(path);
+  }
+  const budget = new FileTraversalBudget({
+    executionScope: ctx.executionScope,
+    limits: ctx.limits,
+    signal: ctx.signal,
+    site: "js-exec",
+  });
+  const names = await ctx.fs.readdir(path);
+  budget.discover(names.length);
+  const entries: DirentEntry[] = [];
+  for (const name of names) {
+    budget.checkpoint();
+    const stat = await ctx.fs.lstat(joinPath(path, name));
+    entries.push({
+      isDirectory: stat.isDirectory,
+      isFile: stat.isFile,
+      isSymbolicLink: stat.isSymbolicLink,
+      name,
+    });
+  }
+  return entries;
 };
 
 const serializeStat = (
@@ -912,8 +1069,53 @@ async function executeWithRunInner(
                   : ctx.fs.stat(resolve(path))),
               ),
             ),
-          fsReaddir: (path: string) =>
-            attempt(async () => await ctx.fs.readdir(resolve(path))),
+          fsReaddir: (path: string, withTypes: boolean, recursive: boolean) =>
+            attempt(async () => {
+              const resolved = resolve(path);
+              if (!withTypes) return await ctx.fs.readdir(resolved);
+              if (!recursive) {
+                return (await readdirWithTypes(ctx, resolved)).map((entry) => ({
+                  ...entry,
+                  dir: "",
+                }));
+              }
+              // The listed directory is followed if it is a symlink, as
+              // node follows it; symlinks met below it are listed and not
+              // entered. A file is refused up front, since the walk would
+              // otherwise answer for it with an empty list.
+              const root = await ctx.fs.realpath(resolved);
+              if (!(await ctx.fs.stat(root)).isDirectory) {
+                throw new Error(`ENOTDIR: not a directory, scandir '${path}'`);
+              }
+              const entries: TypedDirent[] = [];
+              await traverseFileTree(
+                {
+                  executionScope: ctx.executionScope,
+                  fs: ctx.fs,
+                  limits: ctx.limits,
+                  root,
+                  signal: ctx.signal,
+                  site: "js-exec",
+                  symlinks: "never",
+                },
+                (entry) => {
+                  if (entry.depth === 0) return;
+                  const separator = entry.path.lastIndexOf("/");
+                  const parent = entry.path.slice(0, separator);
+                  entries.push({
+                    dir:
+                      parent === root
+                        ? ""
+                        : parent.slice(root === "/" ? 1 : root.length + 1),
+                    isDirectory: entry.stat.isDirectory,
+                    isFile: entry.stat.isFile,
+                    isSymbolicLink: entry.isSymlink,
+                    name: entry.path.slice(separator + 1),
+                  });
+                },
+              );
+              return entries;
+            }),
           fsMkdir: (path: string, recursive: boolean) =>
             attempt(
               async () => await ctx.fs.mkdir(resolve(path), { recursive }),
@@ -1230,8 +1432,12 @@ ${bootstrap}
       );
     } else {
       output.exitCode = 1;
+      // run carries a guest error's own `code` (an fs error's ENOENT, say)
+      // onto the RunError, so anything outside run's own RUN_* codes is the
+      // guest's.
       const isGuestError =
-        RunError.isInstance(error) && error.code === "RUN_ERROR";
+        RunError.isInstance(error) &&
+        (error.code === "RUN_ERROR" || !String(error.code).startsWith("RUN_"));
       const guestMessage = isGuestError
         ? formatGuestError(error, options, sourceLineOffset)
         : sanitizeHostErrorMessage(message);

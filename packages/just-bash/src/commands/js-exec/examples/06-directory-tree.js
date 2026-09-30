@@ -16,7 +16,7 @@ function walkDir(dir, depth) {
     const fullPath = path.join(dir, name);
     const stat = fs.statSync(fullPath);
 
-    if (stat.isDirectory) {
+    if (stat.isDirectory()) {
       result.push({
         name: name,
         type: "directory",

@@ -65,6 +65,8 @@ fs.readFileBuffer('/path/to/file')         // returns ArrayBuffer (raw bytes)
 
 ```js
 fs.readdirSync('/path')                          // returns string[]
+fs.readdirSync('/path', { withFileTypes: true })  // returns fs.Dirent[]: name, parentPath, isFile(), isDirectory(), isSymbolicLink()
+fs.readdirSync('/path', { recursive: true })      // every entry below, as "sub/file.txt"; symlinked directories are not followed
 fs.mkdirSync('/path')
 fs.mkdirSync('/path/to/deep', { recursive: true })
 ```
@@ -81,7 +83,7 @@ fs.rmdirSync('/path')                      // alias for rmSync
 **Metadata**
 
 ```js
-fs.statSync('/path')      // { isFile, isDirectory, isSymbolicLink, mode, size, mtime }
+fs.statSync('/path')      // fs.Stats: isFile(), isDirectory(), isSymbolicLink(), mode, size, mtime (Date), mtimeMs, ...
 fs.lstatSync('/path')     // like stat but doesn't follow symlinks
 fs.existsSync('/path')    // returns boolean
 fs.realpathSync('/path')  // resolves symlinks
@@ -97,7 +99,7 @@ fs.readlinkSync('/link')   // returns target path
 
 **Promises**
 
-`fs.promises` wraps all methods for async/await compatibility:
+`fs.promises` wraps all methods for async/await compatibility, and is also `require('fs/promises')` or `import { readFile } from 'node:fs/promises'`:
 
 ```js
 const data = await fs.promises.readFile('/path')
@@ -106,6 +108,10 @@ await fs.promises.access('/path')  // rejects if not found
 ```
 
 Callback-style `fs.readFile(path, callback)` is **not supported** and throws an error.
+
+**Errors**
+
+A failed call throws an `Error` shaped like Node's: `code` (`ENOENT`, `EROFS`, ...), `errno`, `syscall`, `path` (and `dest` for the two-path calls), with a message of the form `ENOENT: no such file or directory, open '/path'` naming the path as it was passed.
 
 ### path
 
@@ -222,7 +228,7 @@ import { execSync } from 'node:child_process';
 const path = await import('node:path');
 ```
 
-Available modules: `fs`, `path`, `child_process`, `process`, `console`.
+Available modules: `fs`, `fs/promises`, `path`, `child_process`, `process`, `console`.
 
 Relative and absolute file imports work in module mode:
 
