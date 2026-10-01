@@ -148,6 +148,36 @@ function entryToUrl(entry: AllowedUrlEntry): string {
 }
 
 /**
+ * Finds the most specific allow-list entry that matches the given URL.
+ *
+ * Specificity is the length of the entry's normalized pathname prefix, not the
+ * length of the raw entry string, so origin spelling, query strings, and
+ * fragments never affect precedence. A narrow entry therefore governs even when
+ * a broader prefix is declared before it. Entries with equal prefixes keep
+ * declaration order.
+ */
+export function findMatchingEntry(
+  url: string,
+  allowedUrlPrefixes: AllowedUrlEntry[],
+): AllowedUrlEntry | undefined {
+  let best: AllowedUrlEntry | undefined;
+  let bestPrefixLength = -1;
+  for (const entry of allowedUrlPrefixes) {
+    const entryUrl = entryToUrl(entry);
+    if (!matchesAllowListEntry(url, entryUrl)) {
+      continue;
+    }
+    const prefixLength =
+      normalizeAllowListEntry(entryUrl)?.pathPrefix.length ?? 0;
+    if (prefixLength > bestPrefixLength) {
+      best = entry;
+      bestPrefixLength = prefixLength;
+    }
+  }
+  return best;
+}
+
+/**
  * Checks if a URL is allowed by any entry in the allow-list.
  *
  * @param url The URL to check
@@ -485,6 +515,26 @@ export function validateAllowList(
       errors.push(
         `Query strings and fragments are ignored in allow-list entries: "${entry}"`,
       );
+    }
+
+    // Validate per-URL methods field
+    if (typeof rawEntry === "object" && rawEntry.methods) {
+      const validMethods = new Set([
+        "GET",
+        "HEAD",
+        "POST",
+        "PUT",
+        "DELETE",
+        "PATCH",
+        "OPTIONS",
+      ]);
+      for (const m of rawEntry.methods) {
+        if (typeof m !== "string" || !validMethods.has(m)) {
+          errors.push(
+            `Invalid HTTP method "${m}" in allow-list entry for "${rawEntry.url}"`,
+          );
+        }
+      }
     }
   }
 
