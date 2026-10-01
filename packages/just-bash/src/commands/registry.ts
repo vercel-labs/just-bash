@@ -31,7 +31,6 @@ export type CommandName =
   | "mv"
   | "ln"
   | "chmod"
-  | "cd"
   | "pwd"
   | "readlink"
   | "head"
@@ -116,7 +115,10 @@ export type JavaScriptCommandName = "js-exec" | "node";
 
 /** All command names including network, python, and javascript commands */
 export type AllCommandName =
-  CommandName | NetworkCommandName | PythonCommandName | JavaScriptCommandName;
+  | CommandName
+  | NetworkCommandName
+  | PythonCommandName
+  | JavaScriptCommandName;
 
 // Statically analyzable loaders - each import() call is a literal string
 const commandLoaders: LazyCommandDef<CommandName>[] = [
@@ -177,10 +179,6 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   },
 
   // Navigation
-  {
-    name: "cd",
-    load: async () => (await import("./cd/cd.js")).cdCommand,
-  },
   {
     name: "pwd",
     load: async () => (await import("./pwd/pwd.js")).pwdCommand,

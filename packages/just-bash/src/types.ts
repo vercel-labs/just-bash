@@ -77,12 +77,6 @@ export interface CommandExecOptions {
    */
   replaceEnv?: boolean;
   /**
-   * Old Working directory for the exec.
-   * Required to prevent bugs where subcommands run in the wrong directory.
-   * Always pass `ctx.prevcwd` from the calling command's context.
-   */
-  prevcwd?: string;
-  /**
    * Working directory for the exec.
    * Required to prevent bugs where subcommands run in the wrong directory.
    * Always pass `ctx.cwd` from the calling command's context.
@@ -160,8 +154,6 @@ export interface RuntimeCommandContext {
   fsIdentity?: object;
   /** Current working directory */
   cwd: string;
-  /** Old Current working directory */
-  oldcwd: string;
   /** Environment variables - uses Map to prevent prototype pollution */
   env: Map<string, string>;
   /** Interpreter-owned assignment gateway for commands such as `printf -v`. */

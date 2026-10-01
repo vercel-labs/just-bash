@@ -737,8 +737,14 @@ export class Bash {
         }
       }
       // Update PWD when cwd option is provided
-      if (newPwd !== undefined) {
-        execEnv.set("PWD", newPwd);
+      const hasExplicitCwd = Boolean(effectiveOptions.cwd);
+      const hasProvidedPwd = Boolean(
+        effectiveOptions.env && "PWD" in effectiveOptions.env,
+      );
+      if (hasExplicitCwd || hasProvidedPwd || !this.state.env.has("PWD")) {
+        if (newPwd !== undefined) {
+          execEnv.set("PWD", newPwd);
+        }
       }
 
       const execState: InterpreterState = {
