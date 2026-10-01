@@ -12,18 +12,18 @@ import type {
 } from "../../types.js";
 // import { parseArgs } from "../../utils/args.js";
 // import { DEFAULT_BATCH_SIZE } from "../../utils/constants.js";
-// import { hasHelpFlag, showHelp } from "../help.js";
+import { hasHelpFlag, showHelp } from "../help.js";
 
-function appendCdOutput(
-  ctx: RuntimeCommandContext,
-  current: String,
-  next: String,
-): string {
-  // throw new ExecutionLimitError(
-  //   `cd: output size limit exceeded (${ctx.limits.maxOutputSize} bytes)`,
-  //   "output_size",
-  // );
-}
+// function appendCdOutput(
+//   ctx: RuntimeCommandContext,
+//   current: String,
+//   next: String,
+// ): string {
+// throw new ExecutionLimitError(
+//   `cd: output size limit exceeded (${ctx.limits.maxOutputSize} bytes)`,
+//   "output_size",
+// );
+// }
 
 // const argDefs = {};
 
@@ -52,6 +52,38 @@ export const cdCommand: RuntimeCommand = {
     args: string[],
     ctx: RuntimeCommandContext,
   ): Promise<ExecResult> {
+    const target = args[0] || ctx.env.get("HOME") || "/";
+    let nextPath = target;
+    if (target === "-") {
+      const oldPwd = ctx.env.get("OLDPWD");
+      if (!oldPwd) {
+        return {
+          stdout: "",
+          stderr: "bash: cd: OLDPWD not set\n",
+          exitCode: 1,
+        };
+      }
+      nextPath = oldPwd;
+    }
+
+    const resolvedPath = ctx.fs.resolvePath(ctx.cwd, nextPath);
+
+    const allPaths = await ctx.fs.getAllPaths();
+    if (!allPaths.includes(resolvedPath)) {
+      return {
+        stdout: "",
+        stderr: `bash: cd: ${target}: No such file or directory\n`,
+        exitCode: 1,
+      };
+    }
+
+    const previousPwd = ctx.cwd || ctx.env.get("PWD") || "/";
+    ctx.env.set("OLDPWD", previousPwd);
+    ctx.env.set("PWD", resolvedPath);
+    ctx.cwd = resolvedPath;
+
+    const stdout = target === "-" ? `${resolvedPath}\n` : "";
+
     if (hasHelpFlag(args)) {
       return showHelp(cdHelp);
     }
@@ -59,42 +91,42 @@ export const cdCommand: RuntimeCommand = {
     // const parsed = parseArgs("cd", args, argDefs);
 
     // Parse options
-    let usePhysical = false;
-
-    for (const arg of args) {
-      if (arg === "-L") {
-        usePhysical = false;
-        break;
-      } else if (arg === "-P") {
-        usePhysical = true;
-        break;
-      } else if (arg === "-e") {
-        usePhysical = false;
-        break;
-      } else if (arg === "-@") {
-        usePhysical = false;
-        break;
-      } else if (arg === "--") {
-        // End of options
-        break;
-      } else if (arg.startsWith("-")) {
-      }
-    }
+    // let usePhysical = false;
+    //
+    // for (const arg of args) {
+    //   if (arg === "-L") {
+    //     usePhysical = false;
+    //     break;
+    //   } else if (arg === "-P") {
+    //     usePhysical = true;
+    //     break;
+    //   } else if (arg === "-e") {
+    //     usePhysical = false;
+    //     break;
+    //   } else if (arg === "-@") {
+    //     usePhysical = false;
+    //     break;
+    //   } else if (arg === "--") {
+    //     // End of options
+    //     break;
+    //   } else if (arg.startsWith("-")) {
+    //   }
+    // }
 
     let cd = ctx.cwd;
 
-    if (usePhysical) {
-      // -P: resolve all symlinks to get physical path
-      try {
-        cd = await ctx.fs.realpath(ctx.cwd);
-      } catch {
-        // If realpath fails, fall back to current cwd
-        // This matches bash behavior
-      }
-    }
+    // if (usePhysical) {
+    //   // -P: resolve all symlinks to get physical path
+    //   try {
+    //     cd = await ctx.fs.realpath(ctx.cwd);
+    //   } catch {
+    //     // If realpath fails, fall back to current cwd
+    //     // This matches bash behavior
+    //   }
+    // }
 
     return {
-      stdout: `${cd}\n`,
+      stdout: `${cd}\n` + stdout,
       stderr: "",
       exitCode: 0,
     };

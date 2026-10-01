@@ -79,9 +79,9 @@ export interface CommandExecOptions {
   /**
    * Old Working directory for the exec.
    * Required to prevent bugs where subcommands run in the wrong directory.
-   * Always pass `ctx.oldcwd` from the calling command's context.
+   * Always pass `ctx.prevcwd` from the calling command's context.
    */
-  oldcwd: string;
+  prevcwd?: string;
   /**
    * Working directory for the exec.
    * Required to prevent bugs where subcommands run in the wrong directory.
