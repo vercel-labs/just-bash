@@ -1,0 +1,72 @@
+{
+  "0056df1a76b37de5": {
+    "command": "cd child; if [ \"$PWD\" = \"$(pwd)\" ]; then echo synced; else echo desynced; fi; cat marker.txt",
+    "files": {
+      "marker.txt": "parent\n",
+      "child/marker.txt": "child\n"
+    },
+    "stdout": "synced\nchild\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6852d30f05a0baa7": {
+    "command": "true | cd child; if [ \"$PWD\" = \"$(pwd)\" ]; then echo synced; else echo desynced; fi; cat marker.txt",
+    "files": {
+      "marker.txt": "parent\n",
+      "child/marker.txt": "child\n"
+    },
+    "stdout": "synced\nparent\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "78474a21f718cd09": {
+    "command": "{ cd child; exit 7; } | cat; if [ \"$PWD\" = \"$(pwd)\" ]; then echo synced; else echo desynced; fi; cat marker.txt",
+    "files": {
+      "marker.txt": "parent\n",
+      "child/marker.txt": "child\n"
+    },
+    "stdout": "synced\nparent\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "815399436f3396df": {
+    "command": "{ cd child; }; if [ \"$PWD\" = \"$(pwd)\" ]; then echo synced; else echo desynced; fi; cat marker.txt",
+    "files": {
+      "marker.txt": "parent\n",
+      "child/marker.txt": "child\n"
+    },
+    "stdout": "synced\nchild\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ade8f36ca956a439": {
+    "command": "cd child | cat; if [ \"$PWD\" = \"$(pwd)\" ]; then echo synced; else echo desynced; fi; cat marker.txt",
+    "files": {
+      "marker.txt": "parent\n",
+      "child/marker.txt": "child\n"
+    },
+    "stdout": "synced\nparent\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "af3447f9c5fc038f": {
+    "command": "cd child | cat marker.txt; if [ \"$PWD\" = \"$(pwd)\" ]; then echo synced; else echo desynced; fi; cat marker.txt",
+    "files": {
+      "marker.txt": "parent\n",
+      "child/marker.txt": "child\n"
+    },
+    "stdout": "parent\nsynced\nparent\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f797979d6579e416": {
+    "command": "true | cd child | cat; if [ \"$PWD\" = \"$(pwd)\" ]; then echo synced; else echo desynced; fi; cat marker.txt",
+    "files": {
+      "marker.txt": "parent\n",
+      "child/marker.txt": "child\n"
+    },
+    "stdout": "synced\nparent\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
