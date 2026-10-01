@@ -1,0 +1,179 @@
+{
+  "045a1220a99d6400": {
+    "command": "X=7\necho $(( $(echo $(echo \"$X\")) ))",
+    "files": {},
+    "stdout": "7\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "05c8841038cc7cb4": {
+    "command": "f() { echo 5; }\necho $(( $(f) + 1 ))",
+    "files": {},
+    "stdout": "6\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "083ca7d65289dc03": {
+    "command": "echo $(( $(echo \"010\") ))",
+    "files": {},
+    "stdout": "8\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "153e1edadfb2b0b2": {
+    "command": "echo $(( $(echo \"0x10\") ))",
+    "files": {},
+    "stdout": "16\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1e4c32174235a551": {
+    "command": "echo $(( $(false) ))",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "21dcff3003bf519a": {
+    "command": "echo $(( $(true) ))",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2c6e07d9b683d770": {
+    "command": "cd sub\necho $(( $(ls | wc -l) ))",
+    "files": {
+      "sub/marker.txt": "m\n"
+    },
+    "stdout": "1\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3d371c35f71f1005": {
+    "command": "X=abc\necho $(( `echo \"$X\" | wc -c` ))",
+    "files": {},
+    "stdout": "4\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "60d75ced627a9459": {
+    "command": "X=abc\necho $(( $(echo ${X:-DEFAULT} | wc -c) ))",
+    "files": {},
+    "stdout": "4\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "62249baae84457a5": {
+    "command": "echo $(( $(echo \"1 + 2\") ))",
+    "files": {},
+    "stdout": "3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "72e43d3d879a2e3c": {
+    "command": "X=abc\necho $(( $(echo \"$X\" | wc -c) ))",
+    "files": {},
+    "stdout": "4\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "74bcb8a7540b6a76": {
+    "command": "X=abc\n(( n = $(echo \"$X\" | wc -c) ))\necho $n",
+    "files": {},
+    "stdout": "4\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7a691ed9a0226924": {
+    "command": "X=abc\na=$(( $(echo \"$X\" | wc -c) ))\necho $a",
+    "files": {},
+    "stdout": "4\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "83b6b41d85947d7f": {
+    "command": "X=abc\nlet \"m = $(echo \"$X\" | wc -c)\"\necho $m",
+    "files": {},
+    "stdout": "4\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8bbb5e68ae54a5c1": {
+    "command": "arr=(zero one two three)\nX=ab\necho ${arr[$(echo \"$X\" | wc -c)]}",
+    "files": {},
+    "stdout": "three\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "93a387a9ff573830": {
+    "command": "Q='$(echo PWNED)'\necho $(( $(printf %s \"$Q\" | wc -c) ))",
+    "files": {},
+    "stdout": "13\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9a7e5e4050471bc9": {
+    "command": "X=4\necho $(( $(echo $(( X * 2 ))) + 1 ))",
+    "files": {},
+    "stdout": "9\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c618528595daa9f5": {
+    "command": "echo $(( $(echo \"\") ))",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ca686f7b8c632eca": {
+    "command": "Q='$(echo PWNED)'\necho $(( `printf %s \"$Q\" | wc -c` ))",
+    "files": {},
+    "stdout": "13\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "dedea5d885bc8d18": {
+    "command": "export EE=zz\necho $(( $(echo \"${EE:-none}\" | wc -c) ))",
+    "files": {},
+    "stdout": "3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e413edcb0baad66d": {
+    "command": "echo $(( $(echo \"\") + 1 ))",
+    "files": {},
+    "stdout": "1\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ea432561a95cd340": {
+    "command": "Q=\"a  b\"\necho $(( $(printf %s \"$Q\" | wc -c) ))",
+    "files": {},
+    "stdout": "4\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ee757186e4260856": {
+    "command": "v=9\necho $(( $(echo v) ))",
+    "files": {},
+    "stdout": "9\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f4a862c7f331b266": {
+    "command": "echo $(( $(echo \" 7 \") ))",
+    "files": {},
+    "stdout": "7\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f7ec7f3577f7198f": {
+    "command": "g() { local L=wxyz; echo $(( $(echo \"$L\" | wc -c) )); }\ng",
+    "files": {},
+    "stdout": "5\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
