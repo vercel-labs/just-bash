@@ -33,6 +33,7 @@ const config = createFuzzConfig({
   numRuns,
   timeoutMs: 2000,
   enableCoverage: true,
+  scriptLogFile: "fuzz-coverage.log",
 });
 
 describe("Coverage-Guided Fuzzing", () => {
@@ -45,7 +46,7 @@ describe("Coverage-Guided Fuzzing", () => {
   ): Promise<void> {
     await fc.assert(
       fc.asyncProperty(arb, async (script) => {
-        const result = await runner.run(script);
+        const result = await runner.run(script, label);
         if (result.coverage) {
           const newFeatures = tracker.recordRun(result.coverage, script);
           if (newFeatures.length > 0 && config.verbose) {
@@ -152,24 +153,27 @@ describe("Coverage-Guided Fuzzing", () => {
   afterAll(() => {
     const report = tracker.report();
 
-    console.log("\n=== Coverage Report ===");
-    console.log(
-      `Total: ${report.totalCovered}/${report.totalKnown} (${report.totalPercent.toFixed(1)}%)`,
-    );
-    console.log("");
-
-    for (const cat of report.categories) {
-      const bar = cat.percent >= 80 ? "OK" : cat.percent >= 50 ? "WARN" : "LOW";
+    if (config.verbose) {
+      console.log("\n=== Coverage Report ===");
       console.log(
-        `  ${cat.category}: ${cat.covered}/${cat.total} (${cat.percent.toFixed(0)}%) [${bar}]`,
+        `Total: ${report.totalCovered}/${report.totalKnown} (${report.totalPercent.toFixed(1)}%)`,
       );
-      if (cat.uncovered.length > 0 && cat.uncovered.length <= 10) {
-        console.log(`    uncovered: ${cat.uncovered.join(", ")}`);
-      }
-    }
+      console.log("");
 
-    console.log(`\nCorpus entries: ${report.corpus.length}`);
-    console.log("======================\n");
+      for (const cat of report.categories) {
+        const bar =
+          cat.percent >= 80 ? "OK" : cat.percent >= 50 ? "WARN" : "LOW";
+        console.log(
+          `  ${cat.category}: ${cat.covered}/${cat.total} (${cat.percent.toFixed(0)}%) [${bar}]`,
+        );
+        if (cat.uncovered.length > 0 && cat.uncovered.length <= 10) {
+          console.log(`    uncovered: ${cat.uncovered.join(", ")}`);
+        }
+      }
+
+      console.log(`\nCorpus entries: ${report.corpus.length}`);
+      console.log("======================\n");
+    }
 
     // Soft assertion: bash command coverage should be reasonable
     const bashCmdCat = report.categories.find((c) => c.category === "bash:cmd");
