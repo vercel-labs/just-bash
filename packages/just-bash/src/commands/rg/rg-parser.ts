@@ -81,6 +81,17 @@ function validateType(_typeName: string): ExecResult | null {
   return null;
 }
 
+function validateColor(value: string): ExecResult | null {
+  if (["never", "auto", "always", "ansi"].includes(value)) {
+    return null;
+  }
+  return {
+    stdout: "",
+    stderr: `rg: error parsing flag --color: choice '${value}' is unrecognized\n`,
+    exitCode: 2,
+  };
+}
+
 // Declarative value option definitions
 interface ValueOptDef {
   short?: string;
@@ -147,6 +158,9 @@ const VALUE_OPTS: ValueOptDef[] = [
   // Preprocessing
   { long: "pre", target: "preprocessor" },
   { long: "pre-glob", target: "preprocessorGlobs", multi: true },
+  // just-bash output is never attached to a TTY and remains uncolored. Accept the
+  // standard ripgrep modes so callers can explicitly disable color without branching.
+  { long: "color", ignored: true, validate: validateColor },
 ];
 
 // Declarative boolean flag definitions
@@ -689,6 +703,7 @@ export function parseArgs(args: string[]): ParseArgsResult {
   const options = createDefaultOptions();
   let positionalPattern: string | null = null;
   const paths: string[] = [];
+  let parseOptions = true;
 
   // Context tracking with MAX precedence
   let explicitA = -1;
@@ -699,7 +714,12 @@ export function parseArgs(args: string[]): ParseArgsResult {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
 
-    if (arg.startsWith("-") && arg !== "-") {
+    if (parseOptions && arg === "--") {
+      parseOptions = false;
+      continue;
+    }
+
+    if (parseOptions && arg.startsWith("-") && arg !== "-") {
       // Try context flags first (-A, -B, -C)
       const contextResult = parseContextFlag(args, i);
       if (contextResult) {

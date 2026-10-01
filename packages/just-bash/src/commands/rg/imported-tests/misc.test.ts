@@ -104,7 +104,7 @@ describe("rg misc: with_filename", () => {
 
 // 6. with_heading
 describe("rg misc: with_heading", () => {
-  it("should show heading format", async () => {
+  it("should omit the heading for one explicitly named file", async () => {
     const bash = new Bash({
       cwd: "/home/user",
       files: {
@@ -114,7 +114,7 @@ describe("rg misc: with_heading", () => {
     const result = await bash.exec("rg --heading Sherlock sherlock");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      "sherlock\nFor the Doctor Watsons of this world, as opposed to the Sherlock\nbe, to a very large extent, the result of luck. Sherlock Holmes\n",
+      "For the Doctor Watsons of this world, as opposed to the Sherlock\nbe, to a very large extent, the result of luck. Sherlock Holmes\n",
     );
   });
 });

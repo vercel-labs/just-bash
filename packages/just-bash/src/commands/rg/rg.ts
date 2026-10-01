@@ -79,6 +79,7 @@ EXAMPLES:
     "    --no-ignore         don't respect .gitignore/.ignore files",
     "-d, --max-depth NUM     maximum search depth",
     "    --sort TYPE         sort files (path, none)",
+    "    --color WHEN       accept ripgrep color modes; output remains uncolored",
     "    --heading           show file path above matches",
     "    --passthru          print all lines (non-matches use - separator)",
     "    --include-zero      include files with 0 matches in count output",

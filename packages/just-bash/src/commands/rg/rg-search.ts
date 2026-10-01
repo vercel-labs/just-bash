@@ -1288,8 +1288,7 @@ async function searchFiles(
           const sep = options.nullSeparator ? "\0" : "\n";
           stdout += `${file}${sep}`;
         } else if (!options.filesWithoutMatch) {
-          // In heading mode, always show filename header (even for single files)
-          if (options.heading && !options.noFilename) {
+          if (options.heading && showFilename) {
             stdout += `${file}\n`;
           }
           stdout += result.output;

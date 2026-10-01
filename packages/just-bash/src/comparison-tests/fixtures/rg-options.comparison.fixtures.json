@@ -1,0 +1,22 @@
+{
+  "6349b6599af481f7": {
+    "command": "rg --line-number --heading --color never -- needle input.ts",
+    "files": {
+      "input.ts": "const needle = true;\n"
+    },
+    "stdout": "1:const needle = true;\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "a77aaf255774eb23": {
+    "command": "rg -- -needle input.txt",
+    "files": {
+      "input.txt": "-needle\nother\n"
+    },
+    "stdout": "-needle\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}
