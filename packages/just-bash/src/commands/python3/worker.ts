@@ -193,6 +193,7 @@ interface EmscriptenNode {
 }
 
 interface EmscriptenStream {
+  fd: number;
   node: EmscriptenNode;
   flags: number;
   position: number;
@@ -268,6 +269,7 @@ interface EmscriptenStat {
 }
 
 interface EmscriptenFS {
+  closeStream: (fd: number) => void;
   isDir: (mode: number) => boolean;
   isFile: (mode: number) => boolean;
   isLink: (mode: number) => boolean;
@@ -329,7 +331,7 @@ function createHOSTFS(
       ENOTDIR: 54,
       EISDIR: 31,
       EINVAL: 28,
-      EFBIG: 27,
+      EFBIG: 22,
       EMFILE: 33,
       ENOSPC: 51,
       ESPIPE: 70,
@@ -337,7 +339,7 @@ function createHOSTFS(
       ENOTEMPTY: 55,
       ENOSYS: 52,
       ENOTSUP: 138,
-      ENODATA: 42,
+      ENODATA: 116,
     },
   );
 
@@ -356,9 +358,15 @@ function createHOSTFS(
     try {
       return f();
     } catch (e: unknown) {
-      const msg =
-        (e as Error)?.message?.toLowerCase() ||
-        (typeof e === "string" ? e.toLowerCase() : "");
+      const message = e instanceof Error ? e.message : String(e);
+      const token = /^([A-Z][A-Z0-9]+):/.exec(message)?.[1];
+      if (token) {
+        throw new FS.ErrnoError(
+          ERRNO_CODES[token as keyof typeof ERRNO_CODES] ?? ERRNO_CODES.EIO,
+        );
+      }
+      // Paths follow the diagnostic's colon and must not select an errno.
+      const msg = message.split(":", 1)[0].toLowerCase();
       let code = ERRNO_CODES.EIO;
       if (msg.includes("no such file") || msg.includes("not found")) {
         code = ERRNO_CODES.ENOENT;
@@ -368,8 +376,12 @@ function createHOSTFS(
         code = ERRNO_CODES.ENOTDIR;
       } else if (msg.includes("already exists")) {
         code = ERRNO_CODES.EEXIST;
+      } else if (msg.includes("read-only") || msg.includes("erofs")) {
+        code = ERRNO_CODES.EROFS;
       } else if (msg.includes("permission")) {
         code = ERRNO_CODES.EACCES;
+      } else if (msg.includes("too large")) {
+        code = ERRNO_CODES.EFBIG;
       } else if (msg.includes("not empty")) {
         code = ERRNO_CODES.ENOTEMPTY;
       }
@@ -526,50 +538,66 @@ function createHOSTFS(
 
     stream_ops: {
       open(stream: EmscriptenStream) {
-        const path = realPath(stream.node);
-        const flags = stream.flags;
-
-        const O_WRONLY = 1;
-        const O_RDWR = 2;
-        const O_CREAT = 64;
-        const O_TRUNC = 512;
-        const O_APPEND = 1024;
-
-        const accessMode = flags & 3;
-        const isWrite = accessMode === O_WRONLY || accessMode === O_RDWR;
-        const isCreate = (flags & O_CREAT) !== 0;
-        const isTruncate = (flags & O_TRUNC) !== 0;
-        const isAppend = (flags & O_APPEND) !== 0;
-
-        if (FS.isDir(stream.node.mode)) {
-          return;
-        }
-
-        let content: Uint8Array;
         try {
-          if (isTruncate && isWrite) {
-            content = new Uint8Array(0);
-          } else {
-            content = backend.readFile(path);
+          const path = realPath(stream.node);
+          const flags = stream.flags;
+
+          const O_WRONLY = 1;
+          const O_RDWR = 2;
+          const O_CREAT = 64;
+          const O_TRUNC = 512;
+          const O_APPEND = 1024;
+
+          const accessMode = flags & 3;
+          const isWrite = accessMode === O_WRONLY || accessMode === O_RDWR;
+          const isCreate = (flags & O_CREAT) !== 0;
+          const isTruncate = (flags & O_TRUNC) !== 0;
+          const isAppend = (flags & O_APPEND) !== 0;
+
+          if (FS.isDir(stream.node.mode)) {
+            return;
           }
-        } catch (_e) {
-          if (isCreate && isWrite) {
-            content = new Uint8Array(0);
-          } else {
-            throw new FS.ErrnoError(ERRNO_CODES.ENOENT);
+
+          let content: Uint8Array;
+          try {
+            if (isTruncate && isWrite) {
+              content = new Uint8Array(0);
+            } else {
+              content = backend.readFile(path);
+            }
+          } catch (e) {
+            // The bridge refuses a file its buffer cannot carry; that is a
+            // size limit, not a missing file, and it is checked before the
+            // create fallback: an append opens with O_CREAT, and treating the
+            // failed read as an empty file would write only the appended bytes
+            // back over the whole file on close.
+            const message = e instanceof Error ? e.message : String(e);
+            if (/^Result too large: \d+ > \d+$/.test(message)) {
+              throw new FS.ErrnoError(ERRNO_CODES.EFBIG);
+            }
+            if (isCreate && isWrite) {
+              content = new Uint8Array(0);
+            } else {
+              throw new FS.ErrnoError(ERRNO_CODES.ENOENT);
+            }
           }
-        }
 
-        if (content.length > maxFileSize) {
-          throw new FS.ErrnoError(ERRNO_CODES.EFBIG);
-        }
+          if (content.length > maxFileSize) {
+            throw new FS.ErrnoError(ERRNO_CODES.EFBIG);
+          }
 
-        stream.hostContent = content;
-        stream.hostModified = isTruncate && isWrite;
-        stream.hostPath = path;
+          stream.hostContent = content;
+          stream.hostModified = isTruncate && isWrite;
+          stream.hostPath = path;
 
-        if (isAppend) {
-          stream.position = content.length;
+          if (isAppend) {
+            stream.position = content.length;
+          }
+        } catch (error) {
+          // FS.open allocates the descriptor before calling stream_ops.open
+          // and does not release it when initialization fails.
+          FS.closeStream(stream.fd);
+          throw error;
         }
       },
 
