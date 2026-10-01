@@ -18,6 +18,19 @@ const limits = (
 });
 
 describe("query builtin prospective resource limits", () => {
+  it("allows array to_entries at the limit and rejects one element over", () => {
+    const filter = parse("to_entries");
+    const options = limits({ maxArrayElements: 2 });
+    expect(evaluate(["a", "b"], filter, options)).toEqual([
+      [
+        { key: 0, value: "a" },
+        { key: 1, value: "b" },
+      ],
+    ]);
+    expect(() => evaluate(["a", "b", "c"], filter, options)).toThrow(
+      ExecutionLimitError,
+    );
+  });
   it("allows has on internally-created entry objects", () => {
     const input = sanitizeParsedData({ answer: 42 });
     expect(evaluate(input, parse(`to_entries[] | has("key")`))).toEqual([true]);

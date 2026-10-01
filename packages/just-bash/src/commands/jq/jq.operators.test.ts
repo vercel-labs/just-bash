@@ -182,11 +182,22 @@ describe("jq operators", () => {
       expect(result.stderr).toContain("cannot be parsed as a number");
     });
 
-    it("should reject tonumber on a whitespace-only string", async () => {
+    it.each([
+      '" "',
+      '"\\t\\n"',
+    ])("should reject tonumber on whitespace-only input %s", async (input) => {
       const env = new Bash();
-      const result = await env.exec("echo '\" \"' | jq 'tonumber'");
-      expect(result.exitCode).not.toBe(0);
-      expect(result.stderr).toContain("cannot be parsed as a number");
+      const result = await env.exec(`echo '${input}' | jq 'tonumber'`);
+      expect(result).toMatchObject({
+        stdout: "",
+        stderr: `jq: parse error: ${input} cannot be parsed as a number\n`,
+        exitCode: 5,
+      });
+    });
+    it("should parse a number with surrounding whitespace", async () => {
+      const env = new Bash();
+      const result = await env.exec("echo '\" 42 \"' | jq 'tonumber'");
+      expect(result).toMatchObject({ stdout: "42\n", stderr: "", exitCode: 0 });
     });
   });
 });
