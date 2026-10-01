@@ -1146,18 +1146,18 @@ class Parser {
     return left;
   }
 
-  private parseIf(): CondNode {
+  private parseIf(thenMessage = "Expected 'then'"): CondNode {
     const cond = this.parseExpr();
-    this.expect("THEN", "Expected 'then'");
+    this.expect("THEN", thenMessage);
     const then = this.parseExpr();
 
-    const elifs: CondNode["elifs"] = [];
-    while (this.match("ELIF")) {
-      const elifCond = this.parseExpr();
-      this.expect("THEN", "Expected 'then' after elif");
-      const elifThen = this.parseExpr();
-      // biome-ignore lint/suspicious/noThenProperty: jq AST node
-      elifs.push({ cond: elifCond, then: elifThen });
+    if (this.match("ELIF")) {
+      return {
+        type: "Cond",
+        cond,
+        then,
+        else: this.withDepth(() => this.parseIf("Expected 'then' after elif")),
+      };
     }
 
     let elseExpr: AstNode | undefined;
@@ -1166,7 +1166,7 @@ class Parser {
     }
 
     this.expect("END", "Expected 'end'");
-    return { type: "Cond", cond, then, elifs, else: elseExpr };
+    return { type: "Cond", cond, then, else: elseExpr };
   }
 
   private parseStringInterpolation(str: string): StringInterpNode {

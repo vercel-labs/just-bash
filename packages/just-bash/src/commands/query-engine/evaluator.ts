@@ -11,6 +11,7 @@ import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { assertDefenseContext } from "../../security/defense-context.js";
 import type { FeatureCoverageWriter } from "../../types.js";
 import { utf8ByteLength } from "../printf/escapes.js";
+import { subtractArrays } from "./array-subtraction.js";
 import {
   evalArrayBuiltin,
   evalControlBuiltin,
@@ -68,6 +69,12 @@ class JqError extends Error {
     super(typeof value === "string" ? value : JSON.stringify(value));
     this.name = "JqError";
   }
+}
+
+/** jq passes a catch handler the error value, preserved if it is a JqError. */
+function caughtErrorValue(error: unknown): QueryValue {
+  if (error instanceof JqError) return error.value;
+  return error instanceof Error ? error.message : String(error);
 }
 
 const DEFAULT_MAX_JQ_ITERATIONS = 10000;
@@ -586,9 +593,9 @@ function evaluateNode(
     }
 
     case "Index": {
+      const indices = evaluate(value, ast.index, ctx);
       const bases = ast.base ? evaluate(value, ast.base, ctx) : [value];
       return boundedFlatMap(ctx, bases, (v) => {
-        const indices = evaluate(v, ast.index, ctx);
         return boundedFlatMap(ctx, indices, (idx) => {
           if (typeof idx === "number" && Array.isArray(v)) {
             // Handle NaN - return null for NaN index
@@ -781,12 +788,6 @@ function evaluateNode(
         if (isTruthy(c)) {
           return evaluate(value, ast.then, ctx);
         }
-        for (const elif of ast.elifs) {
-          const elifConds = evaluate(value, elif.cond, ctx);
-          if (elifConds.some(isTruthy)) {
-            return evaluate(value, elif.then, ctx);
-          }
-        }
         if (ast.else) {
           return evaluate(value, ast.else, ctx);
         }
@@ -801,14 +802,7 @@ function evaluateNode(
       } catch (e) {
         if (e instanceof ExecutionLimitError) throw e;
         if (ast.catch) {
-          // jq: In catch handler, input is the error value (preserved if JqError)
-          const errorVal =
-            e instanceof JqError
-              ? e.value
-              : e instanceof Error
-                ? e.message
-                : String(e);
-          return evaluate(errorVal, ast.catch, ctx);
+          return evaluate(caughtErrorValue(e), ast.catch, ctx);
         }
         return [];
       }
@@ -930,12 +924,55 @@ function evaluateNode(
     }
 
     case "Optional": {
-      try {
-        return evaluate(value, ast.expr, ctx);
-      } catch (error) {
-        if (error instanceof ExecutionLimitError) throw error;
-        return [];
+      const tryEvaluate = (expr: AstNode): QueryValue[] => {
+        try {
+          return evaluate(value, expr, ctx);
+        } catch (error) {
+          if (error instanceof ExecutionLimitError) throw error;
+          return [];
+        }
+      };
+      const access = ast.expr;
+      // A postfix `?` only suppresses errors from its final access, separately
+      // for each base value, so errors in the base itself still propagate.
+      if (access.type === "Index") {
+        const indices = evaluate(value, access.index, ctx);
+        const bases = access.base ? evaluate(value, access.base, ctx) : [value];
+        return boundedFlatMap(ctx, bases, (base) =>
+          boundedFlatMap(ctx, indices, (index) =>
+            tryEvaluate({
+              ...access,
+              base: { type: "Literal", value: base },
+              index: { type: "Literal", value: index },
+            }),
+          ),
+        );
       }
+      if (access.type === "Slice") {
+        const { start, end } = access;
+        const starts = start ? evaluate(value, start, ctx) : [null];
+        const ends = end ? evaluate(value, end, ctx) : [null];
+        const bases = access.base ? evaluate(value, access.base, ctx) : [value];
+        return boundedFlatMap(ctx, bases, (base) =>
+          boundedFlatMap(ctx, starts, (s) =>
+            boundedFlatMap(ctx, ends, (e) =>
+              tryEvaluate({
+                ...access,
+                base: { type: "Literal", value: base },
+                start: start && { type: "Literal", value: s },
+                end: end && { type: "Literal", value: e },
+              }),
+            ),
+          ),
+        );
+      }
+      if (isPathAccess(access) && access.base) {
+        const bases = evaluate(value, access.base, ctx);
+        return boundedFlatMap(ctx, bases, (base) =>
+          tryEvaluate({ ...access, base: { type: "Literal", value: base } }),
+        );
+      }
+      return tryEvaluate(access);
     }
 
     case "StringInterp": {
@@ -1091,39 +1128,17 @@ function applyUpdate(
         return results[0] ?? null;
       }
       case "+=":
-        if (typeof current === "number" && typeof newVal === "number")
-          return current + newVal;
-        if (typeof current === "string" && typeof newVal === "string")
-          return current + newVal;
-        if (Array.isArray(current) && Array.isArray(newVal)) {
-          assertQueryResultCapacity(ctx, current.length, newVal.length);
-          return [...current, ...newVal];
-        }
-        if (
-          current &&
-          newVal &&
-          typeof current === "object" &&
-          typeof newVal === "object"
-        ) {
-          return nullPrototypeMerge(current, newVal);
-        }
-        return newVal;
       case "-=":
-        if (typeof current === "number" && typeof newVal === "number")
-          return current - newVal;
-        return current;
       case "*=":
-        if (typeof current === "number" && typeof newVal === "number")
-          return current * newVal;
-        return current;
       case "/=":
-        if (typeof current === "number" && typeof newVal === "number")
-          return current / newVal;
-        return current;
       case "%=":
-        if (typeof current === "number" && typeof newVal === "number")
-          return current % newVal;
-        return current;
+        return evalBinaryOp(
+          current,
+          op.slice(0, -1),
+          { type: "Literal", value: current ?? null },
+          { type: "Literal", value: newVal },
+          ctx,
+        )[0];
       case "//=":
         return current === null || current === false ? newVal : current;
       default:
@@ -1329,254 +1344,159 @@ function applyDel(
   pathExpr: AstNode,
   ctx: EvalContext,
 ): QueryValue {
-  // Helper to set a value at an AST path
-  function setAtPath(
-    obj: QueryValue,
-    pathNode: AstNode,
-    newVal: QueryValue,
-  ): QueryValue {
-    switch (pathNode.type) {
-      case "Identity":
-        return newVal;
-      case "Field": {
-        // Defense against prototype pollution: skip dangerous keys
-        if (!isSafeKey(pathNode.name)) {
-          return obj;
+  const paths: (string | number)[][] = [];
+  collectPaths(root, pathExpr, ctx, [], paths, true);
+
+  interface Deletion {
+    remove: boolean;
+    children: Map<string | number, Deletion>;
+  }
+  const deletion: Deletion = { remove: false, children: new Map() };
+
+  // Resolve every path against the original input before removing any elements.
+  for (const path of paths) {
+    let node = deletion;
+    let value = root;
+    let found = true;
+    for (const component of path) {
+      chargeQueryWork(ctx);
+      let key = component;
+      if (Array.isArray(value) && typeof key === "number") {
+        // jq offsets negative indexes before truncating, so -0.5 is past the end.
+        key = Math.trunc(key) + (key < 0 ? value.length : 0);
+        if (!Number.isFinite(key) || key < 0 || key >= value.length) {
+          found = false;
+          break;
         }
-        if (pathNode.base) {
-          // Nested field: recurse into base
-          const nested = evaluate(obj, pathNode.base, ctx)[0];
-          const modified = setAtPath(
-            nested,
-            { type: "Field", name: pathNode.name },
-            newVal,
-          );
-          return setAtPath(obj, pathNode.base, modified);
-        }
-        // Direct field
-        if (obj && typeof obj === "object" && !Array.isArray(obj)) {
-          const result = nullPrototypeCopy(obj);
-          safeSet(result, pathNode.name, newVal);
-          return result;
-        }
-        return obj;
-      }
-      case "Index": {
-        if (pathNode.base) {
-          // Nested index: recurse into base
-          const nested = evaluate(obj, pathNode.base, ctx)[0];
-          const modified = setAtPath(
-            nested,
-            { type: "Index", index: pathNode.index },
-            newVal,
-          );
-          return setAtPath(obj, pathNode.base, modified);
-        }
-        // Direct index
-        const indices = evaluate(root, pathNode.index, ctx);
-        const idx = indices[0];
-        if (typeof idx === "number" && Array.isArray(obj)) {
-          const arr = [...obj];
-          const i = idx < 0 ? arr.length + idx : idx;
-          if (i >= 0 && i < arr.length) {
-            arr[i] = newVal;
-          }
-          return arr;
-        }
+        value = value[key];
+      } else {
+        const obj = asQueryRecord(value);
         if (
-          typeof idx === "string" &&
-          obj &&
-          typeof obj === "object" &&
-          !Array.isArray(obj)
+          typeof key !== "string" ||
+          !isSafeKey(key) ||
+          !obj ||
+          !Object.hasOwn(obj, key)
         ) {
-          // Defense against prototype pollution: skip dangerous keys
-          if (!isSafeKey(idx)) {
-            return obj;
-          }
-          const result = nullPrototypeCopy(obj);
-          safeSet(result, idx, newVal);
-          return result;
+          found = false;
+          break;
         }
-        return obj;
+        value = obj[key];
       }
-      default:
-        return obj;
+      let child = node.children.get(key);
+      if (!child) {
+        child = { remove: false, children: new Map() };
+        node.children.set(key, child);
+      }
+      node = child;
     }
+    if (found) node.remove = true;
   }
 
-  function deleteAt(val: QueryValue, path: AstNode): QueryValue {
-    switch (path.type) {
-      case "Identity":
-        return null;
-
-      case "Field": {
-        // Defense against prototype pollution: skip dangerous keys
-        if (!isSafeKey(path.name)) {
-          return val;
+  function removePaths(value: QueryValue, node: Deletion): QueryValue {
+    chargeQueryWork(ctx);
+    if (node.remove) return null;
+    if (node.children.size === 0) return value;
+    if (Array.isArray(value)) {
+      assertQueryResultCapacity(ctx, 0, value.length);
+      const result: QueryValue[] = [];
+      for (let index = 0; index < value.length; index++) {
+        chargeQueryWork(ctx);
+        const child = node.children.get(index);
+        if (!child?.remove) {
+          result.push(child ? removePaths(value[index], child) : value[index]);
         }
-        // If there's a base (nested field like .a.b), recurse
-        if (path.base) {
-          // Evaluate base to get the nested object
-          const nested = evaluate(val, path.base, ctx)[0];
-          if (nested === null || nested === undefined) {
-            return val;
-          }
-          // Delete field from nested object
-          const modified = deleteAt(nested, { type: "Field", name: path.name });
-          // Set the modified value back at the base path
-          return setAtPath(val, path.base, modified);
-        }
-        // Direct field deletion (no base)
-        if (val && typeof val === "object" && !Array.isArray(val)) {
-          // Defense against prototype pollution: skip dangerous keys
-          if (!isSafeKey(path.name)) {
-            return val;
-          }
-          const obj = nullPrototypeCopy(val);
-          delete obj[path.name];
-          return obj;
-        }
-        return val;
       }
-
-      case "Index": {
-        // If there's a base (nested index like .[0].a), recurse
-        if (path.base) {
-          // Evaluate base to get the nested object/array
-          const nested = evaluate(val, path.base, ctx)[0];
-          if (nested === null || nested === undefined) {
-            return val;
-          }
-          // Delete at index from nested value
-          const modified = deleteAt(nested, {
-            type: "Index",
-            index: path.index,
-          });
-          // Set the modified value back at the base path
-          return setAtPath(val, path.base, modified);
-        }
-
-        const indices = evaluate(root, path.index, ctx);
-        const idx = indices[0];
-
-        if (typeof idx === "number" && Array.isArray(val)) {
-          const arr = [...val];
-          const i = idx < 0 ? arr.length + idx : idx;
-          if (i >= 0 && i < arr.length) {
-            arr.splice(i, 1);
-          }
-          return arr;
-        }
-        if (
-          typeof idx === "string" &&
-          val &&
-          typeof val === "object" &&
-          !Array.isArray(val)
-        ) {
-          // Defense against prototype pollution: skip dangerous keys
-          if (!isSafeKey(idx)) {
-            return val;
-          }
-          const obj = nullPrototypeCopy(val);
-          delete obj[idx];
-          return obj;
-        }
-        return val;
-      }
-
-      case "Iterate": {
-        if (Array.isArray(val)) {
-          return [];
-        }
-        if (val && typeof val === "object") {
-          return Object.create(null);
-        }
-        return val;
-      }
-
-      case "Pipe": {
-        // For nested paths like .a.b, navigate to .a and delete .b within it
-        const leftPath = path.left;
-        const rightPath = path.right;
-
-        // Helper to set a value at an AST path
-        function setAt(
-          obj: QueryValue,
-          pathNode: AstNode,
-          newVal: QueryValue,
-        ): QueryValue {
-          switch (pathNode.type) {
-            case "Identity":
-              return newVal;
-            case "Field": {
-              // Defense against prototype pollution: skip dangerous keys
-              if (!isSafeKey(pathNode.name)) {
-                return obj;
-              }
-              if (obj && typeof obj === "object" && !Array.isArray(obj)) {
-                const result = nullPrototypeCopy(obj);
-                safeSet(result, pathNode.name, newVal);
-                return result;
-              }
-              return obj;
-            }
-            case "Index": {
-              const indices = evaluate(root, pathNode.index, ctx);
-              const idx = indices[0];
-              if (typeof idx === "number" && Array.isArray(obj)) {
-                const arr = [...obj];
-                const i = idx < 0 ? arr.length + idx : idx;
-                if (i >= 0 && i < arr.length) {
-                  arr[i] = newVal;
-                }
-                return arr;
-              }
-              if (
-                typeof idx === "string" &&
-                obj &&
-                typeof obj === "object" &&
-                !Array.isArray(obj)
-              ) {
-                // Defense against prototype pollution: skip dangerous keys
-                if (!isSafeKey(idx)) {
-                  return obj;
-                }
-                const result = nullPrototypeCopy(obj);
-                safeSet(result, idx, newVal);
-                return result;
-              }
-              return obj;
-            }
-            case "Pipe": {
-              // Recurse: set at leftPath with the result of setting at rightPath
-              const innerVal = evaluate(obj, pathNode.left, ctx)[0];
-              const modified = setAt(innerVal, pathNode.right, newVal);
-              return setAt(obj, pathNode.left, modified);
-            }
-            default:
-              return obj;
-          }
-        }
-
-        // Get the current value at the left path
-        const nested = evaluate(val, leftPath, ctx)[0];
-        if (nested === null || nested === undefined) {
-          return val; // Nothing to delete
-        }
-
-        // Apply deletion on the nested value
-        const modified = deleteAt(nested, rightPath);
-
-        // Reconstruct the object with the modified nested value
-        return setAt(val, leftPath, modified);
-      }
-
-      default:
-        return val;
+      return result;
     }
+    const obj = asQueryRecord(value);
+    if (!obj) return value;
+    const result = nullPrototypeCopy(obj);
+    for (const [key, child] of node.children) {
+      chargeQueryWork(ctx);
+      if (
+        typeof key !== "string" ||
+        !isSafeKey(key) ||
+        !Object.hasOwn(obj, key)
+      )
+        continue;
+      if (child.remove) delete result[key];
+      else safeSet(result, key, removePaths(obj[key], child));
+    }
+    return result;
   }
 
-  return deleteAt(root, pathExpr);
+  return removePaths(root, deletion);
+}
+
+/**
+ * Serializes a value as JSON only until the output exceeds `maxLength`
+ * characters, so previews of large or deeply shared values stay cheap.
+ */
+function jsonPrefix(
+  value: QueryValue,
+  maxLength: number,
+  ctx: EvalContext,
+): string {
+  let output = "";
+  const write = (item: QueryValue): void => {
+    if (typeof item === "string") {
+      output += JSON.stringify(item.slice(0, maxLength + 1));
+    } else if (Array.isArray(item)) {
+      output += "[";
+      for (let i = 0; i < item.length && output.length <= maxLength; i++) {
+        if (i > 0) output += ",";
+        write(item[i]);
+      }
+      output += "]";
+    } else if (item && typeof item === "object") {
+      output += "{";
+      const keys = Object.keys(item);
+      chargeQueryWork(ctx, keys.length);
+      for (let i = 0; i < keys.length && output.length <= maxLength; i++) {
+        if (i > 0) output += ",";
+        output += `${JSON.stringify(keys[i].slice(0, maxLength + 1))}:`;
+        // @banned-pattern-ignore: iterating via Object.keys() which only returns own properties
+        write((item as Record<string, QueryValue>)[keys[i]]);
+      }
+      output += "}";
+    } else {
+      output += JSON.stringify(item) ?? "null";
+    }
+  };
+  write(value);
+  return output;
+}
+
+/**
+ * Formats a value for an error message like jq's `jv_dump_string_trunc`:
+ * JSON longer than `bufferSize - 1` UTF-8 bytes is cut and marked with "...".
+ */
+function jqValuePreview(
+  value: QueryValue,
+  bufferSize: number,
+  ctx: EvalContext,
+): string {
+  const maxBytes = bufferSize - 1;
+  const json = jsonPrefix(value, maxBytes, ctx);
+  const bytes = new TextEncoder().encode(json);
+  if (bytes.length <= maxBytes) return json;
+  return `${new TextDecoder().decode(bytes.subarray(0, maxBytes - 3))}...`;
+}
+
+function arithmeticTypeError(
+  left: QueryValue,
+  right: QueryValue,
+  operation: string,
+  ctx: EvalContext,
+): Error {
+  const describe = (value: QueryValue): string => {
+    const type =
+      value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+    return `${type} (${jqValuePreview(value, 15, ctx)})`;
+  };
+  return new Error(
+    `${describe(left)} and ${describe(right)} cannot be ${operation}`,
+  );
 }
 
 function evalBinaryOp(
@@ -1654,32 +1574,27 @@ function evalBinaryOp(
           ) {
             return nullPrototypeMerge(l, r);
           }
-          return null;
+          throw arithmeticTypeError(l, r, "added", ctx);
         case "-":
           if (typeof l === "number" && typeof r === "number") return l - r;
           if (Array.isArray(l) && Array.isArray(r)) {
-            const rSet = new Set(r.map((x) => JSON.stringify(x)));
-            return l.filter((x) => !rSet.has(JSON.stringify(x)));
+            return subtractArrays(l, r, ctx);
           }
-          if (typeof l === "string" && typeof r === "string") {
-            // jq: strings cannot be subtracted - format truncates long strings
-            // jq format: "string (\"truncated...) - no closing quote when truncated
-            const formatStr = (s: string) =>
-              s.length > 10 ? `"${s.slice(0, 10)}...` : JSON.stringify(s);
-            throw new Error(
-              `string (${formatStr(l)}) and string (${formatStr(r)}) cannot be subtracted`,
-            );
-          }
-          return null;
+          throw arithmeticTypeError(l, r, "subtracted", ctx);
         case "*":
           if (typeof l === "number" && typeof r === "number") return l * r;
-          if (typeof l === "string" && typeof r === "number") {
-            if (!Number.isFinite(r)) {
-              throw new Error(`invalid string repetition count: ${r}`);
+          if (
+            (typeof l === "string" && typeof r === "number") ||
+            (typeof l === "number" && typeof r === "string")
+          ) {
+            const text = typeof l === "string" ? l : (r as string);
+            const count = typeof l === "number" ? l : (r as number);
+            if (!Number.isFinite(count)) {
+              throw new Error(`invalid string repetition count: ${count}`);
             }
-            const repeatCount = Math.trunc(r);
+            const repeatCount = Math.trunc(count);
             if (repeatCount < 0) return null;
-            const inputBytes = utf8ByteLength(l);
+            const inputBytes = utf8ByteLength(text);
             const maxStringLength = ctx.limits.maxStringLength;
             if (
               inputBytes > 0 &&
@@ -1690,7 +1605,7 @@ function evalBinaryOp(
                 "string_length",
               );
             }
-            return l.repeat(repeatCount);
+            return text.repeat(repeatCount);
           }
           {
             const lObj = asQueryRecord(l);
@@ -1702,7 +1617,7 @@ function evalBinaryOp(
               });
             }
           }
-          return null;
+          throw arithmeticTypeError(l, r, "multiplied", ctx);
         case "/":
           if (typeof l === "number" && typeof r === "number") {
             if (r === 0) {
@@ -1713,7 +1628,7 @@ function evalBinaryOp(
             return l / r;
           }
           if (typeof l === "string" && typeof r === "string") return l.split(r);
-          return null;
+          throw arithmeticTypeError(l, r, "divided", ctx);
         case "%":
           if (typeof l === "number" && typeof r === "number") {
             if (r === 0) {
@@ -1732,7 +1647,7 @@ function evalBinaryOp(
             }
             return l % r;
           }
-          return null;
+          throw arithmeticTypeError(l, r, "divided (remainder)", ctx);
         case "==":
           return deepEqual(l, r);
         case "!=":
@@ -2113,72 +2028,197 @@ function evalBuiltin(
   }
 }
 
+/**
+ * Follows one path component like jq: null yields null, and a container of
+ * the wrong type is an error rather than a missing member.
+ */
+function getPathComponent(
+  current: QueryValue,
+  key: string | number,
+): QueryValue {
+  if (current == null) return null;
+  if (typeof key === "number") {
+    if (!Array.isArray(current)) {
+      throw new Error(`Cannot index ${typeof current} with number`);
+    }
+    const index = Math.trunc(key);
+    return current[index < 0 ? current.length + index : index] ?? null;
+  }
+  const obj = asQueryRecord(current);
+  if (!obj) {
+    const type = Array.isArray(current) ? "array" : typeof current;
+    throw new Error(`Cannot index ${type} with string ${JSON.stringify(key)}`);
+  }
+  return Object.hasOwn(obj, key) ? (obj[key] ?? null) : null;
+}
+
+function getPathValue(
+  value: QueryValue,
+  path: (string | number)[],
+  ctx: EvalContext,
+): QueryValue {
+  let current = value;
+  for (const key of path) {
+    chargeQueryWork(ctx);
+    current = getPathComponent(current, key);
+  }
+  return current;
+}
+
+function isPathAccess(
+  node: AstNode,
+): node is Extract<AstNode, { type: "Field" | "Index" | "Iterate" }> {
+  return (
+    node.type === "Field" || node.type === "Index" || node.type === "Iterate"
+  );
+}
+
+const PATH_PRESERVING_BUILTINS = new Set([
+  "debug",
+  "select",
+  "numbers",
+  "strings",
+  "booleans",
+  "nulls",
+  "arrays",
+  "objects",
+  "iterables",
+  "scalars",
+  "values",
+]);
+
 function collectPaths(
   value: QueryValue,
   expr: AstNode,
   ctx: EvalContext,
   currentPath: (string | number)[],
   paths: (string | number)[][],
+  strict = false,
 ): void {
-  chargeQueryWork(ctx);
-  if (currentPath.length > ctx.limits.maxDepth) {
-    throw queryLimitError(
-      `query depth limit exceeded (${ctx.limits.maxDepth})`,
-      "recursion",
-    );
+  for (const path of pathsOf(value, expr, ctx, currentPath, strict)) {
+    assertQueryResultCapacity(ctx, paths.length);
+    paths.push(path);
   }
-  const appendPath = (path: (string | number)[]): void => {
-    if (path.length > ctx.limits.maxDepth) {
+}
+
+function* take<T>(items: Iterable<T>, count: number): Generator<T> {
+  if (count <= 0) return;
+  let taken = 0;
+  for (const item of items) {
+    yield item;
+    if (++taken >= count) return;
+  }
+}
+
+function* pathsOf(
+  value: QueryValue,
+  expr: AstNode,
+  ctx: EvalContext,
+  currentPath: (string | number)[],
+  strict: boolean,
+): Generator<(string | number)[]> {
+  chargeQueryWork(ctx);
+  const checkDepth = (depth: number): void => {
+    if (depth > ctx.limits.maxDepth) {
       throw queryLimitError(
         `query depth limit exceeded (${ctx.limits.maxDepth})`,
         "recursion",
       );
     }
-    assertQueryResultCapacity(ctx, paths.length);
-    paths.push(path);
+  };
+  checkDepth(currentPath.length);
+  const checkedPath = (path: (string | number)[]): (string | number)[] => {
+    checkDepth(path.length);
+    return path;
   };
   // Handle Comma - collect paths for both parts
   if (expr.type === "Comma") {
     const comma = expr as { type: "Comma"; left: AstNode; right: AstNode };
-    collectPaths(value, comma.left, ctx, currentPath, paths);
-    collectPaths(value, comma.right, ctx, currentPath, paths);
+    yield* pathsOf(value, comma.left, ctx, currentPath, strict);
+    yield* pathsOf(value, comma.right, ctx, currentPath, strict);
+    return;
+  }
+
+  if (expr.type === "Paren") {
+    yield* pathsOf(value, expr.expr, ctx, currentPath, strict);
     return;
   }
 
   // Try to extract a static path from the AST
   const staticPath = extractPathFromAst(expr);
   if (staticPath !== null) {
-    appendPath([...currentPath, ...staticPath]);
+    getPathValue(value, staticPath, ctx);
+    yield checkedPath([...currentPath, ...staticPath]);
     return;
   }
 
-  // For more complex expressions, evaluate and try to infer paths
-  // This handles cases like .[] which produce multiple paths
-  if (expr.type === "Iterate") {
-    if (Array.isArray(value)) {
-      for (let i = 0; i < value.length; i++) {
-        chargeQueryWork(ctx);
-        appendPath([...currentPath, i]);
-      }
-    } else if (value && typeof value === "object") {
-      for (const key of Object.keys(value)) {
-        chargeQueryWork(ctx);
-        appendPath([...currentPath, key]);
+  // A postfix `?` only suppresses errors from its final access, separately
+  // for each base value, so traversal continues past invalid members.
+  const access =
+    expr.type === "Optional" && isPathAccess(expr.expr) ? expr.expr : expr;
+  const optional = access !== expr;
+  if (isPathAccess(access)) {
+    const basePaths: Iterable<(string | number)[]> = access.base
+      ? pathsOf(value, access.base, ctx, [], strict)
+      : [[]];
+    for (const basePath of basePaths) {
+      const baseValue = getPathValue(value, basePath, ctx);
+      const canAccess = (key: string | number): boolean => {
+        try {
+          getPathComponent(baseValue, key);
+          return true;
+        } catch (error) {
+          if (optional && !(error instanceof ExecutionLimitError)) return false;
+          throw error;
+        }
+      };
+      if (access.type === "Field") {
+        if (canAccess(access.name)) {
+          yield checkedPath([...currentPath, ...basePath, access.name]);
+        }
+      } else if (access.type === "Index") {
+        for (const index of evaluate(value, access.index, ctx)) {
+          if (typeof index === "string" || typeof index === "number") {
+            if (canAccess(index)) {
+              yield checkedPath([...currentPath, ...basePath, index]);
+            }
+          } else if (!optional) {
+            throw new Error("path components must be strings or numbers");
+          }
+        }
+      } else if (Array.isArray(baseValue)) {
+        for (let index = 0; index < baseValue.length; index++) {
+          chargeQueryWork(ctx);
+          yield checkedPath([...currentPath, ...basePath, index]);
+        }
+      } else if (baseValue && typeof baseValue === "object") {
+        const keys = Object.keys(baseValue);
+        chargeQueryWork(ctx, keys.length);
+        for (const key of keys) {
+          yield checkedPath([...currentPath, ...basePath, key]);
+        }
+      } else if (!optional) {
+        const type = baseValue === null ? "null" : typeof baseValue;
+        throw new Error(
+          `Cannot iterate over ${type} (${jqValuePreview(baseValue, 15, ctx)})`,
+        );
       }
     }
     return;
   }
 
   // Handle Recurse (..) - recursive descent, returns paths to all values
-  if (expr.type === "Recurse") {
+  if (
+    expr.type === "Recurse" ||
+    (expr.type === "Call" && expr.name === "recurse" && expr.args.length === 0)
+  ) {
     const stack: Array<{ value: QueryValue; path: (string | number)[] }> = [
       { value, path: [] },
     ];
     while (stack.length > 0) {
       const entry = stack.pop();
       if (!entry) break;
-      chargeQueryWork(ctx);
-      appendPath([...currentPath, ...entry.path]);
+      yield checkedPath([...currentPath, ...entry.path]);
       if (entry.value && typeof entry.value === "object") {
         const entries = Array.isArray(entry.value)
           ? entry.value.map((child, index) => [index, child] as const)
@@ -2190,6 +2230,7 @@ function collectPaths(
                   (entry.value as Record<string, unknown>)[key],
                 ] as const,
             );
+        chargeQueryWork(ctx, entries.length);
         assertQueryResultCapacity(ctx, 0, stack.length + entries.length);
         for (let i = entries.length - 1; i >= 0; i--) {
           const [key, child] = entries[i];
@@ -2200,21 +2241,222 @@ function collectPaths(
     return;
   }
 
-  // For Pipe expressions, collect paths through the pipe
   if (expr.type === "Pipe") {
-    const leftPath = extractPathFromAst(expr.left);
-    if (leftPath !== null) {
-      const leftResults = evaluate(value, expr.left, ctx);
-      for (const lv of leftResults) {
-        collectPaths(lv, expr.right, ctx, [...currentPath, ...leftPath], paths);
+    for (const leftPath of pathsOf(value, expr.left, ctx, [], strict)) {
+      yield* pathsOf(
+        getPathValue(value, leftPath, ctx),
+        expr.right,
+        ctx,
+        [...currentPath, ...leftPath],
+        strict,
+      );
+    }
+    return;
+  }
+
+  if (expr.type === "Optional") {
+    try {
+      yield* pathsOf(value, expr.expr, ctx, currentPath, strict);
+    } catch (error) {
+      if (error instanceof ExecutionLimitError) throw error;
+    }
+    return;
+  }
+
+  const resultPaths = (results: QueryValue[]): (string | number)[][] => {
+    if (results.length === 0) return [];
+    // Preserve path()/pick()'s fallback, but never guess a deletion target from
+    // an evaluated value: a transformation could otherwise delete its input.
+    if (!strict) return [currentPath];
+    throw new Error(
+      `Invalid path expression with result ${jqValuePreview(results[0], 30, ctx)}`,
+    );
+  };
+
+  if (expr.type === "Try") {
+    try {
+      yield* pathsOf(value, expr.body, ctx, currentPath, strict);
+    } catch (error) {
+      if (error instanceof ExecutionLimitError) throw error;
+      if (error instanceof BreakError) throw error;
+      if (expr.catch) {
+        yield* resultPaths(evaluate(caughtErrorValue(error), expr.catch, ctx));
+      }
+    }
+    return;
+  }
+
+  if (expr.type === "Label") {
+    const labels = new Set([...(ctx.labels ?? []), expr.name]);
+    try {
+      yield* pathsOf(value, expr.body, { ...ctx, labels }, currentPath, strict);
+    } catch (error) {
+      if (!(error instanceof BreakError && error.label === expr.name)) {
+        throw error;
+      }
+    }
+    return;
+  }
+
+  // Destructuring reads the bound value through paths of its own, which jq
+  // rejects inside path expressions, so only plain `as $name` passes through.
+  if (expr.type === "VarBind" && !expr.pattern && !expr.alternatives) {
+    for (const bound of evaluate(value, expr.value, ctx)) {
+      yield* pathsOf(
+        value,
+        expr.body,
+        withVar(ctx, expr.name, bound),
+        currentPath,
+        strict,
+      );
+    }
+    return;
+  }
+
+  if (expr.type === "Cond") {
+    for (const cond of evaluate(value, expr.cond, ctx)) {
+      const branch = isTruthy(cond) ? expr.then : expr.else;
+      if (branch) {
+        yield* pathsOf(value, branch, ctx, currentPath, strict);
+      } else {
+        yield currentPath;
+      }
+    }
+    return;
+  }
+
+  if (expr.type === "BinaryOp" && expr.op === "//") {
+    let found = false;
+    for (const path of pathsOf(value, expr.left, ctx, [], strict)) {
+      if (isTruthy(getPathValue(value, path, ctx))) {
+        found = true;
+        yield checkedPath([...currentPath, ...path]);
+      }
+    }
+    if (!found) yield* pathsOf(value, expr.right, ctx, currentPath, strict);
+    return;
+  }
+
+  if (expr.type === "Call" && expr.args.length > 0) {
+    const [first, second] = expr.args;
+    if (expr.name === "first" && expr.args.length === 1) {
+      yield* take(pathsOf(value, first, ctx, currentPath, strict), 1);
+      return;
+    }
+    if (expr.name === "limit" && second) {
+      for (const n of evaluate(value, first, ctx)) {
+        const count = n as number;
+        if (count < 0) throw new Error("limit doesn't support negative count");
+        yield* take(pathsOf(value, second, ctx, currentPath, strict), count);
+      }
+      return;
+    }
+    if (expr.name === "nth" && second) {
+      for (const n of evaluate(value, first, ctx)) {
+        const index = n as number;
+        if (index < 0 || Number.isNaN(index)) {
+          throw new Error("nth doesn't support negative indices");
+        }
+        let seen = 0;
+        for (const path of pathsOf(value, second, ctx, currentPath, strict)) {
+          if (seen++ >= index) {
+            yield path;
+            break;
+          }
+        }
+      }
+      return;
+    }
+    if (expr.name === "getpath" && expr.args.length === 1) {
+      for (const path of evaluate(value, first, ctx)) {
+        if (!Array.isArray(path)) {
+          throw new Error("Path must be specified as an array");
+        }
+        const keys: (string | number)[] = [];
+        for (const key of path) {
+          if (typeof key !== "string" && typeof key !== "number") {
+            throw new Error("path components must be strings or numbers");
+          }
+          keys.push(key);
+        }
+        getPathValue(value, keys, ctx);
+        yield checkedPath([...currentPath, ...keys]);
+      }
+      return;
+    }
+    if (
+      (expr.name === "ltrimstr" || expr.name === "rtrimstr") &&
+      expr.args.length === 1
+    ) {
+      const left = expr.name === "ltrimstr";
+      for (const affix of evaluate(value, first, ctx)) {
+        if (
+          typeof value !== "string" ||
+          typeof affix !== "string" ||
+          !(left ? value.startsWith(affix) : value.endsWith(affix))
+        ) {
+          yield currentPath;
+          continue;
+        }
+        yield* resultPaths([
+          left
+            ? value.slice(affix.length)
+            : value.slice(0, value.length - affix.length),
+        ]);
+      }
+      return;
+    }
+    if (expr.name === "recurse" && expr.args.length <= 2) {
+      const children = function* (path: (string | number)[]) {
+        const parent = getPathValue(value, path, ctx);
+        for (const child of pathsOf(parent, first, ctx, path, strict)) {
+          if (!second) {
+            yield child;
+            continue;
+          }
+          const conds = evaluate(getPathValue(value, child, ctx), second, ctx);
+          for (const cond of conds) if (isTruthy(cond)) yield child;
+        }
+      };
+      yield currentPath;
+      const stack = [children([])];
+      while (stack.length > 0) {
+        const next = stack[stack.length - 1].next();
+        if (next.done) {
+          stack.pop();
+          continue;
+        }
+        yield checkedPath([...currentPath, ...next.value]);
+        checkDepth(stack.length);
+        stack.push(children(next.value));
       }
       return;
     }
   }
 
-  // Fallback: if expression produces results, push current path
   const results = evaluate(value, expr, ctx);
-  if (results.length > 0) {
-    appendPath(currentPath);
+  if (strict && expr.type === "Call" && returnsInput(expr, value)) {
+    for (const _result of results) yield currentPath;
+    return;
+  }
+  yield* resultPaths(results);
+}
+
+/**
+ * Whether a builtin returns its input itself rather than a new value, which
+ * jq treats as keeping the input's path.
+ */
+function returnsInput(
+  call: Extract<AstNode, { type: "Call" }>,
+  value: QueryValue,
+): boolean {
+  if (PATH_PRESERVING_BUILTINS.has(call.name)) return true;
+  switch (call.name) {
+    case "tonumber":
+      return typeof value === "number";
+    case "tostring":
+      return typeof value === "string";
+    default:
+      return false;
   }
 }
