@@ -5,6 +5,8 @@
 import { gunzipSync } from "node:zlib";
 import { BoundedStringBuilder } from "../../bounded-builder.js";
 import {
+  type ByteString,
+  bytesFromUint8Array,
   decodeBytesToUtf8,
   latin1FromBytes,
   readBytesFrom,
@@ -13,17 +15,20 @@ import {
 } from "../../encoding.js";
 import type { ResourceLease } from "../../execution-scope.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
+import { readBatch } from "../../fs/read-many.js";
 import { FileTraversalBudget } from "../../fs/traversal.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { createUserRegex, type UserRegex } from "../../regex/index.js";
 import type { ExecResult, RuntimeCommandContext } from "../../types.js";
+import { getCandidates } from "../search-engine/file-batch.js";
 import {
   buildRegex,
   convertReplacement,
   type RegexResult,
   searchContent,
 } from "../search-engine/index.js";
+import type { PreFilter } from "../search-engine/regex.js";
 import { FileTypeRegistry } from "./file-types.js";
 import { GitignoreManager, loadGitignores } from "./gitignore.js";
 import type { RgOptions } from "./rg-options.js";
@@ -166,6 +171,7 @@ export async function executeSearch(
   let aggregatePatternInputBytes = 0;
   let regex: UserRegex;
   let kResetGroup: number | undefined;
+  let preFilter: PreFilter | undefined;
   try {
     // Read patterns from files (-f/--file). Patterns are regex source — decode
     // bytes to UTF-8 so unicode-class patterns work. Scan incrementally instead
@@ -252,6 +258,7 @@ export async function executeSearch(
       );
       regex = regexResult.regex;
       kResetGroup = regexResult.kResetGroup;
+      preFilter = regexResult.preFilter;
     } catch {
       return {
         stdout: "",
@@ -388,6 +395,7 @@ export async function executeSearch(
     showFilename,
     effectiveLineNumbers,
     kResetGroup,
+    preFilter,
   );
 }
 
@@ -950,6 +958,12 @@ function matchesPreGlob(filename: string, preGlobs: string[]): boolean {
   return false;
 }
 
+interface FileData {
+  content: string;
+  isBinary: boolean;
+  lease?: ResourceLease;
+}
+
 /**
  * Read file content, handling preprocessing and gzip decompression if needed
  */
@@ -958,11 +972,7 @@ async function readFileContent(
   filePath: string,
   file: string,
   options: RgOptions,
-): Promise<{
-  content: string;
-  isBinary: boolean;
-  lease?: ResourceLease;
-} | null> {
+): Promise<FileData | null> {
   let lease: ResourceLease | undefined;
   try {
     // Check for preprocessing with --pre
@@ -1063,21 +1073,86 @@ async function readFileContent(
       "rg",
     );
     const rawContent = await readBytesFrom(ctx.fs, filePath);
-    const contentBytes = latin1FromBytes(rawContent).length;
-    if (contentBytes > stat.size) {
-      throw new ExecutionLimitError(
-        "rg: file grew while being read",
-        "string_length",
-      );
-    }
-    ctx.executionScope?.consumeInput(contentBytes, "rg");
-    const content = decodeBytesToUtf8(rawContent, ctx.limits.maxStringLength);
-    const sample = content.slice(0, 8192);
-    return { content, isBinary: sample.includes("\0"), lease };
+    return { ...decodeFileContent(ctx, rawContent, stat.size), lease };
   } catch (error) {
     lease?.release();
     rethrowFatalExecutionError(error);
     return null;
+  }
+}
+
+function decodeFileContent(
+  ctx: RuntimeCommandContext,
+  rawContent: ByteString,
+  size: number,
+): FileData {
+  const contentBytes = latin1FromBytes(rawContent).length;
+  if (contentBytes > size) {
+    throw new ExecutionLimitError(
+      "rg: file grew while being read",
+      "string_length",
+    );
+  }
+  ctx.executionScope?.consumeInput(contentBytes, "rg");
+  const content = decodeBytesToUtf8(rawContent, ctx.limits.maxStringLength);
+  return { content, isBinary: content.slice(0, 8192).includes("\0") };
+}
+
+/** Bulk reads return the same per-file contents and leases as ordinary reads. */
+async function readFileBatch(
+  ctx: RuntimeCommandContext,
+  files: string[],
+): Promise<Array<FileData | null>> {
+  const paths = files.map((file) => ctx.fs.resolvePath(ctx.cwd, file));
+  const prepared = await Promise.allSettled(
+    paths.map(async (path) => {
+      const stat = await ctx.fs.stat(path);
+      return {
+        size: stat.size,
+        // Bulk buffers coexist with the byte string and decoded text.
+        lease: ctx.executionScope?.reserveBytes(
+          "rg file text",
+          stat.size * 3,
+          "rg",
+        ),
+      };
+    }),
+  );
+  const readable = prepared.flatMap((result, index) =>
+    result.status === "fulfilled" ? [{ ...result.value, index }] : [],
+  );
+  try {
+    for (const result of prepared) {
+      if (result.status === "rejected")
+        rethrowFatalExecutionError(result.reason);
+    }
+    const reads = await readBatch(
+      ctx.fs,
+      readable.map((file) => paths[file.index]),
+      ctx.signal,
+    );
+    const contents: Array<FileData | null> = files.map(() => null);
+    for (const [index, file] of readable.entries()) {
+      try {
+        const read = reads[index];
+        if (read.status === "rejected") throw read.reason;
+        contents[file.index] = {
+          ...decodeFileContent(
+            ctx,
+            bytesFromUint8Array(read.value, ctx.limits.maxStringLength),
+            file.size,
+          ),
+          lease: file.lease,
+        };
+      } catch (error) {
+        file.lease?.release();
+        rethrowFatalExecutionError(error);
+      }
+    }
+    return contents;
+  } catch (error) {
+    for (const file of readable) file.lease?.release();
+    throw error;
   }
 }
 
@@ -1127,6 +1202,7 @@ async function searchFiles(
   showFilename: boolean,
   effectiveLineNumbers: boolean,
   kResetGroup?: number,
+  preFilter?: PreFilter,
 ): Promise<ExecResult> {
   let stdout = "";
   let anyMatch = false;
@@ -1141,12 +1217,44 @@ async function searchFiles(
   // string while being searched. Keep their concurrency deliberately small.
   const BATCH_SIZE = options.searchZip ? 2 : 50;
   outer: for (let i = 0; i < files.length; i += BATCH_SIZE) {
-    const batch = files.slice(i, i + BATCH_SIZE);
-
+    let batch = files.slice(i, i + BATCH_SIZE);
+    const ordinaryFiles = !options.searchZip && !options.preprocessor;
+    const canPrune =
+      ordinaryFiles &&
+      !options.invertMatch &&
+      !options.filesWithoutMatch &&
+      !options.count &&
+      !options.countMatches &&
+      !options.passthru &&
+      !options.json &&
+      !options.stats;
+    if (canPrune && ctx.fs.searchCandidates) {
+      const candidates = await getCandidates(
+        ctx.fs,
+        batch.map((file) => ctx.fs.resolvePath(ctx.cwd, file)),
+        preFilter,
+        ctx.signal,
+      );
+      if (candidates) {
+        batch = batch.filter((file) =>
+          candidates.has(ctx.fs.resolvePath(ctx.cwd, file)),
+        );
+      }
+    }
+    const bulk =
+      ctx.fs.readMany && ordinaryFiles && batch.length
+        ? await readFileBatch(ctx, batch)
+        : undefined;
     const results = await Promise.all(
-      batch.map(async (file) => {
-        const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-        const fileData = await readFileContent(ctx, filePath, file, options);
+      batch.map(async (file, index) => {
+        const fileData = bulk
+          ? bulk[index]
+          : await readFileContent(
+              ctx,
+              ctx.fs.resolvePath(ctx.cwd, file),
+              file,
+              options,
+            );
 
         if (!fileData) return null;
 

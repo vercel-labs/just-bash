@@ -6,7 +6,7 @@
  * throw `TypeError: readFileBytes is not a function` for any user-supplied
  * filesystem written before the method existed.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Bash } from "./Bash.js";
 import { type ByteString, bytesFromUint8Array } from "./encoding.js";
 import { InMemoryFs } from "./fs/in-memory-fs/in-memory-fs.js";
@@ -51,12 +51,27 @@ describe("readFileBytes back-compat fallback", () => {
     }).toEqual({ stdout: "한글", stderr: "", exitCode: 0 });
   });
 
-  it("bytesFromUint8Array round-trips bytes verbatim", () => {
-    const buf = new Uint8Array([0x00, 0x7f, 0x80, 0xc3, 0xa9, 0xff]);
-    const s: ByteString = bytesFromUint8Array(buf);
+  it.each([
+    false,
+    true,
+  ])("round-trips large byte views (browser: %s)", (browser) => {
+    const buf = Uint8Array.from(
+      { length: 256 * 1024 + 2 },
+      (_, i) => i % 256,
+    ).subarray(1, -1);
+    let s: ByteString;
+    try {
+      if (browser) vi.stubGlobal("Buffer", undefined);
+      s = bytesFromUint8Array(buf);
+      expect(() => bytesFromUint8Array(buf, buf.length - 1)).toThrow(
+        "byte conversion limit exceeded",
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
     const back = Uint8Array.from(s as unknown as string, (c) =>
       c.charCodeAt(0),
     );
-    expect(Array.from(back)).toEqual(Array.from(buf));
+    expect(back).toEqual(buf);
   });
 });

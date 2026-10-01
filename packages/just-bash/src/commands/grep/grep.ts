@@ -1,5 +1,6 @@
 import { decodeBytesToUtf8 } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
+import { readBatch } from "../../fs/read-many.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { UserRegex } from "../../regex/index.js";
 import type {
@@ -9,6 +10,7 @@ import type {
 } from "../../types.js";
 import { matchGlob } from "../../utils/glob.js";
 import { showHelp, unknownOption } from "../help.js";
+import { getCandidates } from "../search-engine/file-batch.js";
 import {
   buildRegex,
   type RegexMode,
@@ -34,6 +36,12 @@ interface FileEntry {
    */
   stdinAtEof?: boolean;
 }
+
+type FileInput =
+  | { path: string }
+  | { content: string }
+  | { error: string }
+  | null;
 
 interface GrepTraversalBudget {
   operations: number;
@@ -640,64 +648,91 @@ export const grepCommand: RuntimeCommand = {
     for (let i = 0; i < filesToSearch.length; i += BATCH_SIZE) {
       const batch = filesToSearch.slice(i, i + BATCH_SIZE);
 
-      // Process batch in parallel
-      const results = await Promise.all(
-        batch.map(async (fileEntry) => {
-          const file = fileEntry.path;
-          const basename = file.split("/").pop() || file;
-
-          // Check exclude patterns for non-recursive case
-          if (excludePatterns.length > 0 && !recursive && !fileEntry.isStdin) {
-            if (
-              excludePatterns.some((p) =>
-                matchGlob(basename, p, { stripQuotes: true }),
-              )
-            ) {
-              return null;
-            }
-          }
-
-          // Check include patterns for non-recursive case
-          if (includePatterns.length > 0 && !recursive && !fileEntry.isStdin) {
-            if (
-              !includePatterns.some((p) =>
-                matchGlob(basename, p, { stripQuotes: true }),
-              )
-            ) {
-              return null;
-            }
-          }
-
-          try {
-            let content: string;
-            if (fileEntry.isStdin) {
-              // grep runs regex over text — decode bytes to UTF-8 so multibyte
-              // codepoints match `.` / character classes correctly. A `-` that
-              // arrives after stdin was already drained reads EOF.
-              content =
-                fileEntry.stdinAtEof || ctx.stdin === undefined
+      const inputs = await Promise.allSettled(
+        batch.map(async (entry): Promise<FileInput> => {
+          if (entry.isStdin) {
+            return {
+              content:
+                entry.stdinAtEof || ctx.stdin === undefined
                   ? ""
-                  : decodeBytesToUtf8(ctx.stdin);
+                  : decodeBytesToUtf8(ctx.stdin),
+            };
+          }
+          const basename = entry.path.split("/").pop() || entry.path;
+          if (
+            !recursive &&
+            (excludePatterns.some((p) =>
+              matchGlob(basename, p, { stripQuotes: true }),
+            ) ||
+              (includePatterns.length > 0 &&
+                !includePatterns.some((p) =>
+                  matchGlob(basename, p, { stripQuotes: true }),
+                )))
+          )
+            return null;
+          const path = ctx.fs.resolvePath(ctx.cwd, entry.path);
+          const isDirectory =
+            entry.isFile === undefined
+              ? (await ctx.fs.stat(path)).isDirectory
+              : !entry.isFile;
+          if (isDirectory) {
+            if (!recursive)
+              return { error: `grep: ${entry.path}: Is a directory\n` };
+            return null;
+          }
+          return { path };
+        }),
+      );
+      const readable = inputs.flatMap((input, index) => {
+        if (input.status === "rejected") {
+          rethrowFatalExecutionError(input.reason);
+          return [];
+        }
+        return input.value && "path" in input.value
+          ? [{ path: input.value.path, index }]
+          : [];
+      });
+      const candidates = await getCandidates(
+        ctx.fs,
+        readable.map((input) => input.path),
+        !invertMatch && !countOnly && !filesWithoutMatch
+          ? preFilter
+          : undefined,
+        ctx.signal,
+      );
+      const selected = candidates
+        ? readable.filter((input) => candidates.has(input.path))
+        : readable;
+      let contents: Map<number, PromiseSettledResult<Uint8Array>> | undefined;
+      if (ctx.fs.readMany && selected.length) {
+        const reads = await readBatch(
+          ctx.fs,
+          selected.map((input) => input.path),
+          ctx.signal,
+        );
+        contents = new Map(
+          selected.map((input, index) => [input.index, reads[index]]),
+        );
+      }
+
+      const results = await Promise.all(
+        inputs.map(async (input, index) => {
+          const file = batch[index].path;
+          try {
+            if (input.status === "rejected") throw input.reason;
+            if (!input.value || "error" in input.value) return input.value;
+            let content: string;
+            if ("content" in input.value) {
+              content = input.value.content;
             } else {
-              const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-
-              // Skip stat if we already know it's a file from glob expansion
-              let isDirectory = false;
-              if (fileEntry.isFile === undefined) {
-                const stat = await ctx.fs.stat(filePath);
-                isDirectory = stat.isDirectory;
-              } else {
-                isDirectory = !fileEntry.isFile;
-              }
-
-              if (isDirectory) {
-                if (!recursive) {
-                  return { error: `grep: ${file}: Is a directory\n` };
-                }
-                return null;
-              }
-
-              content = await ctx.fs.readFile(filePath);
+              const path = input.value.path;
+              if (candidates && !candidates.has(path)) return null;
+              const read = contents?.get(index);
+              if (read?.status === "rejected") throw read.reason;
+              content =
+                read?.status === "fulfilled"
+                  ? new TextDecoder().decode(read.value)
+                  : await ctx.fs.readFile(path);
             }
 
             // File-level preFilter: skip searchContent entirely when no needle exists in file.

@@ -16,6 +16,8 @@
  * (decode — process as text). Pick one explicitly per call site.
  */
 
+import { fromBuffer } from "./fs/encoding.js";
+
 declare const __byteString: unique symbol;
 export interface ByteString {
   readonly [__byteString]: true;
@@ -149,9 +151,7 @@ export function bytesFromUint8Array(
   maxBytes: number = DEFAULT_MAX_CONVERSION_BYTES,
 ): ByteString {
   assertConversionSize(buf.byteLength, maxBytes, "byte-string conversion");
-  let out = "";
-  for (let i = 0; i < buf.length; i++) out += String.fromCharCode(buf[i]);
-  return out as unknown as ByteString;
+  return unsafeBytesFromLatin1(fromBuffer(buf, "binary"));
 }
 
 /**

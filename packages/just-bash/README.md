@@ -329,6 +329,31 @@ const fs = new MountableFs({
 });
 ```
 
+### Remote filesystem search
+
+Custom filesystems can implement two optional methods:
+
+- `readMany(paths, { signal })`: fetch raw bytes in bulk, returning one
+  `PromiseSettledResult<Uint8Array>` per path in input order.
+- `searchCandidates({ paths, anyOf, signal })`: return paths that may contain
+  any literal, or `undefined` to decline filtering. An empty array means no matches.
+
+Commands send batches of at most 50 paths and retain discovery, ignore rules,
+matching, and output. Candidate results must be exhaustive and preserve the
+filesystem's visible view, including overlays. Keep unreadable or uncertain paths
+so normal reads can report errors. Cancellation and backend failures stop the
+command; they do not trigger another scan.
+
+Pruning currently uses case-sensitive ASCII literal conditions. Other searches,
+including counts and inverted matches, can still use bulk reads. `rg` preserves
+ordinary reads for preprocessors and compressed files, and skips pruning for JSON
+and statistics output. Use `rg -s` for explicitly case-sensitive searches.
+
+`MountableFs` delegates per backend and uses ordinary reads for unsupported mounts.
+Directory traversal and metadata calls are unchanged. Queries, authorization,
+and indexes belong to the adapter; no database extension is required.
+
+
 ## Optional Capabilities
 
 ### Network Access

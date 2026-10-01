@@ -127,6 +127,15 @@ export interface CpOptions {
   recursive?: boolean;
 }
 
+/** A conservative content condition on UTF-8 decoded file contents. */
+export interface SearchCandidatesRequest {
+  /** Absolute paths already selected by the command, in a bounded batch. */
+  paths: readonly string[];
+  /** At least one literal must occur (case-sensitive, OR semantics). */
+  anyOf: readonly string[];
+  signal?: AbortSignal;
+}
+
 /**
  * Abstract filesystem interface that can be implemented by different backends.
  * This allows BashEnv to work with:
@@ -135,6 +144,30 @@ export interface CpOptions {
  * - Custom implementations (e.g., remote storage, browser IndexedDB)
  */
 export interface IFileSystem {
+  /**
+   * Optional set-based equivalent of readFileBuffer. Return exactly one settled
+   * result per input path, in input order, including duplicates and errors.
+   * Implementations must expose the same visible contents as ordinary reads.
+   * Reject the operation for cancellation or backend-wide failures.
+   */
+  readMany?(
+    paths: readonly string[],
+    options?: { signal?: AbortSignal },
+  ): Promise<readonly PromiseSettledResult<Uint8Array>[]>;
+
+  /**
+   * Return a superset of matching input paths, or undefined to decline.
+   * Omit a path only when reading it would succeed and its decoded contents
+   * cannot contain any literal. In particular, retain unreadable/unknown paths
+   * so normal reads still report errors. Never truncate successful results.
+   * Search the same visible view as ordinary reads, including overlays.
+   * Extra candidates are harmless; false negatives violate this contract.
+   * Throw for operational failures; callers do not retry with a full scan.
+   */
+  searchCandidates?(
+    request: SearchCandidatesRequest,
+  ): Promise<readonly string[] | undefined>;
+
   // Note: Sync method are not supported and must not be added.
   /**
    * Read the contents of a file as decoded text. Default encoding is utf8;
