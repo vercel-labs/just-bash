@@ -67,6 +67,7 @@ export type {
   LazyFileEntry,
   LazyFileProvider,
   MkdirOptions,
+  RealpathOptions,
   RmOptions,
   SymlinkEntry,
 } from "./fs/interface.js";

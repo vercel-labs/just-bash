@@ -10,6 +10,7 @@ import type {
   IFileSystem,
   MkdirOptions,
   ReadFileOptions,
+  RealpathOptions,
   RmOptions,
   WriteFileOptions,
 } from "../interface.js";
@@ -22,6 +23,7 @@ import {
   resolvePath,
   validatePath,
 } from "../path-utils.js";
+import { registerAdapter, resolveFsPath } from "../physical-path.js";
 
 /**
  * Configuration for a mount point
@@ -77,6 +79,8 @@ export class MountableFs implements IFileSystem {
 
   constructor(options?: MountableFsOptions) {
     this.baseFs = options?.base ?? new InMemoryFs();
+    const mounts = () => this.getMounts();
+    registerAdapter({ fs: this, base: this.baseFs, mounts });
 
     // Add initial mounts
     if (options?.mounts) {
@@ -674,35 +678,12 @@ export class MountableFs implements IFileSystem {
    * Resolve all symlinks in a path to get the canonical physical path.
    * This is equivalent to POSIX realpath().
    */
-  async realpath(path: string): Promise<string> {
-    const normalized = normalizePath(path);
-
-    // Check if this is exactly a mount point
-    const mountEntry = this.mounts.get(normalized);
-    if (mountEntry) {
-      // Mount point itself - return the mount point path
-      return normalized;
+  async realpath(input: string | RealpathOptions): Promise<string> {
+    if (typeof input === "string") {
+      validatePath(input, "realpath");
     }
-
-    // Route to the appropriate filesystem
-    const { fs, relativePath } = this.routePath(path);
-
-    // Get realpath from the underlying filesystem
-    const resolvedRelative = await fs.realpath(relativePath);
-
-    // Find the mount point for this path
-    for (const [mp, _entry] of this.mounts) {
-      if (normalized === mp || normalized.startsWith(`${mp}/`)) {
-        // Path is within this mount - reconstruct full path
-        if (resolvedRelative === "/") {
-          return mp;
-        }
-        return `${mp}${resolvedRelative}`;
-      }
-    }
-
-    // Path is in the base filesystem
-    return resolvedRelative;
+    const options = typeof input === "string" ? { path: input } : input;
+    return resolveFsPath({ ...options, fs: this });
   }
 
   /**

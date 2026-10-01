@@ -227,6 +227,37 @@ describe("js-exec Node.js compatibility", () => {
       expect(result.exitCode).toBe(0);
     });
 
+    it("should require final paths and symlink targets to exist", async () => {
+      const env = new Bash({ javascript: true, cwd: "/work" });
+      await env.fs.symlink("/work/absent", "/work/dangling");
+
+      const result = await env.exec(
+        `js-exec -c "for (const path of ['missing', '/work/missing', 'dangling', '/work/dangling', '']) { try { fs.realpathSync(path); console.log('resolved') } catch (error) { console.log(String(error).includes('ENOENT')) } }"`,
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("true\ntrue\ntrue\ntrue\ntrue\n");
+    });
+
+    it("should resolve dot segments after a symlink", async () => {
+      const env = new Bash({
+        javascript: true,
+        cwd: "/work",
+        files: {
+          "/target/file.txt": "real",
+          "/target/dir/keep": "",
+        },
+      });
+      await env.fs.symlink("/target/dir", "/work/link");
+
+      const result = await env.exec(
+        `js-exec -c "console.log(fs.realpathSync('link/../file.txt'))"`,
+      );
+
+      expect(result.stdout).toBe("/target/file.txt\n");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should support rename", async () => {
       const env = new Bash({ javascript: true });
       const result = await env.exec(

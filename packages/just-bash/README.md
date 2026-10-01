@@ -84,7 +84,7 @@ duplicating internal defaults.
 
 ### File Operations
 
-`cat`, `cp`, `file`, `ln`, `ls`, `mkdir`, `mktemp`, `mv`, `readlink`, `rm`, `rmdir`, `split`, `stat`, `touch`, `tree`
+`cat`, `cp`, `file`, `ln`, `ls`, `mkdir`, `mktemp`, `mv`, `readlink`, `realpath`, `rm`, `rmdir`, `split`, `stat`, `touch`, `tree`
 
 ### Text Processing
 
@@ -328,6 +328,11 @@ const fs = new MountableFs({
   ],
 });
 ```
+
+**Custom filesystems** - Implement the exported `IFileSystem` interface.
+`realpath(path)` is strict. `realpath({ path, cwd, mode, signal })` resolves
+relative paths from `cwd` and is strict by default. Use `mode: "all-but-last"`
+to permit a missing final component.
 
 ## Optional Capabilities
 
