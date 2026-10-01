@@ -3,6 +3,34 @@ import { Bash } from "../../Bash.js";
 import { InMemoryFs } from "./in-memory-fs.js";
 
 describe("InMemoryFs retained-byte accounting", () => {
+  it("preserves identity and mode before and after removing an alias", async () => {
+    const fs = new InMemoryFs(undefined, { maxTotalBytes: 8 });
+    await fs.writeFile("/file", "12345678");
+    await fs.chmod("/file", 0o600);
+    const original = await fs.stat("/file");
+
+    for (const linked of [false, true]) {
+      if (linked) {
+        await fs.link("/file", "/alias");
+        await fs.rm("/alias");
+      }
+      await fs.writeFile("/file", "1234");
+      await fs.appendFile("/file", "5678");
+      expect(await fs.stat("/file")).toMatchObject({
+        identity: original.identity,
+        ino: original.ino,
+        mode: 0o600,
+        size: 8,
+      });
+      expect(await fs.readFile("/file")).toBe("12345678");
+      await expect(fs.appendFile("/file", "x")).rejects.toThrow("ENOSPC");
+    }
+    await fs.rm("/file");
+    await expect(
+      fs.writeFile("/replacement", "12345678"),
+    ).resolves.toBeUndefined();
+  });
+
   it("counts a hard-linked body once and releases it after the final alias", async () => {
     const fs = new InMemoryFs(undefined, { maxTotalBytes: 8 });
     await fs.writeFile("/original", "12345678");
@@ -16,13 +44,25 @@ describe("InMemoryFs retained-byte accounting", () => {
     await expect(fs.writeFile("/other", "x")).resolves.toBeUndefined();
   });
 
-  it("does not credit an overwritten alias while another link retains it", async () => {
+  it("updates linked aliases within the same quota and inode", async () => {
     const fs = new InMemoryFs(undefined, { maxTotalBytes: 8 });
     await fs.writeFile("/original", "12345678");
     await fs.link("/original", "/alias");
+    const identity = (await fs.stat("/original")).identity;
 
-    await expect(fs.writeFile("/original", "x")).rejects.toThrow("ENOSPC");
-    expect(await fs.readFile("/original")).toBe("12345678");
+    await fs.writeFile("/original", "x");
+    expect(await fs.readFile("/alias")).toBe("x");
+    await fs.appendFile("/alias", "yz");
+    expect(await fs.readFile("/original")).toBe("xyz");
+    expect((await fs.stat("/alias")).identity).toBe(identity);
+    await fs.mv("/original", "/moved");
+    expect(await fs.readFile("/moved")).toBe("xyz");
+
+    await fs.writeFile("/other", "12345");
+    await fs.rm("/moved");
+    await expect(fs.writeFile("/alias", "12345678")).rejects.toThrow("ENOSPC");
+    await fs.rm("/other");
+    await fs.writeFile("/alias", "12345678");
     expect(await fs.readFile("/alias")).toBe("12345678");
   });
 
