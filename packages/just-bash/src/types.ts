@@ -77,6 +77,13 @@ export interface CommandExecOptions {
    */
   replaceEnv?: boolean;
   /**
+   * Start a new shell process, as `sh`/`bash` do. Implies `replaceEnv`: `env`
+   * is the child's environment, so its keys are exported, and the shell
+   * initializes its own unexported variables (IFS, OPTIND, SHELLOPTS, ...)
+   * on top, the way bash does at startup.
+   */
+  newShell?: boolean;
+  /**
    * Working directory for the exec.
    * Required to prevent bugs where subcommands run in the wrong directory.
    * Always pass `ctx.cwd` from the calling command's context.

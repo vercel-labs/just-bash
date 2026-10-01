@@ -88,6 +88,19 @@ import type {
 
 export type { ExecutionLimitProfile, ExecutionLimits } from "./limits.js";
 
+const DEFAULT_PATH = "/usr/bin:/bin";
+
+/**
+ * Variables a shell sets from its build and host at startup when the
+ * environment does not provide them.
+ */
+const HOST_VARS: ReadonlyArray<readonly [string, string]> = [
+  ["OSTYPE", "linux-gnu"],
+  ["MACHTYPE", "x86_64-pc-linux-gnu"],
+  ["HOSTTYPE", "x86_64"],
+  ["HOSTNAME", "localhost"], // Match hostname command in sandboxed environment
+];
+
 /**
  * Logger interface for Bash execution logging.
  * Implement this interface to receive execution logs.
@@ -368,12 +381,9 @@ export class Bash {
     // Use Map for env to prevent prototype pollution attacks
     const env = new Map<string, string>([
       ["HOME", this.useDefaultLayout ? "/home/user" : "/"],
-      ["PATH", "/usr/bin:/bin"],
+      ["PATH", DEFAULT_PATH],
       ["IFS", " \t\n"],
-      ["OSTYPE", "linux-gnu"],
-      ["MACHTYPE", "x86_64-pc-linux-gnu"],
-      ["HOSTTYPE", "x86_64"],
-      ["HOSTNAME", "localhost"], // Match hostname command in sandboxed environment
+      ...HOST_VARS,
       ["PWD", cwd],
       ["OLDPWD", cwd],
       ["OPTIND", "1"], // getopts option index
@@ -661,12 +671,13 @@ export class Bash {
 
   private async execInScope(
     commandLine: string,
-    options: ExecOptions | undefined,
+    options: (ExecOptions & { newShell?: boolean }) | undefined,
     executionScope: ExecutionScope,
     execDepth: number,
     parentSignal: AbortSignal | undefined,
     stdinAlreadyAccounted = false,
     shouldLogResult = true,
+    callerState?: InterpreterState,
   ): Promise<BashExecResult> {
     const finishResult = (result: BashExecResult): BashExecResult =>
       shouldLogResult ? this.logResult(result) : result;
@@ -726,10 +737,14 @@ export class Bash {
         }
       }
 
-      // Create environment for this execution
-      const execEnv = effectiveOptions.replaceEnv
+      // Create environment for this execution. A recursive exec (from `env`,
+      // `time`, `timeout`, ...) runs in the calling execution, so it starts
+      // from that execution's live variables rather than the instance's.
+      const replaceEnv =
+        effectiveOptions.replaceEnv || effectiveOptions.newShell;
+      const execEnv = replaceEnv
         ? new Map<string, string>()
-        : new Map(this.state.env);
+        : new Map((callerState ?? this.state).env);
       // Merge in options.env
       if (effectiveOptions.env) {
         for (const [key, value] of Object.entries(effectiveOptions.env)) {
@@ -741,14 +756,64 @@ export class Bash {
         execEnv.set("PWD", newPwd);
       }
 
+      // Decide which variables the new shell exports to its children. Only
+      // the host API and new shells treat `env` as the environment; internal
+      // callers such as `env` and `time` pass the full variable map and keep
+      // the caller's export set, including prefix exports (`FOO=x time ...`).
+      // The set is always copied so an `export` in one exec does not leak
+      // into later ones. Only valid names can be exported: nested sh/bash
+      // passes positional parameters ("0", "#", "1") through env.
+      const exportsEnv = !callerState || effectiveOptions.newShell;
+      const exportedVars =
+        replaceEnv && exportsEnv
+          ? new Set<string>()
+          : callerState
+            ? new Set([
+                ...(callerState.exportedVars ?? []),
+                ...(callerState.tempExportedVars ?? []),
+              ])
+            : new Set(this.state.exportedVars);
+      if (exportsEnv) {
+        for (const key of Object.keys(effectiveOptions.env ?? {})) {
+          if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
+            exportedVars.add(key);
+          }
+        }
+        if (newPwd !== undefined) {
+          exportedVars.add("PWD");
+        }
+      }
+
+      if (effectiveOptions.newShell) {
+        // A new shell initializes these itself, unexported: defaults for
+        // what the environment lacks, and IFS, OPTIND and the option
+        // variables regardless of it.
+        if (!execEnv.has("PATH")) {
+          execEnv.set("PATH", DEFAULT_PATH);
+        }
+        for (const [name, value] of HOST_VARS) {
+          if (!execEnv.has(name)) {
+            execEnv.set(name, value);
+          }
+        }
+        for (const name of ["IFS", "OPTIND", "SHELLOPTS", "BASHOPTS"]) {
+          exportedVars.delete(name);
+        }
+        execEnv.set("IFS", " \t\n");
+        execEnv.set("OPTIND", "1");
+        execEnv.set("SHELLOPTS", buildShellopts(this.state.options));
+        execEnv.set("BASHOPTS", buildBashopts(this.state.shoptOptions));
+      }
+
       const execState: InterpreterState = {
         ...this.state,
         env: execEnv,
-        arrays: effectiveOptions.replaceEnv
-          ? new Map()
-          : cloneArrays(this.state.arrays),
+        exportedVars,
+        arrays: replaceEnv ? new Map() : cloneArrays(this.state.arrays),
         cwd: newCwd,
-        previousDir: effectiveOptions.env?.OLDPWD ?? this.state.previousDir,
+        previousDir:
+          effectiveOptions.env?.OLDPWD ??
+          (replaceEnv ? "" : this.state.previousDir),
         // Deep copy mutable objects to prevent interference
         functions: new Map(this.state.functions),
         localScopes: [...this.state.localScopes],
@@ -827,6 +892,8 @@ export class Bash {
                 execDepth + 1,
                 effectiveOptions.signal,
                 childStdinAlreadyAccounted,
+                true,
+                execState,
               ),
             fetch: this.secureFetch,
             sleep: this.sleepFn,
