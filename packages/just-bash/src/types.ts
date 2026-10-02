@@ -182,6 +182,12 @@ export interface RuntimeCommandContext {
    */
   stdin: ByteString;
   /**
+   * Whether this command's direct dispatch received pipeline or redirection
+   * input, even when empty. Inherited group stdin is intentionally excluded.
+   * @internal
+   */
+  stdinProvided?: boolean;
+  /**
    * Execution limits configuration.
    * Fully resolved by Bash before a command is invoked.
    */
