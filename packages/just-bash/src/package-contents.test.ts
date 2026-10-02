@@ -31,6 +31,7 @@ describe("published package declarations", () => {
 
       expect(files.has("dist/security/index.d.ts")).toBe(true);
       expect(files.has("dist/security/types.d.ts")).toBe(true);
+      expect(files.has("dist/streams/command-stdio.d.ts")).toBe(true);
       expect(files.has("dist/transform/pipeline.d.ts")).toBe(true);
       expect(files.has("dist/transform/plugins/command-collector.d.ts")).toBe(
         true,
