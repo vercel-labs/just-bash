@@ -302,6 +302,7 @@ function processNextExecution(queueState: QueueState): void {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     next.state = "settled";
+    next.stopBridge();
     next.settle({
       success: false,
       error: sanitizeHostErrorMessage(message),
@@ -339,6 +340,10 @@ function processNextExecution(queueState: QueueState): void {
 
     next.state = "terminating";
     cleanupListeners();
+    // A worker that errored or exited never sent the bridge its EXIT, so the
+    // bridge would otherwise wait out the whole script timeout. On a normal
+    // finish the bridge has already stopped and this does nothing.
+    next.stopBridge();
     next.settle(result);
 
     if (terminateWorker) {
