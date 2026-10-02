@@ -8,7 +8,12 @@
  */
 import { describe, expect, it } from "vitest";
 import { Bash } from "./Bash.js";
-import { type ByteString, bytesFromUint8Array } from "./encoding.js";
+import {
+  type ByteString,
+  bytesFromUint8Array,
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+} from "./encoding.js";
 import { InMemoryFs } from "./fs/in-memory-fs/in-memory-fs.js";
 import type { IFileSystem } from "./fs/interface.js";
 
@@ -51,12 +56,19 @@ describe("readFileBytes back-compat fallback", () => {
     }).toEqual({ stdout: "한글", stderr: "", exitCode: 0 });
   });
 
-  it("bytesFromUint8Array round-trips bytes verbatim", () => {
-    const buf = new Uint8Array([0x00, 0x7f, 0x80, 0xc3, 0xa9, 0xff]);
+  it("bytesFromUint8Array preserves all byte values and chunk boundaries", () => {
+    const buf = Uint8Array.from({ length: 8193 }, (_, i) => i & 0xff);
     const s: ByteString = bytesFromUint8Array(buf);
-    const back = Uint8Array.from(s as unknown as string, (c) =>
-      c.charCodeAt(0),
-    );
+    const back = Uint8Array.from(latin1FromBytes(s), (c) => c.charCodeAt(0));
     expect(Array.from(back)).toEqual(Array.from(buf));
+  });
+
+  it("encodeUtf8ToBytes matches TextEncoder for Unicode and lone surrogates", () => {
+    const text = "ASCII é 水 💩 \uD800 lone-high \uDC00 lone-low";
+    const actual = latin1FromBytes(encodeUtf8ToBytes(text));
+    const expected = Array.from(new TextEncoder().encode(text), (byte) =>
+      String.fromCharCode(byte),
+    ).join("");
+    expect(actual).toBe(expected);
   });
 });

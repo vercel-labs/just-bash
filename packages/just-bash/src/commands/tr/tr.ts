@@ -1,8 +1,4 @@
-import {
-  decodeBytesToUtf8,
-  latin1FromBytes,
-  utf8ByteLength,
-} from "../../encoding.js";
+import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
@@ -12,6 +8,7 @@ import type {
   RuntimeCommandContext,
 } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
+import { createStringBuilder } from "../../utils/string-builder.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const trHelp = {
@@ -262,23 +259,37 @@ export const trCommand: RuntimeCommand = {
       return complementMode ? !inSet : inSet;
     };
 
-    let output = "";
+    // Small inputs already bound the number of one-codepoint appends. Avoid
+    // batching them; large inputs still compact output every 8192 fragments.
+    const output = createStringBuilder(content.length <= 32768 ? 32768 : 32);
     let outputBytes = 0;
     const appendOutput = (value: string): void => {
-      const bytes = utf8ByteLength(value);
+      // Every append is empty or one codepoint, so account for its UTF-8
+      // width directly. Lone surrogate code units still cost three bytes.
+      let bytes = 0;
+      if (value.length === 2) bytes = 4;
+      else if (value.length === 1) {
+        const code = value.charCodeAt(0);
+        bytes = code <= 0x7f ? 1 : code <= 0x7ff ? 2 : 3;
+      }
       if (bytes > maxOutputSize - outputBytes) {
         throw new ExecutionLimitError(
           `tr: output size limit exceeded (${maxOutputSize} bytes)`,
           "output_size",
         );
       }
-      output += value;
+      output.append(value);
       outputBytes += bytes;
     };
 
     if (deleteMode) {
       // Delete characters in set1 (or complement of set1)
-      for (const char of content) {
+      // Advance by codepoint without allocating a string-iterator result per
+      // character. Use the same traversal in the squeeze/translation loops.
+      for (let i = 0; i < content.length; ) {
+        const code = content.codePointAt(i) as number;
+        const char = code > 0xffff ? content.slice(i, i + 2) : content[i];
+        i += char.length;
         if (!isInSet1(char)) {
           appendOutput(char);
         }
@@ -286,7 +297,10 @@ export const trCommand: RuntimeCommand = {
     } else if (squeezeMode && sets.length === 1) {
       // Squeeze consecutive characters in set1
       let prev = "";
-      for (const char of content) {
+      for (let i = 0; i < content.length; ) {
+        const code = content.codePointAt(i) as number;
+        const char = code > 0xffff ? content.slice(i, i + 2) : content[i];
+        i += char.length;
         if (isInSet1(char) && char === prev) {
           continue; // Skip repeated character
         }
@@ -307,7 +321,10 @@ export const trCommand: RuntimeCommand = {
         // In complement mode, all characters NOT in set1 are translated
         // They're all mapped to a single character (last char of set2)
         const targetChar = set2.length > 0 ? set2[set2.length - 1] : "";
-        for (const char of content) {
+        for (let i = 0; i < content.length; ) {
+          const code = content.codePointAt(i) as number;
+          const char = code > 0xffff ? content.slice(i, i + 2) : content[i];
+          i += char.length;
           if (!set1.has(char)) {
             appendTranslated(targetChar);
           } else {
@@ -323,7 +340,10 @@ export const trCommand: RuntimeCommand = {
           translationMap.set(set1Raw[i], targetChar);
         }
 
-        for (const char of content) {
+        for (let i = 0; i < content.length; ) {
+          const code = content.codePointAt(i) as number;
+          const char = code > 0xffff ? content.slice(i, i + 2) : content[i];
+          i += char.length;
           appendTranslated(translationMap.get(char) ?? char);
         }
       }
@@ -331,7 +351,7 @@ export const trCommand: RuntimeCommand = {
 
     // tr emits text; the pipeline handles encoding.
     return {
-      stdout: output,
+      stdout: output.finish(),
       stderr: "",
       exitCode: 0,
     };

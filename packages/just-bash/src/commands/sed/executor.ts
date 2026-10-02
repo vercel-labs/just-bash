@@ -2,6 +2,7 @@
 
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { createUserRegex } from "../../regex/index.js";
+import { createStringBuilder } from "../../utils/string-builder.js";
 import { breToEre, escapeForList, normalizeForJs } from "./sed-regex.js";
 import type {
   AddressRange,
@@ -339,7 +340,7 @@ function globalReplace(
   _replacement: string,
   replaceFn: (match: string, groups: string[]) => string,
 ): string {
-  let result = "";
+  const result = createStringBuilder();
   let pos = 0;
   let skipZeroLengthAtNextPos = false;
 
@@ -352,17 +353,18 @@ function globalReplace(
     // No match found at or after current position
     if (!match) {
       // Output remaining characters
-      result += input.slice(pos);
+      result.append(input.slice(pos));
       break;
     }
 
     // Match found, but not at current position
     if (match.index !== pos) {
       // Output characters up to the match
-      result += input.slice(pos, match.index);
+      result.append(input.slice(pos, match.index));
       pos = match.index;
       skipZeroLengthAtNextPos = false;
-      continue;
+      // Process the match we already found instead of searching again at the
+      // same position. This matters for sparse matches and allocating engines.
     }
 
     // Match found at current position
@@ -373,7 +375,7 @@ function globalReplace(
     if (skipZeroLengthAtNextPos && matchedText.length === 0) {
       // Skip this zero-length match, output the character, advance
       if (pos < input.length) {
-        result += input[pos];
+        result.append(input[pos]);
         pos++;
       } else {
         break;
@@ -383,13 +385,13 @@ function globalReplace(
     }
 
     // Apply replacement
-    result += replaceFn(matchedText, groups);
+    result.append(replaceFn(matchedText, groups));
     skipZeroLengthAtNextPos = false;
 
     if (matchedText.length === 0) {
       // Zero-length match: advance by 1 char, output that char
       if (pos < input.length) {
-        result += input[pos];
+        result.append(input[pos]);
         pos++;
       } else {
         break; // At end of string
@@ -402,7 +404,7 @@ function globalReplace(
     }
   }
 
-  return result;
+  return result.finish();
 }
 
 function processReplacement(
@@ -573,13 +575,11 @@ function executeCommand(
             );
           } else if (subCmd.global) {
             // Use custom global replace for POSIX-compliant zero-length match handling
-            const globalRegex = createUserRegex(
-              pattern,
-              `g${subCmd.ignoreCase ? "i" : ""}`,
-            );
+            // The match check used the same flags and lastIndex was reset.
+            // Reuse its matcher instead of allocating another one per line.
             state.patternSpace = globalReplace(
               state.patternSpace,
-              globalRegex,
+              regex,
               subCmd.replacement,
               (match, groups) =>
                 processReplacement(subCmd.replacement, match, groups),
