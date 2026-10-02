@@ -182,6 +182,17 @@ export interface RuntimeCommandContext {
    */
   stdin: ByteString;
   /**
+   * Whether fd 0 is connected to anything: a pipe from an earlier stage, a
+   * redirection, or an enclosing group's stdin. Set even when no bytes
+   * arrived, which `stdin` alone cannot show: `false | cmd` and a bare `cmd`
+   * both hand the command an empty `stdin`, and only this flag separates
+   * "read the empty pipe" from "no pipe". False for a closed fd 0
+   * (`cmd 0<&-`). A command that behaves differently with and without a
+   * stdin (ripgrep reads it when present and walks the directory otherwise)
+   * reads this rather than the byte count.
+   */
+  stdinConnected?: boolean;
+  /**
    * Execution limits configuration.
    * Fully resolved by Bash before a command is invoked.
    */

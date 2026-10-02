@@ -26,6 +26,8 @@ export async function handleEval(
    * unredirected `eval` shares the shell's stdin.
    */
   stdinRedirected = false,
+  /** The fd 0 this `eval` was given is closed (`eval '…' 0<&-`). */
+  stdinClosed = false,
 ): Promise<ExecResult> {
   // Handle options like bash does:
   // -- ends option processing
@@ -63,9 +65,11 @@ export async function handleEval(
   // move the one shared position, so `{ eval 'read a'; read b; }` must give
   // `b` the second line rather than replay the first.
   const savedGroupStdin = ctx.state.groupStdin;
+  const savedGroupStdinClosed = ctx.state.groupStdinClosed;
   const ownsStdin = stdinRedirected || (stdin !== undefined && stdin !== "");
   if (ownsStdin) {
     ctx.state.groupStdin = stdin ?? "";
+    ctx.state.groupStdinClosed = !stdin && stdinClosed;
   }
 
   try {
@@ -96,6 +100,7 @@ export async function handleEval(
       (savedGroupStdin !== undefined && ctx.state.groupStdin === undefined)
     ) {
       ctx.state.groupStdin = savedGroupStdin;
+      ctx.state.groupStdinClosed = savedGroupStdinClosed;
     }
   }
 }

@@ -770,6 +770,7 @@ export class Bash {
           executionScope,
           stdinAlreadyAccounted,
         ),
+        groupStdinClosed: false,
         // Cooperative cancellation signal (used by timeout command)
         signal: effectiveOptions.signal,
         // Extra arguments injected directly into first command's arg list
