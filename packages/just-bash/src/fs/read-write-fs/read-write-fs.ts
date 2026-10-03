@@ -871,6 +871,13 @@ export class ReadWriteFs implements IFileSystem {
       if (!this.allowSymlinks && stat.isSymbolicLink()) {
         throw new Error(`EACCES: permission denied, '${path}' is a symlink`);
       }
+      // Node's `fs.promises.rm` refuses every directory without `recursive`,
+      // empty or not, so `rmdir` and `find -delete` take rmdir(2), which
+      // removes an empty directory and refuses one that is not.
+      if (stat.isDirectory() && !options?.recursive) {
+        await fs.promises.rmdir(canonical);
+        return;
+      }
       await fs.promises.rm(canonical, {
         recursive: options?.recursive ?? false,
         force: options?.force ?? false,
@@ -881,7 +888,8 @@ export class ReadWriteFs implements IFileSystem {
         if (options?.force) return;
         throw new Error(`ENOENT: no such file or directory, rm '${path}'`);
       }
-      if (err.code === "ENOTEMPTY") {
+      // rmdir(2) may answer EEXIST for a directory that is not empty.
+      if (err.code === "ENOTEMPTY" || err.code === "EEXIST") {
         throw new Error(`ENOTEMPTY: directory not empty, rm '${path}'`);
       }
       this.sanitizeError(e, path, "rm");
