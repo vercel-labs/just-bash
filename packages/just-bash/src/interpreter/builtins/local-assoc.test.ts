@@ -137,11 +137,34 @@ describe("local -A and readonly -A", () => {
       I=(1 2)
       readonly -A I=([k]=v)
       echo "status=$? attr=\${I@a} values=\${I[*]}"
+      E=()
+      readonly -A E=([k]=v)
+      echo "status=$? attr=\${E@a} count=\${#E[@]}"
     `);
 
     expect(result).toMatchObject({
-      stdout: "status=1 attr=a values=1 2\n",
-      stderr: "bash: I: cannot convert indexed to associative array\n",
+      stdout: "status=1 attr=a values=1 2\nstatus=1 attr=a count=0\n",
+      stderr:
+        "bash: I: cannot convert indexed to associative array\nbash: E: cannot convert indexed to associative array\n",
+      exitCode: 0,
+    });
+  });
+
+  it("keeps brackets inside bare keys and values", async () => {
+    const result = await new Bash().exec(`
+      f() {
+        local -A M=(k '[v]' digit [0-9] "a[b" x)
+        key='a[b'
+        printf '<%s> <%s> <%s> %s\\n' "\${M[k]}" "\${M[digit]}" "\${M[$key]}" "\${#M[@]}"
+      }
+      f
+      readonly -A R=(k "a[0]")
+      printf '%s <%s> %s\\n' "\${R@a}" "\${R[k]}" "\${#R[@]}"
+    `);
+
+    expect(result).toMatchObject({
+      stdout: "<[v]> <[0-9]> <x> 3\nAr <a[0]> 1\n",
+      stderr: "",
       exitCode: 0,
     });
   });

@@ -193,12 +193,14 @@ export function parseAssocArrayLiteral(
  * Parse the content of an associative compound assignment NAME=(...).
  * Keyed content like "[k]=v [j]=w" gives its pairs; bare words alternate
  * between key and value, so "k1 v1 k2" gives [k1]=v1 and [k2]="".
+ * Content is keyed only when its first word is a [key]= word, so a bracket
+ * inside a bare key or value ("k '[v]'") stays part of that word.
  */
 export function parseAssocArrayContent(
   content: string,
   limits?: ArrayParseLimits,
 ): [string, string][] {
-  if (content.includes("[")) {
+  if (/^\s*\[(?:'[^']*'|"(?:\\.|[^"\\])*"|[^\]'"])*\]=/.test(content)) {
     return parseAssocArrayLiteral(content, limits);
   }
   const words = parseArrayElements(

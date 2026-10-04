@@ -1073,10 +1073,7 @@ export async function handleReadonly(
       const error = checkReadonlyError(ctx, name);
       if (error) return error;
 
-      if (
-        !ctx.state.associativeArrays?.has(name) &&
-        getArrayIndices(ctx, name).length > 0
-      ) {
+      if (hasArray(ctx, name) && !ctx.state.associativeArrays?.has(name)) {
         stderr += `bash: ${name}: cannot convert indexed to associative array\n`;
         exitCode = 1;
         continue;
