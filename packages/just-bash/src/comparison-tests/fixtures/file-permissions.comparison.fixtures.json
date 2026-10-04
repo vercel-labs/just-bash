@@ -39,6 +39,26 @@
     "stderr": "cat: data.txt: Permission denied\n",
     "exitCode": 0
   },
+  "5f1b0283b06fd563": {
+    "command": "ln -s data.txt link.txt; sed -i 's/secret/updated/' link.txt; test -L link.txt; echo \"link=$?\"; cat link.txt; cat data.txt",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "link=1\nupdated\nsecret\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7156f10b1e10a3a6": {
+    "command": "chmod 400 data.txt; exec 3<> data.txt; echo \"rc=$?\"",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "rc=1\n",
+    "stderr": "/bin/bash: line 1: data.txt: Permission denied\n",
+    "exitCode": 0
+  },
   "71e668f11fa6fcf2": {
     "command": "chmod 000 data.txt; cp data.txt copy.txt; echo \"rc=$?\"",
     "files": {
@@ -107,6 +127,26 @@
     },
     "stdout": "rc=126\n",
     "stderr": "bash: secret.sh: Permission denied\n",
+    "exitCode": 0
+  },
+  "bf9fd4fea50d6407": {
+    "command": "chmod 000 data.txt; sed 's/secret/updated/' data.txt; echo \"rc=$?\"",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "rc=2\n",
+    "stderr": "sed: can't read data.txt: Permission denied\n",
+    "exitCode": 0
+  },
+  "db6c4dd96337871f": {
+    "command": "echo x > m; chmod 600 m; echo y > m; stat -c %a m; cat m",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "600\ny\n",
+    "stderr": "",
     "exitCode": 0
   }
 }

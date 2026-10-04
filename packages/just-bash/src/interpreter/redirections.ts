@@ -251,16 +251,23 @@ async function readInputEntry(
   const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
   try {
     const content = await ctx.fs.readFile(filePath);
-    return readwrite
-      ? {
-          entry: {
-            kind: "readwrite",
-            path: filePath,
-            position: 0,
-            content,
-          },
-        }
-      : { entry: { kind: "input", content } };
+    if (readwrite) {
+      const stat = await ctx.fs.stat(filePath);
+      if (stat.isFile && (stat.mode & 0o200) === 0) {
+        return {
+          error: makeResult("", `bash: ${target}: Permission denied\n`, 1),
+        };
+      }
+      return {
+        entry: {
+          kind: "readwrite",
+          path: filePath,
+          position: 0,
+          content,
+        },
+      };
+    }
+    return { entry: { kind: "input", content } };
   } catch (error) {
     if (isPermissionDenied(error)) {
       return {

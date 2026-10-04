@@ -85,6 +85,20 @@ describe("InMemoryFs file permissions", () => {
     await expect(fs.stat("/source")).rejects.toThrow("ENOENT");
   });
 
+  it("preserves mode when overwriting and appending to an existing file", async () => {
+    const fs = new InMemoryFs({
+      "/data": { content: "original", mode: 0o600 },
+    });
+
+    await fs.writeFile("/data", "replacement");
+    expect((await fs.stat("/data")).mode).toBe(0o600);
+    expect(await fs.readFile("/data")).toBe("replacement");
+
+    await fs.appendFile("/data", " appended");
+    expect((await fs.stat("/data")).mode).toBe(0o600);
+    expect(await fs.readFile("/data")).toBe("replacement appended");
+  });
+
   it("allows writes to new files and restores access after chmod", async () => {
     const fs = new InMemoryFs({
       "/data": { content: "original", mode: 0o000 },

@@ -59,6 +59,62 @@ describe("OverlayFs file permissions", () => {
     expect(fs.readFileSync(realPath, "utf8")).toBe("hidden");
   });
 
+  it("preserves a real file when append cannot read its host contents", async () => {
+    const realPath = path.join(tempDir, "append-only");
+    fs.writeFileSync(realPath, "original");
+    fs.chmodSync(realPath, 0o200);
+    const overlay = new OverlayFs({
+      root: tempDir,
+      mountPoint: "/",
+      allowSymlinks: true,
+    });
+
+    await expect(
+      overlay.appendFile("/append-only", " appended"),
+    ).rejects.toThrow("EACCES: permission denied, open '/append-only'");
+    expect((await overlay.stat("/append-only")).mode & 0o7777).toBe(0o200);
+
+    fs.chmodSync(realPath, 0o644);
+    expect(await overlay.readFile("/append-only")).toBe("original");
+  });
+
+  it("preserves content when chmod changes permissions on a real file", async () => {
+    const realPath = path.join(tempDir, "chmod-real");
+    fs.writeFileSync(realPath, "original");
+    fs.chmodSync(realPath, 0o644);
+    const overlay = new OverlayFs({
+      root: tempDir,
+      mountPoint: "/",
+      allowSymlinks: true,
+    });
+
+    await overlay.chmod("/chmod-real", 0o000);
+    await expect(overlay.readFile("/chmod-real")).rejects.toThrow(
+      "EACCES: permission denied, open '/chmod-real'",
+    );
+    await overlay.chmod("/chmod-real", 0o644);
+
+    expect(await overlay.readFile("/chmod-real")).toBe("original");
+    expect(fs.readFileSync(realPath, "utf8")).toBe("original");
+  });
+
+  it("preserves a real file's mode when overwriting it", async () => {
+    const realPath = path.join(tempDir, "write-real");
+    fs.writeFileSync(realPath, "original");
+    fs.chmodSync(realPath, 0o600);
+    const overlay = new OverlayFs({
+      root: tempDir,
+      mountPoint: "/",
+      allowSymlinks: true,
+    });
+
+    await overlay.writeFile("/write-real", "replacement");
+
+    expect((await overlay.stat("/write-real")).mode & 0o7777).toBe(0o600);
+    expect(await overlay.readFile("/write-real")).toBe("replacement");
+    expect(fs.readFileSync(realPath, "utf8")).toBe("original");
+  });
+
   it("enforces overlay chmod on real files without changing disk content", async () => {
     const realPath = path.join(tempDir, "data");
     fs.writeFileSync(realPath, "original");

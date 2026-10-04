@@ -382,7 +382,12 @@ export class InMemoryFs implements IFileSystem {
     if (entry?.type === "file" && (entry.mode & 0o200) === 0) {
       throw new Error(`EACCES: permission denied, open '${path}'`);
     }
-    this.writeFileSync(path, content, options);
+    this.writeFileSync(
+      path,
+      content,
+      options,
+      entry?.type === "file" ? { mode: entry.mode } : undefined,
+    );
   }
 
   async appendFile(
@@ -441,7 +446,14 @@ export class InMemoryFs implements IFileSystem {
         mtime: new Date(),
       });
     } else {
-      this.writeFileSync(path, content, options);
+      this.writeFileSync(
+        path,
+        content,
+        options,
+        resolvedEntry?.type === "file"
+          ? { mode: resolvedEntry.mode }
+          : undefined,
+      );
     }
   }
 

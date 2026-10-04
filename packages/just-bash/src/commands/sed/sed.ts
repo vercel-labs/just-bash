@@ -4,6 +4,7 @@ import {
   ExclusiveCreateUnsupportedError,
 } from "../../fs/create-exclusive.js";
 import { dirname, joinPath } from "../../fs/path-utils.js";
+import { isPermissionDenied } from "../../fs/permission-utils.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { ExecutionLimits } from "../../limits.js";
@@ -500,11 +501,13 @@ export const sedCommand: RuntimeCommand = {
           continue;
         }
         const filePath = ctx.fs.resolvePath(ctx.cwd, file);
+        let readingInput = true;
         try {
           const fileContent = await withDefenseContext(
             "in-place input read",
             () => ctx.fs.readFile(filePath),
           );
+          readingInput = false;
           const result = await withDefenseContext("in-place processing", () =>
             processContent(fileContent, commands, effectiveSilent, {
               limits: ctx.limits,
@@ -522,19 +525,13 @@ export const sedCommand: RuntimeCommand = {
               exitCode: result.exitCode ?? 1,
             };
           }
-          const resolvedPath = await withDefenseContext(
-            "in-place target resolution",
-            () => ctx.fs.realpath(filePath),
-          );
           const stat = await withDefenseContext("in-place target stat", () =>
-            ctx.fs.stat(resolvedPath),
+            ctx.fs.stat(filePath),
           );
           const mode = stat.mode & 0o7777;
-          const fileName = resolvedPath.slice(
-            resolvedPath.lastIndexOf("/") + 1,
-          );
+          const fileName = filePath.slice(filePath.lastIndexOf("/") + 1);
           const tempPath = joinPath(
-            dirname(resolvedPath),
+            dirname(filePath),
             `.${fileName}.${randomChars(10)}`,
           );
           try {
@@ -559,7 +556,7 @@ export const sedCommand: RuntimeCommand = {
               ctx.fs.chmod(tempPath, mode),
             );
             await withDefenseContext("in-place target replace", () =>
-              ctx.fs.mv(tempPath, resolvedPath),
+              ctx.fs.mv(tempPath, filePath),
             );
           } catch (error) {
             try {
@@ -581,6 +578,13 @@ export const sedCommand: RuntimeCommand = {
               stdout: "",
               stderr: `sed: ${message}\n`,
               exitCode: ExecutionLimitError.EXIT_CODE,
+            };
+          }
+          if (readingInput && isPermissionDenied(e)) {
+            return {
+              stdout: "",
+              stderr: `sed: can't read ${file}: Permission denied\n`,
+              exitCode: 2,
             };
           }
           return {
@@ -661,6 +665,13 @@ export const sedCommand: RuntimeCommand = {
               stdout: "",
               stderr: `sed: ${message}\n`,
               exitCode: ExecutionLimitError.EXIT_CODE,
+            };
+          }
+          if (isPermissionDenied(e)) {
+            return {
+              stdout: "",
+              stderr: `sed: can't read ${file}: Permission denied\n`,
+              exitCode: 2,
             };
           }
           return {

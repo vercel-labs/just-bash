@@ -579,7 +579,7 @@ export class OverlayFs implements IFileSystem {
       }
     } catch (e) {
       if (isPermissionDenied(e)) {
-        throw e;
+        throw new Error(`EACCES: permission denied, open '${requestedPath}'`);
       }
       const code = (e as NodeJS.ErrnoException).code;
       if (code === "ENOENT") {
@@ -601,7 +601,7 @@ export class OverlayFs implements IFileSystem {
     validatePath(path, "write");
     this.assertWritable(`write '${path}'`);
     const normalized = normalizePath(path);
-    await this.assertFileWritable(normalized, path);
+    const existingStat = await this.assertFileWritable(normalized, path);
     this.ensureParentDirs(normalized);
 
     const encoding = getEncoding(options);
@@ -610,7 +610,9 @@ export class OverlayFs implements IFileSystem {
     this.setMemoryEntry(normalized, {
       type: "file",
       content: buffer,
-      mode: DEFAULT_FILE_MODE,
+      mode: existingStat?.isFile
+        ? existingStat.mode & 0o7777
+        : DEFAULT_FILE_MODE,
       mtime: new Date(),
     });
     this.deleted.delete(normalized);
@@ -641,9 +643,19 @@ export class OverlayFs implements IFileSystem {
 
     // Try to read existing content
     let existingBuffer: Uint8Array;
+    let mode = DEFAULT_FILE_MODE;
     try {
-      existingBuffer = await this.readFileBuffer(normalized);
-    } catch {
+      existingBuffer = await this.readFileBufferInternal(
+        normalized,
+        new Set(),
+        normalized,
+        false,
+      );
+      mode = (await this.stat(normalized)).mode & 0o7777;
+    } catch (error) {
+      if (await this.existsInOverlay(normalized)) {
+        throw error;
+      }
       existingBuffer = new Uint8Array(0);
     }
 
@@ -652,7 +664,7 @@ export class OverlayFs implements IFileSystem {
       type: "file",
       content: existingBuffer,
       appendChunks: [newBuffer],
-      mode: DEFAULT_FILE_MODE,
+      mode,
       mtime: new Date(),
     });
     this.deleted.delete(normalized);
@@ -661,19 +673,20 @@ export class OverlayFs implements IFileSystem {
   private async assertFileWritable(
     normalized: string,
     path: string,
-  ): Promise<void> {
+  ): Promise<FsStat | undefined> {
     let stat: FsStat;
     try {
       stat = await this.stat(normalized);
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("ENOENT")) {
-        return;
+        return undefined;
       }
       throw error;
     }
     if (stat.isFile && (stat.mode & 0o200) === 0) {
       throw new Error(`EACCES: permission denied, open '${path}'`);
     }
+    return stat;
   }
 
   async exists(path: string): Promise<boolean> {
@@ -1391,7 +1404,12 @@ export class OverlayFs implements IFileSystem {
     // If from real fs, we need to copy to memory layer first
     const stat = await this.stat(normalized);
     if (stat.isFile) {
-      const content = await this.readFileBuffer(normalized);
+      const content = await this.readFileBufferInternal(
+        normalized,
+        new Set(),
+        normalized,
+        false,
+      );
       this.setMemoryEntry(normalized, {
         type: "file",
         content,
@@ -1455,7 +1473,12 @@ export class OverlayFs implements IFileSystem {
     }
 
     // Copy content to new location
-    const content = await this.readFileBuffer(existingNorm);
+    const content = await this.readFileBufferInternal(
+      existingNorm,
+      new Set(),
+      existingNorm,
+      false,
+    );
     this.ensureParentDirs(newNorm);
     this.setMemoryEntry(newNorm, {
       type: "file",
@@ -1695,7 +1718,12 @@ export class OverlayFs implements IFileSystem {
     // If from real fs, we need to copy to memory layer first
     const stat = await this.stat(normalized);
     if (stat.isFile) {
-      const content = await this.readFileBuffer(normalized);
+      const content = await this.readFileBufferInternal(
+        normalized,
+        new Set(),
+        normalized,
+        false,
+      );
       this.setMemoryEntry(normalized, {
         type: "file",
         content,

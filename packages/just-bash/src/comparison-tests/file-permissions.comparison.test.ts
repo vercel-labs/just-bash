@@ -103,6 +103,42 @@ describe("file permissions - Real Bash Comparison", () => {
     );
   });
 
+  it("replaces a symlink itself during sed -i", async () => {
+    const env = await setupFiles(testDir, FILES);
+    await compareOutputs(
+      env,
+      testDir,
+      `ln -s data.txt link.txt; sed -i 's/secret/updated/' link.txt; test -L link.txt; echo "link=$?"; cat link.txt; cat data.txt`,
+    );
+  });
+
+  it("reports sed read permission failures with GNU's diagnostic", async () => {
+    const env = await setupFiles(testDir, FILES);
+    await compareOutputs(
+      env,
+      testDir,
+      `chmod 000 data.txt; sed 's/secret/updated/' data.txt; echo "rc=$?"`,
+    );
+  });
+
+  it("checks write permission for read-write redirection", async () => {
+    const env = await setupFiles(testDir, FILES);
+    await compareOutputs(
+      env,
+      testDir,
+      `chmod 400 data.txt; exec 3<> data.txt; echo "rc=$?"`,
+    );
+  });
+
+  it("preserves mode when redirecting over an existing file", async () => {
+    const env = await setupFiles(testDir, FILES);
+    await compareOutputs(
+      env,
+      testDir,
+      `echo x > m; chmod 600 m; echo y > m; stat -c %a m; cat m`,
+    );
+  });
+
   it("preserves content when append permission is denied", async () => {
     const env = await setupFiles(testDir, FILES);
     await compareOutputs(
