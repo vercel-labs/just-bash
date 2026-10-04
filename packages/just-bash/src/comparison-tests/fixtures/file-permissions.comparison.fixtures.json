@@ -1,0 +1,72 @@
+{
+  "1bcf1d8e754fe815": {
+    "command": "chmod 444 data.txt; echo x > data.txt; cat data.txt; echo \"rc=$?\"",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "secret\nrc=0\n",
+    "stderr": "/bin/bash: line 1: data.txt: Permission denied\n",
+    "exitCode": 0
+  },
+  "31cd73958d41a47e": {
+    "command": "chmod 444 data.txt; echo x >> data.txt; cat data.txt; echo \"rc=$?\"",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "secret\nrc=0\n",
+    "stderr": "/bin/bash: line 1: data.txt: Permission denied\n",
+    "exitCode": 0
+  },
+  "5ef29723feeaa7c5": {
+    "command": "chmod 000 data.txt; cat data.txt; echo \"rc=$?\"",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "rc=1\n",
+    "stderr": "cat: data.txt: Permission denied\n",
+    "exitCode": 0
+  },
+  "8ec6aa068c2a51de": {
+    "command": "chmod 000 secret.sh; source secret.sh; echo \"rc=$?\"",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "rc=1\n",
+    "stderr": "/bin/bash: line 1: secret.sh: Permission denied\n",
+    "exitCode": 0
+  },
+  "9b2cc7bf9464160c": {
+    "command": "chmod 000 data.txt; chmod 644 data.txt; cat data.txt; echo \"rc=$?\"",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "secret\nrc=0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a66701c68f5dceb3": {
+    "command": "chmod 000 data.txt; cat < data.txt; echo \"rc=$?\"",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "rc=1\n",
+    "stderr": "/bin/bash: line 1: data.txt: Permission denied\n",
+    "exitCode": 0
+  },
+  "b496e0799c9a52e9": {
+    "command": "chmod 000 secret.sh; bash secret.sh; echo \"rc=$?\"",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "rc=126\n",
+    "stderr": "bash: secret.sh: Permission denied\n",
+    "exitCode": 0
+  }
+}

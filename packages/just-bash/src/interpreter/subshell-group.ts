@@ -11,6 +11,7 @@ import type {
   SubshellNode,
 } from "../ast/types.js";
 import { ExecutionOutputAccumulator } from "../execution-output.js";
+import { isPermissionDenied } from "../fs/permission-utils.js";
 import { Parser } from "../parser/parser.js";
 import type { ParseException } from "../parser/types.js";
 import type { ExecResult } from "../types.js";
@@ -336,8 +337,10 @@ export async function executeUserScript(
   let content: string;
   try {
     content = await ctx.fs.readFile(scriptPath);
-  } catch {
-    return failure(`bash: ${scriptPath}: No such file or directory\n`, 127);
+  } catch (error) {
+    return isPermissionDenied(error)
+      ? failure(`bash: ${scriptPath}: Permission denied\n`, 126)
+      : failure(`bash: ${scriptPath}: No such file or directory\n`, 127);
   }
 
   // Check for shebang and skip it if present (we'll execute as bash script)

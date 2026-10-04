@@ -351,6 +351,9 @@ export class InMemoryFs implements IFileSystem {
         `EISDIR: illegal operation on a directory, read '${path}'`,
       );
     }
+    if ((entry.mode & 0o400) === 0) {
+      throw new Error(`EACCES: permission denied, open '${path}'`);
+    }
 
     // Materialize lazy files on first read
     if ("lazy" in entry) {
@@ -373,6 +376,12 @@ export class InMemoryFs implements IFileSystem {
     content: FileContent,
     options?: WriteFileOptions | BufferEncoding,
   ): Promise<void> {
+    validatePath(path, "write");
+    const resolvedPath = this.resolvePathWithSymlinks(path);
+    const entry = this.data.get(resolvedPath);
+    if (entry?.type === "file" && (entry.mode & 0o200) === 0) {
+      throw new Error(`EACCES: permission denied, open '${path}'`);
+    }
     this.writeFileSync(path, content, options);
   }
 
@@ -383,6 +392,11 @@ export class InMemoryFs implements IFileSystem {
   ): Promise<void> {
     validatePath(path, "append");
     const normalized = normalizePath(path);
+    const resolvedPath = this.resolvePathWithSymlinks(path);
+    const resolvedEntry = this.data.get(resolvedPath);
+    if (resolvedEntry?.type === "file" && (resolvedEntry.mode & 0o200) === 0) {
+      throw new Error(`EACCES: permission denied, open '${path}'`);
+    }
     const existing = this.data.get(normalized);
 
     if (existing && existing.type === "directory") {

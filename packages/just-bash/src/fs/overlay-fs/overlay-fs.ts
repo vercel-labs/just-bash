@@ -458,6 +458,7 @@ export class OverlayFs implements IFileSystem {
   async readFileBuffer(
     path: string,
     seen: Set<string> = new Set(),
+    requestedPath: string = path,
   ): Promise<Uint8Array> {
     validatePath(path, "open");
     const normalized = normalizePath(path);
@@ -480,12 +481,15 @@ export class OverlayFs implements IFileSystem {
     if (memEntry) {
       if (memEntry.type === "symlink") {
         const target = this.resolveSymlink(normalized, memEntry.target);
-        return this.readFileBuffer(target, seen);
+        return this.readFileBuffer(target, seen, requestedPath);
       }
       if (memEntry.type !== "file") {
         throw new Error(
           `EISDIR: illegal operation on a directory, read '${path}'`,
         );
+      }
+      if ((memEntry.mode & 0o400) === 0) {
+        throw new Error(`EACCES: permission denied, open '${requestedPath}'`);
       }
       if (!memEntry.appendChunks || memEntry.appendChunks.length === 0) {
         return memEntry.content;
@@ -525,12 +529,15 @@ export class OverlayFs implements IFileSystem {
         const rawTarget = await fs.promises.readlink(canonical);
         const virtualTarget = this.realTargetToVirtual(normalized, rawTarget);
         const resolvedTarget = this.resolveSymlink(normalized, virtualTarget);
-        return this.readFileBuffer(resolvedTarget, seen);
+        return this.readFileBuffer(resolvedTarget, seen, requestedPath);
       }
       if (stat.isDirectory()) {
         throw new Error(
           `EISDIR: illegal operation on a directory, read '${path}'`,
         );
+      }
+      if (stat.isFile() && (stat.mode & 0o400) === 0) {
+        throw new Error(`EACCES: permission denied, open '${requestedPath}'`);
       }
       if (this.maxFileReadSize > 0 && stat.size > this.maxFileReadSize) {
         throw new Error(
@@ -551,6 +558,12 @@ export class OverlayFs implements IFileSystem {
         await fh.close();
       }
     } catch (e) {
+      if (
+        e instanceof Error &&
+        e.message.startsWith("EACCES: permission denied, open ")
+      ) {
+        throw e;
+      }
       const code = (e as NodeJS.ErrnoException).code;
       if (code === "ENOENT") {
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);
@@ -571,6 +584,7 @@ export class OverlayFs implements IFileSystem {
     validatePath(path, "write");
     this.assertWritable(`write '${path}'`);
     const normalized = normalizePath(path);
+    await this.assertFileWritable(normalized, path);
     this.ensureParentDirs(normalized);
 
     const encoding = getEncoding(options);
@@ -593,6 +607,7 @@ export class OverlayFs implements IFileSystem {
     validatePath(path, "append");
     this.assertWritable(`append '${path}'`);
     const normalized = normalizePath(path);
+    await this.assertFileWritable(normalized, path);
     const encoding = getEncoding(options);
     const newBuffer = toBuffer(content, encoding);
 
@@ -624,6 +639,26 @@ export class OverlayFs implements IFileSystem {
       mtime: new Date(),
     });
     this.deleted.delete(normalized);
+  }
+
+  private async assertFileWritable(
+    normalized: string,
+    path: string,
+  ): Promise<void> {
+    try {
+      const stat = await this.stat(normalized);
+      if (stat.isFile && (stat.mode & 0o200) === 0) {
+        throw new Error(`EACCES: permission denied, open '${path}'`);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("EACCES")) {
+        throw error;
+      }
+      if (error instanceof Error && error.message.startsWith("ENOENT")) {
+        return;
+      }
+      throw error;
+    }
   }
 
   async exists(path: string): Promise<boolean> {
