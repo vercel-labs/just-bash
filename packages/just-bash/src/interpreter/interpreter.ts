@@ -582,17 +582,17 @@ export class Interpreter {
       case "SimpleCommand":
         return this.executeSimpleCommand(node, stdin);
       case "If":
-        return executeIf(this.ctx, node);
+        return executeIf(this.ctx, node, stdin, stdinOwned);
       case "For":
-        return executeFor(this.ctx, node);
+        return executeFor(this.ctx, node, stdin, stdinOwned);
       case "CStyleFor":
-        return executeCStyleFor(this.ctx, node);
+        return executeCStyleFor(this.ctx, node, stdin, stdinOwned);
       case "While":
         return executeWhile(this.ctx, node, stdin);
       case "Until":
         return executeUntil(this.ctx, node, stdin);
       case "Case":
-        return executeCase(this.ctx, node);
+        return executeCase(this.ctx, node, stdin, stdinOwned);
       case "Subshell":
         return this.executeSubshell(node, stdin, stdinOwned);
       case "Group":
