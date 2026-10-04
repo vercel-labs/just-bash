@@ -52,6 +52,39 @@ describe("InMemoryFs file permissions", () => {
     expect(await fs.readFile("/readonly")).toBe("original");
   });
 
+  it("rejects cp from unreadable files and over read-only files", async () => {
+    const unreadableFs = new InMemoryFs({
+      "/source": { content: "secret", mode: 0o000 },
+    });
+    await expect(unreadableFs.cp("/source", "/copy")).rejects.toThrow(
+      "EACCES: permission denied, open '/source'",
+    );
+
+    const readOnlyDestinationFs = new InMemoryFs({
+      "/source": { content: "replacement", mode: 0o644 },
+      "/destination": { content: "original", mode: 0o444 },
+    });
+    await expect(
+      readOnlyDestinationFs.cp("/source", "/destination"),
+    ).rejects.toThrow("EACCES: permission denied, open '/destination'");
+    expect(await readOnlyDestinationFs.readFile("/destination")).toBe(
+      "original",
+    );
+  });
+
+  it("moves unreadable files over read-only files and preserves their mode", async () => {
+    const fs = new InMemoryFs({
+      "/source": { content: "hidden", mode: 0o000 },
+      "/destination": { content: "old", mode: 0o444 },
+    });
+
+    await fs.mv("/source", "/destination");
+
+    expect((await fs.stat("/destination")).mode).toBe(0o000);
+    await expect(fs.readFile("/destination")).rejects.toThrow("EACCES");
+    await expect(fs.stat("/source")).rejects.toThrow("ENOENT");
+  });
+
   it("allows writes to new files and restores access after chmod", async () => {
     const fs = new InMemoryFs({
       "/data": { content: "original", mode: 0o000 },

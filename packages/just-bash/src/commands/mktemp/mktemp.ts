@@ -205,7 +205,7 @@ function normalizeTmpdirFlag(args: string[]): string[] {
 // @banned-pattern-ignore: platform constant from the Web Crypto spec, not a tunable limit
 const MAX_RANDOM_BYTES = 65536;
 
-function randomChars(count: number): string {
+export function randomChars(count: number): string {
   // A template's run of X can be arbitrarily long, so draw in bounded chunks
   // rather than asking for `count` bytes in one call.
   const bytes = new Uint8Array(Math.min(count, MAX_RANDOM_BYTES));

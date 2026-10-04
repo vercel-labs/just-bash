@@ -832,6 +832,16 @@ export class InMemoryFs implements IFileSystem {
       throw new Error(`ENOENT: no such file or directory, cp '${src}'`);
     }
 
+    if (srcEntry.type === "file" && (srcEntry.mode & 0o400) === 0) {
+      throw new Error(`EACCES: permission denied, open '${src}'`);
+    }
+
+    const resolvedDest = this.resolvePathWithSymlinks(destNorm);
+    const destEntry = this.data.get(resolvedDest);
+    if (destEntry?.type === "file" && (destEntry.mode & 0o200) === 0) {
+      throw new Error(`EACCES: permission denied, open '${dest}'`);
+    }
+
     if (srcEntry.type === "file") {
       this.ensureParentDirs(destNorm);
       // Deep copy: create a new Uint8Array to avoid sharing the buffer reference

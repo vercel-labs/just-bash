@@ -82,4 +82,22 @@ describe("OverlayFs file permissions", () => {
     expect(await overlay.readFile("/data")).toBe("updated");
     expect(fs.readFileSync(realPath, "utf8")).toBe("original");
   });
+
+  it("moves unreadable files over read-only files and preserves their mode", async () => {
+    const overlay = new OverlayFs({
+      root: tempDir,
+      mountPoint: "/",
+      allowSymlinks: true,
+    });
+    await overlay.writeFile("/source", "hidden");
+    await overlay.writeFile("/destination", "old");
+    await overlay.chmod("/source", 0o000);
+    await overlay.chmod("/destination", 0o444);
+
+    await overlay.mv("/source", "/destination");
+
+    expect((await overlay.stat("/destination")).mode & 0o7777).toBe(0o000);
+    await expect(overlay.readFile("/destination")).rejects.toThrow("EACCES");
+    await expect(overlay.stat("/source")).rejects.toThrow("ENOENT");
+  });
 });

@@ -41,6 +41,7 @@ import {
   resolvePath as resolveVPath,
   SYMLINK_MODE,
 } from "../path-utils.js";
+import { isPermissionDenied } from "../permission-utils.js";
 import {
   isPathWithinRoot,
   isSameOrDescendantPath,
@@ -460,6 +461,15 @@ export class OverlayFs implements IFileSystem {
     seen: Set<string> = new Set(),
     requestedPath: string = path,
   ): Promise<Uint8Array> {
+    return this.readFileBufferInternal(path, seen, requestedPath, true);
+  }
+
+  private async readFileBufferInternal(
+    path: string,
+    seen: Set<string>,
+    requestedPath: string,
+    enforceReadPermission: boolean,
+  ): Promise<Uint8Array> {
     validatePath(path, "open");
     const normalized = normalizePath(path);
 
@@ -481,14 +491,19 @@ export class OverlayFs implements IFileSystem {
     if (memEntry) {
       if (memEntry.type === "symlink") {
         const target = this.resolveSymlink(normalized, memEntry.target);
-        return this.readFileBuffer(target, seen, requestedPath);
+        return this.readFileBufferInternal(
+          target,
+          seen,
+          requestedPath,
+          enforceReadPermission,
+        );
       }
       if (memEntry.type !== "file") {
         throw new Error(
           `EISDIR: illegal operation on a directory, read '${path}'`,
         );
       }
-      if ((memEntry.mode & 0o400) === 0) {
+      if (enforceReadPermission && (memEntry.mode & 0o400) === 0) {
         throw new Error(`EACCES: permission denied, open '${requestedPath}'`);
       }
       if (!memEntry.appendChunks || memEntry.appendChunks.length === 0) {
@@ -529,14 +544,19 @@ export class OverlayFs implements IFileSystem {
         const rawTarget = await fs.promises.readlink(canonical);
         const virtualTarget = this.realTargetToVirtual(normalized, rawTarget);
         const resolvedTarget = this.resolveSymlink(normalized, virtualTarget);
-        return this.readFileBuffer(resolvedTarget, seen, requestedPath);
+        return this.readFileBufferInternal(
+          resolvedTarget,
+          seen,
+          requestedPath,
+          enforceReadPermission,
+        );
       }
       if (stat.isDirectory()) {
         throw new Error(
           `EISDIR: illegal operation on a directory, read '${path}'`,
         );
       }
-      if (stat.isFile() && (stat.mode & 0o400) === 0) {
+      if (enforceReadPermission && stat.isFile() && (stat.mode & 0o400) === 0) {
         throw new Error(`EACCES: permission denied, open '${requestedPath}'`);
       }
       if (this.maxFileReadSize > 0 && stat.size > this.maxFileReadSize) {
@@ -558,10 +578,7 @@ export class OverlayFs implements IFileSystem {
         await fh.close();
       }
     } catch (e) {
-      if (
-        e instanceof Error &&
-        e.message.startsWith("EACCES: permission denied, open ")
-      ) {
+      if (isPermissionDenied(e)) {
         throw e;
       }
       const code = (e as NodeJS.ErrnoException).code;
@@ -645,19 +662,17 @@ export class OverlayFs implements IFileSystem {
     normalized: string,
     path: string,
   ): Promise<void> {
+    let stat: FsStat;
     try {
-      const stat = await this.stat(normalized);
-      if (stat.isFile && (stat.mode & 0o200) === 0) {
-        throw new Error(`EACCES: permission denied, open '${path}'`);
-      }
+      stat = await this.stat(normalized);
     } catch (error) {
-      if (error instanceof Error && error.message.startsWith("EACCES")) {
-        throw error;
-      }
       if (error instanceof Error && error.message.startsWith("ENOENT")) {
         return;
       }
       throw error;
+    }
+    if (stat.isFile && (stat.mode & 0o200) === 0) {
+      throw new Error(`EACCES: permission denied, open '${path}'`);
     }
   }
 
@@ -1235,9 +1250,20 @@ export class OverlayFs implements IFileSystem {
   }
 
   async cp(src: string, dest: string, options?: CpOptions): Promise<void> {
+    await this.copy(src, dest, options, true, false, "cp");
+  }
+
+  private async copy(
+    src: string,
+    dest: string,
+    options: CpOptions | undefined,
+    enforcePermissions: boolean,
+    preserveMode: boolean,
+    operation: "cp" | "mv",
+  ): Promise<void> {
     validatePath(src, "cp");
     validatePath(dest, "cp");
-    this.assertWritable(`cp '${dest}'`);
+    this.assertWritable(`${operation} '${dest}'`);
     const srcNorm = normalizePath(src);
     const destNorm = normalizePath(dest);
 
@@ -1249,8 +1275,24 @@ export class OverlayFs implements IFileSystem {
     const srcStat = await this.stat(srcNorm);
 
     if (srcStat.isFile) {
-      const content = await this.readFileBuffer(srcNorm);
-      await this.writeFile(destNorm, content);
+      const content = await this.readFileBufferInternal(
+        srcNorm,
+        new Set(),
+        srcNorm,
+        enforcePermissions,
+      );
+      if (preserveMode) {
+        this.ensureParentDirs(destNorm);
+        this.setMemoryEntry(destNorm, {
+          type: "file",
+          content: new Uint8Array(content),
+          mode: srcStat.mode & 0o7777,
+          mtime: new Date(),
+        });
+        this.deleted.delete(destNorm);
+      } else {
+        await this.writeFile(destNorm, content);
+      }
     } else if (srcStat.isDirectory) {
       if (!options?.recursive) {
         throw new Error(`EISDIR: is a directory, cp '${src}'`);
@@ -1264,14 +1306,20 @@ export class OverlayFs implements IFileSystem {
         const srcChild = srcNorm === "/" ? `/${child}` : `${srcNorm}/${child}`;
         const destChild =
           destNorm === "/" ? `/${child}` : `${destNorm}/${child}`;
-        await this.cp(srcChild, destChild, options);
+        await this.copy(
+          srcChild,
+          destChild,
+          options,
+          enforcePermissions,
+          preserveMode,
+          operation,
+        );
       }
     }
   }
 
   async mv(src: string, dest: string): Promise<void> {
-    this.assertWritable(`mv '${dest}'`);
-    await this.cp(src, dest, { recursive: true });
+    await this.copy(src, dest, { recursive: true }, false, true, "mv");
     await this.rm(src, { recursive: true });
   }
 

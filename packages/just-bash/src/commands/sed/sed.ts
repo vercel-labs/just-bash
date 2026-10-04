@@ -1,4 +1,9 @@
 import { decodeBytesToUtf8 } from "../../encoding.js";
+import {
+  createExclusiveOn,
+  ExclusiveCreateUnsupportedError,
+} from "../../fs/create-exclusive.js";
+import { dirname, joinPath } from "../../fs/path-utils.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { ExecutionLimits } from "../../limits.js";
@@ -14,6 +19,7 @@ import type {
   RuntimeCommandContext,
 } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { randomChars } from "../mktemp/mktemp.js";
 import {
   createInitialState,
   type ExecuteContext,
@@ -516,9 +522,55 @@ export const sedCommand: RuntimeCommand = {
               exitCode: result.exitCode ?? 1,
             };
           }
-          await withDefenseContext("in-place output write", () =>
-            ctx.fs.writeFile(filePath, result.output),
+          const resolvedPath = await withDefenseContext(
+            "in-place target resolution",
+            () => ctx.fs.realpath(filePath),
           );
+          const stat = await withDefenseContext("in-place target stat", () =>
+            ctx.fs.stat(resolvedPath),
+          );
+          const mode = stat.mode & 0o7777;
+          const fileName = resolvedPath.slice(
+            resolvedPath.lastIndexOf("/") + 1,
+          );
+          const tempPath = joinPath(
+            dirname(resolvedPath),
+            `.${fileName}.${randomChars(10)}`,
+          );
+          try {
+            await withDefenseContext("in-place temp create", () =>
+              createExclusiveOn(ctx.fs, tempPath, { mode: mode | 0o200 }),
+            );
+          } catch (error) {
+            if (!(error instanceof ExclusiveCreateUnsupportedError)) {
+              throw error;
+            }
+            await withDefenseContext("in-place output write", () =>
+              ctx.fs.writeFile(filePath, result.output),
+            );
+            continue;
+          }
+
+          try {
+            await withDefenseContext("in-place temp write", () =>
+              ctx.fs.writeFile(tempPath, result.output),
+            );
+            await withDefenseContext("in-place temp chmod", () =>
+              ctx.fs.chmod(tempPath, mode),
+            );
+            await withDefenseContext("in-place target replace", () =>
+              ctx.fs.mv(tempPath, resolvedPath),
+            );
+          } catch (error) {
+            try {
+              await withDefenseContext("in-place temp cleanup", () =>
+                ctx.fs.rm(tempPath, { force: true }),
+              );
+            } catch {
+              // Keep the original write or rename failure.
+            }
+            throw error;
+          }
         } catch (e) {
           if (e instanceof SecurityViolationError) {
             throw e;
