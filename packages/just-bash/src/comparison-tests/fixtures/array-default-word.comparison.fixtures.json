@@ -1,0 +1,51 @@
+{
+  "1978cca0ad5eb791": {
+    "command": "set +u\nunset U\narr=(x y)\nb=(p q)\nprintf '<%s>' \"${U:-pre${arr[@]}post}\"; echo\nprintf '<%s>' \"${U:+pre${arr[@]}post}\"; echo\nprintf '<%s>' \"${arr[@]:-pre${b[@]}post}\"; echo\nprintf '<%s>' \"${U:-pre${arr[@]}}\"; echo\nprintf '<%s>' \"${U:-${arr[@]}post}\"; echo\nprintf '<%s>' \"${U:-${arr[@]}}\"; echo\nprintf '<%s>' \"${U-pre${arr[@]}post}\" next; echo",
+    "files": {},
+    "stdout": "<prex><ypost>\n<>\n<x><y>\n<prex><y>\n<x><ypost>\n<x><y>\n<prex><ypost><next>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "31905dc2ee921ce5": {
+    "command": "empty=()\nsc=val\nset -- \"${U:-pre${empty[@]}post}\"; echo \"$# <$1>\"\nset -- \"${U:-pre${empty[@]}}\"; echo \"$# <$1>\"\nset -- \"${U:-pre${empty[*]}post}\"; echo \"$# <$1>\"\nset -- \"${U:-${empty[*]}}\"; echo \"$# <$1>\"\nset -- \"${U:-pre${missing[@]}post}\"; echo \"$# <$1>\"\nset -- \"${U:-pre${sc[@]}post}\"; echo \"$# <$1>\"",
+    "files": {},
+    "stdout": "1 <prepost>\n1 <pre>\n1 <prepost>\n1 <>\n1 <prepost>\n1 <prevalpost>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "43edac93e7df3f41": {
+    "command": "arr=(x y)\nsp=('a b' c)\nn=1\nprintf '<%s>' \"${U:-'q'${arr[@]}}\"; echo\nprintf '<%s>' \"${U:-~/a${arr[@]}}\"; echo\nprintf '<%s>' \"${U:-$(echo cs)${arr[@]}}\"; echo\nprintf '<%s>' \"${U:-$((n + 2))${arr[@]}$n}\"; echo\nprintf '<%s>' \"${U:-<${sp[@]}>}\"; echo\nprintf '<%s>' \"${U:-a b*${arr[@]}}\"; echo",
+    "files": {},
+    "stdout": "<'q'x><y>\n<~/ax><y>\n<csx><y>\n<3x><y1>\n<<a b><c>>\n<a b*x><y>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "50b5ef1517c9e37e": {
+    "command": "set -u\nunset U\narr=(x y)\nb=(p q)\nprintf '<%s>' \"${U:-pre${arr[@]}post}\"; echo\nprintf '<%s>' \"${U:+pre${arr[@]}post}\"; echo\nprintf '<%s>' \"${arr[@]:-pre${b[@]}post}\"; echo\nprintf '<%s>' \"${U:-pre${arr[@]}}\"; echo\nprintf '<%s>' \"${U:-${arr[@]}post}\"; echo\nprintf '<%s>' \"${U:-${arr[@]}}\"; echo\nprintf '<%s>' \"${U-pre${arr[@]}post}\" next; echo",
+    "files": {},
+    "stdout": "<prex><ypost>\n<>\n<x><y>\n<prex><y>\n<x><ypost>\n<x><y>\n<prex><ypost><next>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6027f75ba7184761": {
+    "command": "IFS=:\ne=()\na=(m n)\narr=(x y)\nprintf '<%s>' \"${e[@]:-pre${arr[@]}post}\"; echo\nprintf '<%s>' \"${e[*]:-pre${arr[@]}post}\"; echo\nprintf '<%s>' \"${a[*]:+pre${arr[@]}post}\"; echo\nprintf '<%s>' \"${a[@]:+pre${arr[@]}post}\"; echo\nprintf '<%s>' \"${e[*]:-${arr[@]}}\"; echo\nprintf '<%s>' \"${a[*]:+${arr[@]}}\"; echo",
+    "files": {},
+    "stdout": "<prex><ypost>\n<prex><ypost>\n<prex><ypost>\n<prex><ypost>\n<x><y>\n<x><y>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "84f79c3dc2b4fef0": {
+    "command": "arr=(x y)\nprintf '<%s>' \"${U:-pre${arr[*]}post}\"; echo\nIFS=:\nprintf '<%s>' \"${U:-pre${arr[*]}post}\"; echo\nprintf '<%s>' \"${U:-pre${arr[@]}post}\"; echo",
+    "files": {},
+    "stdout": "<prex ypost>\n<prex:ypost>\n<prex><ypost>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a5a02701eaf66c06": {
+    "command": "S=set\narr=(x y)\none=(z)\nprintf '<%s>' \"${S:+pre${arr[@]}post}\"; echo\nprintf '<%s>' \"${S:+pre${one[@]}post}\"; echo\nprintf '<%s>' \"${S:-pre${arr[@]}post}\"; echo",
+    "files": {},
+    "stdout": "<prex><ypost>\n<prezpost>\n<set>\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
