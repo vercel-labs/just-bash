@@ -1,0 +1,46 @@
+{
+  "11b1a7dce66f6512": {
+    "command": "chmod +x e/tool; PATH=a:e:$PATH; tool; echo \"status=$?\"",
+    "files": {
+      "a/tool": "echo a\n",
+      "e/tool": "echo e\n",
+      "d/tool/.keep": ""
+    },
+    "stdout": "e\nstatus=0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "29cb80d7398f1d63": {
+    "command": "P=$PATH; PATH=a; hash tool; s=$?; PATH=$P; echo \"status=$s\"",
+    "files": {
+      "a/tool": "echo a\n",
+      "e/tool": "echo e\n",
+      "d/tool/.keep": ""
+    },
+    "stdout": "status=1\n",
+    "stderr": "/bin/bash: line 1: hash: tool: not found\n",
+    "exitCode": 0
+  },
+  "60a2b96762db5051": {
+    "command": "P=$PATH; PATH=a; tool; s=$?; PATH=$P; echo \"status=$s\"",
+    "files": {
+      "a/tool": "echo a\n",
+      "e/tool": "echo e\n",
+      "d/tool/.keep": ""
+    },
+    "stdout": "status=126\n",
+    "stderr": "/bin/bash: line 1: a/tool: Permission denied\n",
+    "exitCode": 0
+  },
+  "e98208984417e7f0": {
+    "command": "chmod +x e/tool; P=$PATH; PATH=d:e:$P; tool; PATH=d; tool; s=$?; PATH=$P; echo \"status=$s\"",
+    "files": {
+      "a/tool": "echo a\n",
+      "e/tool": "echo e\n",
+      "d/tool/.keep": ""
+    },
+    "stdout": "e\nstatus=127\n",
+    "stderr": "/bin/bash: line 1: tool: command not found\n",
+    "exitCode": 0
+  }
+}

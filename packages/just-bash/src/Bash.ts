@@ -37,6 +37,7 @@ import {
   mapToRecordWithExtras,
   mergeToNullPrototype,
 } from "./helpers/env.js";
+import { commandStubContent } from "./interpreter/command-resolution.js";
 import {
   ArithmeticError,
   ExecutionAbortedError,
@@ -206,6 +207,27 @@ export interface BashOptions {
    */
   customCommands?: CustomCommand[];
   /**
+   * Command to run for names that are neither a builtin nor a function and are
+   * not found in PATH, such as commands just-bash does not provide. It receives
+   * the missing name followed by its arguments, similar to bash's
+   * `command_not_found_handle`, and its exit status becomes the command's.
+   *
+   * Names that contain a slash never reach it, and neither do the commands this
+   * shell registers, even when a script changes PATH or deletes their stubs.
+   * Commands left out by the `commands` option do reach it. The name and the
+   * arguments come from the script, so treat them as untrusted input.
+   *
+   * @example
+   * ```ts
+   * const bash = new Bash({
+   *   commandNotFound: defineCommand("forward", async ([name, ...args], ctx) =>
+   *     runElsewhere(name, args, ctx.cwd),
+   *   ),
+   * });
+   * ```
+   */
+  commandNotFound?: CustomCommand;
+  /**
    * Optional logger for execution tracing.
    * When provided, logs exec commands (info), stdout (debug), stderr (info), and exit codes (info).
    * Disabled by default.
@@ -314,6 +336,25 @@ export interface ExecOptions {
   args?: string[];
 }
 
+function resolveCustomCommand(command: CustomCommand): Command {
+  return isLazyCommand(command) ? createLazyCustomCommand(command) : command;
+}
+
+function toRuntimeCommand(
+  command: Command,
+  isExtension: boolean,
+  originalCommand?: RuntimeCommand,
+): RuntimeCommand {
+  return {
+    name: command.name,
+    // Host-provided commands stay trusted by default for compatibility.
+    trusted: isExtension ? (command.trusted ?? true) : command.trusted,
+    internalIsExtension: isExtension,
+    internalOriginalCommand: originalCommand,
+    execute: (args, context) => command.execute(args, context),
+  };
+}
+
 export class Bash {
   readonly fs: IFileSystem;
   private commands: CommandRegistry = new Map();
@@ -331,6 +372,7 @@ export class Bash {
     argsJson: string,
     abortSignal: AbortSignal,
   ) => Promise<string>;
+  private commandNotFound?: RuntimeCommand;
   // biome-ignore lint/suspicious/noExplicitAny: type-erased plugin storage for untyped API
   private transformPlugins: TransformPlugin<any>[] = [];
 
@@ -535,15 +577,17 @@ export class Bash {
       }
     }
 
+    if (options.commandNotFound) {
+      this.commandNotFound = toRuntimeCommand(
+        resolveCustomCommand(options.commandNotFound),
+        true,
+      );
+    }
+
     // Register custom commands (after built-ins so they can override)
     if (options.customCommands) {
       for (const cmd of options.customCommands) {
-        if (isLazyCommand(cmd)) {
-          const command = createLazyCustomCommand(cmd);
-          this.registerCommandInternal(command, true);
-        } else {
-          this.registerCommandInternal(cmd, true);
-        }
+        this.registerCommandInternal(resolveCustomCommand(cmd), true);
       }
     }
   }
@@ -559,7 +603,6 @@ export class Bash {
   private registerCommandInternal(
     command: Command,
     isExtension: boolean,
-    trusted = isExtension ? (command.trusted ?? true) : command.trusted,
   ): void {
     const registeredCommand = this.commands.get(command.name);
     const originalCommand = isExtension
@@ -568,14 +611,10 @@ export class Bash {
           ? registeredCommand
           : undefined))
       : undefined;
-    const runtimeCommand: RuntimeCommand = {
-      name: command.name,
-      trusted,
-      internalIsExtension: isExtension,
-      internalOriginalCommand: originalCommand,
-      execute: (args, context) => command.execute(args, context),
-    };
-    this.commands.set(command.name, runtimeCommand);
+    this.commands.set(
+      command.name,
+      toRuntimeCommand(command, isExtension, originalCommand),
+    );
     // Create command stubs in /bin and /usr/bin for PATH-based resolution
     // Works for both InMemoryFs and OverlayFs (both have writeFileSync)
     // Commands are registered to both locations like real Linux systems
@@ -584,7 +623,7 @@ export class Bash {
       writeFileSync?: (path: string, content: string) => void;
     };
     if (typeof fs.writeFileSync === "function") {
-      const stub = `#!/bin/bash\n# Built-in command: ${command.name}\n`;
+      const stub = commandStubContent(command.name);
       try {
         fs.writeFileSync(`/bin/${command.name}`, stub);
       } catch {
@@ -835,6 +874,7 @@ export class Bash {
             requireDefenseContext: defenseBox?.isEnabled() === true,
             jsBootstrapCode: this.jsBootstrapCode,
             invokeTool: this.invokeToolFn,
+            commandNotFound: this.commandNotFound,
           };
 
           const interpreter = new Interpreter(interpreterOptions, execState);

@@ -17,6 +17,7 @@ import type {
   CommandRegistry,
   ExecResult,
   FeatureCoverageWriter,
+  RuntimeCommand,
   TraceCallback,
 } from "../types.js";
 import type { ProcessSubstitutionEntry } from "./process-substitution.js";
@@ -521,4 +522,9 @@ export interface InterpreterContext {
     argsJson: string,
     abortSignal: AbortSignal,
   ) => Promise<string>;
+  /**
+   * Host command for commands that PATH lookup does not find
+   * (`BashOptions.commandNotFound`). It receives the name before the args.
+   */
+  commandNotFound?: RuntimeCommand;
 }

@@ -765,11 +765,21 @@ export async function executeExternalCommand(
   // External commands - resolve via PATH
   // For command -p, use default PATH /usr/bin:/bin instead of $PATH
   const defaultPath = "/usr/bin:/bin";
-  const resolved = await resolveCommandHelper(
+  const found = await resolveCommandHelper(
     ctx,
     commandName,
     useDefaultPath ? defaultPath : undefined,
   );
+  // Names with a slash are paths, so a missing one is not a command to resolve.
+  // Registered commands never reach the host either, even when the script
+  // hides them by changing PATH or deleting their stubs.
+  const fallback =
+    found || commandName.includes("/") || ctx.commands.has(commandName)
+      ? undefined
+      : ctx.commandNotFound;
+  const resolved = fallback ? { cmd: fallback, path: commandName } : found;
+  // Like bash's command_not_found_handle, the fallback receives the name first.
+  const commandArgs = fallback ? [commandName, ...args] : args;
   if (!resolved) {
     // Check if this is a browser-excluded command for a more helpful error
     if (isBrowserExcludedCommand(commandName)) {
@@ -784,7 +794,18 @@ export async function executeExternalCommand(
   // Handle error cases from resolveCommand
   if ("error" in resolved) {
     if (resolved.error === "permission_denied") {
-      return failure(`bash: ${commandName}: Permission denied\n`, 126);
+      // Like bash, remember the file a PATH search found and name it in the
+      // error, as formed from the PATH entry.
+      if (resolved.displayPath && resolved.path) {
+        if (!ctx.state.hashTable) {
+          ctx.state.hashTable = new Map();
+        }
+        ctx.state.hashTable.set(commandName, resolved.path);
+      }
+      return failure(
+        `bash: ${resolved.displayPath ?? commandName}: Permission denied\n`,
+        126,
+      );
     }
     // not_found error
     return failure(`bash: ${commandName}: No such file or directory\n`, 127);
@@ -801,8 +822,9 @@ export async function executeExternalCommand(
     return await executeUserScript(resolved.path, args, stdin);
   }
   const { cmd, path: cmdPath } = resolved;
-  // Add to hash table for PATH caching (only for non-path commands)
-  if (!commandName.includes("/")) {
+  // Add to hash table for PATH caching (only for non-path commands). A host
+  // fallback has no PATH entry to cache.
+  if (!commandName.includes("/") && !fallback) {
     if (!ctx.state.hashTable) {
       ctx.state.hashTable = new Map();
     }
@@ -961,7 +983,7 @@ export async function executeExternalCommand(
         ctx.requireDefenseContext,
         "command",
         `${commandName} execution`,
-        () => cmd.execute(args, guardedCmdCtx),
+        () => cmd.execute(commandArgs, guardedCmdCtx),
       );
 
     const runBoundedCommand = () =>

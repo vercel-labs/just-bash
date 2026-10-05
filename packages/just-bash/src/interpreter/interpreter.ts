@@ -41,6 +41,7 @@ import type {
   CommandRegistry,
   ExecResult,
   FeatureCoverageWriter,
+  RuntimeCommand,
   TraceCallback,
 } from "../types.js";
 import { expandAlias as expandAliasHelper } from "./alias-expansion.js";
@@ -150,6 +151,8 @@ export interface InterpreterOptions {
     argsJson: string,
     abortSignal: AbortSignal,
   ) => Promise<string>;
+  /** Host command for commands that PATH lookup does not find */
+  commandNotFound?: RuntimeCommand;
 }
 
 export class Interpreter {
@@ -173,6 +176,7 @@ export class Interpreter {
       requireDefenseContext: options.requireDefenseContext ?? false,
       jsBootstrapCode: options.jsBootstrapCode,
       invokeTool: options.invokeTool,
+      commandNotFound: options.commandNotFound,
     };
   }
 

@@ -22,6 +22,7 @@ import {
 import type { IFileSystem } from "../fs/interface.js";
 import { serializeWord } from "../transform/serialize.js";
 import type { CommandRegistry, ExecResult } from "../types.js";
+import { searchPath } from "./command-resolution.js";
 import { result } from "./helpers/result.js";
 import { SHELL_BUILTINS, SHELL_KEYWORDS } from "./helpers/shell-constants.js";
 import type { InterpreterState } from "./types.js";
@@ -455,39 +456,21 @@ export async function handleCommandV(
         }
         exitCode = 1;
       }
-    } else if (ctx.commands.has(name)) {
-      // Search PATH for the command file (registered commands exist in both /usr/bin and /bin)
-      const pathEnv = ctx.state.env.get("PATH") ?? "/usr/bin:/bin";
-      const pathDirs = pathEnv.split(":");
-      let foundPath: string | null = null;
-      for (const dir of pathDirs) {
-        if (!dir) continue;
-        const cmdPath = `${dir}/${name}`;
-        try {
-          const stat = await ctx.fs.stat(cmdPath);
-          if (!stat.isDirectory && (stat.mode & 0o111) !== 0) {
-            foundPath = cmdPath;
-            break;
-          }
-        } catch {
-          // File doesn't exist in this directory, continue searching
-        }
-      }
-      // Fall back to /usr/bin if not found in PATH (shouldn't happen for registered commands)
-      if (!foundPath) {
-        foundPath = `/usr/bin/${name}`;
-      }
-      if (verboseDescribe) {
-        stdout += `${name} is ${foundPath}\n`;
-      } else {
-        stdout += `${foundPath}\n`;
-      }
     } else {
-      // Not found - for -V, print error to stderr (matches test at line 237-255)
-      if (verboseDescribe) {
-        stderr += `${name}: not found\n`;
+      const foundPath = await findFirstInPath(ctx, name);
+      if (foundPath) {
+        if (verboseDescribe) {
+          stdout += `${name} is ${foundPath}\n`;
+        } else {
+          stdout += `${foundPath}\n`;
+        }
+      } else {
+        // Not found - for -V, print error to stderr (matches test at line 237-255)
+        if (verboseDescribe) {
+          stderr += `${name}: not found\n`;
+        }
+        exitCode = 1;
       }
-      exitCode = 1;
     }
   }
 
@@ -528,43 +511,17 @@ export async function findFirstInPath(
     return null;
   }
 
-  // Search PATH directories
-  const pathEnv = ctx.state.env.get("PATH") ?? "/usr/bin:/bin";
-  const pathDirs = pathEnv.split(":");
-
-  for (const dir of pathDirs) {
-    if (!dir) continue;
-    // Resolve relative PATH entries relative to cwd
-    const resolvedDir = dir.startsWith("/")
-      ? dir
-      : ctx.fs.resolvePath(ctx.state.cwd, dir);
-    const fullPath = `${resolvedDir}/${name}`;
-    if (await ctx.fs.exists(fullPath)) {
-      // Check if it's a directory
-      try {
-        const stat = await ctx.fs.stat(fullPath);
-        if (stat.isDirectory || (stat.mode & 0o111) === 0) {
-          continue; // Skip directories
-        }
-      } catch {
-        // If stat fails, skip this path
-        continue;
-      }
-      // Return the path as specified in PATH (not resolved) to match bash behavior
-      return `${dir}/${name}`;
-    }
+  // Search PATH the way running the name does. Unlike bash, a file without
+  // execute permission is not reported, since it cannot run.
+  const match = await searchPath(ctx, name);
+  if (match?.executable) {
+    return match.displayPath;
   }
 
   // Fallback: check if command exists in registry
   // This handles virtual filesystems where commands are registered but
   // not necessarily present as individual files in /usr/bin
-  if (ctx.commands.has(name)) {
-    // Return path in the first PATH directory that contains /usr/bin or /bin, or default to /usr/bin
-    for (const dir of pathDirs) {
-      if (dir === "/usr/bin" || dir === "/bin") {
-        return `${dir}/${name}`;
-      }
-    }
+  if (ctx.commands.has(name) && !(await ctx.fs.exists("/usr/bin"))) {
     return `/usr/bin/${name}`;
   }
 
