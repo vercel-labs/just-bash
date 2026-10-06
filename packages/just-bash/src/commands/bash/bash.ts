@@ -1,4 +1,5 @@
 import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
+import { isPermissionDenied } from "../../fs/permission-utils.js";
 import { mergeToNullPrototype } from "../../helpers/env.js";
 import type {
   ExecResult,
@@ -62,11 +63,14 @@ export const bashCommand: RuntimeCommand = {
       const fullPath = ctx.fs.resolvePath(ctx.cwd, scriptPath);
       const scriptContent = await ctx.fs.readFile(fullPath);
       return executeScript(scriptContent, scriptPath, scriptArgs, ctx);
-    } catch {
+    } catch (error) {
+      const permissionDenied = isPermissionDenied(error);
       return {
         stdout: "",
-        stderr: `bash: ${scriptPath}: No such file or directory\n`,
-        exitCode: 127,
+        stderr: permissionDenied
+          ? `bash: ${scriptPath}: Permission denied\n`
+          : `bash: ${scriptPath}: No such file or directory\n`,
+        exitCode: permissionDenied ? 126 : 127,
       };
     }
   },
@@ -116,11 +120,14 @@ export const shCommand: RuntimeCommand = {
       const fullPath = ctx.fs.resolvePath(ctx.cwd, scriptPath);
       const scriptContent = await ctx.fs.readFile(fullPath);
       return executeScript(scriptContent, scriptPath, scriptArgs, ctx);
-    } catch {
+    } catch (error) {
+      const permissionDenied = isPermissionDenied(error);
       return {
         stdout: "",
-        stderr: `sh: ${scriptPath}: No such file or directory\n`,
-        exitCode: 127,
+        stderr: permissionDenied
+          ? `sh: ${scriptPath}: Permission denied\n`
+          : `sh: ${scriptPath}: No such file or directory\n`,
+        exitCode: permissionDenied ? 126 : 127,
       };
     }
   },

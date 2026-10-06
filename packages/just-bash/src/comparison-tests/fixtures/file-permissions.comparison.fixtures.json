@@ -1,0 +1,152 @@
+{
+  "1bcf1d8e754fe815": {
+    "command": "chmod 444 data.txt; echo x > data.txt; cat data.txt; echo \"rc=$?\"",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "secret\nrc=0\n",
+    "stderr": "/bin/bash: line 1: data.txt: Permission denied\n",
+    "exitCode": 0
+  },
+  "31cd73958d41a47e": {
+    "command": "chmod 444 data.txt; echo x >> data.txt; cat data.txt; echo \"rc=$?\"",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "secret\nrc=0\n",
+    "stderr": "/bin/bash: line 1: data.txt: Permission denied\n",
+    "exitCode": 0
+  },
+  "43588804f0d287b0": {
+    "command": "chmod 000 secret.sh; chmod 444 data.txt; mv secret.sh data.txt; echo \"rc=$?\"; stat -c %a data.txt; chmod 644 data.txt; cat data.txt",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "rc=0\n0\necho hidden\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5ef29723feeaa7c5": {
+    "command": "chmod 000 data.txt; cat data.txt; echo \"rc=$?\"",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "rc=1\n",
+    "stderr": "cat: data.txt: Permission denied\n",
+    "exitCode": 0
+  },
+  "5f1b0283b06fd563": {
+    "command": "ln -s data.txt link.txt; sed -i 's/secret/updated/' link.txt; test -L link.txt; echo \"link=$?\"; cat link.txt; cat data.txt",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "link=1\nupdated\nsecret\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7156f10b1e10a3a6": {
+    "command": "chmod 400 data.txt; exec 3<> data.txt; echo \"rc=$?\"",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "rc=1\n",
+    "stderr": "/bin/bash: line 1: data.txt: Permission denied\n",
+    "exitCode": 0
+  },
+  "71e668f11fa6fcf2": {
+    "command": "chmod 000 data.txt; cp data.txt copy.txt; echo \"rc=$?\"",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "rc=1\n",
+    "stderr": "cp: cannot open 'data.txt' for reading: Permission denied\n",
+    "exitCode": 0
+  },
+  "7a5ec01010c4f5a3": {
+    "command": "chmod 444 data.txt; cp secret.sh data.txt; echo \"rc=$?\"; cat data.txt",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "rc=1\nsecret\n",
+    "stderr": "cp: cannot create regular file 'data.txt': Permission denied\n",
+    "exitCode": 0
+  },
+  "8ec6aa068c2a51de": {
+    "command": "chmod 000 secret.sh; source secret.sh; echo \"rc=$?\"",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "rc=1\n",
+    "stderr": "/bin/bash: line 1: secret.sh: Permission denied\n",
+    "exitCode": 0
+  },
+  "9b2cc7bf9464160c": {
+    "command": "chmod 000 data.txt; chmod 644 data.txt; cat data.txt; echo \"rc=$?\"",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "secret\nrc=0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a66701c68f5dceb3": {
+    "command": "chmod 000 data.txt; cat < data.txt; echo \"rc=$?\"",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "rc=1\n",
+    "stderr": "/bin/bash: line 1: data.txt: Permission denied\n",
+    "exitCode": 0
+  },
+  "b3d60c0c45e5c162": {
+    "command": "chmod 444 data.txt; sed -i 's/secret/updated/' data.txt; echo \"rc=$?\"; stat -c %a data.txt; cat data.txt",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "rc=0\n444\nupdated\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b496e0799c9a52e9": {
+    "command": "chmod 000 secret.sh; bash secret.sh; echo \"rc=$?\"",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "rc=126\n",
+    "stderr": "bash: secret.sh: Permission denied\n",
+    "exitCode": 0
+  },
+  "bf9fd4fea50d6407": {
+    "command": "chmod 000 data.txt; sed 's/secret/updated/' data.txt; echo \"rc=$?\"",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "rc=2\n",
+    "stderr": "sed: can't read data.txt: Permission denied\n",
+    "exitCode": 0
+  },
+  "db6c4dd96337871f": {
+    "command": "echo x > m; chmod 600 m; echo y > m; stat -c %a m; cat m",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "600\ny\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

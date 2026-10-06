@@ -351,6 +351,9 @@ export class InMemoryFs implements IFileSystem {
         `EISDIR: illegal operation on a directory, read '${path}'`,
       );
     }
+    if ((entry.mode & 0o400) === 0) {
+      throw new Error(`EACCES: permission denied, open '${path}'`);
+    }
 
     // Materialize lazy files on first read
     if ("lazy" in entry) {
@@ -373,7 +376,18 @@ export class InMemoryFs implements IFileSystem {
     content: FileContent,
     options?: WriteFileOptions | BufferEncoding,
   ): Promise<void> {
-    this.writeFileSync(path, content, options);
+    validatePath(path, "write");
+    const resolvedPath = this.resolvePathWithSymlinks(path);
+    const entry = this.data.get(resolvedPath);
+    if (entry?.type === "file" && (entry.mode & 0o200) === 0) {
+      throw new Error(`EACCES: permission denied, open '${path}'`);
+    }
+    this.writeFileSync(
+      path,
+      content,
+      options,
+      entry?.type === "file" ? { mode: entry.mode } : undefined,
+    );
   }
 
   async appendFile(
@@ -383,6 +397,11 @@ export class InMemoryFs implements IFileSystem {
   ): Promise<void> {
     validatePath(path, "append");
     const normalized = normalizePath(path);
+    const resolvedPath = this.resolvePathWithSymlinks(path);
+    const resolvedEntry = this.data.get(resolvedPath);
+    if (resolvedEntry?.type === "file" && (resolvedEntry.mode & 0o200) === 0) {
+      throw new Error(`EACCES: permission denied, open '${path}'`);
+    }
     const existing = this.data.get(normalized);
 
     if (existing && existing.type === "directory") {
@@ -427,7 +446,14 @@ export class InMemoryFs implements IFileSystem {
         mtime: new Date(),
       });
     } else {
-      this.writeFileSync(path, content, options);
+      this.writeFileSync(
+        path,
+        content,
+        options,
+        resolvedEntry?.type === "file"
+          ? { mode: resolvedEntry.mode }
+          : undefined,
+      );
     }
   }
 
@@ -816,6 +842,16 @@ export class InMemoryFs implements IFileSystem {
 
     if (!srcEntry) {
       throw new Error(`ENOENT: no such file or directory, cp '${src}'`);
+    }
+
+    if (srcEntry.type === "file" && (srcEntry.mode & 0o400) === 0) {
+      throw new Error(`EACCES: permission denied, open '${src}'`);
+    }
+
+    const resolvedDest = this.resolvePathWithSymlinks(destNorm);
+    const destEntry = this.data.get(resolvedDest);
+    if (destEntry?.type === "file" && (destEntry.mode & 0o200) === 0) {
+      throw new Error(`EACCES: permission denied, open '${dest}'`);
     }
 
     if (srcEntry.type === "file") {

@@ -17,6 +17,7 @@ import {
   readBytesFrom,
   utf8ByteLength,
 } from "../encoding.js";
+import { isPermissionDenied } from "../fs/permission-utils.js";
 import type { ExecResult } from "../types.js";
 import {
   ControlFlowError,
@@ -228,11 +229,13 @@ async function openOutputEntry(
     if (append) await ctx.fs.appendFile(filePath, "", "binary");
     else await ctx.fs.writeFile(filePath, "", "binary");
   } catch (error) {
-    if (!handleWriteError) throw error;
+    if (!handleWriteError && !isPermissionDenied(error)) throw error;
     return {
       error: makeResult(
         "",
-        `bash: ${target}: cannot open redirect target\n`,
+        isPermissionDenied(error)
+          ? `bash: ${target}: Permission denied\n`
+          : `bash: ${target}: cannot open redirect target\n`,
         1,
       ),
     };
@@ -248,17 +251,29 @@ async function readInputEntry(
   const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
   try {
     const content = await ctx.fs.readFile(filePath);
-    return readwrite
-      ? {
-          entry: {
-            kind: "readwrite",
-            path: filePath,
-            position: 0,
-            content,
-          },
-        }
-      : { entry: { kind: "input", content } };
-  } catch {
+    if (readwrite) {
+      const stat = await ctx.fs.stat(filePath);
+      if (stat.isFile && (stat.mode & 0o200) === 0) {
+        return {
+          error: makeResult("", `bash: ${target}: Permission denied\n`, 1),
+        };
+      }
+      return {
+        entry: {
+          kind: "readwrite",
+          path: filePath,
+          position: 0,
+          content,
+        },
+      };
+    }
+    return { entry: { kind: "input", content } };
+  } catch (error) {
+    if (isPermissionDenied(error)) {
+      return {
+        error: makeResult("", `bash: ${target}: Permission denied\n`, 1),
+      };
+    }
     if (!readwrite) {
       return {
         error: makeResult(
@@ -278,11 +293,13 @@ async function readInputEntry(
           content: "",
         },
       };
-    } catch {
+    } catch (error) {
       return {
         error: makeResult(
           "",
-          `bash: ${target}: No such file or directory\n`,
+          isPermissionDenied(error)
+            ? `bash: ${target}: Permission denied\n`
+            : `bash: ${target}: No such file or directory\n`,
           1,
         ),
       };
@@ -939,9 +956,15 @@ async function prepareRedirectionsWithState(
         stdin = (await readBytesFrom(ctx.fs, filePath)) as unknown as string;
         stdinSourceFd = -1;
         persistStandard(effectiveFd, { kind: "input", content: stdin });
-      } catch {
+      } catch (error) {
         return fail(
-          makeResult("", `bash: ${target}: No such file or directory\n`, 1),
+          makeResult(
+            "",
+            isPermissionDenied(error)
+              ? `bash: ${target}: Permission denied\n`
+              : `bash: ${target}: No such file or directory\n`,
+            1,
+          ),
           index,
         );
       }

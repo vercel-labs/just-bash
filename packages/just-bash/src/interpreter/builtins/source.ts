@@ -2,6 +2,7 @@
  * source/. - Execute commands from a file in current environment builtin
  */
 
+import { isPermissionDenied } from "../../fs/permission-utils.js";
 import { type ParseException, parse } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { ExecutionLimitError, ExitError, ReturnError } from "../errors.js";
@@ -25,6 +26,7 @@ export async function handleSource(
   const filename = sourceArgs[0];
   let _resolvedPath: string | null = null;
   let content: string | null = null;
+  let permissionDenied = false;
 
   // If filename contains '/', use it directly (relative or absolute path)
   if (filename.includes("/")) {
@@ -32,7 +34,8 @@ export async function handleSource(
     try {
       content = await ctx.fs.readFile(directPath);
       _resolvedPath = directPath;
-    } catch {
+    } catch (error) {
+      permissionDenied ||= isPermissionDenied(error);
       // File not found
     }
   } else {
@@ -51,7 +54,8 @@ export async function handleSource(
         content = await ctx.fs.readFile(candidate);
         _resolvedPath = candidate;
         break;
-      } catch {
+      } catch (error) {
+        permissionDenied ||= isPermissionDenied(error);
         // File doesn't exist in this PATH directory, continue searching
       }
     }
@@ -62,14 +66,17 @@ export async function handleSource(
       try {
         content = await ctx.fs.readFile(directPath);
         _resolvedPath = directPath;
-      } catch {
+      } catch (error) {
+        permissionDenied ||= isPermissionDenied(error);
         // File not found
       }
     }
   }
 
   if (content === null) {
-    return failure(`bash: ${filename}: No such file or directory\n`);
+    return permissionDenied
+      ? failure(`bash: ${filename}: Permission denied\n`)
+      : failure(`bash: ${filename}: No such file or directory\n`);
   }
 
   // Save and set positional parameters from additional args
