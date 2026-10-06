@@ -1,5 +1,28 @@
 # just-bash
 
+## 3.6.1
+
+### Patch Changes
+
+- [#439](https://github.com/vercel-labs/just-bash/pull/439) [`58d1ecf`](https://github.com/vercel-labs/just-bash/commit/58d1ecf31b768ea9834e151b166cf4cea32046ba) Thanks [@trieloff](https://github.com/trieloff)! - bash/sh: start nested shells from the exported environment only
+
+  `Bash.exec(…, { env, replaceEnv: true })` set its variables for commands run directly, but a nested `sh -c` or `bash -c` never saw them, and still saw the constructor's env instead:
+
+  ```js
+  const bash = new Bash({ env: { SECRET: "leak" } });
+  await bash.exec("sh", {
+    args: ["-c", "echo [$MARKER]; printenv SECRET"],
+    env: { MARKER: "YES" },
+    replaceEnv: true,
+  }); // was "[]\nleak\n", now "[YES]\n"
+  ```
+
+  Nested `sh` and `bash` now inherit only exported variables. Per-exec environment values reach them, `export -n` takes effect, and exports made in one `exec()` no longer affect later calls. Wrappers such as `env`, `time`, and `timeout` use the active caller's variables and exports, preserving script exports without restoring constructor variables during replacement execution.
+
+  Startup resets `IFS` and `OPTIND` while retaining inherited export attributes. `cd -` uses the current `OLDPWD`: an unset value reports an error, and an empty value succeeds without changing directory.
+
+- [#521](https://github.com/vercel-labs/just-bash/pull/521) [`864dfe5`](https://github.com/vercel-labs/just-bash/commit/864dfe5d4b9cf0447c4eb2002193f2ab2008bd0e) Thanks [@Hazzng](https://github.com/Hazzng)! - Fix `js-exec` Buffer encoding defaults, UTF-8 reads, typed-array inputs, character-boundary writes, and range validation. Reduce temporary allocations in byte conversion, `tr`, and `sed` while preserving execution limits.
+
 ## 3.6.0
 
 ### Minor Changes
