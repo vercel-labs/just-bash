@@ -220,6 +220,9 @@ async function awkSplit(
   const arrayName = arrayExpr.name;
 
   let sep: string | UserRegex = ctx.FS;
+  // A separator of a single space splits on runs of blanks and ignores the
+  // blanks at either end of the string.
+  let blankSep = false;
   if (args.length >= 3) {
     const sepExpr = args[2];
     // Check if the separator is a regex literal
@@ -227,19 +230,27 @@ async function awkSplit(
       sep = createUserRegex(sepExpr.pattern);
     } else {
       const sepVal = toAwkString(await evaluator.evalExpr(sepExpr));
-      sep = sepVal === " " ? createUserRegex("\\s+") : sepVal;
+      blankSep = sepVal === " ";
+      sep = blankSep ? createUserRegex("\\s+") : sepVal;
     }
   } else if (ctx.FS === " ") {
+    blankSep = true;
     sep = createUserRegex("\\s+");
   }
+
+  // An empty string has no elements, whatever the separator
+  const input = blankSep ? str.trim() : str;
 
   const previousCount = Object.keys(ctx.arrays[arrayName] ?? {}).length;
   const available =
     ctx.maxArrayElements - ctx.arrayElementCount + previousCount;
-  const parts =
-    typeof sep === "string"
-      ? str.split(sep, available + 1)
-      : sep.split(str, available + 1);
+  let parts: string[] = [];
+  if (input !== "") {
+    parts =
+      typeof sep === "string"
+        ? input.split(sep, available + 1)
+        : sep.split(input, available + 1);
+  }
   if (parts.length > available) {
     throw new ExecutionLimitError(
       `array element limit exceeded (${ctx.maxArrayElements})`,
