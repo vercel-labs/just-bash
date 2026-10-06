@@ -1,0 +1,128 @@
+{
+  "0f593201ed41b29a": {
+    "command": "jq -c 'try [(.[0], error(\"y\"))[error(\"x\")]?] catch .' input.json",
+    "files": {
+      "input.json": "[[1,2],[3]]"
+    },
+    "stdout": "\"x\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1aed8894d5efa2a6": {
+    "command": "jq -c '[.a[]?.b?]' input.json",
+    "files": {
+      "input.json": "{\"a\":[{\"b\":1},\"x\"]}"
+    },
+    "stdout": "[1]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2850c65835d81a4f": {
+    "command": "jq -c '[.[][]?]' input.json",
+    "files": {
+      "input.json": "[[1],null,[2]]"
+    },
+    "stdout": "[1,2]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "32076c95835f36a4": {
+    "command": "jq -c '[.a[.s:.e]?]' input.json",
+    "files": {
+      "input.json": "{\"a\":[1,2,3,4],\"s\":1,\"e\":3}"
+    },
+    "stdout": "[[2,3]]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "78c90ce136e43120": {
+    "command": "jq -c 'try [.a.b?] catch .' input.json",
+    "files": {
+      "input.json": "1"
+    },
+    "stdout": "\"Cannot index number with string \\\"a\\\"\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "88b752a5a72cb6f9": {
+    "command": "jq -c 'try [.[error(\"x\"):]?] catch .' input.json",
+    "files": {
+      "input.json": "[[1,2],[3]]"
+    },
+    "stdout": "\"x\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a4e5a06c0794b2c5": {
+    "command": "jq -c '[.a?.b]' input.json",
+    "files": {
+      "input.json": "1"
+    },
+    "stdout": "[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b68ccd27958454d3": {
+    "command": "jq -c '[.[].x?]' input.json",
+    "files": {
+      "input.json": "[{\"x\":1},4,{\"x\":2}]"
+    },
+    "stdout": "[1,2]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c3b27566ed8b1ebe": {
+    "command": "jq -c '[.a[].b?]' input.json",
+    "files": {
+      "input.json": "{\"a\":[1,{\"b\":2}]}"
+    },
+    "stdout": "[2]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c9e741986d2d3e27": {
+    "command": "jq -c '[.a[.i]?]' input.json",
+    "files": {
+      "input.json": "{\"i\":\"y\",\"a\":{\"i\":\"x\",\"x\":1,\"y\":2}}"
+    },
+    "stdout": "[2]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cc5fd115a0ae5e23": {
+    "command": "jq -c '[.a.b?]' input.json",
+    "files": {
+      "input.json": "{\"a\":1}"
+    },
+    "stdout": "[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d71bbb0587b565c1": {
+    "command": "jq -c '[.[] | .a?]' input.json",
+    "files": {
+      "input.json": "[1,{\"a\":1}]"
+    },
+    "stdout": "[1]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e9415db0b9e3a3b9": {
+    "command": "jq -c 'try [.[error(\"x\")]?] catch .' input.json",
+    "files": {
+      "input.json": "[1,2]"
+    },
+    "stdout": "\"x\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f5717eb8c46091b6": {
+    "command": "jq -c '[.[][1:]?]' input.json",
+    "files": {
+      "input.json": "[[1,2],\"s\",[3]]"
+    },
+    "stdout": "[[2],\"\",[]]\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

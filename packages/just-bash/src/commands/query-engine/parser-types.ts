@@ -196,7 +196,6 @@ export interface CondNode {
   type: "Cond";
   cond: AstNode;
   then: AstNode;
-  elifs: { cond: AstNode; then: AstNode }[];
   else?: AstNode;
 }
 
