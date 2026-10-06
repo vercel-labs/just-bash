@@ -1,3 +1,4 @@
+import { latin1FromBytes, unsafeBytesFromLatin1 } from "../../encoding.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -25,6 +26,7 @@ const headHelp = {
 
 export const headCommand: RuntimeCommand = {
   name: "head",
+  streaming: true,
 
   async execute(
     args: string[],
@@ -40,6 +42,23 @@ export const headCommand: RuntimeCommand = {
     }
 
     const { lines, bytes } = parsed.options;
+    if (ctx.stdio && parsed.options.files.length === 0) {
+      let remaining = bytes ?? lines;
+      while (remaining > 0) {
+        const chunk = await ctx.stdio.read();
+        if (chunk === null) break;
+        const content = latin1FromBytes(chunk);
+        const selected = getHead(
+          content,
+          remaining,
+          bytes === null ? null : remaining,
+        );
+        await ctx.stdio.write(unsafeBytesFromLatin1(selected));
+        if (bytes !== null) remaining -= selected.length;
+        else for (const byte of selected) if (byte === "\n") remaining--;
+      }
+      return { stdout: "", stderr: "", exitCode: 0 };
+    }
 
     return processHeadTailFiles(ctx, parsed.options, "head", (content) =>
       getHead(content, lines, bytes),
