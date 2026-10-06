@@ -71,11 +71,11 @@ function evaluateExpr(
     while (i < args.length && args[i] === "|") {
       i++;
       const right = parseAnd();
-      // OR: returns left if non-zero/non-empty, else right
-      if (left !== "0" && left !== "") {
-        return left;
+      // OR: returns left if non-zero/non-empty, else right. The right side
+      // is always parsed, so the rest of a chain like `a | b | c` is consumed.
+      if (left === "0" || left === "") {
+        left = right;
       }
-      left = right;
     }
     return left;
   }
