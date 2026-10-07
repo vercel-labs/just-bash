@@ -45,7 +45,7 @@ const NOSCRIPT_CONTENT = `
   ------------------
 
   File Operations:
-    cat, cp, file, ln, ls, mkdir, mv, readlink, rm, rmdir,
+    cat, cp, file, ln, ls, mkdir, mv, readlink, realpath, rm, rmdir,
     split, stat, touch, tree
 
   Text Processing:

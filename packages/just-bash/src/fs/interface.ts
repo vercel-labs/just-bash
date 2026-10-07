@@ -128,6 +128,19 @@ export interface CpOptions {
 }
 
 /**
+ * Options for resolving a physical path. `cwd` anchors relative paths without
+ * collapsing dot segments before following symlinks or changing whether the
+ * final path must exist. The default mode is strict; all-but-last permits a
+ * missing final component, including a dangling final symlink.
+ */
+export interface RealpathOptions {
+  path: string;
+  cwd?: string;
+  mode?: "strict" | "all-but-last";
+  signal?: AbortSignal;
+}
+
+/**
  * Abstract filesystem interface that can be implemented by different backends.
  * This allows BashEnv to work with:
  * - InMemoryFs (in-memory, default)
@@ -317,9 +330,17 @@ export interface IFileSystem {
    * This is equivalent to POSIX realpath() - it resolves all symlinks
    * in the path and returns the absolute physical path.
    * Used by pwd -P and cd -P for symlink resolution.
+   * A string path requires every component to exist.
    * @throws Error if path doesn't exist or contains a broken symlink
    */
   realpath(path: string): Promise<string>;
+
+  /**
+   * Resolve a path relative to a virtual working directory without collapsing
+   * dot segments before following symlinks. The default mode is strict;
+   * all-but-last permits a missing final component, matching GNU realpath.
+   */
+  realpath(options: RealpathOptions): Promise<string>;
 
   /**
    * Set access and modification times of a file
