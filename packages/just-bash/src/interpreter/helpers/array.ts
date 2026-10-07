@@ -95,6 +95,7 @@ export function setArrayElement(
     );
   }
   array.elements.set(normalizedKey, value);
+  ctx.onExpansionAssignment?.(arrayName, value, normalizedKey);
 }
 
 /** Prove a batch of distinct keys fits before any persistent mutation. */

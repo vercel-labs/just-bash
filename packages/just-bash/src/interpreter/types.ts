@@ -468,6 +468,8 @@ export interface ShellArray {
 
 export interface InterpreterContext {
   state: InterpreterState;
+  /** Command-local journal for explicit expansion assignments in the active shell. */
+  onExpansionAssignment?: (name: string, value: string, key?: string) => void;
   fs: IFileSystem;
   commands: CommandRegistry;
   /** Execution limits configuration */

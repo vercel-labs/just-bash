@@ -5,6 +5,7 @@
  * Separated from interpreter.ts for modularity.
  */
 
+import type { FunctionDefNode } from "../ast/types.js";
 import { isBrowserExcludedCommand } from "../commands/browser-excluded.js";
 import { latin1FromBytes, unsafeBytesFromLatin1 } from "../encoding.js";
 import {
@@ -436,7 +437,15 @@ export interface BuiltinDispatchContext {
   executeUserScript: ExecuteUserScriptFn;
 }
 
-export type CommandExecutionScope = "function" | "builtin" | "external";
+export type CommandExecutionScope =
+  | "assignment"
+  | "function"
+  | "builtin"
+  | "external";
+
+export type CommandExecution =
+  | { readonly scope: "function"; readonly definition: FunctionDefNode }
+  | { readonly scope: "builtin" | "external" };
 
 // These handlers take precedence over user-defined functions. Use that precedence when
 // choosing the shell scope in which a command's redirections are expanded.
@@ -467,19 +476,20 @@ const NON_OVERRIDABLE_BUILTINS = new Set([
   "readonly",
 ]);
 
-export function getCommandExecutionScope(
+export function resolveCommandExecution(
   ctx: InterpreterContext,
   commandName: string,
   skipFunctions = false,
-): CommandExecutionScope {
+): CommandExecution {
   if (
     !skipFunctions &&
-    ctx.state.functions.has(commandName) &&
     !NON_OVERRIDABLE_BUILTINS.has(commandName) &&
     !(commandName === "eval" && ctx.state.options.posix)
-  )
-    return "function";
-  return SHELL_BUILTINS.has(commandName) ? "builtin" : "external";
+  ) {
+    const definition = ctx.state.functions.get(commandName);
+    if (definition) return { scope: "function", definition };
+  }
+  return { scope: SHELL_BUILTINS.has(commandName) ? "builtin" : "external" };
 }
 
 /**
@@ -502,6 +512,7 @@ export async function dispatchBuiltin(
    * shell's stdin".
    */
   stdinRedirected = false,
+  execution?: CommandExecution,
 ): Promise<ExecResult | null> {
   const { ctx, runCommand } = dispatchCtx;
 
@@ -510,13 +521,17 @@ export async function dispatchBuiltin(
     ctx.coverage.hit(`bash:builtin:${commandName}`);
   }
 
-  if (
-    getCommandExecutionScope(ctx, commandName, skipFunctions) === "function"
-  ) {
-    const func = ctx.state.functions.get(commandName);
-    if (func)
-      return callFunction(ctx, func, args, stdin, undefined, stdinRedirected);
-  }
+  const resolvedExecution =
+    execution ?? resolveCommandExecution(ctx, commandName, skipFunctions);
+  if (resolvedExecution.scope === "function")
+    return callFunction(
+      ctx,
+      resolvedExecution.definition,
+      args,
+      stdin,
+      undefined,
+      stdinRedirected,
+    );
 
   // Built-in commands (special builtins that cannot be overridden by functions)
   if (commandName === "export") {

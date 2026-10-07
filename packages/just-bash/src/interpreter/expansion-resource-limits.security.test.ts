@@ -171,6 +171,16 @@ describe("interpreter expansion resource limits", () => {
     );
   });
 
+  it("bounds persistent array growth beneath temporary prefix bindings", async () => {
+    const bash = new Bash({ executionLimits: { maxArrayElements: 2 } });
+    const result = await bash.exec(
+      'a=(10 20); a=(1) a=("$((a[2]=3))") :; echo "${#a[@]}"',
+    );
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("array element limit exceeded (2)");
+  });
+
   it("bounds the final reconstructed array assignment", async () => {
     const bash = new Bash({ executionLimits: { maxStringLength: 20 } });
     const result = await bash.exec(

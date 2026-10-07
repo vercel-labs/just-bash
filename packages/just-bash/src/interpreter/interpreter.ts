@@ -51,9 +51,10 @@ import {
 } from "./assignment-expansion.js";
 import {
   type BuiltinDispatchContext,
+  type CommandExecution,
   dispatchBuiltin,
   executeExternalCommand,
-  getCommandExecutionScope,
+  resolveCommandExecution,
 } from "./builtin-dispatch.js";
 import { findCommandInPath as findCommandInPathHelper } from "./command-resolution.js";
 import { evaluateConditional } from "./conditionals.js";
@@ -678,13 +679,13 @@ export class Interpreter {
     // clean marker rather than inheriting the previous command's.
     this.ctx.state.lastSubstitutionExitCode = null;
 
-    const bindings = new PrefixBindings(this.ctx);
-    const tempAssignments = bindings.values;
+    let bindings: PrefixBindings | undefined;
     let cleanupPolicy: "retain" | "restore" = "restore";
     let commandName = "";
     try {
       let xtraceAssignmentOutput = "";
       if (!node.name) {
+        bindings = new PrefixBindings(this.ctx, "assignment");
         const assignmentResult = await processAssignments(
           this.ctx,
           node,
@@ -841,36 +842,30 @@ export class Interpreter {
         quotedArgs.shift();
       }
 
-      // If expansion removes the command word, assignments affect the current
-      // shell and precede redirections, just like syntactically bare assignments.
-      if (!commandName && commandIsOnlyExpansions) {
-        const assignmentResult = await processAssignments(
-          this.ctx,
-          { ...node, name: null },
-          bindings,
-        );
-        if (assignmentResult.error) return assignmentResult.error;
-        xtraceAssignmentOutput = assignmentResult.xtraceOutput;
-        bindings.endExpansion();
-        cleanupPolicy = "retain";
-      }
-
+      // Resolve the owner before prefix or redirection effects. Expansion can
+      // remove the command word, in which case assignments belong to this shell.
+      const commandExecution =
+        !commandName && commandIsOnlyExpansions
+          ? undefined
+          : resolveCommandExecution(this.ctx, commandName);
+      const commandScope = commandExecution?.scope ?? "assignment";
+      bindings = new PrefixBindings(this.ctx, commandScope);
+      const tempAssignments = bindings.values;
+      const assignmentResult = await processAssignments(
+        this.ctx,
+        commandScope === "assignment" ? { ...node, name: null } : node,
+        bindings,
+      );
+      if (assignmentResult.error) return assignmentResult.error;
+      xtraceAssignmentOutput = assignmentResult.xtraceOutput;
+      bindings.endExpansion();
       let installPrefixBindings: (() => void) | undefined;
-      if (commandName || !commandIsOnlyExpansions) {
-        const assignmentResult = await processAssignments(
-          this.ctx,
-          node,
-          bindings,
-        );
-        if (assignmentResult.error) return assignmentResult.error;
-        xtraceAssignmentOutput = assignmentResult.xtraceOutput;
-        bindings.endExpansion();
+      if (commandScope === "assignment") cleanupPolicy = "retain";
+      else {
         // Prefix RHS effects precede redirection expansion, but command-local
         // values must not hide the underlying shell variables from its targets.
         if (node.redirections.length > 0)
-          installPrefixBindings = bindings.stageForRedirections(
-            getCommandExecutionScope(this.ctx, commandName),
-          );
+          installPrefixBindings = bindings.prepareRedirections();
       }
 
       const transaction = createRedirectionTransaction(
@@ -967,6 +962,7 @@ export class Interpreter {
           false,
           stdinSourceFd,
           stdinRedirected,
+          commandExecution,
         );
       } catch (error) {
         // For break/continue, we still need to apply redirections before propagating
@@ -1064,7 +1060,7 @@ export class Interpreter {
         isPosixSpecialBuiltin(commandName) &&
         commandName !== "unset" &&
         commandName !== "eval";
-      bindings.finish(
+      bindings?.finish(
         bindings.dispatched &&
           this.ctx.state.options.posix &&
           isPosixSpecialWithPersistence
@@ -1083,6 +1079,7 @@ export class Interpreter {
     useDefaultPath = false,
     stdinSourceFd = -1,
     stdinRedirected = false,
+    execution?: CommandExecution,
   ): Promise<ExecResult> {
     const dispatchCtx: BuiltinDispatchContext = {
       ctx: this.ctx,
@@ -1103,6 +1100,7 @@ export class Interpreter {
       useDefaultPath,
       stdinSourceFd,
       stdinRedirected,
+      execution,
     );
 
     if (builtinResult !== null)

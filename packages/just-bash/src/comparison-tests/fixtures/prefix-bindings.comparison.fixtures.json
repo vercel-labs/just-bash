@@ -98,6 +98,13 @@
     "stderr": "",
     "exitCode": 0
   },
+  "8ef11b25516b9a0f": {
+    "command": "TEMP=${OTHER:=5}; printf \"<%s>:<%s>\\n\" \"$TEMP\" \"$OTHER\"",
+    "files": {},
+    "stdout": "<5>:<5>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "912cd949e99bc25b": {
     "command": "cat /dev/null >&\"$((OTHER=1))\"; printf \"<%s>\\n\" \"${OTHER-unset}\"",
     "files": {},
@@ -168,6 +175,13 @@
     "stderr": "",
     "exitCode": 0
   },
+  "e041cef3448a2993": {
+    "command": "TEMP=old; TEMP=prefix echo >\"$((TEMP=1))/out\"; echo \"$TEMP\"",
+    "files": {},
+    "stdout": "1\n",
+    "stderr": "/bin/bash: 1/out: No such file or directory\n",
+    "exitCode": 0
+  },
   "e9ee1bfe14bd0603": {
     "command": "v=outer; TMP=$(v=inner; exit) :; echo \"$v\"",
     "files": {},
@@ -194,6 +208,13 @@
     "files": {},
     "stdout": "1\n1\n",
     "stderr": "",
+    "exitCode": 0
+  },
+  "fb6fe2c8438109a8": {
+    "command": "TEMP=old; TEMP=prefix cat >\"$((TEMP=1))/out\"; echo \"$TEMP\"",
+    "files": {},
+    "stdout": "old\n",
+    "stderr": "/bin/bash: 1/out: No such file or directory\n",
     "exitCode": 0
   },
   "fe8b1d84d73669b3": {

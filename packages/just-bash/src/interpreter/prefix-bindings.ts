@@ -1,5 +1,5 @@
-import { _Proxy } from "../security/trusted-globals.js";
 import type { CommandExecutionScope } from "./builtin-dispatch.js";
+import { ExecutionLimitError } from "./errors.js";
 import { cloneArray, cloneArrays } from "./helpers/array.js";
 import type { InterpreterContext, ShellArray } from "./types.js";
 
@@ -9,15 +9,18 @@ type VariableSnapshot = {
   associative: boolean;
 };
 
-/** One simple command's temporary bindings and the state underneath them. */
+/** One command's persistent expansion effects and separate temporary bindings. */
 export class PrefixBindings {
   readonly values: Map<string, string | undefined> = new Map();
   private readonly underlying = new Map<string, VariableSnapshot>();
-  private stopObserving: (() => void) | undefined;
-  private restoreRedirectionScope: (() => void) | undefined;
+  private finishExpansion: (() => void) | undefined;
+  private restoreChildEnvironment: (() => void) | undefined;
   dispatched: boolean = false;
 
-  constructor(private readonly ctx: InterpreterContext) {}
+  constructor(
+    private readonly ctx: InterpreterContext,
+    private readonly scope: CommandExecutionScope,
+  ) {}
 
   private snapshot(name: string): VariableSnapshot {
     const array = this.ctx.state.arrays?.get(name);
@@ -41,146 +44,54 @@ export class PrefixBindings {
     } else this.ctx.state.associativeArrays?.delete(name);
   }
 
-  /** Expose RHS effects during redirections, but install prefixes only on success. */
-  stageForRedirections(scope: CommandExecutionScope): () => void {
+  /** Journal actual assignments, not incidental map writes or snapshot restoration. */
+  beginExpansion(commandBindings?: Map<string, VariableSnapshot>): void {
     this.endExpansion();
-    const staged = new Map<string, VariableSnapshot>();
-    for (const [name, underlying] of this.underlying) {
-      staged.set(name, this.snapshot(name));
-      this.restore(name, underlying);
-    }
-    let mutated: Set<string> | undefined;
-    if (scope === "external") {
-      const env = this.ctx.state.env;
-      const arrays = this.ctx.state.arrays;
-      this.ctx.state.env = new Map(env);
-      this.ctx.state.arrays = cloneArrays(arrays);
-      this.restoreRedirectionScope = () => {
-        this.ctx.state.env = env;
-        this.ctx.state.arrays = arrays;
-      };
-    } else if (staged.size > 0) mutated = this.beginExpansion();
-    return () => {
-      this.endExpansion();
-      for (const [name, snapshot] of staged) {
-        // Functions execute in this shell and see its redirection mutations.
-        // Builtins and external commands receive the staged prefix values.
-        if (scope !== "function" || !mutated?.has(name))
-          this.restore(name, snapshot);
-      }
-    };
-  }
-
-  /** Observe expansion writes, excluding temporary installation and restoration. */
-  beginExpansion(): Set<string> {
-    this.endExpansion();
-    const mutated = new Set<string>();
-    const scalarWrites = new Set<string>();
-    const arrayWrites = new Set<string>();
-    const elementWrites = new Map<string, Set<string>>();
     const env = this.ctx.state.env;
-    const arrays = this.ctx.state.arrays;
-    const observeMap = <K, V>(
-      map: Map<K, V>,
-      onWrite: (key: K) => void,
-    ): Map<K, V> =>
-      new _Proxy(map, {
-        get(target, property) {
-          if (property === "set")
-            return (key: K, value: V) => {
-              onWrite(key);
-              target.set(key, value);
-              return target;
-            };
-          if (property === "delete")
-            return (key: K) => {
-              onWrite(key);
-              return target.delete(key);
-            };
-          // @banned-pattern-ignore: target is an internal Map; this observer preserves Map's own API, and command contexts apply their separate capability membrane.
-          const value = Reflect.get(target, property, target);
-          return typeof value === "function" ? value.bind(target) : value;
-        },
-      });
-    this.ctx.state.env = observeMap(env, (key) => {
-      mutated.add(key);
-      scalarWrites.add(key);
-    });
-    // Array arithmetic writes elements directly. Observe those writes as well as
-    // replacement of an entire array, without copying unrelated variables.
-    const elementMaps = new Map<ShellArray, ShellArray["elements"]>();
-    if (arrays) {
-      const observedArrays = observeMap(arrays, (key) => {
-        mutated.add(key);
-        arrayWrites.add(key);
-      });
-      this.ctx.state.arrays = new _Proxy(observedArrays, {
-        get(target, property) {
-          if (property === "get")
-            return (key: string) => {
-              const array = arrays.get(key);
-              if (array && !elementMaps.has(array)) {
-                elementMaps.set(array, array.elements);
-                array.elements = observeMap(array.elements, (element) => {
-                  mutated.add(key);
-                  let writes = elementWrites.get(key);
-                  if (!writes) {
-                    writes = new Set();
-                    elementWrites.set(key, writes);
-                  }
-                  writes.add(element);
-                });
-              }
-              return array;
-            };
-          // @banned-pattern-ignore: target is the internal array Map observer, not an object selected through a script-controlled property path.
-          return Reflect.get(target, property, target);
-        },
-      });
-    }
-    this.stopObserving = () => {
-      // Substitutions run on child copies and restore these parent observers
-      // before returning. Only writes in this shell scope reach the journal.
-      this.ctx.state.env = env;
-      if (arrays) this.ctx.state.arrays = arrays;
-      for (const [array, elements] of elementMaps) array.elements = elements;
-      for (const key of mutated) {
-        const underlying = this.underlying.get(key);
-        if (underlying) {
-          const snapshot = this.snapshot(key);
-          if (!scalarWrites.has(key)) snapshot.scalar = underlying.scalar;
-          if (!arrayWrites.has(key)) {
-            const currentArray = snapshot.array;
-            snapshot.array = underlying.array
-              ? cloneArray(underlying.array)
-              : undefined;
-            snapshot.associative = underlying.associative;
-            for (const element of elementWrites.get(key) ?? []) {
-              const value = currentArray?.elements.get(element);
-              if (value === undefined) snapshot.array?.elements.delete(element);
-              else if (currentArray) {
-                snapshot.array ??= {
-                  kind: currentArray.kind,
-                  elements: new Map(),
-                };
-                snapshot.array.elements.set(element, value);
-              }
-            }
-          }
-          this.underlying.set(key, snapshot);
-          this.values.set(key, snapshot.scalar);
-        }
+    const previous = this.ctx.onExpansionAssignment;
+    this.ctx.onExpansionAssignment = (name, value, key) => {
+      // Substitutions execute on child maps. Their assignments belong to that
+      // child even when the surrounding RHS shares this interpreter context.
+      if (this.ctx.state.env !== env) return;
+      previous?.(name, value, key);
+      const underlying = this.underlying.get(name);
+      if (!underlying) return;
+      if (key === undefined) underlying.scalar = value;
+      else {
+        underlying.array ??= {
+          kind: this.ctx.state.arrays?.get(name)?.kind ?? "indexed",
+          elements: new Map(),
+        };
+        // The temporary array can be smaller than the persistent array receiving
+        // this effect. Enforce that owner's bound before adding a hidden key.
+        if (
+          !underlying.array.elements.has(key) &&
+          underlying.array.elements.size >= this.ctx.limits.maxArrayElements
+        )
+          throw new ExecutionLimitError(
+            `array element limit exceeded (${this.ctx.limits.maxArrayElements})`,
+            "array_elements",
+          );
+        underlying.array.elements.set(key, value);
       }
+      this.values.set(name, underlying.scalar);
+      // A function receives redirection assignments in the same shell scope.
+      // Builtins receive the independently staged prefix bindings instead.
+      if (commandBindings?.has(name))
+        commandBindings.set(name, this.snapshot(name));
     };
-    return mutated;
+    this.finishExpansion = () => {
+      this.ctx.onExpansionAssignment = previous;
+    };
   }
 
   endExpansion(): void {
-    const stop = this.stopObserving;
-    this.stopObserving = undefined;
-    stop?.();
+    const finish = this.finishExpansion;
+    this.finishExpansion = undefined;
+    finish?.();
   }
 
+  /** Capture persistent state after the RHS and before installing its binding. */
   capture(name: string): void {
     this.endExpansion();
     if (!this.underlying.has(name)) {
@@ -188,6 +99,35 @@ export class PrefixBindings {
       this.underlying.set(name, snapshot);
       this.values.set(name, snapshot.scalar);
     }
+  }
+
+  /** Select redirection ownership before expanding any redirection target. */
+  prepareRedirections(): () => void {
+    this.endExpansion();
+    const commandBindings = new Map<string, VariableSnapshot>();
+    for (const [name, underlying] of this.underlying) {
+      commandBindings.set(name, this.snapshot(name));
+      this.restore(name, underlying);
+    }
+    if (this.scope === "external") {
+      const env = this.ctx.state.env;
+      const arrays = this.ctx.state.arrays;
+      this.ctx.state.env = new Map(env);
+      this.ctx.state.arrays = cloneArrays(arrays);
+      this.restoreChildEnvironment = () => {
+        this.ctx.state.env = env;
+        this.ctx.state.arrays = arrays;
+      };
+    } else if (commandBindings.size > 0) {
+      this.beginExpansion(
+        this.scope === "function" ? commandBindings : undefined,
+      );
+    }
+    return () => {
+      this.endExpansion();
+      for (const [name, snapshot] of commandBindings)
+        this.restore(name, snapshot);
+    };
   }
 
   beginDispatch(): void {
@@ -201,7 +141,7 @@ export class PrefixBindings {
 
   finish(policy: "retain" | "restore"): void {
     this.endExpansion();
-    this.restoreRedirectionScope?.();
+    this.restoreChildEnvironment?.();
     if (policy === "restore") {
       for (const [name, snapshot] of this.underlying) {
         if (this.dispatched && this.ctx.state.fullyUnsetLocals?.has(name))
