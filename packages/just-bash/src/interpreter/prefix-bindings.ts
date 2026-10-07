@@ -12,7 +12,7 @@ type VariableSnapshot = {
 export class PrefixBindings {
   readonly values: Map<string, string | undefined> = new Map();
   private readonly underlying = new Map<string, VariableSnapshot>();
-  private finishExpansion: (() => void) | undefined;
+  private finishExpansion: ((commitEffects: boolean) => void) | undefined;
   dispatched: boolean = false;
 
   constructor(private readonly ctx: InterpreterContext) {}
@@ -46,14 +46,16 @@ export class PrefixBindings {
   }
 
   /** Journal actual assignments, not incidental map writes or snapshot restoration. */
-  beginExpansion(): void {
+  beginExpansion(deferEffects = false): void {
     this.endExpansion();
     const env = this.ctx.state.env;
     const previous = this.ctx.onExpansionAssignment;
-    this.ctx.onExpansionAssignment = (name, value, key) => {
-      // Substitutions execute on child maps. Their assignments belong to that
-      // child even when the surrounding RHS shares this interpreter context.
-      if (this.ctx.state.env !== env) return;
+    const pending = new Map<string, Map<string | undefined, string>>();
+    const recordAssignment = (
+      name: string,
+      value: string,
+      key?: string,
+    ): void => {
       previous?.(name, value, key);
       const underlying = this.underlying.get(name);
       if (!underlying) return;
@@ -77,15 +79,31 @@ export class PrefixBindings {
       }
       this.values.set(name, underlying.scalar);
     };
-    this.finishExpansion = () => {
+    this.ctx.onExpansionAssignment = (name, value, key) => {
+      // Substitutions execute on child maps. Their assignments belong to that
+      // child even when the surrounding RHS shares this interpreter context.
+      if (this.ctx.state.env !== env) return;
+      if (!deferEffects) return recordAssignment(name, value, key);
+      if (!this.underlying.has(name)) return;
+      let writes = pending.get(name);
+      if (!writes) {
+        writes = new Map();
+        pending.set(name, writes);
+      }
+      writes.set(key, value);
+    };
+    this.finishExpansion = (commitEffects) => {
       this.ctx.onExpansionAssignment = previous;
+      if (commitEffects)
+        for (const [name, writes] of pending)
+          for (const [key, value] of writes) recordAssignment(name, value, key);
     };
   }
 
-  endExpansion(): void {
+  endExpansion(commitEffects = true): void {
     const finish = this.finishExpansion;
     this.finishExpansion = undefined;
-    finish?.();
+    finish?.(commitEffects);
   }
 
   /** Capture persistent state after the RHS and before installing its binding. */

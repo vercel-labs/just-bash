@@ -21,6 +21,13 @@
     "stderr": "",
     "exitCode": 0
   },
+  "2be307ae0bf751b5": {
+    "command": "TEMP=old; TEMP=prefix cat /dev/null >&\"$((TEMP=1))\"; echo \"$TEMP\"",
+    "files": {},
+    "stdout": "old\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "32578457f8b8dff1": {
     "command": "a=(outer keep); a=(temp) V=$(echo a)$((a[1]=5)) :; printf \"<%s>\\n\" \"${a[@]}\"",
     "files": {},

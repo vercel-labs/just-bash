@@ -855,7 +855,7 @@ export class Interpreter {
 
       // Keep completed redirection expansion assignments when preparation
       // fails, without changing which environment dispatch receives.
-      bindings.beginExpansion();
+      bindings.beginExpansion(true);
       const transaction = createRedirectionTransaction(
         this.ctx,
         node.redirections,
@@ -865,7 +865,9 @@ export class Interpreter {
       );
       onTransaction(transaction);
       const preparedRedirections = await transaction.prepare(stdin);
-      bindings.endExpansion();
+      // Successful commands retain the existing temporary-redirection policy.
+      // Only a preparation failure adds these writes to the cleanup journal.
+      bindings.endExpansion(preparedRedirections.error !== null);
       if (preparedRedirections.error) {
         if (!preparedRedirections.errorCause) {
           transaction.finish();
