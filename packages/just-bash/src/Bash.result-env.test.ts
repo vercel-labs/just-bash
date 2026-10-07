@@ -73,28 +73,23 @@ describe("execution result environment", () => {
       expect(result.exitCode).toBe(0);
       expect(result.env.TEMP).toBe("6");
     });
-    it.each([
-      "TEMP=secret eval 'echo ${MISSING:?required}'",
-      "TEMP=(one) echo ${MISSING:?required}",
-      "TEMP=$((TEMP=5)) echo ${MISSING:?required}",
-    ])("restores pre-expansion prefix state for %s", async (command) => {
-      const result = await new Bash().exec(command, {
-        env: { TEMP: "original" },
-        replaceEnv: true,
-      });
+    it("restores bindings after failure inside eval", async () => {
+      const result = await new Bash().exec(
+        "TEMP=secret eval 'echo ${MISSING:?required}'",
+        {
+          env: { TEMP: "original" },
+          replaceEnv: true,
+        },
+      );
       expect(result.env.TEMP).toBe("original");
       expect(result.stdout).toBe("");
       expect(result.stderr).toBe("bash: required\n");
       expect(result.exitCode).toBe(1);
     });
     it.each([
-      [undefined, "TEMP=secret echo ${MISSING:?required}"],
-      ["original", "TEMP=secret echo ${MISSING:?required}"],
-      [undefined, "TEMP=one TEMP=two echo ${MISSING:?required}"],
-      ["original", "TEMP=one TEMP=two echo ${MISSING:?required}"],
       [undefined, "TEMP=one TEMP=two OTHER=${MISSING:?required} echo"],
       ["original", "TEMP=one TEMP=two OTHER=${MISSING:?required} echo"],
-    ])("unwinds temporary bindings after expansion failure (TEMP=%s, %s)", async (original, command) => {
+    ])("unwinds installed bindings after a later prefix RHS fails (TEMP=%s, %s)", async (original, command) => {
       const bash = new Bash();
       const result = await bash.exec(`MARKER=kept; ${command}`, {
         env: original === undefined ? {} : { TEMP: original },

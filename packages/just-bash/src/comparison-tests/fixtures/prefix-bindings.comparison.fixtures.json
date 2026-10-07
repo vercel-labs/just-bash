@@ -21,10 +21,24 @@
     "stderr": "",
     "exitCode": 0
   },
+  "0e6c18f2f456ebfb": {
+    "command": "TEMP=old; TEMP=prefix command cat /dev/null >&\"$((TEMP=1))\"; echo \"$TEMP\"",
+    "files": {},
+    "stdout": "1\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "24977edccc311051": {
     "command": "TEMP=(original); TEMP=(one) :; printf \"[%s]\\n\" \"${TEMP[@]}\"",
     "files": {},
     "stdout": "[original]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2be307ae0bf751b5": {
+    "command": "TEMP=old; TEMP=prefix cat /dev/null >&\"$((TEMP=1))\"; echo \"$TEMP\"",
+    "files": {},
+    "stdout": "old\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -46,6 +60,13 @@
     "command": "TEMP=$((OTHER=1)) echo ok >&\"$OTHER\"",
     "files": {},
     "stdout": "ok\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "640dc2b899802c82": {
+    "command": "f() { echo \"$TEMP\"; }; TEMP=old; TEMP=prefix f >&\"$((TEMP=1))\"; echo \"$TEMP\"",
+    "files": {},
+    "stdout": "1\n1\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -77,6 +98,13 @@
     "stderr": "",
     "exitCode": 0
   },
+  "912cd949e99bc25b": {
+    "command": "cat /dev/null >&\"$((OTHER=1))\"; printf \"<%s>\\n\" \"${OTHER-unset}\"",
+    "files": {},
+    "stdout": "<unset>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "930229ff46e034e7": {
     "command": "Y=0; Y=1 V=$(echo a)$((Y=1)) :; echo \"$Y\"",
     "files": {},
@@ -88,6 +116,13 @@
     "command": "shopt -s extglob\nv=outer; a=(@($(v=inner; echo x))) :; printf \"v=<%s>\\n\" \"$v\"",
     "files": {},
     "stdout": "v=<outer>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "abbf6c935e5cb6bf": {
+    "command": "f() { echo \"$TEMP\"; }; TEMP=out; TEMP=prefix f >\"$TEMP\"; cat out; echo \"$TEMP\"",
+    "files": {},
+    "stdout": "prefix\nout\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -144,6 +179,20 @@
     "command": "TEMP=0; TEMP=one TEMP=two :; echo $TEMP",
     "files": {},
     "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "efa7ac9f7183a12a": {
+    "command": "TEMP=old; TEMP=prefix printenv TEMP >&\"$((TEMP=1))\"; echo \"$TEMP\"",
+    "files": {},
+    "stdout": "prefix\nold\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f56d5d190de44e43": {
+    "command": "echo() { printf \"%s\\n\" \"$TEMP\"; }; TEMP=old; TEMP=prefix echo >&\"$((TEMP=1))\"; printf \"%s\\n\" \"$TEMP\"",
+    "files": {},
+    "stdout": "1\n1\n",
     "stderr": "",
     "exitCode": 0
   },

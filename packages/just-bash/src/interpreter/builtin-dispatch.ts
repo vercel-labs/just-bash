@@ -436,6 +436,52 @@ export interface BuiltinDispatchContext {
   executeUserScript: ExecuteUserScriptFn;
 }
 
+export type CommandExecutionScope = "function" | "builtin" | "external";
+
+// These handlers take precedence over user-defined functions. Use that precedence when
+// choosing the shell scope in which a command's redirections are expanded.
+const NON_OVERRIDABLE_BUILTINS = new Set([
+  "export",
+  "unset",
+  "exit",
+  "local",
+  "set",
+  "break",
+  "continue",
+  "return",
+  "shift",
+  "getopts",
+  "compgen",
+  "complete",
+  "compopt",
+  "pushd",
+  "popd",
+  "dirs",
+  "source",
+  ".",
+  "read",
+  "mapfile",
+  "readarray",
+  "declare",
+  "typeset",
+  "readonly",
+]);
+
+export function getCommandExecutionScope(
+  ctx: InterpreterContext,
+  commandName: string,
+  skipFunctions = false,
+): CommandExecutionScope {
+  if (
+    !skipFunctions &&
+    ctx.state.functions.has(commandName) &&
+    !NON_OVERRIDABLE_BUILTINS.has(commandName) &&
+    !(commandName === "eval" && ctx.state.options.posix)
+  )
+    return "function";
+  return SHELL_BUILTINS.has(commandName) ? "builtin" : "external";
+}
+
 /**
  * Dispatch a command to the appropriate builtin handler or external command.
  * Returns null if the command should be handled by external command resolution.
@@ -462,6 +508,14 @@ export async function dispatchBuiltin(
   // Coverage tracking for builtins (lightweight: only fires when coverage is enabled)
   if (ctx.coverage && SHELL_BUILTINS.has(commandName)) {
     ctx.coverage.hit(`bash:builtin:${commandName}`);
+  }
+
+  if (
+    getCommandExecutionScope(ctx, commandName, skipFunctions) === "function"
+  ) {
+    const func = ctx.state.functions.get(commandName);
+    if (func)
+      return callFunction(ctx, func, args, stdin, undefined, stdinRedirected);
   }
 
   // Built-in commands (special builtins that cannot be overridden by functions)
@@ -532,14 +586,6 @@ export async function dispatchBuiltin(
   }
   if (commandName === "readonly") {
     return handleReadonly(ctx, args);
-  }
-  // User-defined functions override most builtins (except special ones above)
-  // This needs to happen before true/false/let which are regular builtins
-  if (!skipFunctions) {
-    const func = ctx.state.functions.get(commandName);
-    if (func) {
-      return callFunction(ctx, func, args, stdin, undefined, stdinRedirected);
-    }
   }
   // Internal transform primitive, reached through `builtin` so a user-defined
   // function with this name remains ordinary shell state. Arguments have

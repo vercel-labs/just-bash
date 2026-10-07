@@ -53,6 +53,7 @@ import {
   type BuiltinDispatchContext,
   dispatchBuiltin,
   executeExternalCommand,
+  getCommandExecutionScope,
 } from "./builtin-dispatch.js";
 import { findCommandInPath as findCommandInPathHelper } from "./command-resolution.js";
 import { evaluateConditional } from "./conditionals.js";
@@ -679,7 +680,7 @@ export class Interpreter {
 
     const bindings = new PrefixBindings(this.ctx);
     const tempAssignments = bindings.values;
-    let outcome: Parameters<PrefixBindings["finish"]>[0] = "complete";
+    let cleanupPolicy: "retain" | "restore" = "restore";
     let commandName = "";
     try {
       let xtraceAssignmentOutput = "";
@@ -753,7 +754,6 @@ export class Interpreter {
       // Bash expands command words and arguments before prefix values.
       // A failed argument expansion must not evaluate any prefix RHS;
       // argument mutations remain real shell state, not temporary bindings.
-      bindings.phase = "arguments";
       commandName = await expandWord(this.ctx, node.name);
 
       const args: string[] = [];
@@ -852,12 +852,11 @@ export class Interpreter {
         if (assignmentResult.error) return assignmentResult.error;
         xtraceAssignmentOutput = assignmentResult.xtraceOutput;
         bindings.endExpansion();
-        outcome = "persist";
+        cleanupPolicy = "retain";
       }
 
       let installPrefixBindings: (() => void) | undefined;
       if (commandName || !commandIsOnlyExpansions) {
-        bindings.phase = "prefix";
         const assignmentResult = await processAssignments(
           this.ctx,
           node,
@@ -868,8 +867,10 @@ export class Interpreter {
         bindings.endExpansion();
         // Prefix RHS effects precede redirection expansion, but command-local
         // values must not hide the underlying shell variables from its targets.
-        if (tempAssignments.size > 0)
-          installPrefixBindings = bindings.stageForRedirections();
+        if (node.redirections.length > 0)
+          installPrefixBindings = bindings.stageForRedirections(
+            getCommandExecutionScope(this.ctx, commandName),
+          );
       }
 
       const transaction = createRedirectionTransaction(
@@ -894,15 +895,13 @@ export class Interpreter {
         stdin = preparedRedirections.stdin;
       }
 
-      if (installPrefixBindings) {
-        installPrefixBindings();
-        // Prefix bindings belong to the dispatched command's environment, not
-        // substitutions used to prepare its arguments or redirection targets.
-        if (!isLiteralAssignmentBuiltin && tempAssignments.size > 0) {
-          this.ctx.state.tempExportedVars ??= new Set();
-          for (const name of tempAssignments.keys())
-            this.ctx.state.tempExportedVars.add(name);
-        }
+      installPrefixBindings?.();
+      // Prefix bindings belong to the dispatched command's environment, not
+      // substitutions used to prepare its arguments or redirection targets.
+      if (!isLiteralAssignmentBuiltin && tempAssignments.size > 0) {
+        this.ctx.state.tempExportedVars ??= new Set();
+        for (const name of tempAssignments.keys())
+          this.ctx.state.tempExportedVars.add(name);
       }
 
       // Handle empty command name specially
@@ -915,7 +914,7 @@ export class Interpreter {
       // However, a literal empty string (like '') is "command not found".
       if (!commandName) {
         if (commandIsOnlyExpansions) {
-          outcome = "persist";
+          cleanupPolicy = "retain";
           // No args - treat as a no-op that reports the status of a command
           // substitution in the word (`$(exit 42)` is 42) and 0 otherwise.
           transaction.finish();
@@ -954,19 +953,11 @@ export class Interpreter {
         args,
       );
 
-      // Push tempEnvBindings onto the stack so unset can see them
-      // This allows `unset v` to reveal the underlying global value when
-      // v was set by a prefix assignment like `v=tempenv cmd`
-      if (tempAssignments.size > 0) {
-        this.ctx.state.tempEnvBindings = this.ctx.state.tempEnvBindings || [];
-        this.ctx.state.tempEnvBindings.push(new Map(tempAssignments));
-      }
-
       let cmdResult: ExecResult;
       let controlFlowError: BreakError | ContinueError | null = null;
 
       try {
-        bindings.phase = "dispatch";
+        bindings.beginDispatch();
         cmdResult = await this.runCommand(
           commandName,
           args,
@@ -1063,16 +1054,8 @@ export class Interpreter {
       // Follow Bash 3.2: explicit exit keeps prefix bindings visible to EXIT
       // handling. Bash 5.3 restores the previous bindings at top level instead.
       // Fatal expansion failures, including propagated eval failures, unwind them.
-      outcome =
-        error instanceof ExitError && error.reason === "exit"
-          ? "exit"
-          : error instanceof ReturnError ||
-              error instanceof BreakError ||
-              error instanceof ContinueError
-            ? "control-transfer"
-            : bindings.phase === "dispatch"
-              ? "execution-failure"
-              : "preparation-failure";
+      if (error instanceof ExitError && error.reason === "exit")
+        cleanupPolicy = "retain";
       throw error;
     } finally {
       // Successful null commands retain assignments, as do dispatched POSIX
@@ -1082,11 +1065,11 @@ export class Interpreter {
         commandName !== "unset" &&
         commandName !== "eval";
       bindings.finish(
-        bindings.phase === "dispatch" &&
+        bindings.dispatched &&
           this.ctx.state.options.posix &&
           isPosixSpecialWithPersistence
-          ? "persist"
-          : outcome,
+          ? "retain"
+          : cleanupPolicy,
       );
     }
   }

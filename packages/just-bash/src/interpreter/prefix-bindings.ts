@@ -1,5 +1,6 @@
 import { _Proxy } from "../security/trusted-globals.js";
-import { cloneArray } from "./helpers/array.js";
+import type { CommandExecutionScope } from "./builtin-dispatch.js";
+import { cloneArray, cloneArrays } from "./helpers/array.js";
 import type { InterpreterContext, ShellArray } from "./types.js";
 
 type VariableSnapshot = {
@@ -8,20 +9,13 @@ type VariableSnapshot = {
   associative: boolean;
 };
 
-type CleanupOutcome =
-  | "preparation-failure"
-  | "execution-failure"
-  | "complete"
-  | "control-transfer"
-  | "exit"
-  | "persist";
-
 /** One simple command's temporary bindings and the state underneath them. */
 export class PrefixBindings {
   readonly values: Map<string, string | undefined> = new Map();
   private readonly underlying = new Map<string, VariableSnapshot>();
   private stopObserving: (() => void) | undefined;
-  phase: "prefix" | "arguments" | "dispatch" = "prefix";
+  private restoreRedirectionScope: (() => void) | undefined;
+  dispatched: boolean = false;
 
   constructor(private readonly ctx: InterpreterContext) {}
 
@@ -48,22 +42,37 @@ export class PrefixBindings {
   }
 
   /** Expose RHS effects during redirections, but install prefixes only on success. */
-  stageForRedirections(): () => void {
+  stageForRedirections(scope: CommandExecutionScope): () => void {
     this.endExpansion();
     const staged = new Map<string, VariableSnapshot>();
     for (const [name, underlying] of this.underlying) {
       staged.set(name, this.snapshot(name));
       this.restore(name, underlying);
     }
-    if (staged.size > 0) this.beginExpansion();
+    let mutated: Set<string> | undefined;
+    if (scope === "external") {
+      const env = this.ctx.state.env;
+      const arrays = this.ctx.state.arrays;
+      this.ctx.state.env = new Map(env);
+      this.ctx.state.arrays = cloneArrays(arrays);
+      this.restoreRedirectionScope = () => {
+        this.ctx.state.env = env;
+        this.ctx.state.arrays = arrays;
+      };
+    } else if (staged.size > 0) mutated = this.beginExpansion();
     return () => {
       this.endExpansion();
-      for (const [name, snapshot] of staged) this.restore(name, snapshot);
+      for (const [name, snapshot] of staged) {
+        // Functions execute in this shell and see its redirection mutations.
+        // Builtins and external commands receive the staged prefix values.
+        if (scope !== "function" || !mutated?.has(name))
+          this.restore(name, snapshot);
+      }
     };
   }
 
   /** Observe expansion writes, excluding temporary installation and restoration. */
-  beginExpansion(): void {
+  beginExpansion(): Set<string> {
     this.endExpansion();
     const mutated = new Set<string>();
     const scalarWrites = new Set<string>();
@@ -163,6 +172,7 @@ export class PrefixBindings {
         }
       }
     };
+    return mutated;
   }
 
   endExpansion(): void {
@@ -180,21 +190,28 @@ export class PrefixBindings {
     }
   }
 
-  finish(outcome: CleanupOutcome): void {
+  beginDispatch(): void {
+    // unset uses this stack to reveal the variable beneath a command's prefix.
+    if (this.values.size > 0) {
+      this.ctx.state.tempEnvBindings ??= [];
+      this.ctx.state.tempEnvBindings.push(new Map(this.values));
+    }
+    this.dispatched = true;
+  }
+
+  finish(policy: "retain" | "restore"): void {
     this.endExpansion();
-    if (outcome !== "exit" && outcome !== "persist") {
+    this.restoreRedirectionScope?.();
+    if (policy === "restore") {
       for (const [name, snapshot] of this.underlying) {
-        if (
-          this.phase === "dispatch" &&
-          this.ctx.state.fullyUnsetLocals?.has(name)
-        )
+        if (this.dispatched && this.ctx.state.fullyUnsetLocals?.has(name))
           continue;
         this.restore(name, snapshot);
       }
     }
     for (const name of this.values.keys())
       this.ctx.state.tempExportedVars?.delete(name);
-    if (this.phase === "dispatch" && this.values.size > 0)
+    if (this.dispatched && this.values.size > 0)
       this.ctx.state.tempEnvBindings?.pop();
   }
 }
