@@ -836,7 +836,7 @@ export function convertReplacement(replacement: string): string {
  * - + ? | ( ) { } are literal (must be escaped in JS)
  * - * at pattern start or after ^ is literal
  * - ^ is anchor at start of pattern or start of \(...\) group; literal elsewhere
- * - $ is anchor at end of pattern or end of \(...\) group; literal elsewhere
+ * - $ is anchor at end of pattern, \(...\) group or \| alternative; literal elsewhere
  */
 function escapeRegexForBasicGrep(str: string): string {
   let result = "";
@@ -970,13 +970,15 @@ function escapeRegexForBasicGrep(str: string): string {
       continue;
     }
 
-    // Handle $ - anchor at pattern end or before \), literal elsewhere
+    // Handle $ - anchor at pattern end, before \) or before \|, literal elsewhere
     if (char === "$") {
-      // Check if this is at end of pattern or followed by \)
+      // Check if this is at end of pattern or followed by \) or \|
       const isAtEnd = i === str.length - 1;
       const isBeforeGroupEnd =
         i + 2 < str.length && str[i + 1] === "\\" && str[i + 2] === ")";
-      if (isAtEnd || isBeforeGroupEnd) {
+      const isBeforeAlternation =
+        i + 2 < str.length && str[i + 1] === "\\" && str[i + 2] === "|";
+      if (isAtEnd || isBeforeGroupEnd || isBeforeAlternation) {
         result += "$";
       } else {
         result += "\\$";
