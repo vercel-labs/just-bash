@@ -119,8 +119,12 @@ async function executeCommandSubstitutionFromString(
   // Execute in subshell-like context
   const savedBashPid = ctx.state.bashPid;
   ctx.state.bashPid = ctx.state.nextVirtualPid++;
-  const savedEnv = new Map(ctx.state.env);
-  const savedArrays = cloneArrays(ctx.state.arrays);
+  // Execute on child copies so parent prefix-write observers never see child
+  // mutations and remain installed when this substitution returns.
+  const savedEnv = ctx.state.env;
+  const savedArrays = ctx.state.arrays;
+  ctx.state.env = new Map(savedEnv);
+  ctx.state.arrays = cloneArrays(savedArrays);
   const savedCwd = ctx.state.cwd;
   const savedSuppressVerbose = ctx.state.suppressVerbose;
   ctx.state.suppressVerbose = true;

@@ -17,6 +17,10 @@ describe("execution result environment", () => {
       ['v=outer; TMP=<(v=inner) :; echo "$v"', "outer\n"],
       ['v=outer; TMP=$(v=inner; exit) :; echo "$v"', "outer\n"],
       ['v=outer; TMP=$(v=inner; echo "$(v=nested)") :; echo "$v"', "outer\n"],
+      [
+        'shopt -s extglob; v=outer; a=(@($(v=inner; echo x))) :; printf "v=<%s>\\n" "$v"',
+        "v=<outer>\n",
+      ],
     ])("keeps RHS substitution state isolated: %s", async (script, stdout) => {
       const result = await new Bash().exec(script);
       expect(result.stdout).toBe(stdout);
