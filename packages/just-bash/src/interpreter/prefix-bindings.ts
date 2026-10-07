@@ -105,6 +105,8 @@ export class PrefixBindings {
       });
     }
     this.stopObserving = () => {
+      // Substitutions run on child copies and restore these parent observers
+      // before returning. Only writes in this shell scope reach the journal.
       this.ctx.state.env = env;
       if (arrays) this.ctx.state.arrays = arrays;
       for (const [array, elements] of elementMaps) array.elements = elements;

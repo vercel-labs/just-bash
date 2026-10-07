@@ -266,8 +266,8 @@ async function runBody(
   }
 
   const savedDepth = ctx.substitutionDepth;
-  const savedEnv = new Map(ctx.state.env);
-  const savedArrays = cloneArrays(ctx.state.arrays);
+  const savedEnv = ctx.state.env;
+  const savedArrays = ctx.state.arrays;
   const savedCwd = ctx.state.cwd;
   const savedBashPid = ctx.state.bashPid;
   const savedSuppressVerbose = ctx.state.suppressVerbose;
@@ -276,6 +276,10 @@ async function runBody(
   const savedExitCodeVar = ctx.state.env.get("?");
   const savedSubstitutionExitCode = ctx.state.lastSubstitutionExitCode;
 
+  // Preserve the active parent maps and their prefix-write observers. Execute
+  // isolated child writes on copies rather than discard mutated parent maps.
+  ctx.state.env = new Map(savedEnv);
+  ctx.state.arrays = cloneArrays(savedArrays);
   ctx.substitutionDepth = currentDepth + 1;
   ctx.state.bashPid = ctx.state.nextVirtualPid++;
   ctx.state.suppressVerbose = true;

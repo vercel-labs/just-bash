@@ -5,6 +5,39 @@ import { nullPrototype } from "./commands/query-engine/safe-object.js";
 describe("execution result environment", () => {
   describe("prefix binding cleanup", () => {
     it.each([
+      ['v=outer; TMP=$(v=inner) :; echo "$v"', "outer\n"],
+      ['a=(outer); TMP=$(a[0]=inner) :; echo "${a[0]}"', "outer\n"],
+      ['V=$(echo a)$((Y=1)) :; echo "$Y"', "1\n"],
+      ['Y=0; Y=temporary V=$(echo a)$((Y=1)) :; echo "$Y"', "1\n"],
+      ['Y=0; Y=1 V=$(echo a)$((Y=1)) :; echo "$Y"', "1\n"],
+      [
+        'a=(outer keep); a=(temp) V=$(echo a)$((a[1]=5)) :; printf "<%s>\\n" "${a[@]}"',
+        "<outer>\n<5>\n",
+      ],
+      ['v=outer; TMP=<(v=inner) :; echo "$v"', "outer\n"],
+      ['v=outer; TMP=$(v=inner; exit) :; echo "$v"', "outer\n"],
+      ['v=outer; TMP=$(v=inner; echo "$(v=nested)") :; echo "$v"', "outer\n"],
+    ])("keeps RHS substitution state isolated: %s", async (script, stdout) => {
+      const result = await new Bash().exec(script);
+      expect(result.stdout).toBe(stdout);
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("excludes substitution-only assignments from replacement result environments", async () => {
+      const result = await new Bash().exec(
+        "TEMP=secret OUT=$(LEAK=$TEMP) true",
+        {
+          env: {},
+          replaceEnv: true,
+        },
+      );
+      expect(result.env).toStrictEqual(nullPrototype({ "?": "0" }));
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+    it.each([
       ["TEMP=one TEMP=two :", "0"],
       ["TEMP=one TEMP=$((TEMP=5)) :", "5"],
       ["TEMP=5 TEMP=$((TEMP=5)) :", "5"],
@@ -18,7 +51,9 @@ describe("execution result environment", () => {
       const result = await new Bash().exec(
         'declare -A a=([key]=value); a=(temp) unset a; printf "lookup=<%s>\\n" "${a[key]}"; declare -p a',
       );
-      expect(result.stdout).toBe("lookup=<value>\ndeclare -A a=(['key']=value)\n");
+      expect(result.stdout).toBe(
+        "lookup=<value>\ndeclare -A a=(['key']=value)\n",
+      );
       expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
     });
