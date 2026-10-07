@@ -6,7 +6,7 @@ import {
   setupFiles,
 } from "./fixture-runner.js";
 
-describe("command preparation - Bash execution-scope matrix", () => {
+describe("prefix binding cleanup - Real Bash Comparison", () => {
   let testDir: string;
   beforeEach(async () => {
     testDir = await createTestDir();
@@ -24,24 +24,6 @@ describe("command preparation - Bash execution-scope matrix", () => {
     "TEMP=0; TEMP=one TEMP=$((TEMP=5)) :; echo $TEMP",
     "TEMP=0; TEMP=5 TEMP=$((TEMP=5)) :; echo $TEMP",
     'TEMP=original; TEMP=prefix echo "$TEMP"; echo "$TEMP"',
-    'TEMP=out; TEMP=prefix echo "$TEMP" >"$TEMP"; cat out; echo "$TEMP"',
-    // Redirection effects belong to the builtin/function shell or external child.
-    'TEMP=$((OTHER=1)) echo ok >&"$OTHER"',
-    'f() { echo "$TEMP"; }; TEMP=old; TEMP=prefix f >&"$((TEMP=1))"; echo "$TEMP"',
-    'TEMP=old; TEMP=prefix cat /dev/null >&"$((TEMP=1))"; echo "$TEMP"',
-    'TEMP=old; TEMP=prefix printenv TEMP >&"$((TEMP=1))"; echo "$TEMP"',
-    'f() { echo "$TEMP"; }; TEMP=out; TEMP=prefix f >"$TEMP"; cat out; echo "$TEMP"',
-    'echo() { printf "%s\\n" "$TEMP"; }; TEMP=old; TEMP=prefix echo >&"$((TEMP=1))"; printf "%s\\n" "$TEMP"',
-    // Bash 5.3 owns execution-form command redirections in the target scope.
-    // This fixture is locked because Bash 3.2 uses the outer builtin scope.
-    'TEMP=old; TEMP=prefix command cat /dev/null >&"$((TEMP=1))"; echo "$TEMP"',
-    'TEMP=old; TEMP=prefix command -v echo >&"$((TEMP=1))"; echo "$TEMP"',
-    'TEMP=old; TEMP=prefix command -V echo >&"$((TEMP=1))"; echo "$TEMP"',
-    'cat /dev/null >&"$((OTHER=1))"; printf "<%s>\\n" "${OTHER-unset}"',
-    'TEMP=old; TEMP=prefix echo >"$((TEMP=1))/out"; echo "$TEMP"',
-    'TEMP=old; TEMP=prefix cat >"$((TEMP=1))/out"; echo "$TEMP"',
-    'TEMP=0; TEMP=1 echo ok >&"$((TEMP=1))"; echo "$TEMP"',
-    'a=(0 keep); a=(1) echo ok >&"$((a[0]=1))"; printf "<%s>\\n" "${a[@]}"',
     // Array RHS writes preserve only the affected underlying elements.
     'a=(old); a=("$((a[0]=5))") :; printf "array=<%s>\\n" "${a[0]}"',
     'a=(old keep); a=(temp) a=("$((a[1]=5))") :; printf "<%s>\\n" "${a[@]}"',

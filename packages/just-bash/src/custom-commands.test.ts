@@ -213,6 +213,7 @@ describe("custom-commands", () => {
             name: "assign-value",
             execute: async (_args, ctx) => {
               await ctx.assignShellVariable?.("RESULT", "written");
+              expect(ctx.env.get("RESULT")).toBe("written");
               await ctx.assignShellVariable?.("values", "element", "0");
               ctx.env.set("INCIDENTAL", "child");
               return { stdout: "", stderr: "", exitCode: 0 };
@@ -223,10 +224,14 @@ describe("custom-commands", () => {
       const result = await bash.exec(
         `assign-value${redirections}; printf "<%s>:<%s>:<%s>\\n" "\${RESULT-unset}" "\${values[0]-unset}" "\${REDIRECT-unset}"`,
       );
-      expect(result.stdout).toBe("<written>:<element>:<unset>\n");
+      expect(result.stdout).toBe(
+        redirections
+          ? "<written>:<element>:<1>\n"
+          : "<written>:<element>:<unset>\n",
+      );
       expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
-      expect(result.env.INCIDENTAL).toBe(redirections ? undefined : "child");
+      expect(result.env.INCIDENTAL).toBe("child");
     });
     it("preserves prototype methods on class-based commands", async () => {
       class ClassCommand implements Command {

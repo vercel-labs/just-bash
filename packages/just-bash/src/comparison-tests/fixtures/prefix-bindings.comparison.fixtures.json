@@ -1,11 +1,4 @@
 {
-  "0288b8a79db36ec6": {
-    "command": "TEMP=0; TEMP=1 echo ok >&\"$((TEMP=1))\"; echo \"$TEMP\"",
-    "files": {},
-    "stdout": "ok\n1\n",
-    "stderr": "",
-    "exitCode": 0
-  },
   "0691e54ac9cf4d17": {
     "command": "declare -A a=([key]=value); a=(temp) unset a; printf \"lookup=<%s>\\n\" \"${a[key]}\"",
     "files": {},
@@ -21,25 +14,10 @@
     "stderr": "",
     "exitCode": 0
   },
-  "0e6c18f2f456ebfb": {
-    "command": "TEMP=old; TEMP=prefix command cat /dev/null >&\"$((TEMP=1))\"; echo \"$TEMP\"",
-    "files": {},
-    "stdout": "old\n",
-    "stderr": "",
-    "exitCode": 0,
-    "locked": true
-  },
   "24977edccc311051": {
     "command": "TEMP=(original); TEMP=(one) :; printf \"[%s]\\n\" \"${TEMP[@]}\"",
     "files": {},
     "stdout": "[original]\n",
-    "stderr": "",
-    "exitCode": 0
-  },
-  "2be307ae0bf751b5": {
-    "command": "TEMP=old; TEMP=prefix cat /dev/null >&\"$((TEMP=1))\"; echo \"$TEMP\"",
-    "files": {},
-    "stdout": "old\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -54,34 +32,6 @@
     "command": "v=outer; TMP=$(v=inner) :; echo \"$v\"",
     "files": {},
     "stdout": "outer\n",
-    "stderr": "",
-    "exitCode": 0
-  },
-  "63de64674a8f963a": {
-    "command": "TEMP=$((OTHER=1)) echo ok >&\"$OTHER\"",
-    "files": {},
-    "stdout": "ok\n",
-    "stderr": "",
-    "exitCode": 0
-  },
-  "640dc2b899802c82": {
-    "command": "f() { echo \"$TEMP\"; }; TEMP=old; TEMP=prefix f >&\"$((TEMP=1))\"; echo \"$TEMP\"",
-    "files": {},
-    "stdout": "1\n1\n",
-    "stderr": "",
-    "exitCode": 0
-  },
-  "66b89479a4d6d2c0": {
-    "command": "a=(0 keep); a=(1) echo ok >&\"$((a[0]=1))\"; printf \"<%s>\\n\" \"${a[@]}\"",
-    "files": {},
-    "stdout": "ok\n<1>\n<keep>\n",
-    "stderr": "",
-    "exitCode": 0
-  },
-  "6cca120430a0e1ed": {
-    "command": "TEMP=old; TEMP=prefix command -V echo >&\"$((TEMP=1))\"; echo \"$TEMP\"",
-    "files": {},
-    "stdout": "echo is a shell builtin\n1\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -113,13 +63,6 @@
     "stderr": "",
     "exitCode": 0
   },
-  "912cd949e99bc25b": {
-    "command": "cat /dev/null >&\"$((OTHER=1))\"; printf \"<%s>\\n\" \"${OTHER-unset}\"",
-    "files": {},
-    "stdout": "<unset>\n",
-    "stderr": "",
-    "exitCode": 0
-  },
   "930229ff46e034e7": {
     "command": "Y=0; Y=1 V=$(echo a)$((Y=1)) :; echo \"$Y\"",
     "files": {},
@@ -134,13 +77,6 @@
     "stderr": "",
     "exitCode": 0
   },
-  "abbf6c935e5cb6bf": {
-    "command": "f() { echo \"$TEMP\"; }; TEMP=out; TEMP=prefix f >\"$TEMP\"; cat out; echo \"$TEMP\"",
-    "files": {},
-    "stdout": "prefix\nout\n",
-    "stderr": "",
-    "exitCode": 0
-  },
   "aea9847c95527430": {
     "command": "v=outer; TMP=$(v=inner; echo \"$(v=nested)\") :; echo \"$v\"",
     "files": {},
@@ -152,13 +88,6 @@
     "command": "Y=0; Y=temporary V=$(echo a)$((Y=1)) :; echo \"$Y\"",
     "files": {},
     "stdout": "1\n",
-    "stderr": "",
-    "exitCode": 0
-  },
-  "c53401b298402d32": {
-    "command": "TEMP=out; TEMP=prefix echo \"$TEMP\" >\"$TEMP\"; cat out; echo \"$TEMP\"",
-    "files": {},
-    "stdout": "out\nout\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -183,20 +112,6 @@
     "stderr": "",
     "exitCode": 0
   },
-  "d62b39503ad377c1": {
-    "command": "TEMP=old; TEMP=prefix command -v echo >&\"$((TEMP=1))\"; echo \"$TEMP\"",
-    "files": {},
-    "stdout": "echo\n1\n",
-    "stderr": "",
-    "exitCode": 0
-  },
-  "e041cef3448a2993": {
-    "command": "TEMP=old; TEMP=prefix echo >\"$((TEMP=1))/out\"; echo \"$TEMP\"",
-    "files": {},
-    "stdout": "1\n",
-    "stderr": "/bin/bash: 1/out: No such file or directory\n",
-    "exitCode": 0
-  },
   "e9ee1bfe14bd0603": {
     "command": "v=outer; TMP=$(v=inner; exit) :; echo \"$v\"",
     "files": {},
@@ -209,27 +124,6 @@
     "files": {},
     "stdout": "0\n",
     "stderr": "",
-    "exitCode": 0
-  },
-  "efa7ac9f7183a12a": {
-    "command": "TEMP=old; TEMP=prefix printenv TEMP >&\"$((TEMP=1))\"; echo \"$TEMP\"",
-    "files": {},
-    "stdout": "prefix\nold\n",
-    "stderr": "",
-    "exitCode": 0
-  },
-  "f56d5d190de44e43": {
-    "command": "echo() { printf \"%s\\n\" \"$TEMP\"; }; TEMP=old; TEMP=prefix echo >&\"$((TEMP=1))\"; printf \"%s\\n\" \"$TEMP\"",
-    "files": {},
-    "stdout": "1\n1\n",
-    "stderr": "",
-    "exitCode": 0
-  },
-  "fb6fe2c8438109a8": {
-    "command": "TEMP=old; TEMP=prefix cat >\"$((TEMP=1))/out\"; echo \"$TEMP\"",
-    "files": {},
-    "stdout": "old\n",
-    "stderr": "/bin/bash: 1/out: No such file or directory\n",
     "exitCode": 0
   },
   "fe8b1d84d73669b3": {

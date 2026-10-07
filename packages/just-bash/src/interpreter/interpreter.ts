@@ -51,10 +51,8 @@ import {
 } from "./assignment-expansion.js";
 import {
   type BuiltinDispatchContext,
-  type CommandExecution,
   dispatchBuiltin,
   executeExternalCommand,
-  resolveCommandExecution,
 } from "./builtin-dispatch.js";
 import { findCommandInPath as findCommandInPathHelper } from "./command-resolution.js";
 import { evaluateConditional } from "./conditionals.js";
@@ -685,7 +683,7 @@ export class Interpreter {
     try {
       let xtraceAssignmentOutput = "";
       if (!node.name) {
-        bindings = new PrefixBindings(this.ctx, "assignment");
+        bindings = new PrefixBindings(this.ctx);
         const assignmentResult = await processAssignments(
           this.ctx,
           node,
@@ -842,37 +840,22 @@ export class Interpreter {
         quotedArgs.shift();
       }
 
-      // Resolve the owner before prefix or redirection effects. Expansion can
-      // remove the command word, in which case assignments belong to this shell.
-      const commandExecution =
-        !commandName && commandIsOnlyExpansions
-          ? undefined
-          : resolveCommandExecution(this.ctx, commandName, false, args);
-      const commandScope =
-        commandExecution?.scope === "function"
-          ? "function"
-          : (commandExecution?.redirectionScope ??
-            commandExecution?.scope ??
-            "assignment");
-      bindings = new PrefixBindings(this.ctx, commandScope);
+      const assignmentOnly = !commandName && commandIsOnlyExpansions;
+      bindings = new PrefixBindings(this.ctx);
       const tempAssignments = bindings.values;
       const assignmentResult = await processAssignments(
         this.ctx,
-        commandScope === "assignment" ? { ...node, name: null } : node,
+        assignmentOnly ? { ...node, name: null } : node,
         bindings,
       );
       if (assignmentResult.error) return assignmentResult.error;
       xtraceAssignmentOutput = assignmentResult.xtraceOutput;
       bindings.endExpansion();
-      let installPrefixBindings: (() => void) | undefined;
-      if (commandScope === "assignment") cleanupPolicy = "retain";
-      else {
-        // Prefix RHS effects precede redirection expansion, but command-local
-        // values must not hide the underlying shell variables from its targets.
-        if (node.redirections.length > 0)
-          installPrefixBindings = bindings.prepareRedirections();
-      }
+      if (assignmentOnly) cleanupPolicy = "retain";
 
+      // Keep completed redirection expansion assignments when preparation
+      // fails, without changing which environment dispatch receives.
+      bindings.beginExpansion();
       const transaction = createRedirectionTransaction(
         this.ctx,
         node.redirections,
@@ -882,6 +865,7 @@ export class Interpreter {
       );
       onTransaction(transaction);
       const preparedRedirections = await transaction.prepare(stdin);
+      bindings.endExpansion();
       if (preparedRedirections.error) {
         if (!preparedRedirections.errorCause) {
           transaction.finish();
@@ -895,9 +879,7 @@ export class Interpreter {
         stdin = preparedRedirections.stdin;
       }
 
-      installPrefixBindings?.();
-      // Prefix bindings belong to the dispatched command's environment, not
-      // substitutions used to prepare its arguments or redirection targets.
+      // Mark prefix bindings exported only for dispatch, after target preparation.
       if (!isLiteralAssignmentBuiltin && tempAssignments.size > 0) {
         this.ctx.state.tempExportedVars ??= new Set();
         for (const name of tempAssignments.keys())
@@ -967,7 +949,6 @@ export class Interpreter {
           false,
           stdinSourceFd,
           stdinRedirected,
-          commandExecution,
         );
       } catch (error) {
         // For break/continue, we still need to apply redirections before propagating
@@ -1052,8 +1033,9 @@ export class Interpreter {
 
       return cmdResult;
     } catch (error) {
-      // Follow Bash 3.2: explicit exit keeps prefix bindings visible to EXIT
-      // handling. Bash 5.3 restores the previous bindings at top level instead.
+      // Preserve the pre-existing explicit-exit policy in this result-boundary
+      // fix: Bash 3.2 keeps bindings visible to EXIT handling, while Bash 5.3
+      // restores them at top level. Changing that policy is separate conformance work.
       // Fatal expansion failures, including propagated eval failures, unwind them.
       if (error instanceof ExitError && error.reason === "exit")
         cleanupPolicy = "retain";
@@ -1084,7 +1066,6 @@ export class Interpreter {
     useDefaultPath = false,
     stdinSourceFd = -1,
     stdinRedirected = false,
-    execution?: CommandExecution,
   ): Promise<ExecResult> {
     const dispatchCtx: BuiltinDispatchContext = {
       ctx: this.ctx,
@@ -1105,7 +1086,6 @@ export class Interpreter {
       useDefaultPath,
       stdinSourceFd,
       stdinRedirected,
-      execution,
     );
 
     if (builtinResult !== null)

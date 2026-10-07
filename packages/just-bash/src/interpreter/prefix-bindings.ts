@@ -1,6 +1,5 @@
-import type { CommandExecutionScope } from "./builtin-dispatch.js";
 import { ExecutionLimitError } from "./errors.js";
-import { cloneArray, cloneArrays } from "./helpers/array.js";
+import { cloneArray } from "./helpers/array.js";
 import type { InterpreterContext, ShellArray } from "./types.js";
 
 type VariableSnapshot = {
@@ -14,16 +13,17 @@ export class PrefixBindings {
   readonly values: Map<string, string | undefined> = new Map();
   private readonly underlying = new Map<string, VariableSnapshot>();
   private finishExpansion: (() => void) | undefined;
-  private restoreChildEnvironment: (() => void) | undefined;
   dispatched: boolean = false;
 
-  constructor(
-    private readonly ctx: InterpreterContext,
-    private readonly scope: CommandExecutionScope,
-  ) {}
+  constructor(private readonly ctx: InterpreterContext) {}
 
   private snapshot(name: string): VariableSnapshot {
     const array = this.ctx.state.arrays?.get(name);
+    if (array)
+      this.ctx.executionScope.consumeWork(
+        array.elements.size,
+        "prefix array snapshot",
+      );
     return {
       scalar: this.ctx.state.env.get(name),
       array: array ? cloneArray(array) : undefined,
@@ -36,7 +36,8 @@ export class PrefixBindings {
     else this.ctx.state.env.set(name, snapshot.scalar);
     if (snapshot.array) {
       this.ctx.state.arrays ??= new Map();
-      this.ctx.state.arrays.set(name, cloneArray(snapshot.array));
+      // Cleanup transfers ownership of the saved array back to shell state.
+      this.ctx.state.arrays.set(name, snapshot.array);
     } else this.ctx.state.arrays?.delete(name);
     if (snapshot.associative) {
       this.ctx.state.associativeArrays ??= new Set();
@@ -45,7 +46,7 @@ export class PrefixBindings {
   }
 
   /** Journal actual assignments, not incidental map writes or snapshot restoration. */
-  beginExpansion(commandBindings?: Map<string, VariableSnapshot>): void {
+  beginExpansion(): void {
     this.endExpansion();
     const env = this.ctx.state.env;
     const previous = this.ctx.onExpansionAssignment;
@@ -75,10 +76,6 @@ export class PrefixBindings {
         underlying.array.elements.set(key, value);
       }
       this.values.set(name, underlying.scalar);
-      // A function receives redirection assignments in the same shell scope.
-      // Builtins receive the independently staged prefix bindings instead.
-      if (commandBindings?.has(name))
-        commandBindings.set(name, this.snapshot(name));
     };
     this.finishExpansion = () => {
       this.ctx.onExpansionAssignment = previous;
@@ -101,42 +98,6 @@ export class PrefixBindings {
     }
   }
 
-  /** Select redirection ownership before expanding any redirection target. */
-  prepareRedirections(): () => void {
-    this.endExpansion();
-    const commandBindings = new Map<string, VariableSnapshot>();
-    for (const [name, underlying] of this.underlying) {
-      commandBindings.set(name, this.snapshot(name));
-      this.restore(name, underlying);
-    }
-    if (this.scope === "external") {
-      const env = this.ctx.state.env;
-      const arrays = this.ctx.state.arrays;
-      this.ctx.state.env = new Map(env);
-      this.ctx.state.arrays = cloneArrays(arrays);
-      const previousAssignmentScope = this.ctx.shellAssignmentScope;
-      const assignmentState = { ...this.ctx.state, env, arrays };
-      this.ctx.shellAssignmentScope = {
-        env: this.ctx.state.env,
-        state: assignmentState,
-      };
-      this.restoreChildEnvironment = () => {
-        this.ctx.shellAssignmentScope = previousAssignmentScope;
-        this.ctx.state.env = env;
-        this.ctx.state.arrays = assignmentState.arrays;
-      };
-    } else if (commandBindings.size > 0) {
-      this.beginExpansion(
-        this.scope === "function" ? commandBindings : undefined,
-      );
-    }
-    return () => {
-      this.endExpansion();
-      for (const [name, snapshot] of commandBindings)
-        this.restore(name, snapshot);
-    };
-  }
-
   beginDispatch(): void {
     // unset uses this stack to reveal the variable beneath a command's prefix.
     if (this.values.size > 0) {
@@ -148,7 +109,6 @@ export class PrefixBindings {
 
   finish(policy: "retain" | "restore"): void {
     this.endExpansion();
-    this.restoreChildEnvironment?.();
     if (policy === "restore") {
       for (const [name, snapshot] of this.underlying) {
         if (this.dispatched && this.ctx.state.fullyUnsetLocals?.has(name))

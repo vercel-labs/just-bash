@@ -5,7 +5,6 @@
  * Separated from interpreter.ts for modularity.
  */
 
-import type { FunctionDefNode } from "../ast/types.js";
 import { isBrowserExcludedCommand } from "../commands/browser-excluded.js";
 import { latin1FromBytes, unsafeBytesFromLatin1 } from "../encoding.js";
 import {
@@ -437,85 +436,6 @@ export interface BuiltinDispatchContext {
   executeUserScript: ExecuteUserScriptFn;
 }
 
-export type CommandExecutionScope =
-  | "assignment"
-  | "function"
-  | "builtin"
-  | "external";
-
-export type CommandExecution =
-  | { readonly scope: "function"; readonly definition: FunctionDefNode }
-  | {
-      readonly scope: "builtin" | "external";
-      readonly redirectionScope?: CommandExecutionScope;
-    };
-
-// These handlers take precedence over user-defined functions. Use that precedence when
-// choosing the shell scope in which a command's redirections are expanded.
-const NON_OVERRIDABLE_BUILTINS = new Set([
-  "export",
-  "unset",
-  "exit",
-  "local",
-  "set",
-  "break",
-  "continue",
-  "return",
-  "shift",
-  "getopts",
-  "compgen",
-  "complete",
-  "compopt",
-  "pushd",
-  "popd",
-  "dirs",
-  "source",
-  ".",
-  "read",
-  "mapfile",
-  "readarray",
-  "declare",
-  "typeset",
-  "readonly",
-]);
-
-export function resolveCommandExecution(
-  ctx: InterpreterContext,
-  commandName: string,
-  skipFunctions = false,
-  args: string[] = [],
-): CommandExecution {
-  if (
-    !skipFunctions &&
-    !NON_OVERRIDABLE_BUILTINS.has(commandName) &&
-    !(commandName === "eval" && ctx.state.options.posix)
-  ) {
-    const definition = ctx.state.functions.get(commandName);
-    if (definition) return { scope: "function", definition };
-  }
-  if (commandName === "command") {
-    let targetName = commandName;
-    let targetArgs = args;
-    while (targetName === "command") {
-      const parsed = parseCommandArguments(targetArgs);
-      if (
-        parsed.showPath ||
-        parsed.verboseDescribe ||
-        parsed.cmdArgs.length === 0
-      )
-        return { scope: "builtin" };
-      targetName = parsed.cmdArgs[0];
-      targetArgs = parsed.cmdArgs.slice(1);
-    }
-    // Execution-form command bypasses functions, including nested wrappers.
-    return {
-      scope: "builtin",
-      redirectionScope: SHELL_BUILTINS.has(targetName) ? "builtin" : "external",
-    };
-  }
-  return { scope: SHELL_BUILTINS.has(commandName) ? "builtin" : "external" };
-}
-
 /**
  * Dispatch a command to the appropriate builtin handler or external command.
  * Returns null if the command should be handled by external command resolution.
@@ -536,7 +456,6 @@ export async function dispatchBuiltin(
    * shell's stdin".
    */
   stdinRedirected = false,
-  execution?: CommandExecution,
 ): Promise<ExecResult | null> {
   const { ctx, runCommand } = dispatchCtx;
 
@@ -544,18 +463,6 @@ export async function dispatchBuiltin(
   if (ctx.coverage && SHELL_BUILTINS.has(commandName)) {
     ctx.coverage.hit(`bash:builtin:${commandName}`);
   }
-
-  const resolvedExecution =
-    execution ?? resolveCommandExecution(ctx, commandName, skipFunctions);
-  if (resolvedExecution.scope === "function")
-    return callFunction(
-      ctx,
-      resolvedExecution.definition,
-      args,
-      stdin,
-      undefined,
-      stdinRedirected,
-    );
 
   // Built-in commands (special builtins that cannot be overridden by functions)
   if (commandName === "export") {
@@ -625,6 +532,14 @@ export async function dispatchBuiltin(
   }
   if (commandName === "readonly") {
     return handleReadonly(ctx, args);
+  }
+  // User-defined functions override most builtins (except special ones above)
+  // This needs to happen before true/false/let which are regular builtins
+  if (!skipFunctions) {
+    const func = ctx.state.functions.get(commandName);
+    if (func) {
+      return callFunction(ctx, func, args, stdin, undefined, stdinRedirected);
+    }
   }
   // Internal transform primitive, reached through `builtin` so a user-defined
   // function with this name remains ordinary shell state. Arguments have
@@ -750,27 +665,7 @@ async function handleCommandBuiltin(
   if (args.length === 0) {
     return OK;
   }
-  const { useDefaultPath, verboseDescribe, showPath, cmdArgs } =
-    parseCommandArguments(args);
-
-  if (cmdArgs.length === 0) return OK;
-  if (showPath || verboseDescribe)
-    return await handleCommandVHelper(ctx, cmdArgs, showPath, verboseDescribe);
-  const [cmd, ...rest] = cmdArgs;
-  return runCommand(
-    cmd,
-    rest,
-    [],
-    stdin,
-    true,
-    useDefaultPath,
-    -1,
-    stdinRedirected,
-  );
-}
-
-/** Shared by command preparation and dispatch so descriptive flags retain shell ownership. */
-function parseCommandArguments(args: string[]) {
+  // Parse options
   let useDefaultPath = false; // -p flag
   let verboseDescribe = false; // -V flag (like type)
   let showPath = false; // -v flag (show path/name)
@@ -795,7 +690,28 @@ function parseCommandArguments(args: string[]) {
     cmdArgs = cmdArgs.slice(1);
   }
 
-  return { useDefaultPath, verboseDescribe, showPath, cmdArgs };
+  if (cmdArgs.length === 0) {
+    return OK;
+  }
+
+  // Handle -v and -V: describe commands without executing
+  if (showPath || verboseDescribe) {
+    return await handleCommandVHelper(ctx, cmdArgs, showPath, verboseDescribe);
+  }
+
+  // Run command without checking functions, but builtins are still available
+  // Pass useDefaultPath to use /usr/bin:/bin instead of $PATH
+  const [cmd, ...rest] = cmdArgs;
+  return runCommand(
+    cmd,
+    rest,
+    [],
+    stdin,
+    true,
+    useDefaultPath,
+    -1,
+    stdinRedirected,
+  );
 }
 
 /**
@@ -919,23 +835,12 @@ export async function executeExternalCommand(
     cwd: ctx.state.cwd,
     env: ctx.state.env,
     assignShellVariable: async (name, value, subscript) => {
-      // Extensions explicitly assign into the calling shell. Ordinary command
-      // environment writes and redirection effects remain in the child maps.
-      const scope = ctx.shellAssignmentScope;
-      const assignmentCtx =
-        cmd.internalIsExtension && scope?.env === ctx.state.env
-          ? { ...ctx, state: scope.state }
-          : ctx;
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
         throw new Error(`${name}: not a valid identifier`);
       }
       const requestedTarget =
         subscript === undefined ? name : `${name}[${subscript}]`;
-      const resolvedTarget = resolveNamerefForAssignment(
-        assignmentCtx,
-        name,
-        value,
-      );
+      const resolvedTarget = resolveNamerefForAssignment(ctx, name, value);
       if (resolvedTarget === undefined) {
         throw new Error(`${name}: circular name reference`);
       }
@@ -949,30 +854,21 @@ export async function executeExternalCommand(
       }
       const targetName = resolvedMatch[1];
       const targetSubscript = resolvedMatch[2] ?? subscript;
-      if (
-        isReadonly(assignmentCtx, name) ||
-        isReadonly(assignmentCtx, targetName)
-      ) {
+      if (isReadonly(ctx, name) || isReadonly(ctx, targetName)) {
         throw new Error(`${targetName}: readonly variable`);
       }
       if (targetSubscript === undefined) {
-        assignmentCtx.state.env.set(targetName, value);
+        ctx.state.env.set(targetName, value);
       } else {
-        const kind = assignmentCtx.state.associativeArrays?.has(targetName)
+        const kind = ctx.state.associativeArrays?.has(targetName)
           ? "associative"
           : "indexed";
         if (kind === "associative") {
-          setArrayElement(
-            assignmentCtx,
-            targetName,
-            targetSubscript,
-            value,
-            kind,
-          );
+          setArrayElement(ctx, targetName, targetSubscript, value, kind);
           return;
         }
         const computed = await computeIndexedArrayIndex(
-          assignmentCtx,
+          ctx,
           targetName,
           targetSubscript,
         );
@@ -983,7 +879,7 @@ export async function executeExternalCommand(
             computed.error.stderr,
           );
         }
-        setArrayElement(assignmentCtx, targetName, computed.index, value, kind);
+        setArrayElement(ctx, targetName, computed.index, value, kind);
       }
     },
     exportedEnv,

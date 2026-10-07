@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { SimpleCommandNode } from "../ast/types.js";
 import { Bash } from "../Bash.js";
 import { resolveLimits } from "../limits.js";
@@ -179,6 +179,42 @@ describe("interpreter expansion resource limits", () => {
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("array element limit exceeded (2)");
+  });
+
+  it("does not scan unrelated arrays for each redirected command", async () => {
+    const maxWorkUnits = 30000;
+    let scannedEntries = 0;
+    const iterate = Map.prototype[Symbol.iterator];
+    const scan = vi
+      .spyOn(Map.prototype, Symbol.iterator)
+      .mockImplementation(function (this: Map<unknown, unknown>) {
+        // Count actual bulk traversal, including new Map(array.elements), rather
+        // than relying on timing or the implementation's budget counter.
+        if (this.size === 10000) scannedEntries += this.size;
+        return iterate.call(this);
+      });
+    try {
+      const bash = new Bash({ executionLimits: { maxWorkUnits } });
+      const result = await bash.exec(
+        'a=({1..10000}); for ((i=0; i<100; i++)); do cat /dev/null >/dev/null; done; echo "${#a[@]}"',
+      );
+      expect(result.stdout).toBe("10000\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+      expect(scannedEntries).toBeLessThanOrEqual(maxWorkUnits);
+    } finally {
+      scan.mockRestore();
+    }
+  });
+
+  it("charges affected array snapshots before prefix installation", async () => {
+    const bash = new Bash({ executionLimits: { maxWorkUnits: 30000 } });
+    const result = await bash.exec(
+      "a=({1..10000}); a=(temporary) :; echo reached",
+    );
+    expect(result.stdout).toBe("");
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+    expect(result.stderr).toContain("prefix array snapshot");
   });
 
   it("bounds the final reconstructed array assignment", async () => {
