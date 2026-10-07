@@ -114,9 +114,16 @@ export class PrefixBindings {
       const arrays = this.ctx.state.arrays;
       this.ctx.state.env = new Map(env);
       this.ctx.state.arrays = cloneArrays(arrays);
+      const previousAssignmentScope = this.ctx.shellAssignmentScope;
+      const assignmentState = { ...this.ctx.state, env, arrays };
+      this.ctx.shellAssignmentScope = {
+        env: this.ctx.state.env,
+        state: assignmentState,
+      };
       this.restoreChildEnvironment = () => {
+        this.ctx.shellAssignmentScope = previousAssignmentScope;
         this.ctx.state.env = env;
-        this.ctx.state.arrays = arrays;
+        this.ctx.state.arrays = assignmentState.arrays;
       };
     } else if (commandBindings.size > 0) {
       this.beginExpansion(

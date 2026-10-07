@@ -847,8 +847,13 @@ export class Interpreter {
       const commandExecution =
         !commandName && commandIsOnlyExpansions
           ? undefined
-          : resolveCommandExecution(this.ctx, commandName);
-      const commandScope = commandExecution?.scope ?? "assignment";
+          : resolveCommandExecution(this.ctx, commandName, false, args);
+      const commandScope =
+        commandExecution?.scope === "function"
+          ? "function"
+          : (commandExecution?.redirectionScope ??
+            commandExecution?.scope ??
+            "assignment");
       bindings = new PrefixBindings(this.ctx, commandScope);
       const tempAssignments = bindings.values;
       const assignmentResult = await processAssignments(

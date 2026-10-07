@@ -445,7 +445,10 @@ export type CommandExecutionScope =
 
 export type CommandExecution =
   | { readonly scope: "function"; readonly definition: FunctionDefNode }
-  | { readonly scope: "builtin" | "external" };
+  | {
+      readonly scope: "builtin" | "external";
+      readonly redirectionScope?: CommandExecutionScope;
+    };
 
 // These handlers take precedence over user-defined functions. Use that precedence when
 // choosing the shell scope in which a command's redirections are expanded.
@@ -480,6 +483,7 @@ export function resolveCommandExecution(
   ctx: InterpreterContext,
   commandName: string,
   skipFunctions = false,
+  args: string[] = [],
 ): CommandExecution {
   if (
     !skipFunctions &&
@@ -488,6 +492,26 @@ export function resolveCommandExecution(
   ) {
     const definition = ctx.state.functions.get(commandName);
     if (definition) return { scope: "function", definition };
+  }
+  if (commandName === "command") {
+    let targetName = commandName;
+    let targetArgs = args;
+    while (targetName === "command") {
+      const parsed = parseCommandArguments(targetArgs);
+      if (
+        parsed.showPath ||
+        parsed.verboseDescribe ||
+        parsed.cmdArgs.length === 0
+      )
+        return { scope: "builtin" };
+      targetName = parsed.cmdArgs[0];
+      targetArgs = parsed.cmdArgs.slice(1);
+    }
+    // Execution-form command bypasses functions, including nested wrappers.
+    return {
+      scope: "builtin",
+      redirectionScope: SHELL_BUILTINS.has(targetName) ? "builtin" : "external",
+    };
   }
   return { scope: SHELL_BUILTINS.has(commandName) ? "builtin" : "external" };
 }
@@ -726,7 +750,27 @@ async function handleCommandBuiltin(
   if (args.length === 0) {
     return OK;
   }
-  // Parse options
+  const { useDefaultPath, verboseDescribe, showPath, cmdArgs } =
+    parseCommandArguments(args);
+
+  if (cmdArgs.length === 0) return OK;
+  if (showPath || verboseDescribe)
+    return await handleCommandVHelper(ctx, cmdArgs, showPath, verboseDescribe);
+  const [cmd, ...rest] = cmdArgs;
+  return runCommand(
+    cmd,
+    rest,
+    [],
+    stdin,
+    true,
+    useDefaultPath,
+    -1,
+    stdinRedirected,
+  );
+}
+
+/** Shared by command preparation and dispatch so descriptive flags retain shell ownership. */
+function parseCommandArguments(args: string[]) {
   let useDefaultPath = false; // -p flag
   let verboseDescribe = false; // -V flag (like type)
   let showPath = false; // -v flag (show path/name)
@@ -751,28 +795,7 @@ async function handleCommandBuiltin(
     cmdArgs = cmdArgs.slice(1);
   }
 
-  if (cmdArgs.length === 0) {
-    return OK;
-  }
-
-  // Handle -v and -V: describe commands without executing
-  if (showPath || verboseDescribe) {
-    return await handleCommandVHelper(ctx, cmdArgs, showPath, verboseDescribe);
-  }
-
-  // Run command without checking functions, but builtins are still available
-  // Pass useDefaultPath to use /usr/bin:/bin instead of $PATH
-  const [cmd, ...rest] = cmdArgs;
-  return runCommand(
-    cmd,
-    rest,
-    [],
-    stdin,
-    true,
-    useDefaultPath,
-    -1,
-    stdinRedirected,
-  );
+  return { useDefaultPath, verboseDescribe, showPath, cmdArgs };
 }
 
 /**
@@ -896,12 +919,23 @@ export async function executeExternalCommand(
     cwd: ctx.state.cwd,
     env: ctx.state.env,
     assignShellVariable: async (name, value, subscript) => {
+      // Extensions explicitly assign into the calling shell. Ordinary command
+      // environment writes and redirection effects remain in the child maps.
+      const scope = ctx.shellAssignmentScope;
+      const assignmentCtx =
+        cmd.internalIsExtension && scope?.env === ctx.state.env
+          ? { ...ctx, state: scope.state }
+          : ctx;
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
         throw new Error(`${name}: not a valid identifier`);
       }
       const requestedTarget =
         subscript === undefined ? name : `${name}[${subscript}]`;
-      const resolvedTarget = resolveNamerefForAssignment(ctx, name, value);
+      const resolvedTarget = resolveNamerefForAssignment(
+        assignmentCtx,
+        name,
+        value,
+      );
       if (resolvedTarget === undefined) {
         throw new Error(`${name}: circular name reference`);
       }
@@ -915,21 +949,30 @@ export async function executeExternalCommand(
       }
       const targetName = resolvedMatch[1];
       const targetSubscript = resolvedMatch[2] ?? subscript;
-      if (isReadonly(ctx, name) || isReadonly(ctx, targetName)) {
+      if (
+        isReadonly(assignmentCtx, name) ||
+        isReadonly(assignmentCtx, targetName)
+      ) {
         throw new Error(`${targetName}: readonly variable`);
       }
       if (targetSubscript === undefined) {
-        ctx.state.env.set(targetName, value);
+        assignmentCtx.state.env.set(targetName, value);
       } else {
-        const kind = ctx.state.associativeArrays?.has(targetName)
+        const kind = assignmentCtx.state.associativeArrays?.has(targetName)
           ? "associative"
           : "indexed";
         if (kind === "associative") {
-          setArrayElement(ctx, targetName, targetSubscript, value, kind);
+          setArrayElement(
+            assignmentCtx,
+            targetName,
+            targetSubscript,
+            value,
+            kind,
+          );
           return;
         }
         const computed = await computeIndexedArrayIndex(
-          ctx,
+          assignmentCtx,
           targetName,
           targetSubscript,
         );
@@ -940,7 +983,7 @@ export async function executeExternalCommand(
             computed.error.stderr,
           );
         }
-        setArrayElement(ctx, targetName, computed.index, value, kind);
+        setArrayElement(assignmentCtx, targetName, computed.index, value, kind);
       }
     },
     exportedEnv,

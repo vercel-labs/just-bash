@@ -816,7 +816,7 @@ async function expandPart(
       // Command substitutions get a new BASHPID (unlike $$ which stays the same)
       const savedBashPid = ctx.state.bashPid;
       ctx.state.bashPid = ctx.state.nextVirtualPid++;
-      // Keep the parent's maps intact, including any active prefix-write observer.
+      // Preserve parent environment identity for the explicit assignment journal.
       // Child writes must use copies, not maps that parent cleanup will revisit.
       const savedEnv = ctx.state.env;
       const savedArrays = ctx.state.arrays;

@@ -119,7 +119,7 @@ async function executeCommandSubstitutionFromString(
   // Execute in subshell-like context
   const savedBashPid = ctx.state.bashPid;
   ctx.state.bashPid = ctx.state.nextVirtualPid++;
-  // Execute on child copies so parent prefix-write observers never see child
+  // Execute on child copies so the parent assignment journal never sees child
   // mutations and remain installed when this substitution returns.
   const savedEnv = ctx.state.env;
   const savedArrays = ctx.state.arrays;

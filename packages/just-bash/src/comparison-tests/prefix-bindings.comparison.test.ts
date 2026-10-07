@@ -32,7 +32,11 @@ describe("command preparation - Bash execution-scope matrix", () => {
     'TEMP=old; TEMP=prefix printenv TEMP >&"$((TEMP=1))"; echo "$TEMP"',
     'f() { echo "$TEMP"; }; TEMP=out; TEMP=prefix f >"$TEMP"; cat out; echo "$TEMP"',
     'echo() { printf "%s\\n" "$TEMP"; }; TEMP=old; TEMP=prefix echo >&"$((TEMP=1))"; printf "%s\\n" "$TEMP"',
+    // Bash 5.3 owns execution-form command redirections in the target scope.
+    // This fixture is locked because Bash 3.2 uses the outer builtin scope.
     'TEMP=old; TEMP=prefix command cat /dev/null >&"$((TEMP=1))"; echo "$TEMP"',
+    'TEMP=old; TEMP=prefix command -v echo >&"$((TEMP=1))"; echo "$TEMP"',
+    'TEMP=old; TEMP=prefix command -V echo >&"$((TEMP=1))"; echo "$TEMP"',
     'cat /dev/null >&"$((OTHER=1))"; printf "<%s>\\n" "${OTHER-unset}"',
     'TEMP=old; TEMP=prefix echo >"$((TEMP=1))/out"; echo "$TEMP"',
     'TEMP=old; TEMP=prefix cat >"$((TEMP=1))/out"; echo "$TEMP"',

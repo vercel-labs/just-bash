@@ -24,9 +24,10 @@
   "0e6c18f2f456ebfb": {
     "command": "TEMP=old; TEMP=prefix command cat /dev/null >&\"$((TEMP=1))\"; echo \"$TEMP\"",
     "files": {},
-    "stdout": "1\n",
+    "stdout": "old\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "24977edccc311051": {
     "command": "TEMP=(original); TEMP=(one) :; printf \"[%s]\\n\" \"${TEMP[@]}\"",
@@ -74,6 +75,13 @@
     "command": "a=(0 keep); a=(1) echo ok >&\"$((a[0]=1))\"; printf \"<%s>\\n\" \"${a[@]}\"",
     "files": {},
     "stdout": "ok\n<1>\n<keep>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6cca120430a0e1ed": {
+    "command": "TEMP=old; TEMP=prefix command -V echo >&\"$((TEMP=1))\"; echo \"$TEMP\"",
+    "files": {},
+    "stdout": "echo is a shell builtin\n1\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -172,6 +180,13 @@
     "command": "TEMP=original; TEMP=prefix echo \"$TEMP\"; echo \"$TEMP\"",
     "files": {},
     "stdout": "original\noriginal\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d62b39503ad377c1": {
+    "command": "TEMP=old; TEMP=prefix command -v echo >&\"$((TEMP=1))\"; echo \"$TEMP\"",
+    "files": {},
+    "stdout": "echo\n1\n",
     "stderr": "",
     "exitCode": 0
   },

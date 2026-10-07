@@ -470,6 +470,8 @@ export interface InterpreterContext {
   state: InterpreterState;
   /** Command-local journal for explicit expansion assignments in the active shell. */
   onExpansionAssignment?: (name: string, value: string, key?: string) => void;
+  /** Explicit shell-assignment capability beneath an external redirection scope. */
+  shellAssignmentScope?: { env: Map<string, string>; state: InterpreterState };
   fs: IFileSystem;
   commands: CommandRegistry;
   /** Execution limits configuration */

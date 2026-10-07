@@ -276,7 +276,7 @@ async function runBody(
   const savedExitCodeVar = ctx.state.env.get("?");
   const savedSubstitutionExitCode = ctx.state.lastSubstitutionExitCode;
 
-  // Preserve the active parent maps and their prefix-write observers. Execute
+  // Preserve parent environment identity for the explicit assignment journal. Execute
   // isolated child writes on copies rather than discard mutated parent maps.
   ctx.state.env = new Map(savedEnv);
   ctx.state.arrays = cloneArrays(savedArrays);
