@@ -6,7 +6,17 @@ describe("execution result environment", () => {
   describe("prefix binding cleanup", () => {
     it.each([
       ["TEMP=${OTHER:=secret} echo ${MISSING:?required}", {}, {}],
-      ["TEMP=${OTHER:=secret} echo >${MISSING:?required}", {}, {}],
+      [
+        "TEMP=${OTHER:=secret} echo >${MISSING:?required}",
+        {},
+        { OTHER: "secret" },
+      ],
+      ["TEMP=$((OTHER=5)) echo >${MISSING:?required}", {}, { OTHER: "5" }],
+      [
+        "TEMP=secret echo >$((TEMP=6))${MISSING:?required}",
+        { TEMP: "original" },
+        { TEMP: "6" },
+      ],
       [
         "TEMP=${OTHER:=secret} >${MISSING:?required}",
         {},

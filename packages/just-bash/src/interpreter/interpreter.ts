@@ -750,8 +750,8 @@ export class Interpreter {
         );
       }
 
-      // Bash expands command words and arguments before redirections and prefix
-      // values. A failed argument expansion must not evaluate any prefix RHS;
+      // Bash expands command words and arguments before prefix values.
+      // A failed argument expansion must not evaluate any prefix RHS;
       // argument mutations remain real shell state, not temporary bindings.
       bindings.phase = "arguments";
       commandName = await expandWord(this.ctx, node.name);
@@ -855,6 +855,23 @@ export class Interpreter {
         outcome = "persist";
       }
 
+      let installPrefixBindings: (() => void) | undefined;
+      if (commandName || !commandIsOnlyExpansions) {
+        bindings.phase = "prefix";
+        const assignmentResult = await processAssignments(
+          this.ctx,
+          node,
+          bindings,
+        );
+        if (assignmentResult.error) return assignmentResult.error;
+        xtraceAssignmentOutput = assignmentResult.xtraceOutput;
+        bindings.endExpansion();
+        // Prefix RHS effects precede redirection expansion, but command-local
+        // values must not hide the underlying shell variables from its targets.
+        if (tempAssignments.size > 0)
+          installPrefixBindings = bindings.stageForRedirections();
+      }
+
       const transaction = createRedirectionTransaction(
         this.ctx,
         node.redirections,
@@ -877,29 +894,8 @@ export class Interpreter {
         stdin = preparedRedirections.stdin;
       }
 
-      if (commandName || !commandIsOnlyExpansions) {
-        bindings.phase = "prefix";
-        const assignmentResult = await processAssignments(
-          this.ctx,
-          node,
-          bindings,
-        );
-        if (assignmentResult.error) {
-          try {
-            return await applyRedirections(
-              this.ctx,
-              assignmentResult.error,
-              node.redirections,
-              preparedRedirections.targets,
-              preparedRedirections.dupSources,
-              preparedRedirections.standardRoutes,
-            );
-          } finally {
-            transaction.finish();
-          }
-        }
-        xtraceAssignmentOutput = assignmentResult.xtraceOutput;
-        bindings.endExpansion();
+      if (installPrefixBindings) {
+        installPrefixBindings();
         // Prefix bindings belong to the dispatched command's environment, not
         // substitutions used to prepare its arguments or redirection targets.
         if (!isLiteralAssignmentBuiltin && tempAssignments.size > 0) {

@@ -1,4 +1,11 @@
 {
+  "0288b8a79db36ec6": {
+    "command": "TEMP=0; TEMP=1 echo ok >&\"$((TEMP=1))\"; echo \"$TEMP\"",
+    "files": {},
+    "stdout": "ok\n1\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "0691e54ac9cf4d17": {
     "command": "declare -A a=([key]=value); a=(temp) unset a; printf \"lookup=<%s>\\n\" \"${a[key]}\"",
     "files": {},
@@ -32,6 +39,20 @@
     "command": "v=outer; TMP=$(v=inner) :; echo \"$v\"",
     "files": {},
     "stdout": "outer\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "63de64674a8f963a": {
+    "command": "TEMP=$((OTHER=1)) echo ok >&\"$OTHER\"",
+    "files": {},
+    "stdout": "ok\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "66b89479a4d6d2c0": {
+    "command": "a=(0 keep); a=(1) echo ok >&\"$((a[0]=1))\"; printf \"<%s>\\n\" \"${a[@]}\"",
+    "files": {},
+    "stdout": "ok\n<1>\n<keep>\n",
     "stderr": "",
     "exitCode": 0
   },

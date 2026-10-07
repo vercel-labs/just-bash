@@ -34,7 +34,35 @@ export class PrefixBindings {
     };
   }
 
-  /** Observe RHS writes, excluding the subsequent temporary installation. */
+  private restore(name: string, snapshot: VariableSnapshot): void {
+    if (snapshot.scalar === undefined) this.ctx.state.env.delete(name);
+    else this.ctx.state.env.set(name, snapshot.scalar);
+    if (snapshot.array) {
+      this.ctx.state.arrays ??= new Map();
+      this.ctx.state.arrays.set(name, cloneArray(snapshot.array));
+    } else this.ctx.state.arrays?.delete(name);
+    if (snapshot.associative) {
+      this.ctx.state.associativeArrays ??= new Set();
+      this.ctx.state.associativeArrays.add(name);
+    } else this.ctx.state.associativeArrays?.delete(name);
+  }
+
+  /** Expose RHS effects during redirections, but install prefixes only on success. */
+  stageForRedirections(): () => void {
+    this.endExpansion();
+    const staged = new Map<string, VariableSnapshot>();
+    for (const [name, underlying] of this.underlying) {
+      staged.set(name, this.snapshot(name));
+      this.restore(name, underlying);
+    }
+    if (staged.size > 0) this.beginExpansion();
+    return () => {
+      this.endExpansion();
+      for (const [name, snapshot] of staged) this.restore(name, snapshot);
+    };
+  }
+
+  /** Observe expansion writes, excluding temporary installation and restoration. */
   beginExpansion(): void {
     this.endExpansion();
     const mutated = new Set<string>();
@@ -161,16 +189,7 @@ export class PrefixBindings {
           this.ctx.state.fullyUnsetLocals?.has(name)
         )
           continue;
-        if (snapshot.scalar === undefined) this.ctx.state.env.delete(name);
-        else this.ctx.state.env.set(name, snapshot.scalar);
-        if (snapshot.array) {
-          this.ctx.state.arrays ??= new Map();
-          this.ctx.state.arrays.set(name, snapshot.array);
-        } else this.ctx.state.arrays?.delete(name);
-        if (snapshot.associative) {
-          this.ctx.state.associativeArrays ??= new Set();
-          this.ctx.state.associativeArrays.add(name);
-        } else this.ctx.state.associativeArrays?.delete(name);
+        this.restore(name, snapshot);
       }
     }
     for (const name of this.values.keys())
