@@ -682,19 +682,16 @@ export class Interpreter {
     let outcome: Parameters<PrefixBindings["finish"]>[0] = "complete";
     let commandName = "";
     try {
-      // Process all assignments (array, subscript, and scalar)
-      const assignmentResult = await processAssignments(
-        this.ctx,
-        node,
-        bindings,
-      );
-      if (assignmentResult.error) {
-        return assignmentResult.error;
-      }
-      const xtraceAssignmentOutput = assignmentResult.xtraceOutput;
-      bindings.endExpansion();
-      bindings.phase = "arguments";
+      let xtraceAssignmentOutput = "";
       if (!node.name) {
+        const assignmentResult = await processAssignments(
+          this.ctx,
+          node,
+          bindings,
+        );
+        if (assignmentResult.error) return assignmentResult.error;
+        xtraceAssignmentOutput = assignmentResult.xtraceOutput;
+        bindings.endExpansion();
         // No command name - could be assignment-only or redirect-only (bare redirects)
         // e.g., "x=5" (assignment-only) or "> file" (bare redirect to create empty file)
 
@@ -753,31 +750,10 @@ export class Interpreter {
         );
       }
 
-      // Mark prefix assignment variables as temporarily exported for this command
-      // In bash, FOO=bar cmd makes FOO visible in cmd's environment
-      // EXCEPTION: For assignment builtins (readonly, declare, local, export, typeset),
-      // temp bindings should NOT be exported to command substitutions in the arguments.
-      // e.g., `FOO=foo readonly v=$(printenv.py FOO)` - the $(printenv.py FOO) should NOT see FOO.
-      // This is because assignment builtins don't actually run as external commands that receive
-      // an exported environment - they process their arguments in the current shell context.
-      const isLiteralAssignmentBuiltinForExport =
-        node.name &&
-        isWordLiteralMatch(node.name, [
-          "local",
-          "declare",
-          "typeset",
-          "export",
-          "readonly",
-        ]);
-      const tempExportedVars = Array.from(tempAssignments.keys());
-      if (tempExportedVars.length > 0 && !isLiteralAssignmentBuiltinForExport) {
-        this.ctx.state.tempExportedVars =
-          this.ctx.state.tempExportedVars || new Set();
-        for (const name of tempExportedVars) {
-          this.ctx.state.tempExportedVars.add(name);
-        }
-      }
-
+      // Bash expands command words and arguments before redirections and prefix
+      // values. A failed argument expansion must not evaluate any prefix RHS;
+      // argument mutations remain real shell state, not temporary bindings.
+      bindings.phase = "arguments";
       commandName = await expandWord(this.ctx, node.name);
 
       const args: string[] = [];
@@ -865,6 +841,20 @@ export class Interpreter {
         quotedArgs.shift();
       }
 
+      // If expansion removes the command word, assignments affect the current
+      // shell and precede redirections, just like syntactically bare assignments.
+      if (!commandName && commandIsOnlyExpansions) {
+        const assignmentResult = await processAssignments(
+          this.ctx,
+          { ...node, name: null },
+          bindings,
+        );
+        if (assignmentResult.error) return assignmentResult.error;
+        xtraceAssignmentOutput = assignmentResult.xtraceOutput;
+        bindings.endExpansion();
+        outcome = "persist";
+      }
+
       const transaction = createRedirectionTransaction(
         this.ctx,
         node.redirections,
@@ -885,6 +875,38 @@ export class Interpreter {
       const stdinRedirected = preparedRedirections.stdin !== undefined;
       if (preparedRedirections.stdin !== undefined) {
         stdin = preparedRedirections.stdin;
+      }
+
+      if (commandName || !commandIsOnlyExpansions) {
+        bindings.phase = "prefix";
+        const assignmentResult = await processAssignments(
+          this.ctx,
+          node,
+          bindings,
+        );
+        if (assignmentResult.error) {
+          try {
+            return await applyRedirections(
+              this.ctx,
+              assignmentResult.error,
+              node.redirections,
+              preparedRedirections.targets,
+              preparedRedirections.dupSources,
+              preparedRedirections.standardRoutes,
+            );
+          } finally {
+            transaction.finish();
+          }
+        }
+        xtraceAssignmentOutput = assignmentResult.xtraceOutput;
+        bindings.endExpansion();
+        // Prefix bindings belong to the dispatched command's environment, not
+        // substitutions used to prepare its arguments or redirection targets.
+        if (!isLiteralAssignmentBuiltin && tempAssignments.size > 0) {
+          this.ctx.state.tempExportedVars ??= new Set();
+          for (const name of tempAssignments.keys())
+            this.ctx.state.tempExportedVars.add(name);
+        }
       }
 
       // Handle empty command name specially
@@ -1043,7 +1065,7 @@ export class Interpreter {
       return cmdResult;
     } catch (error) {
       // Follow Bash 3.2: explicit exit keeps prefix bindings visible to EXIT
-      // handling. Bash 5.3 restores the previous bindings instead.
+      // handling. Bash 5.3 restores the previous bindings at top level instead.
       // Fatal expansion failures, including propagated eval failures, unwind them.
       outcome =
         error instanceof ExitError && error.reason === "exit"

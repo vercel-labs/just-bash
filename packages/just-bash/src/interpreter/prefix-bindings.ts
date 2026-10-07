@@ -20,7 +20,6 @@ type CleanupOutcome =
 export class PrefixBindings {
   readonly values: Map<string, string | undefined> = new Map();
   private readonly underlying = new Map<string, VariableSnapshot>();
-  private readonly beforeExpansion = new Map<string, VariableSnapshot>();
   private stopObserving: (() => void) | undefined;
   phase: "prefix" | "arguments" | "dispatch" = "prefix";
 
@@ -36,10 +35,8 @@ export class PrefixBindings {
   }
 
   /** Observe RHS writes, excluding the subsequent temporary installation. */
-  beginExpansion(name: string): void {
+  beginExpansion(): void {
     this.endExpansion();
-    if (!this.beforeExpansion.has(name))
-      this.beforeExpansion.set(name, this.snapshot(name));
     const mutated = new Set<string>();
     const scalarWrites = new Set<string>();
     const arrayWrites = new Set<string>();
@@ -158,16 +155,12 @@ export class PrefixBindings {
   finish(outcome: CleanupOutcome): void {
     this.endExpansion();
     if (outcome !== "exit" && outcome !== "persist") {
-      for (const [name, underlying] of this.underlying) {
+      for (const [name, snapshot] of this.underlying) {
         if (
           this.phase === "dispatch" &&
           this.ctx.state.fullyUnsetLocals?.has(name)
         )
           continue;
-        const snapshot =
-          outcome === "preparation-failure" && this.phase === "arguments"
-            ? (this.beforeExpansion.get(name) ?? underlying)
-            : underlying;
         if (snapshot.scalar === undefined) this.ctx.state.env.delete(name);
         else this.ctx.state.env.set(name, snapshot.scalar);
         if (snapshot.array) {

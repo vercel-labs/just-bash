@@ -82,12 +82,7 @@ export async function processAssignments(
 
   for (const assignment of node.assignments) {
     const name = assignment.name;
-    if (node.name) {
-      const targetName = isNameref(ctx, name)
-        ? resolveNameref(ctx, name)
-        : name;
-      if (targetName) bindings.beginExpansion(targetName);
-    }
+    if (node.name) bindings.beginExpansion();
 
     // Handle array assignment: VAR=(a b c) or VAR+=(a b c)
     if (assignment.array) {
