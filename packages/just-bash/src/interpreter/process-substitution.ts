@@ -40,6 +40,7 @@ import { MountableFs } from "../fs/mountable-fs/index.js";
 import type { ExecResult } from "../types.js";
 import { ExecutionLimitError, ExitError } from "./errors.js";
 import { cloneArrays } from "./helpers/array.js";
+import { cloneTemporaryBindings } from "./prefix-bindings.js";
 import type { InterpreterContext } from "./types.js";
 
 /**
@@ -275,11 +276,18 @@ async function runBody(
   const savedExitCode = ctx.state.lastExitCode;
   const savedExitCodeVar = ctx.state.env.get("?");
   const savedSubstitutionExitCode = ctx.state.lastSubstitutionExitCode;
+  const childBindings = cloneTemporaryBindings(ctx);
 
   // Preserve parent environment identity for the explicit assignment journal. Execute
   // isolated child writes on copies rather than discard mutated parent maps.
   ctx.state.env = new Map(savedEnv);
   ctx.state.arrays = cloneArrays(savedArrays);
+  const savedBindings = ctx.state.tempEnvBindings;
+  const savedTempExports = ctx.state.tempExportedVars;
+  ctx.state.tempEnvBindings = childBindings;
+  ctx.state.tempExportedVars = savedTempExports
+    ? new Set(savedTempExports)
+    : undefined;
   ctx.substitutionDepth = currentDepth + 1;
   ctx.state.bashPid = ctx.state.nextVirtualPid++;
   ctx.state.suppressVerbose = true;
@@ -305,6 +313,8 @@ async function runBody(
     ctx.substitutionDepth = savedDepth;
     ctx.state.env = savedEnv;
     ctx.state.arrays = savedArrays;
+    ctx.state.tempEnvBindings = savedBindings;
+    ctx.state.tempExportedVars = savedTempExports;
     ctx.state.cwd = savedCwd;
     ctx.state.bashPid = savedBashPid;
     ctx.state.suppressVerbose = savedSuppressVerbose;

@@ -192,12 +192,13 @@ export interface LocalScopingState {
   fullyUnsetLocals?: Map<string, number>;
   /**
    * Stack of temporary environment bindings from prefix assignments (e.g., FOO=bar cmd).
-   * Each entry maps variable names to their saved (underlying) values.
+   * Each entry is the command owner's map of saved scalar, array, and type state.
+   * Removing a record releases the binding for both unset and final cleanup.
    * Used for bash-specific unset behavior: when unsetting a variable that has a
    * tempenv binding, the unset should reveal the underlying value, not completely
    * remove the variable.
    */
-  tempEnvBindings?: Map<string, string | undefined>[];
+  tempEnvBindings?: Map<string, TemporaryBinding>[];
   /**
    * Set of tempenv variable names that have been explicitly written to within
    * the current function context (after the prefix assignment, before local).
@@ -524,3 +525,10 @@ export interface InterpreterContext {
     abortSignal: AbortSignal,
   ) => Promise<string>;
 }
+
+/** State beneath one active prefix binding, shared by unset and command cleanup. */
+export type TemporaryBinding = {
+  scalar: string | undefined;
+  array: ShellArray | undefined;
+  associative: boolean;
+};

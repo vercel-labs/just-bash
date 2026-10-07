@@ -22,6 +22,7 @@ import { deleteArray, deleteArrayElement } from "../helpers/array.js";
 import { isNameref, resolveNameref } from "../helpers/nameref.js";
 import { isReadonly } from "../helpers/readonly.js";
 import { result } from "../helpers/result.js";
+import { restoreTemporaryBinding } from "../prefix-bindings.js";
 import type { InterpreterContext } from "../types.js";
 import {
   clearLocalVarDepth,
@@ -184,17 +185,15 @@ function handleTempEnvUnset(ctx: InterpreterContext, varName: string): boolean {
   // Search from innermost (most recent) to outermost tempEnvBinding
   for (let i = ctx.state.tempEnvBindings.length - 1; i >= 0; i--) {
     const bindings = ctx.state.tempEnvBindings[i];
-    if (bindings.has(varName)) {
+    const binding = bindings.get(varName);
+    if (binding) {
       // Found a tempenv binding for this variable
       // Restore the underlying value (what was saved when the tempenv was created)
-      const underlyingValue = bindings.get(varName);
-      if (underlyingValue === undefined) {
-        ctx.state.env.delete(varName);
-      } else {
-        ctx.state.env.set(varName, underlyingValue);
-      }
+      restoreTemporaryBinding(ctx, varName, binding, true);
       // Remove from this binding so future unsets will look at next layer
       bindings.delete(varName);
+      if (!ctx.state.tempEnvBindings.some((active) => active.has(varName)))
+        ctx.state.tempExportedVars?.delete(varName);
       return true;
     }
   }

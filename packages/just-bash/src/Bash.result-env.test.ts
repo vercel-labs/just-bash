@@ -6,6 +6,7 @@ describe("execution result environment", () => {
   describe("prefix binding cleanup", () => {
     it.each([
       ["TEMP=${OTHER:=secret} echo ${MISSING:?required}", {}, {}],
+      ['a=("$((a=5))" "${MISSING:?required}") :', { a: "0" }, { a: "5" }],
       [
         "TEMP=${OTHER:=secret} echo >${MISSING:?required}",
         {},
@@ -52,26 +53,6 @@ describe("execution result environment", () => {
       expect(result.stdout).toBe("");
       expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
-    });
-    it.each([
-      'TEMP=old; f() { TEMP=$((TEMP=5)) return; }; f; echo "$TEMP"',
-      'TEMP=old; for i in 1; do TEMP=$((TEMP=5)) break; done; echo "$TEMP"',
-      'TEMP=old; for i in 1; do TEMP=$((TEMP=5)) continue; done; echo "$TEMP"',
-    ])("preserves prefix RHS side effects across normal control transfers: %s", async (script) => {
-      const result = await new Bash().exec(script);
-      expect(result.stdout).toBe("5\n");
-      expect(result.stderr).toBe("");
-      expect(result.exitCode).toBe(0);
-      expect(result.env.TEMP).toBe("5");
-    });
-    it("preserves RHS side effects after successful prefix commands", async () => {
-      const result = await new Bash().exec(
-        'TEMP=original; TEMP=$((TEMP=5)) :; echo "$TEMP"; TEMP=$((TEMP=6)) echo command; echo "$TEMP"',
-      );
-      expect(result.stdout).toBe("5\ncommand\n6\n");
-      expect(result.stderr).toBe("");
-      expect(result.exitCode).toBe(0);
-      expect(result.env.TEMP).toBe("6");
     });
     it("restores bindings after failure inside eval", async () => {
       const result = await new Bash().exec(

@@ -26,6 +26,7 @@ import {
   ExitError,
 } from "./errors.js";
 import { cloneArrays } from "./helpers/array.js";
+import { cloneTemporaryBindings } from "./prefix-bindings.js";
 
 /**
  * Check if a string exceeds the maximum allowed length.
@@ -810,6 +811,7 @@ async function expandPart(
         );
       }
       // Increment depth for nested substitutions
+      const childBindings = cloneTemporaryBindings(ctx);
       const savedDepth = ctx.substitutionDepth;
       ctx.substitutionDepth = currentDepth + 1;
 
@@ -820,8 +822,14 @@ async function expandPart(
       // Child writes must use copies, not maps that parent cleanup will revisit.
       const savedEnv = ctx.state.env;
       const savedArrays = ctx.state.arrays;
+      const savedBindings = ctx.state.tempEnvBindings;
+      const savedTempExports = ctx.state.tempExportedVars;
       ctx.state.env = new Map(savedEnv);
       ctx.state.arrays = cloneArrays(savedArrays);
+      ctx.state.tempEnvBindings = childBindings;
+      ctx.state.tempExportedVars = savedTempExports
+        ? new Set(savedTempExports)
+        : undefined;
       const savedCwd = ctx.state.cwd;
       // Suppress verbose mode (set -v) inside command substitutions
       // bash only prints verbose output for the main script
@@ -833,6 +841,8 @@ async function expandPart(
         const exitCode = result.exitCode;
         ctx.state.env = savedEnv;
         ctx.state.arrays = savedArrays;
+        ctx.state.tempEnvBindings = savedBindings;
+        ctx.state.tempExportedVars = savedTempExports;
         ctx.state.cwd = savedCwd;
         ctx.state.suppressVerbose = savedSuppressVerbose;
         // Store the exit code for $?
@@ -857,6 +867,8 @@ async function expandPart(
         // Restore environment on error as well
         ctx.state.env = savedEnv;
         ctx.state.arrays = savedArrays;
+        ctx.state.tempEnvBindings = savedBindings;
+        ctx.state.tempExportedVars = savedTempExports;
         ctx.state.cwd = savedCwd;
         ctx.state.bashPid = savedBashPid;
         ctx.substitutionDepth = savedDepth;

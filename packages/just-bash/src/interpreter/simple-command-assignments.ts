@@ -24,8 +24,6 @@ import {
 } from "./expansion.js";
 import {
   clearArray,
-  cloneArray,
-  getArray,
   getArrayElement,
   parseKeyedElementFromWord,
   setArrayElement,
@@ -131,7 +129,6 @@ export async function processAssignments(
         subscriptMatch[2],
         value,
         assignment.append,
-        bindings.values,
       );
       if (subscriptResult.error) {
         return {
@@ -238,19 +235,10 @@ async function processArrayAssignment(
 
   // Check if this is an associative array
   const isAssoc = ctx.state.associativeArrays?.has(name);
-  const savedArray = getArray(ctx, name);
-  const savedArraySnapshot = savedArray ? cloneArray(savedArray) : undefined;
-  const savedScalar = ctx.state.env.get(name);
   const beforeInstall = (): void => {
-    if (!node.name) return;
+    // RHS effects already belong to shell state. The shared command owner
+    // snapshots only the post-expansion value, before installation can fail.
     bindings.capture(name);
-  };
-  const restoreTarget = (): void => {
-    ctx.state.arrays ??= new Map();
-    if (savedArraySnapshot) ctx.state.arrays.set(name, savedArraySnapshot);
-    else ctx.state.arrays.delete(name);
-    if (savedScalar === undefined) ctx.state.env.delete(name);
-    else ctx.state.env.set(name, savedScalar);
   };
 
   // Check if elements use [key]=value or [key]+=value syntax
@@ -262,42 +250,37 @@ async function processArrayAssignment(
     ctx.state.env.delete(name);
   };
 
-  try {
-    if (isAssoc && hasKeyedElements) {
-      await processAssociativeArrayAssignment(
-        ctx,
-        node,
-        name,
-        array,
-        append,
-        clearExistingElements,
-        beforeInstall,
-        (msg) => {
-          xtraceOutput += msg;
-        },
-      );
-    } else if (hasKeyedElements) {
-      await processIndexedArrayWithKeysAssignment(
-        ctx,
-        name,
-        array,
-        append,
-        clearExistingElements,
-        beforeInstall,
-      );
-    } else {
-      await processSimpleArrayAssignment(
-        ctx,
-        name,
-        array,
-        append,
-        clearExistingElements,
-        beforeInstall,
-      );
-    }
-  } catch (error) {
-    restoreTarget();
-    throw error;
+  if (isAssoc && hasKeyedElements) {
+    await processAssociativeArrayAssignment(
+      ctx,
+      node,
+      name,
+      array,
+      append,
+      clearExistingElements,
+      beforeInstall,
+      (msg) => {
+        xtraceOutput += msg;
+      },
+    );
+  } else if (hasKeyedElements) {
+    await processIndexedArrayWithKeysAssignment(
+      ctx,
+      name,
+      array,
+      append,
+      clearExistingElements,
+      beforeInstall,
+    );
+  } else {
+    await processSimpleArrayAssignment(
+      ctx,
+      name,
+      array,
+      append,
+      clearExistingElements,
+      beforeInstall,
+    );
   }
 
   // For prefix assignments with a command, bash stringifies the array syntax
@@ -305,7 +288,7 @@ async function processArrayAssignment(
     const elements = array.map((el) => wordToLiteralString(el));
     const stringified = `(${elements.join(" ")})`;
     ctx.state.env.set(name, stringified);
-  }
+  } else bindings.retain(name);
 
   return { continueToNext: true, xtraceOutput };
 }
@@ -623,7 +606,6 @@ async function processSubscriptAssignment(
   subscriptExpr: string,
   value: string,
   append: boolean,
-  _tempAssignments: Map<string, string | undefined>,
 ): Promise<SingleAssignmentResult> {
   let resolvedArrayName = arrayName;
 

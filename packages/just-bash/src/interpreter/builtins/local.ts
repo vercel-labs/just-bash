@@ -308,7 +308,7 @@ export async function handleLocal(
           for (let i = ctx.state.tempEnvBindings.length - 1; i >= 0; i--) {
             const bindings = ctx.state.tempEnvBindings[i];
             if (bindings.has(name)) {
-              savedValue = bindings.get(name);
+              savedValue = bindings.get(name)?.scalar;
               break;
             }
           }
@@ -327,7 +327,7 @@ export async function handleLocal(
         for (let i = ctx.state.tempEnvBindings.length - 1; i >= 0; i--) {
           const bindings = ctx.state.tempEnvBindings[i];
           if (bindings.has(name)) {
-            savedValue = bindings.get(name);
+            savedValue = bindings.get(name)?.scalar;
             break;
           }
         }

@@ -14,6 +14,13 @@
     "stderr": "",
     "exitCode": 0
   },
+  "23a9815e31893727": {
+    "command": "a=(old keep); f() { unset a; a=(new more); }; a=(temp) f; printf \"after=<%s>\\n\" \"${a[@]}\"",
+    "files": {},
+    "stdout": "after=<new>\nafter=<more>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "24977edccc311051": {
     "command": "TEMP=(original); TEMP=(one) :; printf \"[%s]\\n\" \"${TEMP[@]}\"",
     "files": {},
@@ -42,10 +49,31 @@
     "stderr": "",
     "exitCode": 0
   },
+  "3e9e8d9bbbcb89d7": {
+    "command": "TEMP=original; TEMP=$((TEMP=5)) :; echo \"$TEMP\"; TEMP=$((TEMP=6)) echo command; echo \"$TEMP\"",
+    "files": {},
+    "stdout": "5\ncommand\n6\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4f9b9647e54a93c9": {
+    "command": "TEMP=old; for i in 1; do TEMP=$((TEMP=5)) break; done; echo \"$TEMP\"",
+    "files": {},
+    "stdout": "5\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "6ff8f2a72f60c941": {
     "command": "v=outer; TMP=<(v=inner) :; echo \"$v\"",
     "files": {},
     "stdout": "outer\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7a64c9a1a3dab26c": {
+    "command": "TEMP=old; for i in 1; do TEMP=$((TEMP=5)) continue; done; echo \"$TEMP\"",
+    "files": {},
+    "stdout": "5\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -91,6 +119,13 @@
     "stderr": "",
     "exitCode": 0
   },
+  "b065d7325f325ef3": {
+    "command": "a=(old keep); f() { OUT=$(unset a; a[0]=new); }; a=(temp) f; printf \"after=<%s>\\n\" \"${a[@]}\"",
+    "files": {},
+    "stdout": "after=<old>\nafter=<keep>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "c213a6f3cf9d4c05": {
     "command": "Y=0; Y=temporary V=$(echo a)$((Y=1)) :; echo \"$Y\"",
     "files": {},
@@ -130,6 +165,13 @@
     "command": "TEMP=0; TEMP=one TEMP=two :; echo $TEMP",
     "files": {},
     "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ecb0804008091dae": {
+    "command": "TEMP=old; f() { TEMP=$((TEMP=5)) return; }; f; echo \"$TEMP\"",
+    "files": {},
+    "stdout": "5\n",
     "stderr": "",
     "exitCode": 0
   },

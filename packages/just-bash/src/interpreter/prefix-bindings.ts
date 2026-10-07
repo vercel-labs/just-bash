@@ -1,23 +1,51 @@
 import { ExecutionLimitError } from "./errors.js";
 import { cloneArray } from "./helpers/array.js";
-import type { InterpreterContext, ShellArray } from "./types.js";
+import type { InterpreterContext, TemporaryBinding } from "./types.js";
 
-type VariableSnapshot = {
-  scalar: string | undefined;
-  array: ShellArray | undefined;
-  associative: boolean;
-};
+/** Child scopes may remove bindings independently; saved arrays stay borrowed until release. */
+export function cloneTemporaryBindings(
+  ctx: InterpreterContext,
+): Map<string, TemporaryBinding>[] | undefined {
+  return ctx.state.tempEnvBindings?.map((bindings) => {
+    ctx.executionScope.consumeWork(bindings.size, "temporary binding copy");
+    return new Map(bindings);
+  });
+}
+
+/** Restore a released binding in the current shell, including its array metadata. */
+export function restoreTemporaryBinding(
+  ctx: InterpreterContext,
+  name: string,
+  binding: TemporaryBinding,
+  copyArray = false,
+): void {
+  let array = binding.array;
+  if (array && copyArray) {
+    ctx.executionScope.consumeWork(array.elements.size, "prefix array release");
+    array = cloneArray(array);
+  }
+  if (binding.scalar === undefined) ctx.state.env.delete(name);
+  else ctx.state.env.set(name, binding.scalar);
+  if (array) {
+    ctx.state.arrays ??= new Map();
+    ctx.state.arrays.set(name, array);
+  } else ctx.state.arrays?.delete(name);
+  if (binding.associative) {
+    ctx.state.associativeArrays ??= new Set();
+    ctx.state.associativeArrays.add(name);
+  } else ctx.state.associativeArrays?.delete(name);
+}
 
 /** One command's persistent expansion effects and separate temporary bindings. */
 export class PrefixBindings {
-  readonly values: Map<string, string | undefined> = new Map();
-  private readonly underlying = new Map<string, VariableSnapshot>();
+  readonly records: Map<string, TemporaryBinding> = new Map();
   private finishExpansion: ((commitEffects: boolean) => void) | undefined;
+  private published = false;
   dispatched: boolean = false;
 
   constructor(private readonly ctx: InterpreterContext) {}
 
-  private snapshot(name: string): VariableSnapshot {
+  private snapshot(name: string): TemporaryBinding {
     const array = this.ctx.state.arrays?.get(name);
     if (array)
       this.ctx.executionScope.consumeWork(
@@ -29,20 +57,6 @@ export class PrefixBindings {
       array: array ? cloneArray(array) : undefined,
       associative: this.ctx.state.associativeArrays?.has(name) ?? false,
     };
-  }
-
-  private restore(name: string, snapshot: VariableSnapshot): void {
-    if (snapshot.scalar === undefined) this.ctx.state.env.delete(name);
-    else this.ctx.state.env.set(name, snapshot.scalar);
-    if (snapshot.array) {
-      this.ctx.state.arrays ??= new Map();
-      // Cleanup transfers ownership of the saved array back to shell state.
-      this.ctx.state.arrays.set(name, snapshot.array);
-    } else this.ctx.state.arrays?.delete(name);
-    if (snapshot.associative) {
-      this.ctx.state.associativeArrays ??= new Set();
-      this.ctx.state.associativeArrays.add(name);
-    } else this.ctx.state.associativeArrays?.delete(name);
   }
 
   /** Journal actual assignments, not incidental map writes or snapshot restoration. */
@@ -57,7 +71,7 @@ export class PrefixBindings {
       key?: string,
     ): void => {
       previous?.(name, value, key);
-      const underlying = this.underlying.get(name);
+      const underlying = this.records.get(name);
       if (!underlying) return;
       if (key === undefined) underlying.scalar = value;
       else {
@@ -77,14 +91,13 @@ export class PrefixBindings {
           );
         underlying.array.elements.set(key, value);
       }
-      this.values.set(name, underlying.scalar);
     };
     this.ctx.onExpansionAssignment = (name, value, key) => {
       // Substitutions execute on child maps. Their assignments belong to that
       // child even when the surrounding RHS shares this interpreter context.
       if (this.ctx.state.env !== env) return;
       if (!deferEffects) return recordAssignment(name, value, key);
-      if (!this.underlying.has(name)) return;
+      if (!this.records.has(name)) return;
       let writes = pending.get(name);
       if (!writes) {
         writes = new Map();
@@ -109,18 +122,23 @@ export class PrefixBindings {
   /** Capture persistent state after the RHS and before installing its binding. */
   capture(name: string): void {
     this.endExpansion();
-    if (!this.underlying.has(name)) {
+    if (!this.records.has(name)) {
       const snapshot = this.snapshot(name);
-      this.underlying.set(name, snapshot);
-      this.values.set(name, snapshot.scalar);
+      this.records.set(name, snapshot);
     }
+  }
+
+  /** Assignment-only installation succeeded, so no restoration is pending. */
+  retain(name: string): void {
+    this.records.delete(name);
   }
 
   beginDispatch(): void {
     // unset uses this stack to reveal the variable beneath a command's prefix.
-    if (this.values.size > 0) {
+    if (this.records.size > 0) {
       this.ctx.state.tempEnvBindings ??= [];
-      this.ctx.state.tempEnvBindings.push(new Map(this.values));
+      this.ctx.state.tempEnvBindings.push(this.records);
+      this.published = true;
     }
     this.dispatched = true;
   }
@@ -128,15 +146,14 @@ export class PrefixBindings {
   finish(policy: "retain" | "restore"): void {
     this.endExpansion();
     if (policy === "restore") {
-      for (const [name, snapshot] of this.underlying) {
+      for (const [name, snapshot] of this.records) {
         if (this.dispatched && this.ctx.state.fullyUnsetLocals?.has(name))
           continue;
-        this.restore(name, snapshot);
+        restoreTemporaryBinding(this.ctx, name, snapshot);
       }
     }
-    for (const name of this.values.keys())
+    for (const name of this.records.keys())
       this.ctx.state.tempExportedVars?.delete(name);
-    if (this.dispatched && this.values.size > 0)
-      this.ctx.state.tempEnvBindings?.pop();
+    if (this.published) this.ctx.state.tempEnvBindings?.pop();
   }
 }

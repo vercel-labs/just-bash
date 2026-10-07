@@ -25,6 +25,12 @@ describe("prefix binding cleanup - Real Bash Comparison", () => {
     "TEMP=0; TEMP=5 TEMP=$((TEMP=5)) :; echo $TEMP",
     'TEMP=original; TEMP=prefix echo "$TEMP"; echo "$TEMP"',
     'TEMP=old; TEMP=prefix cat /dev/null >&"$((TEMP=1))"; echo "$TEMP"',
+    'a=(old keep); f() { unset a; a=(new more); }; a=(temp) f; printf "after=<%s>\\n" "${a[@]}"',
+    'a=(old keep); f() { OUT=$(unset a; a[0]=new); }; a=(temp) f; printf "after=<%s>\\n" "${a[@]}"',
+    'TEMP=old; f() { TEMP=$((TEMP=5)) return; }; f; echo "$TEMP"',
+    'TEMP=old; for i in 1; do TEMP=$((TEMP=5)) break; done; echo "$TEMP"',
+    'TEMP=old; for i in 1; do TEMP=$((TEMP=5)) continue; done; echo "$TEMP"',
+    'TEMP=original; TEMP=$((TEMP=5)) :; echo "$TEMP"; TEMP=$((TEMP=6)) echo command; echo "$TEMP"',
     // Array RHS writes preserve only the affected underlying elements.
     'a=(old); a=("$((a[0]=5))") :; printf "array=<%s>\\n" "${a[0]}"',
     'a=(old keep); a=(temp) a=("$((a[1]=5))") :; printf "<%s>\\n" "${a[@]}"',

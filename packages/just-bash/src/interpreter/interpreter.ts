@@ -842,7 +842,7 @@ export class Interpreter {
 
       const assignmentOnly = !commandName && commandIsOnlyExpansions;
       bindings = new PrefixBindings(this.ctx);
-      const tempAssignments = bindings.values;
+      const tempAssignments = bindings.records;
       const assignmentResult = await processAssignments(
         this.ctx,
         assignmentOnly ? { ...node, name: null } : node,
