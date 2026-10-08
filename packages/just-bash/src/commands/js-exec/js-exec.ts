@@ -4,6 +4,7 @@ import { decodeBytesToUtf8 } from "../../encoding.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import type { ExecResult, RuntimeCommand } from "../../types.js";
 import { hasHelpFlag } from "../help.js";
+import { hasModuleSyntax } from "./module-syntax.js";
 import { executeWithRun } from "./run-runtime.js";
 
 const JS_EXEC_HELP = `js-exec - Sandboxed JavaScript/TypeScript runtime with Node.js-compatible APIs
@@ -24,7 +25,9 @@ Examples:
   echo 'console.log("hello")' | js-exec
 
 File Extension Auto-Detection:
-  .js              function-body mode
+  .js              function-body mode, or ES module mode when the code uses
+                   import/export syntax (as Node detects it)
+  .cjs             function-body mode
   .mjs             ES module mode
   .ts, .mts        ES module mode + TypeScript stripping
 
@@ -164,7 +167,8 @@ export const jsExecCommand: RuntimeCommand = {
       parsed.isModule ||
       scriptPath.endsWith(".mjs") ||
       scriptPath.endsWith(".mts") ||
-      scriptPath.endsWith(".ts");
+      scriptPath.endsWith(".ts") ||
+      (!scriptPath.endsWith(".cjs") && hasModuleSyntax(source));
     return await executeWithRun(
       {
         bootstrapCode: ctx.jsBootstrapCode,
