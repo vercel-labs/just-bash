@@ -96,7 +96,9 @@ describe("filesystem traversal primitives", () => {
         },
       ),
     ).rejects.toBeInstanceOf(ExecutionLimitError);
-    expect(visits).toBe(2);
+    // The root's three children are reserved before any is queued, so the
+    // walk stops at the root rather than after visiting up to the limit.
+    expect(visits).toBe(1);
   });
 
   it("observes cancellation between filesystem operations", async () => {

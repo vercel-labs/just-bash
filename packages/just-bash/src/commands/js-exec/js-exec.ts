@@ -34,7 +34,7 @@ Node.js Compatibility:
   synchronous Node.js call semantics inside the sandbox.
 
   Available modules:
-    fs, path, child_process, process, console,
+    fs, fs/promises, path, child_process, process, console,
     os, url, assert, util, events, buffer, stream,
     string_decoder, querystring
 
