@@ -1049,6 +1049,31 @@ export async function routeControlFlowError(
   };
 }
 
+/**
+ * Whether these redirections close fd 0 (`0<&-`, `<&-`). The prepared `stdin`
+ * is `""` then, the same as a redirection from an empty file, and only the
+ * route tells the two apart.
+ */
+function closesStdin(prepared: PreparedRedirections): boolean {
+  return prepared.standardRoutes.get(0)?.kind === "closed";
+}
+
+/**
+ * Whether a scope handed `stdin` by its caller, and owning it, owns a closed
+ * fd 0: its own redirections decide first (a file or here-doc opens it, `<&-`
+ * closes it), and otherwise the answer travels with the ownership, since an
+ * owned empty stream cannot say on its own whether a pipe ran dry or nothing
+ * was ever behind it.
+ */
+export function ownedStdinClosed(
+  prepared: PreparedRedirections,
+  stdin: string,
+  stdinClosed: boolean,
+): boolean {
+  if (prepared.stdin !== undefined) return closesStdin(prepared);
+  return stdin === "" && stdinClosed;
+}
+
 export async function withPreparedRedirections(
   ctx: InterpreterContext,
   redirections: RedirectionNode[],
@@ -1066,9 +1091,11 @@ export async function withPreparedRedirections(
     if (prepared.error) return preparedRedirectionError(prepared);
     const savedGroupStdin = ctx.state.groupStdin;
     const savedGroupStdinSourceFd = ctx.state.groupStdinSourceFd;
+    const savedGroupStdinClosed = ctx.state.groupStdinClosed;
     if (prepared.stdin !== undefined) {
       ctx.state.groupStdin = prepared.stdin;
       ctx.state.groupStdinSourceFd = prepared.stdinSourceFd;
+      ctx.state.groupStdinClosed = closesStdin(prepared);
     }
     try {
       const result = await run(prepared);
@@ -1084,6 +1111,7 @@ export async function withPreparedRedirections(
       if (prepared.stdin !== undefined) {
         ctx.state.groupStdin = savedGroupStdin;
         ctx.state.groupStdinSourceFd = savedGroupStdinSourceFd;
+        ctx.state.groupStdinClosed = savedGroupStdinClosed;
       }
     }
   } catch (error) {

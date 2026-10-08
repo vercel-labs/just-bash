@@ -318,6 +318,13 @@ export interface IOState {
   groupStdin?: string;
   /** Descriptor that supplied `groupStdin`, when it has a shared position. */
   groupStdinSourceFd?: number;
+  /**
+   * The scope that owns `groupStdin` closed its fd 0 (`{ …; } 0<&-`), so the
+   * stream is empty because nothing is behind it rather than because a pipe
+   * or file ran dry. Reads inside see EOF either way; a command asking
+   * whether fd 0 is connected gets the difference.
+   */
+  groupStdinClosed?: boolean;
   /** File descriptors for process substitution and here-docs */
   fileDescriptors?: Map<number, string>;
   /**
@@ -485,12 +492,15 @@ export interface InterpreterContext {
    * `stdinOwned` says the caller gave this command its own fd 0, even when the
    * content is the empty string (`f < empty-file`). Without it an empty stdin
    * is indistinguishable from "no redirection", and the command would fall
-   * back to the enclosing shell's stdin instead of seeing EOF.
+   * back to the enclosing shell's stdin instead of seeing EOF. `stdinClosed`
+   * says that owned fd 0 is closed (`f 0<&-`): EOF as well, but connected to
+   * nothing, which an owned empty stream cannot say on its own.
    */
   executeCommand: (
     node: CommandNode,
     stdin: string,
     stdinOwned?: boolean,
+    stdinClosed?: boolean,
   ) => Promise<ExecResult>;
   /** Optional secure fetch function for network-enabled commands */
   fetch?: SecureFetch;

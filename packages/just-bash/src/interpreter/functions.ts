@@ -16,6 +16,7 @@ import { POSIX_SPECIAL_BUILTINS } from "./helpers/shell-constants.js";
 import {
   applyRedirections,
   createRedirectionTransaction,
+  ownedStdinClosed,
   type PreparedRedirections,
   preparedRedirectionError,
   routeControlFlowError,
@@ -51,6 +52,8 @@ export async function callFunction(
   callLine?: number,
   /** A redirection on the call site (`f < file`) gave the function its own fd 0. */
   stdinRedirected = false,
+  /** The fd 0 the call site gave the function is closed (`f 0<&-`). */
+  stdinClosed = false,
 ): Promise<ExecResult> {
   ctx.state.callDepth++;
   if (ctx.state.callDepth > ctx.limits.maxCallDepth) {
@@ -200,6 +203,7 @@ export async function callFunction(
       func.body,
       effectiveStdin,
       stdinOwned,
+      ownedStdinClosed(prepared, stdin, stdinClosed),
     );
     // Apply output redirections from the function definition using pre-expanded targets
     // e.g., fun() { echo hi; } 1>&2 should redirect output to stderr when called

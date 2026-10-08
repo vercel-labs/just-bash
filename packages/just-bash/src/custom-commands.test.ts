@@ -361,6 +361,125 @@ describe("custom-commands", () => {
       expect(result.exitCode).toBe(0);
     });
 
+    describe("ctx.stdinConnected", () => {
+      // Prints one word per invocation: "pipe" when fd 0 is connected,
+      // "none" when it is not, so a script's stdout is the sequence of
+      // answers the command saw.
+      const probe = defineCommand("probe", async (_args, ctx) => ({
+        stdout: `${ctx.stdinConnected ? "pipe" : "none"}\n`,
+        stderr: "",
+        exitCode: 0,
+      }));
+      const run = (script: string) =>
+        new Bash({
+          customCommands: [probe],
+          files: {
+            "/empty": "",
+            "/full": "x\n",
+            "/script": "#!/bin/bash\nprobe\n",
+          },
+        }).exec(`chmod +x /script; ${script}`);
+
+      it("is false for a bare command", async () => {
+        expect((await run("probe")).stdout).toBe("none\n");
+      });
+
+      it("is true for a pipe that carried bytes", async () => {
+        expect((await run("echo hi | probe")).stdout).toBe("pipe\n");
+      });
+
+      it.each([
+        ["a producer that printed nothing", "printf '' | probe"],
+        ["a producer that failed", "false | probe"],
+        ["a middle stage of a pipeline", "printf '' | probe | cat"],
+        ["a redirection from an empty file", "probe < /empty"],
+        ["a pipe into a group", "printf '' | { probe; }"],
+        ["a pipe into a subshell", "printf '' | (probe)"],
+        ["a pipe into a function", "f() { probe; }; printf '' | f"],
+        ["a pipe into an if", "printf '' | if true; then probe; fi"],
+        ["a pipe into a for", "printf '' | for i in 1; do probe; done"],
+        [
+          "a pipe into a C-style for",
+          "printf '' | for ((i = 0; i < 1; i++)); do probe; done",
+        ],
+        ["a pipe into a while", "printf '' | while probe; do break; done"],
+        [
+          "a pipe into an until",
+          "printf '' | until false; do probe; break; done",
+        ],
+        ["a pipe into a case", "printf '' | case x in x) probe ;; esac"],
+        ["a pipe into an executable script", "printf '' | /script"],
+        ["a pipe into a nested shell", "printf '' | bash -c probe"],
+        ["a pipe into `command`", "printf '' | command probe"],
+        ["a pipe into `exec`", "printf '' | exec probe"],
+        ["a pipe into `eval`", "printf '' | eval probe"],
+        ["a pipe into `source`", "printf '' | source /script"],
+        ["an empty here-string", "probe <<< ''"],
+        ["a self-duplication inside a pipe", "printf '' | probe <&0"],
+        [
+          "a closed fd 0 reopened by an inner redirection",
+          "{ probe < /empty; } 0<&-",
+        ],
+        [
+          "a closed fd 0 reopened by a function's own redirection",
+          "f() { probe; } < /empty; f 0<&-",
+        ],
+      ])("is true for %s, even with no bytes", async (_, script) => {
+        expect((await run(script)).stdout).toBe("pipe\n");
+      });
+
+      it.each([
+        ["a nested shell with nothing to hand on", "bash -c probe"],
+        ["a closed fd 0", "probe 0<&-"],
+        ["a self-duplication of an unconnected fd 0", "probe <&0"],
+        ["a script run with nothing to hand on", "/script"],
+        ["an if with nothing to hand on", "if true; then probe; fi"],
+        ["a closed fd 0 on a group", "{ probe; } 0<&-"],
+        ["a closed fd 0 on a subshell", "(probe) 0<&-"],
+        ["a closed fd 0 on a function call", "f() { probe; }; f 0<&-"],
+        ["a closed fd 0 on a function definition", "f() { probe; } 0<&-; f"],
+        ["a closed fd 0 on `eval`", "eval probe 0<&-"],
+        ["a closed fd 0 on `source`", "source /script 0<&-"],
+        ["a closed fd 0 on an executable script", "/script 0<&-"],
+        ["a closed fd 0 on an if", "if true; then probe; fi 0<&-"],
+        ["a closed fd 0 on a while", "while probe; do break; done 0<&-"],
+        ["a closed fd 0 two scopes up", "f() { probe; }; { { f; }; } 0<&-"],
+        ["a closed fd 0 inside a pipe", "printf '' | { probe; } 0<&-"],
+      ])("is false for %s", async (_, script) => {
+        expect((await run(script)).stdout).toBe("none\n");
+      });
+
+      it("is false inside a closed scope and true again outside it", async () => {
+        expect(
+          (await run("printf '' | { { probe; } 0<&-; probe; }")).stdout,
+        ).toBe("none\npipe\n");
+      });
+
+      it("is false again once the pipeline is over", async () => {
+        expect((await run("printf '' | probe; probe")).stdout).toBe(
+          "pipe\nnone\n",
+        );
+      });
+
+      it("is false for the first stage, which inherits the shell's stdin", async () => {
+        expect((await run("probe | cat")).stdout).toBe("none\n");
+      });
+
+      it("stays false for the commands after a closed fd 0, which reads as EOF", async () => {
+        expect((await run("exec 0<&-; probe")).stdout).toBe("none\n");
+      });
+
+      it("follows the standalone context's stdin", () => {
+        const withStdin = createCommandContext({
+          fs: {} as never,
+          stdin: EMPTY_BYTES,
+        });
+        const without = createCommandContext({ fs: {} as never });
+        expect(withStdin.stdinConnected).toBe(true);
+        expect(without.stdinConnected).toBe(false);
+      });
+    });
+
     it("custom command can read files via ctx.fs", async () => {
       const reader = defineCommand("reader", async (args, ctx) => {
         const content = await ctx.fs.readFile(args[0]);
