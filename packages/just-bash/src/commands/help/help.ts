@@ -120,6 +120,7 @@ Otherwise, lists all available commands.
       // Shell-quote the command name since it comes from user input
       // and could contain metacharacters
       return ctx.exec(shellJoinArgs([cmdName]), {
+        internalDispatch: true,
         cwd: ctx.cwd,
         signal: ctx.signal,
         args: ["--help"],

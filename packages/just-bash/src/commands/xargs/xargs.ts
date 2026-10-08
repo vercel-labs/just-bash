@@ -315,6 +315,7 @@ export const xargsCommand: RuntimeCommand = {
       // Use ctx.exec to run the command, passing current working directory
       if (ctx.exec) {
         return ctx.exec(shellJoinArgs([cmdArgs[0]]), {
+          internalDispatch: true,
           cwd: ctx.cwd,
           signal: ctx.signal,
           args: cmdArgs.slice(1),

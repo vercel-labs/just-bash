@@ -12,6 +12,16 @@ import type {
 } from "../types.js";
 
 /** Fresh-shell options; inherited lists enable options on top of these defaults. */
+export function initializeShellOptions(
+  shellopts?: string,
+  bashopts?: string,
+): { options: ShellOptions; shoptOptions: ShoptOptions } {
+  const options = createShellOptions(shellopts);
+  const shoptOptions = createShoptOptions(bashopts);
+  if (options.posix) shoptOptions.expand_aliases = true;
+  return { options, shoptOptions };
+}
+
 export function createShellOptions(inherited?: string): ShellOptions {
   const options: ShellOptions = {
     errexit: false,

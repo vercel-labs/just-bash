@@ -2,6 +2,39 @@ import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
 describe("nested shell option inheritance", () => {
+  it("hides wrapper dispatch while preserving tracing in custom scripts", async () => {
+    const bash = new Bash({
+      customCommands: [
+        {
+          name: "script",
+          execute: async (_args, ctx) => {
+            if (!ctx.exec) throw new Error("exec required");
+            return ctx.exec('echo "$-"', { cwd: ctx.cwd });
+          },
+        },
+      ],
+    });
+    const wrapped = await bash.exec("set -x; env echo hi");
+    expect(wrapped.stderr).toBe("+ env echo hi\n");
+    expect(wrapped.stdout).toBe("hi\n");
+    const verbose = await bash.exec("set -v\nenv echo hi");
+    expect(verbose.stderr).toBe("env echo hi\n");
+    const custom = await bash.exec("set -x; env script");
+    expect(custom.stdout).toContain("x");
+    expect(custom.stderr).toContain("+ echo ");
+  });
+
+  it("enables alias expansion when importing POSIX mode", async () => {
+    const bash = new Bash({
+      files: { "/script.sh": '#!/bin/bash\nalias greet="echo hello"\ngreet\n' },
+    });
+    const result =
+      await bash.exec(`chmod +x /script.sh; set -o posix; export SHELLOPTS; /script.sh; bash -c 'alias greet="echo hello"
+greet'`);
+    expect(result.stdout).toBe("hello\nhello\n");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
   it("does not carry shopt changes into later host executions", async () => {
     const bash = new Bash();
     await bash.exec("shopt -s nullglob");

@@ -50,6 +50,7 @@ import {
   buildShellopts,
   createShellOptions,
   createShoptOptions,
+  initializeShellOptions,
 } from "./interpreter/helpers/shellopts.js";
 import {
   Interpreter,
@@ -648,7 +649,9 @@ export class Bash {
 
   private async execInScope(
     commandLine: string,
-    options: (ExecOptions & { newShell?: boolean }) | undefined,
+    options:
+      | (ExecOptions & { newShell?: boolean; internalDispatch?: boolean })
+      | undefined,
     executionScope: ExecutionScope,
     execDepth: number,
     parentSignal: AbortSignal | undefined,
@@ -763,11 +766,17 @@ export class Bash {
 
       // A nested shell starts from defaults plus its exported option lists.
       // Its shopt changes must not mutate the parent's shared option object.
-      const shellOptions = effectiveOptions.newShell
-        ? createShellOptions(execEnv.get("SHELLOPTS"))
+      const startupOptions = effectiveOptions.newShell
+        ? initializeShellOptions(
+            execEnv.get("SHELLOPTS"),
+            execEnv.get("BASHOPTS"),
+          )
+        : undefined;
+      const shellOptions = startupOptions
+        ? startupOptions.options
         : { ...(callerState ?? this.state).options };
-      const shoptOptions = effectiveOptions.newShell
-        ? createShoptOptions(execEnv.get("BASHOPTS"))
+      const shoptOptions = startupOptions
+        ? startupOptions.shoptOptions
         : { ...(callerState ?? this.state).shoptOptions };
 
       if (effectiveOptions.newShell) {
@@ -789,6 +798,8 @@ export class Bash {
 
       const execState: InterpreterState = {
         ...this.state,
+        suppressXtrace: effectiveOptions.internalDispatch ?? false,
+        suppressVerbose: effectiveOptions.internalDispatch ?? false,
         env: execEnv,
         exportedVars,
         arrays: replaceEnv ? new Map() : cloneArrays(this.state.arrays),

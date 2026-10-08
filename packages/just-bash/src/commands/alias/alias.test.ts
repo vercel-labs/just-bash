@@ -18,8 +18,8 @@ describe("alias command", () => {
     const bash = new Bash();
     const result = await bash.exec(`shopt -s expand_aliases
 alias greet='echo parent'
-(alias greet='echo subshell'; greet)
-value=$(alias greet='echo substitution'; greet)
+(alias greet='echo subshell'; eval greet)
+value=$(alias greet='echo substitution'; eval greet)
 echo "$value"
 alias greet='echo pipeline' | cat
 greet`);

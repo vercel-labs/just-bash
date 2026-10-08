@@ -453,6 +453,7 @@ export interface InterpreterState
    * inside $(...) or backticks.
    */
   suppressVerbose?: boolean;
+  suppressXtrace?: boolean;
 
   /**
    * Abort signal for cooperative cancellation.

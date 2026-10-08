@@ -33,6 +33,11 @@ import {
 import { getErrorMessage } from "./helpers/errors.js";
 import { failure, result } from "./helpers/result.js";
 import {
+  buildBashopts,
+  buildShellopts,
+  initializeShellOptions,
+} from "./helpers/shellopts.js";
+import {
   type PreparedRedirections,
   withPreparedRedirections,
 } from "./redirections.js";
@@ -350,9 +355,25 @@ export async function executeUserScript(
   }
 
   const parentLoopDepth = ctx.state.loopDepth;
+  const savedSuppressXtrace = ctx.state.suppressXtrace;
+  const savedSuppressVerbose = ctx.state.suppressVerbose;
   const cleanup = beginIsolatedShellState(ctx.state);
   // An executed script starts a new shell; aliases are shell-local definitions.
   ctx.state.aliases = new Map();
+  const inherited = (name: string) =>
+    ctx.state.exportedVars?.has(name) || ctx.state.tempExportedVars?.has(name)
+      ? ctx.state.env.get(name)
+      : undefined;
+  const startup = initializeShellOptions(
+    inherited("SHELLOPTS"),
+    inherited("BASHOPTS"),
+  );
+  ctx.state.options = startup.options;
+  ctx.state.shoptOptions = startup.shoptOptions;
+  ctx.state.env.set("SHELLOPTS", buildShellopts(startup.options));
+  ctx.state.env.set("BASHOPTS", buildBashopts(startup.shoptOptions));
+  ctx.state.suppressXtrace = false;
+  ctx.state.suppressVerbose = false;
 
   // Set up subshell-like environment
   ctx.state.parentHasLoopContext = parentLoopDepth > 0;
@@ -403,5 +424,8 @@ export async function executeUserScript(
     }
 
     throw error;
+  } finally {
+    ctx.state.suppressXtrace = savedSuppressXtrace;
+    ctx.state.suppressVerbose = savedSuppressVerbose;
   }
 }

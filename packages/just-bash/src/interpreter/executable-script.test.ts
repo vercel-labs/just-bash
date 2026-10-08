@@ -2,6 +2,25 @@ import { describe, expect, it } from "vitest";
 import { Bash } from "../Bash.js";
 
 describe("executable scripts", () => {
+  it.each([
+    false,
+    true,
+  ])("imports only exported startup options (exported=%s)", async (exported) => {
+    const bash = new Bash({
+      files: {
+        "/script.sh":
+          '#!/bin/bash\nfalse | true\necho $?\nprintf "<%s>\\n" missing-*\n',
+      },
+    });
+    const result = await bash.exec(
+      `chmod +x /script.sh; set -o pipefail; shopt -s nullglob; ${exported ? "export SHELLOPTS BASHOPTS;" : ""} /script.sh; bash /script.sh; false | true; echo $?`,
+    );
+    expect(result.stdout).toBe(
+      exported ? "1\n<>\n1\n<>\n1\n" : "0\n<missing-*>\n0\n<missing-*>\n1\n",
+    );
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
   it("does not inherit aliases into executed scripts or leak script aliases", async () => {
     const bash = new Bash({
       files: {
