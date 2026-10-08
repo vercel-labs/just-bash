@@ -92,6 +92,7 @@ export type RunCommandFn = (
   useDefaultPath?: boolean,
   stdinSourceFd?: number,
   stdinRedirected?: boolean,
+  stdinProvided?: boolean,
 ) => Promise<ExecResult>;
 
 interface RevocableCommandContext {
@@ -456,6 +457,12 @@ export async function dispatchBuiltin(
    * shell's stdin".
    */
   stdinRedirected = false,
+  /**
+   * True when a pipeline or this command's own fd-0 redirection gave it
+   * stdin, even when empty. Only external commands use it; wrappers that
+   * re-dispatch forward it.
+   */
+  stdinProvided = false,
 ): Promise<ExecResult | null> {
   const { ctx, runCommand } = dispatchCtx;
 
@@ -586,7 +593,13 @@ export async function dispatchBuiltin(
     return handleLet(ctx, args);
   }
   if (commandName === "command") {
-    return handleCommandBuiltin(dispatchCtx, args, stdin, stdinRedirected);
+    return handleCommandBuiltin(
+      dispatchCtx,
+      args,
+      stdin,
+      stdinRedirected,
+      stdinProvided,
+    );
   }
   if (commandName === "builtin") {
     return handleBuiltinBuiltin(dispatchCtx, args, stdin, stdinRedirected);
@@ -611,6 +624,7 @@ export async function dispatchBuiltin(
       false,
       -1,
       stdinRedirected,
+      stdinProvided,
     );
     return { ...result, internalProducerOmitsShellPrefix: true };
   }
@@ -658,6 +672,7 @@ async function handleCommandBuiltin(
   stdin: string,
   /** Forwarded to the wrapped command: it runs on this command's fd 0. */
   stdinRedirected = false,
+  stdinProvided = false,
 ): Promise<ExecResult> {
   const { ctx, runCommand } = dispatchCtx;
 
@@ -711,6 +726,7 @@ async function handleCommandBuiltin(
     useDefaultPath,
     -1,
     stdinRedirected,
+    stdinProvided,
   );
 }
 
@@ -759,6 +775,7 @@ export async function executeExternalCommand(
   args: string[],
   stdin: string,
   useDefaultPath: boolean,
+  stdinProvided = false,
 ): Promise<ExecResult> {
   const { ctx, buildExportedEnv, executeUserScript } = dispatchCtx;
 
@@ -809,16 +826,12 @@ export async function executeExternalCommand(
     ctx.state.hashTable.set(commandName, cmdPath);
   }
 
-  // Use groupStdin as fallback if no stdin from redirections/pipeline —
-  // needed for commands inside groups/functions that receive stdin via
-  // heredoc. The pipeline glue (pipeline-execution.ts) and the
-  // stdin-source sites (heredoc, here-string, `< file`, options.stdin)
-  // are responsible for handing us a latin1-shaped byte buffer; we just
-  // brand it. Commands that decode their input internally (sed, jq,
-  // ...) return text via `textOutput()`, and the pipe / redirect layer
-  // converts to bytes on their behalf.
+  // Direct pipeline or redirection input wins even when empty. Inherited group
+  // stdin keeps the established content-based fallback until descriptor-aware
+  // ownership can be preserved across every nested execution path.
+  const commandStdinProvided = stdinProvided || stdin.length > 0;
   const effectiveStdin = unsafeBytesFromLatin1(
-    stdin || ctx.state.groupStdin || "",
+    commandStdinProvided ? stdin : ctx.state.groupStdin || "",
   );
   let stdinAccessed = false;
 
@@ -887,6 +900,7 @@ export async function executeExternalCommand(
       stdinAccessed = true;
       return effectiveStdin;
     },
+    stdinProvided: commandStdinProvided,
     limits: ctx.limits,
     executionScope: cmd.internalIsExtension
       ? createCommandExecutionBudget(ctx.executionScope)
