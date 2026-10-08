@@ -865,11 +865,37 @@ export class ReadWriteFs implements IFileSystem {
     // final component. Resolving it would turn `rm link` into `rm target` when
     // symlinks are allowed, which can delete an unrelated file or directory.
     const canonical = this.validateParent(realPath, path);
+    let removingDirectory = false;
 
     try {
       const stat = await fs.promises.lstat(canonical);
       if (!this.allowSymlinks && stat.isSymbolicLink()) {
         throw new Error(`EACCES: permission denied, '${path}' is a symlink`);
+      }
+      // Node's `fs.promises.rm` refuses every directory without `recursive`,
+      // empty or not, so a non-recursive removal of a directory takes
+      // rmdir(2), which removes an empty directory and refuses one that is
+      // not. This matches InMemoryFs and OverlayFs.
+      if (stat.isDirectory() && !options?.recursive) {
+        // rmdir(2) takes a pathname and Node has no rmdirat, so a parent
+        // swapped for a symlink after the lstat above would redirect it.
+        // Confirm the entry is still the one inspected, then re-validate the
+        // parent synchronously as the last step before the call, leaving only
+        // the window that every pathname syscall in this class has.
+        const current = await fs.promises.lstat(canonical);
+        const revalidated = this.validateParent(realPath, path);
+        if (
+          revalidated !== canonical ||
+          current.dev !== stat.dev ||
+          current.ino !== stat.ino
+        ) {
+          throw new Error(
+            `EACCES: permission denied, '${path}' changed during rm`,
+          );
+        }
+        removingDirectory = true;
+        await fs.promises.rmdir(revalidated);
+        return;
       }
       await fs.promises.rm(canonical, {
         recursive: options?.recursive ?? false,
@@ -881,7 +907,11 @@ export class ReadWriteFs implements IFileSystem {
         if (options?.force) return;
         throw new Error(`ENOENT: no such file or directory, rm '${path}'`);
       }
-      if (err.code === "ENOTEMPTY") {
+      // rmdir(2) may answer EEXIST for a directory that is not empty.
+      if (
+        err.code === "ENOTEMPTY" ||
+        (removingDirectory && err.code === "EEXIST")
+      ) {
         throw new Error(`ENOTEMPTY: directory not empty, rm '${path}'`);
       }
       this.sanitizeError(e, path, "rm");
