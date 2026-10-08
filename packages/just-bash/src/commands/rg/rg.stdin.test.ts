@@ -28,6 +28,19 @@ describe("rg searches stdin when no paths are given", () => {
     });
   });
 
+  for (const wrapper of ["command", "exec"]) {
+    it(`searches empty piped stdin through \`${wrapper}\``, async () => {
+      const env = new Bash({ files: { "/decoy.txt": "target line\n" } });
+      const result = await env.exec(`printf "" | ${wrapper} rg "target"`);
+
+      expect(result).toMatchObject({
+        stdout: "",
+        stderr: "",
+        exitCode: 1,
+      });
+    });
+  }
+
   it("lets an empty input redirection override enclosing stdin", async () => {
     const env = new Bash({
       files: {
@@ -74,6 +87,22 @@ describe("rg searches stdin when no paths are given", () => {
       },
     });
     const result = await env.exec("{ rg target 2< /empty.txt; } < /outer.txt");
+
+    expect(result).toMatchObject({
+      stdout: "1:outer target\n",
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
+  it("searches stdin, not a file opened on a non-stdin descriptor", async () => {
+    const env = new Bash({
+      files: {
+        "/fd2.txt": "fd2 target\n",
+        "/outer.txt": "outer target\n",
+      },
+    });
+    const result = await env.exec("{ rg target 2< /fd2.txt; } < /outer.txt");
 
     expect(result).toMatchObject({
       stdout: "1:outer target\n",
