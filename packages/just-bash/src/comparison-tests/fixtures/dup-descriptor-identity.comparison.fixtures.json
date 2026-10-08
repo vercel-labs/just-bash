@@ -1,0 +1,109 @@
+{
+  "2fb08143d04d4847": {
+    "command": "exec 3>a; { printf O; printf E >&2; } 4>&3 3>b 1>&3 2>&4; printf \"a=[%s] b=[%s]\\n\" \"$(cat a)\" \"$(cat b)\"",
+    "files": {},
+    "stdout": "a=[E] b=[O]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3811a76826d2e1c2": {
+    "command": "eval 'set -e; echo O1 && echo E1 >&2 && echo O2 && false' 2>&1",
+    "files": {},
+    "stdout": "O1\nE1\nO2\n",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "38f5a42b5da739e1": {
+    "command": "{ printf O; printf E >&2; } 3>a 1>&3 3>b 2>&3; printf \"a=[%s] b=[%s]\\n\" \"$(cat a)\" \"$(cat b)\"",
+    "files": {},
+    "stdout": "a=[O] b=[E]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4216771579ea5a9e": {
+    "command": "{ eval 'echo O1; echo E1 >&2; echo O2; exit'; } 2>&1",
+    "files": {},
+    "stdout": "O1\nE1\nO2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "46e21fc5888499a6": {
+    "command": "exec 3>a; { printf O; printf E >&2; } 1>&3 3>b 2>&3; printf \"a=[%s] b=[%s]\\n\" \"$(cat a)\" \"$(cat b)\"",
+    "files": {
+      "b": ""
+    },
+    "stdout": "a=[O] b=[E]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5adae30a8ae84600": {
+    "command": "( exec >f 2>&1; bash -c 'echo O1; echo E1 >&2; echo O2' ); cat f",
+    "files": {},
+    "stdout": "O1\nE1\nO2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "636c76feac84eef3": {
+    "command": "chmod +x x; ./x 2>&1",
+    "files": {
+      "x": "#!/bin/bash\necho O1\necho E1 >&2\necho O2\nexit\n"
+    },
+    "stdout": "O1\nE1\nO2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "73b34cd39171c73e": {
+    "command": "exec 3>a; exec 4>&3; { printf O; printf E >&2; } 1>&3 3>b 2>&4; printf \"a=[%s] b=[%s]\\n\" \"$(cat a)\" \"$(cat b)\"",
+    "files": {},
+    "stdout": "a=[OE] b=[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "89631be81ecf86d2": {
+    "command": "{ echo O1; echo E1 >&2; echo O2; exit 3; } 2>&1 | cat",
+    "files": {},
+    "stdout": "O1\nE1\nO2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8bd1bae334ad351f": {
+    "command": "exec 3>a; exec 4>b; { printf O; printf E >&2; } 1>&3 3>&4 2>&3; printf \"a=[%s] b=[%s]\\n\" \"$(cat a)\" \"$(cat b)\"",
+    "files": {},
+    "stdout": "a=[O] b=[E]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a31d3489be2d05c9": {
+    "command": "exec 3>a; { printf O; printf E >&2; } 1>&3 2>&3; printf \"a=[%s] b=[%s]\\n\" \"$(cat a)\" \"$(cat b)\"",
+    "files": {
+      "b": ""
+    },
+    "stdout": "a=[OE] b=[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ae1663c4d41345ff": {
+    "command": ". ./s 2>&1",
+    "files": {
+      "s": "echo O1\necho E1 >&2\necho O2\nreturn\n"
+    },
+    "stdout": "O1\nE1\nO2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b93131758cadb771": {
+    "command": "bash -c 'echo O1; echo E1 >&2; echo O2; exit' 2>&1",
+    "files": {},
+    "stdout": "O1\nE1\nO2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f2e047b1c42207ec": {
+    "command": "echo hi 3>a 1>&3- 2>&3; echo \"rc=$?\"; cat a",
+    "files": {},
+    "stdout": "rc=1\n",
+    "stderr": "/bin/bash: 3: Bad file descriptor\n",
+    "exitCode": 0,
+    "locked": true
+  }
+}

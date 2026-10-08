@@ -260,22 +260,13 @@ export class Interpreter {
         // ExitError always propagates up to terminate the script
         // This allows 'eval exit 42' and 'source exit.sh' to exit properly
         if (error instanceof ExitError) {
-          error.prependOutput(output.stdout, output.stderr);
+          error.prependOutput(output.stdout, output.stderr, output.chunks);
           throw error;
         }
         // PosixFatalError terminates the script in POSIX mode
         // POSIX 2.8.1: special builtins cause shell to exit on error
         if (error instanceof PosixFatalError) {
-          output.append(
-            "stdout",
-            error.stdout,
-            error.internalOutputAccounting.stdout,
-          );
-          output.append(
-            "stderr",
-            error.stderr,
-            error.internalOutputAccounting.stderr,
-          );
+          output.appendError(error);
           exitCode = error.exitCode;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -291,16 +282,7 @@ export class Interpreter {
           throw error;
         }
         if (error instanceof ErrexitError) {
-          output.append(
-            "stdout",
-            error.stdout,
-            error.internalOutputAccounting.stdout,
-          );
-          output.append(
-            "stderr",
-            error.stderr,
-            error.internalOutputAccounting.stderr,
-          );
+          output.appendError(error);
           exitCode = error.exitCode;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -311,16 +293,7 @@ export class Interpreter {
           };
         }
         if (error instanceof NounsetError) {
-          output.append(
-            "stdout",
-            error.stdout,
-            error.internalOutputAccounting.stdout,
-          );
-          output.append(
-            "stderr",
-            error.stderr,
-            error.internalOutputAccounting.stderr,
-          );
+          output.appendError(error);
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -331,16 +304,7 @@ export class Interpreter {
           };
         }
         if (error instanceof BadSubstitutionError) {
-          output.append(
-            "stdout",
-            error.stdout,
-            error.internalOutputAccounting.stdout,
-          );
-          output.append(
-            "stderr",
-            error.stderr,
-            error.internalOutputAccounting.stderr,
-          );
+          output.appendError(error);
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -353,16 +317,7 @@ export class Interpreter {
         // ArithmeticError in expansion (e.g., echo $((42x))) - the command fails
         // but the script continues execution. This matches bash behavior.
         if (error instanceof ArithmeticError) {
-          output.append(
-            "stdout",
-            error.stdout,
-            error.internalOutputAccounting.stdout,
-          );
-          output.append(
-            "stderr",
-            error.stderr,
-            error.internalOutputAccounting.stderr,
-          );
+          output.appendError(error);
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -372,16 +327,7 @@ export class Interpreter {
         // BraceExpansionError for invalid ranges (e.g., {z..A} mixed case) - the command fails
         // but the script continues execution. This matches bash behavior.
         if (error instanceof BraceExpansionError) {
-          output.append(
-            "stdout",
-            error.stdout,
-            error.internalOutputAccounting.stdout,
-          );
-          output.append(
-            "stderr",
-            error.stderr,
-            error.internalOutputAccounting.stderr,
-          );
+          output.appendError(error);
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -392,7 +338,7 @@ export class Interpreter {
         if (error instanceof BreakError || error instanceof ContinueError) {
           // If we're inside a loop, propagate the error up (for eval/source inside loops)
           if (this.ctx.state.loopDepth > 0) {
-            error.prependOutput(output.stdout, output.stderr);
+            error.prependOutput(output.stdout, output.stderr, output.chunks);
             throw error;
           }
           // Outside loops (level exceeded loop depth), silently continue with next statement
@@ -402,7 +348,7 @@ export class Interpreter {
         }
         // Handle return - prepend accumulated output before propagating
         if (error instanceof ReturnError) {
-          error.prependOutput(output.stdout, output.stderr);
+          error.prependOutput(output.stdout, output.stderr, output.chunks);
           throw error;
         }
         throw error;
@@ -522,7 +468,11 @@ export class Interpreter {
       !innerWasSafe
     ) {
       const error = new ErrexitError(exitCode);
-      error.prependOutput(statementOutput.stdout, statementOutput.stderr);
+      error.prependOutput(
+        statementOutput.stdout,
+        statementOutput.stderr,
+        statementOutput.chunks,
+      );
       throw error;
     }
 
@@ -727,6 +677,7 @@ export class Interpreter {
           node.redirections,
           preparedRedirections.targets,
           preparedRedirections.dupSources,
+          preparedRedirections.openedEntries,
           preparedRedirections.standardRoutes,
         );
         transaction.finish();
@@ -994,6 +945,7 @@ export class Interpreter {
       node.redirections,
       preparedRedirections.targets,
       preparedRedirections.dupSources,
+      preparedRedirections.openedEntries,
       preparedRedirections.standardRoutes,
       cmdResult.internalProducerCommand ?? commandName,
       cmdResult.internalProducerOmitsShellPrefix,

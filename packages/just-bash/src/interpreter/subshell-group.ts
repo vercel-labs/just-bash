@@ -136,75 +136,30 @@ async function executeSubshellBody(
     // SubshellExitError means break/continue was called when parent had loop context
     // This exits the subshell cleanly with exit code 0
     if (error instanceof SubshellExitError) {
-      output.append(
-        "stdout",
-        error.stdout,
-        error.internalOutputAccounting.stdout,
-      );
-      output.append(
-        "stderr",
-        error.stderr,
-        error.internalOutputAccounting.stderr,
-      );
+      output.appendError(error);
       return output.build(0);
     }
     // BreakError/ContinueError should NOT propagate out of subshell
     // They only affect loops within the subshell
     if (error instanceof BreakError || error instanceof ContinueError) {
-      output.append(
-        "stdout",
-        error.stdout,
-        error.internalOutputAccounting.stdout,
-      );
-      output.append(
-        "stderr",
-        error.stderr,
-        error.internalOutputAccounting.stderr,
-      );
+      output.appendError(error);
       return output.build(0);
     }
     // ExitError in subshell should NOT propagate - just return the exit code
     // (subshells are like separate processes)
     if (error instanceof ExitError) {
-      output.append(
-        "stdout",
-        error.stdout,
-        error.internalOutputAccounting.stdout,
-      );
-      output.append(
-        "stderr",
-        error.stderr,
-        error.internalOutputAccounting.stderr,
-      );
+      output.appendError(error);
       return output.build(error.exitCode);
     }
     // ReturnError in subshell (e.g., f() ( return 42; )) should also just exit
     // with the given code, since subshells are like separate processes
     if (error instanceof ReturnError) {
-      output.append(
-        "stdout",
-        error.stdout,
-        error.internalOutputAccounting.stdout,
-      );
-      output.append(
-        "stderr",
-        error.stderr,
-        error.internalOutputAccounting.stderr,
-      );
+      output.appendError(error);
       return output.build(error.exitCode);
     }
     if (error instanceof ErrexitError) {
       // Apply output redirections before propagating
-      output.append(
-        "stdout",
-        error.stdout,
-        error.internalOutputAccounting.stdout,
-      );
-      output.append(
-        "stderr",
-        error.stderr,
-        error.internalOutputAccounting.stderr,
-      );
+      output.appendError(error);
       return output.build(error.exitCode);
     }
     // Apply output redirections before returning
@@ -302,7 +257,7 @@ async function executeGroupBody(
       error instanceof ErrexitError ||
       error instanceof ExitError
     ) {
-      error.prependOutput(output.stdout, output.stderr);
+      error.prependOutput(output.stdout, output.stderr, output.chunks);
       throw error;
     }
     output.append("stderr", `${getErrorMessage(error)}\n`);
@@ -387,7 +342,11 @@ export async function executeUserScript(
     // Executable scripts run in a subshell-like environment, so exit only
     // ends the script and returns its status to the surrounding command list.
     if (error instanceof ExitError) {
-      return result(error.stdout, error.stderr, error.exitCode);
+      const exited = result(error.stdout, error.stderr, error.exitCode);
+      if (error.outputChunks?.length) {
+        exited.internalOutputChunks = error.outputChunks;
+      }
+      return exited;
     }
 
     // ExecutionLimitError must always propagate
