@@ -96,11 +96,9 @@ const Offset = {
 const Size = {
   CONTROL_REGION: 32,
   PATH_BUFFER: 4096,
-  // 8MB limit for FS read/write, HTTP responses, and tool invocation results.
-  // Sized to handle typical OpenAPI/GraphQL responses (paginated lists, batch queries).
-  // Still well under the 64MB QuickJS memory limit per execution.
+  // Default payload capacity. Each protocol instance derives its actual
+  // capacity from the shared buffer so both sides agree on configured limits.
   DATA_BUFFER: 8388608,
-  TOTAL: 8392736, // 32 + 4096 + 8MB
 } as const;
 
 /** Flags for operations */
@@ -127,8 +125,19 @@ import {
   _Atomics,
   _SharedArrayBuffer,
 } from "../../security/trusted-globals.js";
-export function createSharedBuffer(): SharedArrayBuffer {
-  return new _SharedArrayBuffer(Size.TOTAL);
+export function createSharedBuffer(
+  dataBufferSize: number = Size.DATA_BUFFER,
+): SharedArrayBuffer {
+  if (
+    !Number.isSafeInteger(dataBufferSize) ||
+    dataBufferSize < StatLayout.TOTAL ||
+    dataBufferSize > 0x7fffffff
+  ) {
+    throw new RangeError(
+      "Bridge payload capacity must be an integer between 24 and 2147483647 bytes",
+    );
+  }
+  return new _SharedArrayBuffer(Offset.DATA_BUFFER + dataBufferSize);
 }
 
 /**
@@ -138,11 +147,18 @@ export class ProtocolBuffer {
   private int32View: Int32Array;
   private uint8View: Uint8Array;
   private dataView: DataView;
+  private dataCapacity: number;
 
   constructor(buffer: SharedArrayBuffer) {
-    this.int32View = new Int32Array(buffer);
+    // Only the control region needs Int32 alignment; payload sizes can be odd.
+    this.int32View = new Int32Array(buffer, 0, Size.CONTROL_REGION / 4);
     this.uint8View = new Uint8Array(buffer);
     this.dataView = new DataView(buffer);
+    this.dataCapacity = buffer.byteLength - Offset.DATA_BUFFER;
+  }
+
+  getDataCapacity(): number {
+    return this.dataCapacity;
   }
 
   getOpCode(): OpCodeType {
@@ -239,8 +255,8 @@ export class ProtocolBuffer {
   }
 
   setData(data: Uint8Array): void {
-    if (data.length > Size.DATA_BUFFER) {
-      throw new Error(`Data too large: ${data.length} > ${Size.DATA_BUFFER}`);
+    if (data.length > this.dataCapacity) {
+      throw new Error(`Data too large: ${data.length} > ${this.dataCapacity}`);
     }
     this.uint8View.set(data, Offset.DATA_BUFFER);
     this.setDataLength(data.length);
@@ -265,8 +281,10 @@ export class ProtocolBuffer {
   }
 
   setResult(data: Uint8Array): void {
-    if (data.length > Size.DATA_BUFFER) {
-      throw new Error(`Result too large: ${data.length} > ${Size.DATA_BUFFER}`);
+    if (data.length > this.dataCapacity) {
+      throw new Error(
+        `Result too large: ${data.length} > ${this.dataCapacity}`,
+      );
     }
     this.uint8View.set(data, Offset.DATA_BUFFER);
     this.setResultLength(data.length);

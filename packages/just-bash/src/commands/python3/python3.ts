@@ -478,7 +478,7 @@ async function executePython(
   scriptPath?: string,
   scriptArgs: string[] = [],
 ): Promise<ExecResult> {
-  const sharedBuffer = createSharedBuffer();
+  const sharedBuffer = createSharedBuffer(ctx.limits.maxPythonBridgeBytes);
   const bridgeHandler = new BridgeHandler(
     sharedBuffer,
     ctx.fs,
@@ -517,7 +517,12 @@ async function executePython(
     args: scriptArgs,
     scriptPath,
     timeoutMs,
-    maxFileSize: ctx.limits.maxStringLength,
+    // Reject oversized HOSTFS writes before growing the worker's file buffer,
+    // rather than accepting data that cannot be transferred back on close.
+    maxFileSize: Math.min(
+      ctx.limits.maxStringLength,
+      ctx.limits.maxPythonBridgeBytes,
+    ),
   };
 
   controller.assertMessageSize(
