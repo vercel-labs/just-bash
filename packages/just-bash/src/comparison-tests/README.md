@@ -120,6 +120,7 @@ When recording:
 Currently locked fixtures:
 - `ls -R` - Uses Linux-style output with ".:" header
 - `cat -n` with multiple files - Uses continuous line numbering (Linux behavior)
+- `stat -c` - GNU-only flag, recorded from GNU coreutils 9.12 (`gstat` on PATH as `stat`, `LC_ALL=C`)
 
 ## API Reference
 
