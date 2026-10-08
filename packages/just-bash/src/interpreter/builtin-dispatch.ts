@@ -92,6 +92,7 @@ export type RunCommandFn = (
   useDefaultPath?: boolean,
   stdinSourceFd?: number,
   stdinRedirected?: boolean,
+  stdinProvided?: boolean,
 ) => Promise<ExecResult>;
 
 interface RevocableCommandContext {
@@ -456,6 +457,12 @@ export async function dispatchBuiltin(
    * shell's stdin".
    */
   stdinRedirected = false,
+  /**
+   * True when a pipeline or this command's own fd-0 redirection gave it
+   * stdin, even when empty. Only external commands use it; wrappers that
+   * re-dispatch forward it.
+   */
+  stdinProvided = false,
 ): Promise<ExecResult | null> {
   const { ctx, runCommand } = dispatchCtx;
 
@@ -586,7 +593,13 @@ export async function dispatchBuiltin(
     return handleLet(ctx, args);
   }
   if (commandName === "command") {
-    return handleCommandBuiltin(dispatchCtx, args, stdin, stdinRedirected);
+    return handleCommandBuiltin(
+      dispatchCtx,
+      args,
+      stdin,
+      stdinRedirected,
+      stdinProvided,
+    );
   }
   if (commandName === "builtin") {
     return handleBuiltinBuiltin(dispatchCtx, args, stdin, stdinRedirected);
@@ -611,6 +624,7 @@ export async function dispatchBuiltin(
       false,
       -1,
       stdinRedirected,
+      stdinProvided,
     );
     return { ...result, internalProducerOmitsShellPrefix: true };
   }
@@ -658,6 +672,7 @@ async function handleCommandBuiltin(
   stdin: string,
   /** Forwarded to the wrapped command: it runs on this command's fd 0. */
   stdinRedirected = false,
+  stdinProvided = false,
 ): Promise<ExecResult> {
   const { ctx, runCommand } = dispatchCtx;
 
@@ -711,6 +726,7 @@ async function handleCommandBuiltin(
     useDefaultPath,
     -1,
     stdinRedirected,
+    stdinProvided,
   );
 }
 

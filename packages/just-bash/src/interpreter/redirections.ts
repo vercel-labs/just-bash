@@ -929,7 +929,15 @@ async function prepareRedirectionsWithState(
         persistStandard(effectiveFd, source.entry, sink);
       }
       if (redir.operator === "<&" && effectiveFd === 0) {
+<<<<<<< HEAD
         if (
+=======
+        if (source.kind === "standard") {
+          stdin = source.fd === 0 ? inheritedStdin : "";
+          stdinSourceFd = -1;
+          stdinReplaced = source.fd !== 0;
+        } else if (
+>>>>>>> b5834f1b (fix(rg): keep fd-0 ownership and forward empty stdin through wrappers)
           source.entry.kind === "input" ||
           source.entry.kind === "readwrite"
         ) {
@@ -954,17 +962,15 @@ async function prepareRedirectionsWithState(
           }
           stdin = readable.content;
           stdinSourceFd = isFdOpen(ctx, parsed.sourceFd) ? parsed.sourceFd : -1;
+          stdinReplaced = true;
         } else {
+          // Every other source reads as the inherited stdin, such as a saved
+          // copy (`exec 3<&0; cmd <&3`) or a restore (`cmd < file 0<&3`), so
+          // fd 0 is not replaced.
           stdin = inheritedStdin;
           stdinSourceFd = -1;
+          stdinReplaced = false;
         }
-      }
-      if (
-        redir.operator === "<&" &&
-        effectiveFd === 0 &&
-        parsed.sourceFd !== 0
-      ) {
-        stdinReplaced = true;
       }
       if (parsed.move) {
         if (parsed.sourceFd >= FIRST_USER_FD) {
@@ -1014,12 +1020,12 @@ async function prepareRedirectionsWithState(
 
     if (redir.operator === "<<<") {
       const content = latin1FromBytes(encodeUtf8ToBytes(`${target}\n`));
+      persistStandard(effectiveFd, { kind: "input", content });
       if (effectiveFd === 0) {
         stdin = content;
         stdinSourceFd = -1;
         stdinReplaced = true;
       }
-      persistStandard(effectiveFd, { kind: "input", content });
     } else if (redir.operator === "<") {
       const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
       try {
@@ -1027,12 +1033,13 @@ async function prepareRedirectionsWithState(
           filePath === DEV_NULL
             ? ""
             : ((await readBytesFrom(ctx.fs, filePath)) as unknown as string);
+        persistStandard(effectiveFd, { kind: "input", content });
+        // Only fd 0 is stdin: `2< file` opens fd 2 and leaves stdin alone.
         if (effectiveFd === 0) {
           stdin = content;
           stdinSourceFd = -1;
           stdinReplaced = true;
         }
-        persistStandard(effectiveFd, { kind: "input", content });
       } catch {
         return fail(
           makeResult("", `bash: ${target}: No such file or directory\n`, 1),

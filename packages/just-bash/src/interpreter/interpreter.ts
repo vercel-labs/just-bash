@@ -530,8 +530,8 @@ export class Interpreter {
   }
 
   private async executePipeline(node: PipelineNode): Promise<ExecResult> {
-    return executePipelineHelper(this.ctx, node, (cmd, stdin, stdinProvided) =>
-      this.executeCommand(cmd, stdin, stdinProvided),
+    return executePipelineHelper(this.ctx, node, (cmd, stdin, stdinOwned) =>
+      this.executeCommand(cmd, stdin, stdinOwned),
     );
   }
 
@@ -884,7 +884,14 @@ export class Interpreter {
       return preparedRedirectionError(preparedRedirections);
     }
     const stdinSourceFd = preparedRedirections.stdinSourceFd;
-    const stdinRedirected = preparedRedirections.stdinReplaced;
+    // Builtins (eval, functions, wrappers) treat any fd-0 route as ownership,
+    // including one a persistent `exec <` set up earlier. External commands
+    // count only a pipeline or this command's own fd-0 replacement as direct
+    // input and otherwise fall back to the enclosing stdin. That fallback
+    // still differs from bash after an empty persistent `exec <` (bash: EOF).
+    const stdinRedirected = preparedRedirections.stdin !== undefined;
+    const directStdinProvided =
+      stdinProvided || preparedRedirections.stdinReplaced;
     if (preparedRedirections.stdin !== undefined) {
       stdin = preparedRedirections.stdin;
     }
@@ -964,7 +971,7 @@ export class Interpreter {
         false,
         stdinSourceFd,
         stdinRedirected,
-        stdinProvided,
+        directStdinProvided,
       );
     } catch (error) {
       // For break/continue, we still need to apply redirections before propagating
@@ -1094,8 +1101,8 @@ export class Interpreter {
   ): Promise<ExecResult> {
     const dispatchCtx: BuiltinDispatchContext = {
       ctx: this.ctx,
-      runCommand: (name, a, qa, s, sf, udp, ssf, sr) =>
-        this.runCommand(name, a, qa, s, sf, udp, ssf, sr),
+      runCommand: (name, a, qa, s, sf, udp, ssf, sr, sp) =>
+        this.runCommand(name, a, qa, s, sf, udp, ssf, sr, sp),
       buildExportedEnv: () => this.buildExportedEnv(),
       executeUserScript: (path, a, s) => this.executeUserScript(path, a, s),
     };
@@ -1111,6 +1118,7 @@ export class Interpreter {
       useDefaultPath,
       stdinSourceFd,
       stdinRedirected,
+      stdinProvided,
     );
 
     if (builtinResult !== null)
@@ -1125,7 +1133,7 @@ export class Interpreter {
       args,
       stdin,
       useDefaultPath,
-      stdinRedirected || stdinProvided,
+      stdinProvided,
     );
     return { ...externalResult, internalProducerCommand: commandName };
   }
