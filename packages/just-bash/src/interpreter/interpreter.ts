@@ -865,8 +865,9 @@ export class Interpreter {
       );
       onTransaction(transaction);
       const preparedRedirections = await transaction.prepare(stdin);
-      // Successful commands retain the existing temporary-redirection policy.
-      // Only a preparation failure adds these writes to the cleanup journal.
+      // After successful preparation, unwinding temporary bindings restores
+      // their pre-redirection values. Preparation failure preserves completed
+      // redirection expansion assignments in the underlying shell state.
       bindings.endExpansion(preparedRedirections.error !== null);
       if (preparedRedirections.error) {
         if (!preparedRedirections.errorCause) {
@@ -1035,9 +1036,8 @@ export class Interpreter {
 
       return cmdResult;
     } catch (error) {
-      // Preserve the pre-existing explicit-exit policy in this result-boundary
-      // fix: Bash 3.2 keeps bindings visible to EXIT handling, while Bash 5.3
-      // restores them at top level. Changing that policy is separate conformance work.
+      // Explicit exit retains prefix bindings in result.env. Bash 3.2 exposes
+      // those bindings to EXIT traps; Bash 5.3 restores them at top level.
       // Fatal expansion failures, including propagated eval failures, unwind them.
       if (error instanceof ExitError && error.reason === "exit")
         cleanupPolicy = "retain";
