@@ -970,9 +970,9 @@ def _path_iterdir(self):
 Path.iterdir = _path_iterdir
 
 Path._orig_glob = Path.glob
-def _path_glob(self, pattern):
+def _path_glob(self, pattern, *args, **kwargs):
     redirected = _redirect_path(self)
-    for p in redirected._orig_glob(pattern):
+    for p in redirected._orig_glob(pattern, *args, **kwargs):
         s = str(p)
         if s.startswith('/host'):
             yield Path(s[5:])
@@ -981,9 +981,9 @@ def _path_glob(self, pattern):
 Path.glob = _path_glob
 
 Path._orig_rglob = Path.rglob
-def _path_rglob(self, pattern):
+def _path_rglob(self, pattern, *args, **kwargs):
     redirected = _redirect_path(self)
-    for p in redirected._orig_rglob(pattern):
+    for p in redirected._orig_rglob(pattern, *args, **kwargs):
         s = str(p)
         if s.startswith('/host'):
             yield Path(s[5:])
