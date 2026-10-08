@@ -1129,7 +1129,7 @@ export class Interpreter {
 
   private expandAlias(node: SimpleCommandNode): SimpleCommandNode {
     return expandAliasHelper(
-      { env: this.ctx.state.env, limits: this.ctx.limits },
+      { aliases: this.ctx.state.aliases, limits: this.ctx.limits },
       node,
       this.aliasExpansionStack,
     );

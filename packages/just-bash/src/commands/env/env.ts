@@ -115,6 +115,7 @@ export const envCommand: RuntimeCommand = {
     // Execute with explicitly provided environment so untrusted values never
     // get reparsed as shell source via assignment prefixes.
     return ctx.exec("command", {
+      internalDispatch: true,
       cwd: ctx.cwd,
       env: mapToRecord(newEnv),
       replaceEnv: true,

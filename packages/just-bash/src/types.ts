@@ -69,6 +69,8 @@ export interface BashExecResult extends ExecResult {
 
 /** Options for exec calls within commands (internal API) */
 export interface CommandExecOptions {
+  /** Hide synthetic wrapper source and dispatch traces without changing shell options. */
+  internalDispatch?: boolean;
   /** Environment variables to merge into the exec state */
   env?: Record<string, string>;
   /**
@@ -163,6 +165,8 @@ export interface RuntimeCommandContext {
   cwd: string;
   /** Environment variables - uses Map to prevent prototype pollution */
   env: Map<string, string>;
+  /** Shell-local alias definitions for alias and unalias. */
+  aliases?: Map<string, string>;
   /** Interpreter-owned assignment gateway for commands such as `printf -v`. */
   assignShellVariable?: (
     name: string,

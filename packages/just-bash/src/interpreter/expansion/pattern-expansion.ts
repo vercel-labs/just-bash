@@ -120,6 +120,7 @@ async function executeCommandSubstitutionFromString(
   const savedBashPid = ctx.state.bashPid;
   ctx.state.bashPid = ctx.state.nextVirtualPid++;
   const savedEnv = new Map(ctx.state.env);
+  const savedAliases = new Map(ctx.state.aliases);
   const savedArrays = cloneArrays(ctx.state.arrays);
   const savedCwd = ctx.state.cwd;
   const savedSuppressVerbose = ctx.state.suppressVerbose;
@@ -130,6 +131,7 @@ async function executeCommandSubstitutionFromString(
     // Restore environment but preserve exit code
     const exitCode = result.exitCode;
     ctx.state.env = savedEnv;
+    ctx.state.aliases = savedAliases;
     ctx.state.arrays = savedArrays;
     ctx.state.cwd = savedCwd;
     ctx.state.suppressVerbose = savedSuppressVerbose;
@@ -142,6 +144,7 @@ async function executeCommandSubstitutionFromString(
     return result.stdout.replace(/\n+$/, "");
   } catch (error) {
     ctx.state.env = savedEnv;
+    ctx.state.aliases = savedAliases;
     ctx.state.arrays = savedArrays;
     ctx.state.cwd = savedCwd;
     ctx.state.bashPid = savedBashPid;

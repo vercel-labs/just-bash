@@ -18,15 +18,10 @@ import { serializeWord } from "../transform/serialize.js";
 import { ExecutionLimitError } from "./errors.js";
 
 /**
- * Alias prefix used in environment variables
- */
-const ALIAS_PREFIX = "BASH_ALIAS_";
-
-/**
  * Context needed for alias expansion operations
  */
 export interface AliasExpansionContext {
-  env: Map<string, string>;
+  aliases?: Map<string, string>;
   limits: {
     maxCallDepth: number;
     maxStringLength: number;
@@ -81,7 +76,7 @@ function getAlias(
   ctx: AliasExpansionContext,
   name: string,
 ): string | undefined {
-  return ctx.env.get(`${ALIAS_PREFIX}${name}`);
+  return ctx.aliases?.get(name);
 }
 
 /**

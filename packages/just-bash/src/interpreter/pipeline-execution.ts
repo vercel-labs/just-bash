@@ -88,6 +88,7 @@ export async function executePipeline(
     // Save environment for commands running in subshell context
     // This prevents variable assignments (e.g., ${cmd=echo}) from leaking to parent
     const savedEnv = runsInSubshell ? new Map(ctx.state.env) : null;
+    const savedAliases = runsInSubshell ? new Map(ctx.state.aliases) : null;
     const savedArrays = runsInSubshell ? cloneArrays(ctx.state.arrays) : null;
 
     let result: ExecResult;
@@ -130,6 +131,7 @@ export async function executePipeline(
         throw error;
       }
     } finally {
+      if (savedAliases) ctx.state.aliases = savedAliases;
       if (isMultiCommandPipeline) {
         // The first stage held the shell's stdin, so whatever it consumed
         // (a `read` builtin advances the position, `true` does not) is now

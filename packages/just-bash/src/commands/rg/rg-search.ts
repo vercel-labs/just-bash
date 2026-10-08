@@ -971,6 +971,7 @@ async function readFileContent(
       if (matchesPreGlob(filename, options.preprocessorGlobs)) {
         // Run preprocessor on this file
         const result = await ctx.exec(shellJoinArgs([options.preprocessor]), {
+          internalDispatch: true,
           cwd: ctx.cwd,
           signal: ctx.signal,
           args: [filePath],

@@ -1,0 +1,30 @@
+{
+  "292fd037dd28231a": {
+    "command": "set -e; export SHELLOPTS; bash -c 'false; echo unreachable'; echo status=$?",
+    "files": {},
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "4547843598e89141": {
+    "command": "shopt -s nullglob; bash -c 'printf \"<%s>\\n\" missing-*'",
+    "files": {},
+    "stdout": "<missing-*>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "874780c8a7415deb": {
+    "command": "set -o pipefail; export SHELLOPTS; export -n SHELLOPTS; bash -c 'false | true; echo $?'",
+    "files": {},
+    "stdout": "0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bed25a71fe60b98b": {
+    "command": "set -o pipefail; export SHELLOPTS; bash -c 'false | true; echo $?'",
+    "files": {},
+    "stdout": "1\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

@@ -239,6 +239,19 @@ function createRevocableCommandContext(
         if (methods.has(property)) return methods.get(property);
         const wrapped = (...args: unknown[]) => {
           assertActive();
+          // Collection callbacks expose the raw collection. The receiver belongs
+          // to the caller and must retain its identity and mutation semantics.
+          if (
+            property === "forEach" &&
+            (object instanceof Map || object instanceof Set) &&
+            typeof args[0] === "function"
+          ) {
+            const callback = args[0];
+            args[0] = function (this: unknown, ...callbackArgs: unknown[]) {
+              assertActive();
+              return Reflect.apply(callback, this, callbackArgs.map(wrapValue));
+            };
+          }
           return wrapValue(Reflect.apply(result, object, args));
         };
         methods.set(property, wrapped);
@@ -286,6 +299,9 @@ function createRevocableCommandContext(
   Object.assign(descriptors, {
     fs: dataDescriptor(wrapCapability(context.fs)),
     env: dataDescriptor(wrapCapability(context.env)),
+    aliases: dataDescriptor(
+      context.aliases ? wrapCapability(context.aliases) : undefined,
+    ),
     limits: dataDescriptor(Object.freeze({ ...context.limits })),
     exportedEnv: dataDescriptor(
       context.exportedEnv
@@ -829,11 +845,13 @@ export async function executeExternalCommand(
   // Give extensions one stable, revocable descriptor capability even when
   // this invocation has not created any extra descriptors yet.
   ctx.state.fileDescriptors ??= new Map();
+  ctx.state.aliases ??= new Map();
   const cmdCtx: RuntimeCommandContext = {
     fs: ctx.fs,
     fsIdentity: getFileSystemIdentity(ctx.fs),
     cwd: ctx.state.cwd,
     env: ctx.state.env,
+    aliases: ctx.state.aliases,
     assignShellVariable: async (name, value, subscript) => {
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
         throw new Error(`${name}: not a valid identifier`);

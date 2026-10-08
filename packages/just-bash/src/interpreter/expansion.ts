@@ -819,6 +819,7 @@ async function expandPart(
       // Save environment - command substitutions run in a subshell and should not
       // modify parent environment (e.g., aliases defined inside $() should not leak)
       const savedEnv = new Map(ctx.state.env);
+      const savedAliases = new Map(ctx.state.aliases);
       const savedArrays = cloneArrays(ctx.state.arrays);
       const savedCwd = ctx.state.cwd;
       // Suppress verbose mode (set -v) inside command substitutions
@@ -830,6 +831,7 @@ async function expandPart(
         // Restore environment but preserve exit code
         const exitCode = result.exitCode;
         ctx.state.env = savedEnv;
+        ctx.state.aliases = savedAliases;
         ctx.state.arrays = savedArrays;
         ctx.state.cwd = savedCwd;
         ctx.state.suppressVerbose = savedSuppressVerbose;
@@ -854,6 +856,7 @@ async function expandPart(
       } catch (error) {
         // Restore environment on error as well
         ctx.state.env = savedEnv;
+        ctx.state.aliases = savedAliases;
         ctx.state.arrays = savedArrays;
         ctx.state.cwd = savedCwd;
         ctx.state.bashPid = savedBashPid;

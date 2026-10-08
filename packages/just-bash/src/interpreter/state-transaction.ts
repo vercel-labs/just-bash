@@ -121,6 +121,7 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
     mutatedTempEnvVars: state.mutatedTempEnvVars,
     accessedTempEnvVars: state.accessedTempEnvVars,
     functions: state.functions,
+    aliases: state.aliases,
     callDepth: state.callDepth,
     sourceDepth: state.sourceDepth,
     callLineStack: state.callLineStack,
@@ -144,6 +145,7 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
   };
 
   state.env = new Map(state.env);
+  state.aliases = new Map(state.aliases);
   state.arrays = cloneArrays(state.arrays);
   state.options = { ...state.options };
   state.shoptOptions = { ...state.shoptOptions };

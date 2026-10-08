@@ -267,6 +267,7 @@ async function runBody(
 
   const savedDepth = ctx.substitutionDepth;
   const savedEnv = new Map(ctx.state.env);
+  const savedAliases = new Map(ctx.state.aliases);
   const savedArrays = cloneArrays(ctx.state.arrays);
   const savedCwd = ctx.state.cwd;
   const savedBashPid = ctx.state.bashPid;
@@ -300,6 +301,7 @@ async function runBody(
   } finally {
     ctx.substitutionDepth = savedDepth;
     ctx.state.env = savedEnv;
+    ctx.state.aliases = savedAliases;
     ctx.state.arrays = savedArrays;
     ctx.state.cwd = savedCwd;
     ctx.state.bashPid = savedBashPid;

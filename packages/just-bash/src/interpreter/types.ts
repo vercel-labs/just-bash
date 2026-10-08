@@ -229,6 +229,8 @@ export interface LocalScopingState {
 export interface CallStackState {
   /** Function definitions (name -> AST node) */
   functions: Map<string, FunctionDefNode>;
+  /** Shell-local alias definitions, never populated from environment data. */
+  aliases?: Map<string, string>;
   /** Current function call depth (for recursion limits and local scoping) */
   callDepth: number;
   /** Current source script nesting depth (for return in sourced scripts) */
@@ -451,6 +453,7 @@ export interface InterpreterState
    * inside $(...) or backticks.
    */
   suppressVerbose?: boolean;
+  suppressXtrace?: boolean;
 
   /**
    * Abort signal for cooperative cancellation.
