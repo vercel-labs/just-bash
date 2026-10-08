@@ -26,5 +26,5 @@ export function handleExit(ctx: InterpreterContext, args: string[]): never {
     }
   }
 
-  throw new ExitError(exitCode, "", stderr);
+  throw new ExitError(exitCode, "", stderr, "exit");
 }

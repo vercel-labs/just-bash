@@ -24,8 +24,6 @@ import {
 } from "./expansion.js";
 import {
   clearArray,
-  cloneArray,
-  getArray,
   getArrayElement,
   parseKeyedElementFromWord,
   setArrayElement,
@@ -40,6 +38,7 @@ import {
 import { checkReadonlyError, isReadonly } from "./helpers/readonly.js";
 import { result } from "./helpers/result.js";
 import { traceAssignment } from "./helpers/xtrace.js";
+import type { PrefixBindings } from "./prefix-bindings.js";
 import type { InterpreterContext } from "./types.js";
 
 function appendAssignmentValue(
@@ -63,25 +62,25 @@ export interface AssignmentResult {
   continueToNext: boolean;
   /** Accumulated xtrace output for assignments */
   xtraceOutput: string;
-  /** Temporary assignments for prefix bindings (FOO=bar cmd) */
-  tempAssignments: Map<string, string | undefined>;
   /** Error result if assignment failed */
   error?: ExecResult;
 }
 
 /**
  * Process all assignments in a simple command.
- * Returns assignment results including temp bindings and any errors.
+ * Records temporary bindings in the caller's map so command cleanup can unwind
+ * partial assignment processing, including a failure in a later value.
  */
 export async function processAssignments(
   ctx: InterpreterContext,
   node: SimpleCommandNode,
+  bindings: PrefixBindings,
 ): Promise<AssignmentResult> {
-  const tempAssignments = new Map<string, string | undefined>();
   let xtraceOutput = "";
 
   for (const assignment of node.assignments) {
     const name = assignment.name;
+    if (node.name) bindings.beginExpansion();
 
     // Handle array assignment: VAR=(a b c) or VAR+=(a b c)
     if (assignment.array) {
@@ -91,13 +90,12 @@ export async function processAssignments(
         name,
         assignment.array,
         assignment.append,
-        tempAssignments,
+        bindings,
       );
       if (arrayResult.error) {
         return {
           continueToNext: false,
           xtraceOutput,
-          tempAssignments,
           error: arrayResult.error,
         };
       }
@@ -117,7 +115,6 @@ export async function processAssignments(
       return {
         continueToNext: false,
         xtraceOutput,
-        tempAssignments,
         error: result("", `bash: ${name}: bad array subscript\n`, 1),
       };
     }
@@ -132,13 +129,11 @@ export async function processAssignments(
         subscriptMatch[2],
         value,
         assignment.append,
-        tempAssignments,
       );
       if (subscriptResult.error) {
         return {
           continueToNext: false,
           xtraceOutput,
-          tempAssignments,
           error: subscriptResult.error,
         };
       }
@@ -154,13 +149,12 @@ export async function processAssignments(
       name,
       value,
       assignment.append,
-      tempAssignments,
+      bindings,
     );
     if (scalarResult.error) {
       return {
         continueToNext: false,
         xtraceOutput,
-        tempAssignments,
         error: scalarResult.error,
       };
     }
@@ -172,7 +166,6 @@ export async function processAssignments(
   return {
     continueToNext: false,
     xtraceOutput,
-    tempAssignments,
   };
 }
 
@@ -191,7 +184,7 @@ async function processArrayAssignment(
   name: string,
   array: WordNode[],
   append: boolean,
-  tempAssignments: Map<string, string | undefined>,
+  bindings: PrefixBindings,
 ): Promise<SingleAssignmentResult> {
   let xtraceOutput = "";
 
@@ -242,15 +235,10 @@ async function processArrayAssignment(
 
   // Check if this is an associative array
   const isAssoc = ctx.state.associativeArrays?.has(name);
-  const savedArray = getArray(ctx, name);
-  const savedArraySnapshot = savedArray ? cloneArray(savedArray) : undefined;
-  const savedScalar = ctx.state.env.get(name);
-  const restoreTarget = (): void => {
-    ctx.state.arrays ??= new Map();
-    if (savedArraySnapshot) ctx.state.arrays.set(name, savedArraySnapshot);
-    else ctx.state.arrays.delete(name);
-    if (savedScalar === undefined) ctx.state.env.delete(name);
-    else ctx.state.env.set(name, savedScalar);
+  const beforeInstall = (): void => {
+    // RHS effects already belong to shell state. The shared command owner
+    // snapshots only the post-expansion value, before installation can fail.
+    bindings.capture(name);
   };
 
   // Check if elements use [key]=value or [key]+=value syntax
@@ -262,48 +250,45 @@ async function processArrayAssignment(
     ctx.state.env.delete(name);
   };
 
-  try {
-    if (isAssoc && hasKeyedElements) {
-      await processAssociativeArrayAssignment(
-        ctx,
-        node,
-        name,
-        array,
-        append,
-        clearExistingElements,
-        (msg) => {
-          xtraceOutput += msg;
-        },
-      );
-    } else if (hasKeyedElements) {
-      await processIndexedArrayWithKeysAssignment(
-        ctx,
-        name,
-        array,
-        append,
-        clearExistingElements,
-      );
-    } else {
-      await processSimpleArrayAssignment(
-        ctx,
-        name,
-        array,
-        append,
-        clearExistingElements,
-      );
-    }
-  } catch (error) {
-    restoreTarget();
-    throw error;
+  if (isAssoc && hasKeyedElements) {
+    await processAssociativeArrayAssignment(
+      ctx,
+      node,
+      name,
+      array,
+      append,
+      clearExistingElements,
+      beforeInstall,
+      (msg) => {
+        xtraceOutput += msg;
+      },
+    );
+  } else if (hasKeyedElements) {
+    await processIndexedArrayWithKeysAssignment(
+      ctx,
+      name,
+      array,
+      append,
+      clearExistingElements,
+      beforeInstall,
+    );
+  } else {
+    await processSimpleArrayAssignment(
+      ctx,
+      name,
+      array,
+      append,
+      clearExistingElements,
+      beforeInstall,
+    );
   }
 
   // For prefix assignments with a command, bash stringifies the array syntax
   if (node.name) {
-    tempAssignments.set(name, ctx.state.env.get(name));
     const elements = array.map((el) => wordToLiteralString(el));
     const stringified = `(${elements.join(" ")})`;
     ctx.state.env.set(name, stringified);
-  }
+  } else bindings.retain(name);
 
   return { continueToNext: true, xtraceOutput };
 }
@@ -353,6 +338,7 @@ async function processAssociativeArrayAssignment(
   array: WordNode[],
   append: boolean,
   clearExistingElements: () => void,
+  beforeInstall: () => void,
   addXtraceOutput: (msg: string) => void,
 ): Promise<void> {
   interface PendingAssocElement {
@@ -405,6 +391,7 @@ async function processAssociativeArrayAssignment(
   }
 
   // Clear existing elements AFTER all expansion
+  beforeInstall();
   ctx.executionScope.consumeWork(
     pendingElements.length,
     "associative array assignment",
@@ -446,6 +433,7 @@ async function processIndexedArrayWithKeysAssignment(
   array: WordNode[],
   append: boolean,
   clearExistingElements: () => void,
+  beforeInstall: () => void,
 ): Promise<void> {
   interface PendingElement {
     type: "keyed";
@@ -509,6 +497,7 @@ async function processIndexedArrayWithKeysAssignment(
   }
 
   // Clear existing elements AFTER all RHS expansion
+  beforeInstall();
   ctx.executionScope.consumeWork(pendingValueCount, "indexed array assignment");
   if (!append) {
     clearExistingElements();
@@ -561,6 +550,7 @@ async function processSimpleArrayAssignment(
   array: WordNode[],
   append: boolean,
   clearExistingElements: () => void,
+  beforeInstall: () => void,
 ): Promise<void> {
   const allElements: string[] = [];
   for (const element of array) {
@@ -577,6 +567,7 @@ async function processSimpleArrayAssignment(
   }
 
   let startIndex = 0;
+  beforeInstall();
   ctx.executionScope.consumeWork(
     allElements.length,
     "indexed array assignment",
@@ -615,7 +606,6 @@ async function processSubscriptAssignment(
   subscriptExpr: string,
   value: string,
   append: boolean,
-  _tempAssignments: Map<string, string | undefined>,
 ): Promise<SingleAssignmentResult> {
   let resolvedArrayName = arrayName;
 
@@ -811,7 +801,7 @@ async function processScalarAssignment(
   name: string,
   value: string,
   append: boolean,
-  tempAssignments: Map<string, string | undefined>,
+  bindings: PrefixBindings,
 ): Promise<SingleAssignmentResult> {
   let xtraceOutput = "";
 
@@ -898,7 +888,7 @@ async function processScalarAssignment(
 
   if (node.name) {
     if (arrayElementKey === undefined) {
-      tempAssignments.set(targetName, ctx.state.env.get(targetName));
+      bindings.capture(targetName);
       ctx.state.env.set(targetName, finalValue);
     } else {
       // See processSubscriptAssignment: do not leak array-element prefix writes.

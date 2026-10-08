@@ -32,11 +32,7 @@ import { initFilesystem } from "./fs/init.js";
 import type { IFileSystem, InitialFiles } from "./fs/interface.js";
 import { MountableFs } from "./fs/mountable-fs/mountable-fs.js";
 import { sanitizeErrorMessage } from "./fs/sanitize-error.js";
-import {
-  mapToRecord,
-  mapToRecordWithExtras,
-  mergeToNullPrototype,
-} from "./helpers/env.js";
+import { mapToRecord, mergeToNullPrototype } from "./helpers/env.js";
 import {
   ArithmeticError,
   ExecutionAbortedError,
@@ -686,6 +682,16 @@ export class Bash {
       ? { ...options, signal: combinedAbort.signal }
       : { signal: combinedAbort.signal };
 
+    // Every result path uses this execution's environment, including failures
+    // before state initialization. Recursive calls inherit the live caller.
+    const replaceEnv = effectiveOptions.replaceEnv || effectiveOptions.newShell;
+    const execEnv = replaceEnv
+      ? new Map<string, string>()
+      : new Map((callerState ?? this.state).env);
+    for (const [key, value] of Object.entries(effectiveOptions.env ?? {})) {
+      execEnv.set(key, value);
+    }
+
     try {
       executionScope.assertExecDepth(execDepth);
 
@@ -699,7 +705,7 @@ export class Bash {
           stdout: "",
           stderr: "",
           exitCode: 0,
-          env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+          env: mapToRecord(execEnv),
         };
       }
 
@@ -737,20 +743,6 @@ export class Bash {
         }
       }
 
-      // Create environment for this execution. A recursive exec (from `env`,
-      // `time`, `timeout`, ...) runs in the calling execution, so it starts
-      // from that execution's live variables rather than the instance's.
-      const replaceEnv =
-        effectiveOptions.replaceEnv || effectiveOptions.newShell;
-      const execEnv = replaceEnv
-        ? new Map<string, string>()
-        : new Map((callerState ?? this.state).env);
-      // Merge in options.env
-      if (effectiveOptions.env) {
-        for (const [key, value] of Object.entries(effectiveOptions.env)) {
-          execEnv.set(key, value);
-        }
-      }
       // Update PWD when cwd option is provided
       if (newPwd !== undefined) {
         execEnv.set("PWD", newPwd);
@@ -923,7 +915,7 @@ export class Bash {
             stderr: error.stderr,
             exitCode: error.exitCode,
             internalOutputAccounting: error.internalOutputAccounting,
-            env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+            env: mapToRecord(execState.env),
           });
         }
         // PosixFatalError propagates from special builtins in POSIX mode
@@ -932,7 +924,7 @@ export class Bash {
             stdout: error.stdout,
             stderr: error.stderr,
             exitCode: error.exitCode,
-            env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+            env: mapToRecord(execState.env),
           });
         }
         if (error instanceof ArithmeticError) {
@@ -940,7 +932,7 @@ export class Bash {
             stdout: error.stdout,
             stderr: error.stderr,
             exitCode: 1,
-            env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+            env: mapToRecord(execState.env),
           });
         }
         // ExecutionAbortedError is thrown when an AbortSignal fires (timeout cancellation)
@@ -949,7 +941,7 @@ export class Bash {
             stdout: error.stdout,
             stderr: error.stderr,
             exitCode: 124, // Same as timeout exit code
-            env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+            env: mapToRecord(execState.env),
           });
         }
         // ExecutionLimitError is thrown when our conservative limits are exceeded
@@ -960,7 +952,7 @@ export class Bash {
             stderr: sanitizeErrorMessage(error.stderr),
             exitCode: ExecutionLimitError.EXIT_CODE,
             internalOutputAccounting: error.internalOutputAccounting,
-            env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+            env: mapToRecord(execState.env),
           });
         }
         // SecurityViolationError is thrown when defense-in-depth detects a blocked operation
@@ -969,7 +961,7 @@ export class Bash {
             stdout: "",
             stderr: `bash: security violation: ${sanitizeErrorMessage(error.message)}\n`,
             exitCode: 1,
-            env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+            env: mapToRecord(execState.env),
           });
         }
         if ((error as ParseException).name === "ParseException") {
@@ -977,7 +969,7 @@ export class Bash {
             stdout: "",
             stderr: `bash: syntax error: ${sanitizeErrorMessage((error as Error).message)}\n`,
             exitCode: 2,
-            env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+            env: mapToRecord(execState.env),
           });
         }
         // LexerError is thrown for lexer-level issues like unterminated quotes
@@ -986,7 +978,7 @@ export class Bash {
             stdout: "",
             stderr: `bash: ${sanitizeErrorMessage(error.message)}\n`,
             exitCode: 2,
-            env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+            env: mapToRecord(execState.env),
           });
         }
         // RangeError occurs when JavaScript call stack is exceeded (deep recursion)
@@ -995,7 +987,7 @@ export class Bash {
             stdout: "",
             stderr: `bash: ${sanitizeErrorMessage(error.message)}\n`,
             exitCode: 1,
-            env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+            env: mapToRecord(execState.env),
           });
         }
         throw error;
@@ -1009,7 +1001,7 @@ export class Bash {
           stdout: error.stdout,
           stderr: error.stderr,
           exitCode: 124,
-          env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+          env: mapToRecord(execEnv),
         });
       }
       if (error instanceof ExecutionLimitError) {
@@ -1018,7 +1010,7 @@ export class Bash {
           stderr: sanitizeErrorMessage(error.stderr),
           exitCode: ExecutionLimitError.EXIT_CODE,
           internalOutputAccounting: error.internalOutputAccounting,
-          env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
+          env: mapToRecord(execEnv),
         });
       }
       throw error;
