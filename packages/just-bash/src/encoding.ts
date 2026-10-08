@@ -121,6 +121,193 @@ export function decodeBytesToUtf8(
 }
 
 /**
+ * Decode a byte array as UTF-8 with error recovery.
+ * Valid UTF-8 sequences are decoded to their Unicode characters.
+ * Invalid bytes are preserved as Latin-1 characters (byte value = char code).
+ */
+function decodeUtf8WithRecovery(bytes: number[]): string {
+  let result = "";
+  let i = 0;
+
+  while (i < bytes.length) {
+    const b0 = bytes[i];
+
+    // ASCII (0xxxxxxx)
+    if (b0 < 0x80) {
+      result += String.fromCharCode(b0);
+      i++;
+      continue;
+    }
+
+    // 2-byte sequence (110xxxxx 10xxxxxx)
+    if ((b0 & 0xe0) === 0xc0) {
+      if (
+        i + 1 < bytes.length &&
+        (bytes[i + 1] & 0xc0) === 0x80 &&
+        b0 >= 0xc2 // Reject overlong sequences
+      ) {
+        const codePoint = ((b0 & 0x1f) << 6) | (bytes[i + 1] & 0x3f);
+        result += String.fromCharCode(codePoint);
+        i += 2;
+        continue;
+      }
+      // Invalid or incomplete - output as Latin-1
+      result += String.fromCharCode(b0);
+      i++;
+      continue;
+    }
+
+    // 3-byte sequence (1110xxxx 10xxxxxx 10xxxxxx)
+    if ((b0 & 0xf0) === 0xe0) {
+      if (
+        i + 2 < bytes.length &&
+        (bytes[i + 1] & 0xc0) === 0x80 &&
+        (bytes[i + 2] & 0xc0) === 0x80
+      ) {
+        // Check for overlong encoding
+        if (b0 === 0xe0 && bytes[i + 1] < 0xa0) {
+          // Overlong - output first byte as Latin-1
+          result += String.fromCharCode(b0);
+          i++;
+          continue;
+        }
+        // Check for surrogate range (U+D800-U+DFFF)
+        const codePoint =
+          ((b0 & 0x0f) << 12) |
+          ((bytes[i + 1] & 0x3f) << 6) |
+          (bytes[i + 2] & 0x3f);
+        if (codePoint >= 0xd800 && codePoint <= 0xdfff) {
+          // Invalid surrogate - output first byte as Latin-1
+          result += String.fromCharCode(b0);
+          i++;
+          continue;
+        }
+        result += String.fromCharCode(codePoint);
+        i += 3;
+        continue;
+      }
+      // Invalid or incomplete - output as Latin-1
+      result += String.fromCharCode(b0);
+      i++;
+      continue;
+    }
+
+    // 4-byte sequence (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
+    if ((b0 & 0xf8) === 0xf0 && b0 <= 0xf4) {
+      if (
+        i + 3 < bytes.length &&
+        (bytes[i + 1] & 0xc0) === 0x80 &&
+        (bytes[i + 2] & 0xc0) === 0x80 &&
+        (bytes[i + 3] & 0xc0) === 0x80
+      ) {
+        // Check for overlong encoding
+        if (b0 === 0xf0 && bytes[i + 1] < 0x90) {
+          // Overlong - output first byte as Latin-1
+          result += String.fromCharCode(b0);
+          i++;
+          continue;
+        }
+        const codePoint =
+          ((b0 & 0x07) << 18) |
+          ((bytes[i + 1] & 0x3f) << 12) |
+          ((bytes[i + 2] & 0x3f) << 6) |
+          (bytes[i + 3] & 0x3f);
+        // Check for valid range (U+10000 to U+10FFFF)
+        if (codePoint > 0x10ffff) {
+          // Invalid - output first byte as Latin-1
+          result += String.fromCharCode(b0);
+          i++;
+          continue;
+        }
+        result += String.fromCodePoint(codePoint);
+        i += 4;
+        continue;
+      }
+      // Invalid or incomplete - output as Latin-1
+      result += String.fromCharCode(b0);
+      i++;
+      continue;
+    }
+
+    // Invalid lead byte (10xxxxxx or 11111xxx) - output as Latin-1
+    result += String.fromCharCode(b0);
+    i++;
+  }
+
+  return result;
+}
+
+/**
+ * Read up to `maxDigits` digits in `radix` starting at `i`, as in the octal
+ * and hex escapes `\NNN` and `\xHH`. Returns `null` when there is no digit.
+ */
+function readEscapeDigits(
+  str: string,
+  i: number,
+  radix: 8 | 16,
+  maxDigits: number,
+): { byte: number; next: number } | null {
+  let byte = 0;
+  let j = i;
+  while (j < str.length && j < i + maxDigits) {
+    const digit = Number.parseInt(str[j], radix);
+    if (Number.isNaN(digit)) break;
+    byte = byte * radix + digit;
+    j++;
+  }
+  return j > i ? { byte, next: j } : null;
+}
+
+/**
+ * Read one `\NNN` (1-3 octal digits) or `\xHH` (1-2 hex digits) escape at
+ * `i`, as in printf formats and `$'...'`. Returns `null` for anything else.
+ */
+export function readOctalOrHexEscape(
+  str: string,
+  i: number,
+): { byte: number; next: number } | null {
+  if (str[i] !== "\\") return null;
+  if (str[i + 1] === "x") return readEscapeDigits(str, i + 2, 16, 2);
+  return readEscapeDigits(str, i + 1, 8, 3);
+}
+
+/**
+ * Read one `\0NNN` (0-3 octal digits after the 0, so `\0` alone is NUL) or
+ * `\xHH` (1-2 hex digits) escape at `i`, as in `echo -e`. Returns `null` for
+ * anything else.
+ */
+export function readZeroOctalOrHexEscape(
+  str: string,
+  i: number,
+): { byte: number; next: number } | null {
+  if (str[i] !== "\\") return null;
+  if (str[i + 1] === "x") return readEscapeDigits(str, i + 2, 16, 2);
+  if (str[i + 1] !== "0") return null;
+  return readEscapeDigits(str, i + 2, 8, 3) ?? { byte: 0, next: i + 2 };
+}
+
+/**
+ * Read the run of byte escapes that starts at `start`, such as `\303\251` or
+ * `\xc3\xa9`, and decode the bytes together as UTF-8. Bash writes each escape
+ * as one byte, so a multibyte character spelled as escapes reads back as that
+ * character. `readByte` parses one escape in the caller's syntax and returns
+ * `null` where the run ends.
+ */
+export function decodeByteEscapes(
+  str: string,
+  start: number,
+  readByte: (str: string, i: number) => { byte: number; next: number } | null,
+): { text: string; next: number } {
+  const bytes: number[] = [];
+  let i = start;
+  for (let read = readByte(str, i); read; read = readByte(str, i)) {
+    bytes.push(read.byte & 0xff);
+    i = read.next;
+  }
+  return { text: decodeUtf8WithRecovery(bytes), next: i };
+}
+
+/**
  * UTF-8 encode `s` (treating every char as a Unicode codepoint) into a
  * `ByteString`. Use at sites that *know* their input is decoded Unicode
  * text and need to emit it back as bytes — typically the inverse of an
