@@ -139,6 +139,17 @@ describe("query builtin prospective resource limits", () => {
     ).toThrow(/too many iterations \(3\)/);
   });
 
+  it("charges computed path keys to the shared query work budget", () => {
+    const k = Array.from({ length: 50 }, (_, i) => `k${i}`);
+    expect(() =>
+      evaluate(
+        { a: {}, k },
+        parse("path(.a[.k[]])"),
+        limits({ maxIterations: 30, maxArrayElements: 64 }),
+      ),
+    ).toThrow(/too many iterations \(30\)/);
+  });
+
   it("preserves jq's negative-index error for pick(last)", () => {
     expect(() => evaluate([1], parse("pick(last)"), limits())).toThrow(
       "Out of bounds negative array index",

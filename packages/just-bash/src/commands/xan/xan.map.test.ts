@@ -73,6 +73,17 @@ describe("xan map string functions", () => {
     );
   });
 
+  it("indexes with a column", async () => {
+    const bash = new Bash({
+      files: { "/data.csv": "names,idx\na|b|c,1\nd|e|f,2\n" },
+    });
+    const result = await bash.exec(
+      "xan map \"split(names, '|')[idx] as picked\" /data.csv",
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("names,idx,picked\na|b|c,1,b\nd|e|f,2,f\n");
+  });
+
   it("uses upper and lower", async () => {
     const bash = new Bash({
       files: { "/data.csv": "name\nJohn\nmary\n" },
