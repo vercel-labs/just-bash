@@ -424,6 +424,7 @@ describe("find performance tracing", () => {
           size: 1024,
           mode: 0o644,
           newerRefTimes,
+          now: 0,
         };
         const result = evaluateExpressionWithPrune(expr, evalCtx);
         if (result.matches) regularPathMatches++;

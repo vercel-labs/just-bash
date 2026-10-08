@@ -75,6 +75,7 @@ function emitTraceSummary(
   });
 }
 
+import { isValidTimezone } from "../date/date.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 import {
   applyWidth,
@@ -113,7 +114,9 @@ const findHelp = {
     "-type TYPE       file is of type: f (regular file), d (directory)",
     "-empty           file is empty or directory is empty",
     "-mtime N         file's data was modified N*24 hours ago",
+    "-mmin N          file's data was modified N minutes ago",
     "-newer FILE      file was modified more recently than FILE",
+    "-newermt DATE    file was modified more recently than DATE (YYYY-MM-DD[ HH:MM[:SS]])",
     "-size N[ckMGb]   file uses N units of space (c=bytes, k=KB, M=MB, G=GB, b=512B blocks)",
     "-perm MODE       file's permission bits are exactly MODE (octal)",
     "-perm -MODE      all permission bits MODE are set",
@@ -209,7 +212,12 @@ export const findCommand: RuntimeCommand = {
     }
 
     // Parse the complete expression before any filesystem access or action.
-    const { expr, error } = parseExpressions(args, expressionStart);
+    // A bare -newermt date is read in $TZ when it names a zone, and in UTC
+    // otherwise, the same contract `date` keeps.
+    const tz = ctx.env.get("TZ");
+    const { expr, error } = parseExpressions(args, expressionStart, {
+      tz: tz && isValidTimezone(tz) ? tz : undefined,
+    });
 
     // Return error for unknown predicates
     if (error) {
@@ -290,6 +298,10 @@ export const findCommand: RuntimeCommand = {
         fallbackOutputBytes += bytes;
       }
     };
+
+    // One reference time for the whole traversal, so -mtime and -mmin do not
+    // move their cutoff while a long search runs.
+    const now = Date.now();
 
     // Collect and resolve -newer reference file mtimes
     const newerRefPaths = collectNewerRefs(expr);
@@ -549,6 +561,7 @@ export const findCommand: RuntimeCommand = {
             size: stat?.size ?? 0,
             mode: stat?.mode ?? 0o644,
             newerRefTimes,
+            now,
           };
           const evalResult = evaluateExpressionWithPrune(expr, evalCtx);
           pruned = evalResult.pruned;
@@ -635,6 +648,7 @@ export const findCommand: RuntimeCommand = {
               size: node.stat?.size ?? 0,
               mode: node.stat?.mode ?? 0o644,
               newerRefTimes,
+              now,
             };
             evalResult = evaluateExpressionWithPrune(expr, evalCtx);
           }

@@ -2,6 +2,116 @@ import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
 describe("find predicates", () => {
+  describe("-mmin (modification time in minutes)", () => {
+    // Ages in whole minutes, the fraction dropped: recent is 2 (2.5 minutes
+    // old), fresh is 0 (30 seconds old), old is 60.
+    it.each([
+      ["-mmin -2", "/dir/fresh.txt\n"],
+      ["-mmin 0", "/dir/fresh.txt\n"],
+      ["-mmin 2", "/dir/recent.txt\n"],
+      ["-mmin +2", "/dir/old.txt\n"],
+      ["-mmin -10", "/dir/fresh.txt\n/dir/recent.txt\n"],
+    ])("find /dir -type f %s", async (predicate, expected) => {
+      const now = Date.now();
+      const env = new Bash({
+        files: {
+          "/dir/fresh.txt": { content: "fresh", mtime: new Date(now - 30_000) },
+          "/dir/recent.txt": {
+            content: "recent",
+            mtime: new Date(now - 150_000),
+          },
+          "/dir/old.txt": { content: "old", mtime: new Date(now - 3_600_000) },
+        },
+      });
+      const result = await env.exec(`find /dir -type f ${predicate} | sort`);
+      expect(result.stdout).toBe(expected);
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("rejects a non-numeric argument", async () => {
+      const env = new Bash({ files: { "/dir/a.txt": "a" } });
+      const result = await env.exec("find /dir -mmin soon");
+      expect(result.stderr).toBe("find: invalid argument `soon' to `-mmin'\n");
+      expect(result.exitCode).toBe(1);
+    });
+  });
+
+  describe("-newermt (modified after a date)", () => {
+    const files = {
+      "/dir/before.txt": {
+        content: "before",
+        mtime: new Date(Date.UTC(2026, 8, 19, 23, 0)),
+      },
+      "/dir/after.txt": {
+        content: "after",
+        mtime: new Date(Date.UTC(2026, 8, 20, 9, 0)),
+      },
+      "/dir/later.txt": {
+        content: "later",
+        mtime: new Date(Date.UTC(2026, 8, 21, 12, 0)),
+      },
+    };
+
+    it.each([
+      ["2026-09-20", "/dir/after.txt\n/dir/later.txt\n"],
+      ["'2026-09-20 10:00'", "/dir/later.txt\n"],
+      ["2026-09-20T08:59:59", "/dir/after.txt\n/dir/later.txt\n"],
+    ])("reads %s in UTC without $TZ", async (date, expected) => {
+      const env = new Bash({ files });
+      const result = await env.exec(
+        `find /dir -type f -newermt ${date} | sort`,
+      );
+      expect(result.stdout).toBe(expected);
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("reads a bare date in $TZ when it names a zone", async () => {
+      const env = new Bash({ files });
+      // New York is UTC-4 in September: after.txt (09:00 UTC) is 05:00 there.
+      const result = await env.exec(
+        "TZ=America/New_York find /dir -type f -newermt '2026-09-20 04:30' | sort",
+      );
+      expect(result.stdout).toBe("/dir/after.txt\n/dir/later.txt\n");
+      const later = await env.exec(
+        "TZ=America/New_York find /dir -type f -newermt '2026-09-20 05:00:01'",
+      );
+      expect(later.stdout).toBe("/dir/later.txt\n");
+    });
+
+    it("reads a date with a zone in that zone", async () => {
+      const env = new Bash({ files });
+      const result = await env.exec(
+        "find /dir -type f -newermt 2026-09-21T00:00:00Z",
+      );
+      expect(result.stdout).toBe("/dir/later.txt\n");
+    });
+
+    it("combines with ! to find what is older", async () => {
+      const env = new Bash({ files });
+      const result = await env.exec("find /dir -type f ! -newermt 2026-09-20");
+      expect(result.stdout).toBe("/dir/before.txt\n");
+    });
+
+    it.each([
+      "yesterday",
+      "2026-02-31",
+      "09/20/2026",
+      "'2026-09-20 10:60'",
+      "'2026-09-20 24:00'",
+      "2026-09-20T10:00:60",
+    ])("refuses %s as GNU find refuses a date it cannot read", async (date) => {
+      const env = new Bash({ files });
+      const result = await env.exec(`find /dir -newermt ${date}`);
+      const shown = date.replace(/^'|'$/g, "");
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        `find: I cannot figure out how to interpret \`${shown}' as a date or time\n`,
+      );
+      expect(result.exitCode).toBe(1);
+    });
+  });
+
   describe("-mtime (modification time)", () => {
     it("should find files modified today with -mtime 0", async () => {
       const now = new Date();
