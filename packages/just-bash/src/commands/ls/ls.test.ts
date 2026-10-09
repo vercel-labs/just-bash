@@ -269,7 +269,7 @@ describe("ls", () => {
       expect(result.stderr).toBe("");
     });
 
-    it("should show directory mode for symlinks to directories in long format", async () => {
+    it("should describe a symlink as a link, not as its target", async () => {
       const env = new Bash({
         files: {
           "/dir/realdir/file.txt": "",
@@ -279,10 +279,14 @@ describe("ls", () => {
       const result = await env.exec("ls -lF /dir");
       const lines = result.stdout.split("\n").filter((l) => l);
       expect(lines[0]).toBe("total 2");
-      // symlink to dir should show drwxr-xr-x mode but @ suffix
-      expect(lines[1]).toMatch(/^drwxr-xr-x.*linkdir@$/);
+      // symlink to dir keeps the link mode, its target and the @ suffix
+      expect(lines[1]).toMatch(
+        /^lrwxrwxrwx 1 user user\s+12 \w{3}\s+\d+\s+[\d:]+ linkdir -> \/dir\/realdir@$/,
+      );
       // real directory should show drwxr-xr-x mode with / suffix
-      expect(lines[2]).toMatch(/^drwxr-xr-x.*realdir\/$/);
+      expect(lines[2]).toMatch(
+        /^drwxr-xr-x 1 user user\s+0 \w{3}\s+\d+\s+[\d:]+ realdir\/$/,
+      );
     });
 
     it("should work with -l flag", async () => {

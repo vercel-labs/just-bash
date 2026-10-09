@@ -1,8 +1,12 @@
 /**
  * Format a numeric file mode as a symbolic permission string (e.g. "drwxr-xr-x").
  */
-export function formatMode(mode: number, isDirectory: boolean): string {
-  const typeChar = isDirectory ? "d" : "-";
+export function formatMode(
+  mode: number,
+  isDirectory: boolean,
+  isSymbolicLink = false,
+): string {
+  const typeChar = isSymbolicLink ? "l" : isDirectory ? "d" : "-";
   const perms = [
     mode & 0o400 ? "r" : "-",
     mode & 0o200 ? "w" : "-",
