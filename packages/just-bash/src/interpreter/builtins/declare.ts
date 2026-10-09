@@ -46,10 +46,11 @@ import {
   markReadonly,
   unmarkExported,
 } from "../helpers/readonly.js";
-import { OK, result, success } from "../helpers/result.js";
+import { result, success } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 import {
   parseArrayElements,
+  parseAssocArrayContent,
   parseAssocArrayLiteral,
 } from "./declare-array-parsing.js";
 import {
@@ -1025,7 +1026,7 @@ export async function handleReadonly(
   };
   // Parse flags
   let _declareArray = false;
-  let _declareAssoc = false;
+  let declareAssoc = false;
   let _printMode = false;
   const processedArgs: string[] = [];
 
@@ -1034,7 +1035,7 @@ export async function handleReadonly(
     if (arg === "-a") {
       _declareArray = true;
     } else if (arg === "-A") {
-      _declareAssoc = true;
+      declareAssoc = true;
     } else if (arg === "-p") {
       _printMode = true;
     } else if (arg === "--") {
@@ -1059,7 +1060,49 @@ export async function handleReadonly(
     return success(stdout);
   }
 
+  let stderr = "";
+  let exitCode = 0;
   for (const arg of processedArgs) {
+    // Check for associative compound assignment: readonly -A NAME=(...)
+    const assocMatch = declareAssoc
+      ? arg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)=\((.*)\)$/s)
+      : null;
+    if (assocMatch) {
+      const name = assocMatch[1];
+
+      const error = checkReadonlyError(ctx, name);
+      if (error) return error;
+
+      if (hasArray(ctx, name) && !ctx.state.associativeArrays?.has(name)) {
+        stderr += `bash: ${name}: cannot convert indexed to associative array\n`;
+        exitCode = 1;
+        continue;
+      }
+
+      const entries = parseAssocArrayContent(assocMatch[2], arrayParseLimits);
+      ctx.executionScope.consumeWork(
+        entries.length,
+        "readonly array assignment",
+      );
+      assertArrayKeysFit(
+        ctx,
+        name,
+        entries.map(([key]) => key),
+        true,
+      );
+
+      ctx.state.associativeArrays ??= new Set();
+      ctx.state.associativeArrays.add(name);
+      setArrayKind(ctx, name, "associative");
+      clearArray(ctx, name);
+      ctx.state.env.delete(name);
+      for (const [key, value] of entries) {
+        setArrayElement(ctx, name, key, value, "associative");
+      }
+      markReadonly(ctx, name);
+      continue;
+    }
+
     // Check for array append syntax: readonly NAME+=(...)
     const arrayAppendMatch = arg.match(
       /^([a-zA-Z_][a-zA-Z0-9_]*)\+=\((.*)\)$/s,
@@ -1165,5 +1208,5 @@ export async function handleReadonly(
     }
   }
 
-  return OK;
+  return result("", stderr, exitCode);
 }
