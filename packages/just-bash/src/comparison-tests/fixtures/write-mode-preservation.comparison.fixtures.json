@@ -1,0 +1,29 @@
+{
+  "7b2066dca674656b": {
+    "command": "chmod 755 m.sh; printf '#!/bin/bash\\necho ran\\n' > m.sh; test -x m.sh && echo kept; ./m.sh",
+    "files": {
+      "m.sh": "#!/bin/bash\necho ran\n"
+    },
+    "stdout": "kept\nran\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b348eb28f110e088": {
+    "command": "chmod 700 m.sh; sed -i 's/ran/again/' m.sh; test -x m.sh && echo still-executable; ./m.sh",
+    "files": {
+      "m.sh": "#!/bin/bash\necho ran\n"
+    },
+    "stdout": "still-executable\nagain\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c7e7f3e08dda9da0": {
+    "command": "chmod 400 m.sh; sed -i 's/ran/ro/' m.sh; test -x m.sh || echo not-executable; cat m.sh",
+    "files": {
+      "m.sh": "#!/bin/bash\necho ran\n"
+    },
+    "stdout": "not-executable\n#!/bin/bash\necho ro\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

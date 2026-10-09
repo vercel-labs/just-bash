@@ -248,6 +248,16 @@ export class InMemoryFs implements IFileSystem {
     }
   }
 
+  /**
+   * Mode for a body written to `path`. Truncating an existing file never
+   * changes its permissions, so an overwrite keeps the stored mode instead of
+   * falling back to the default; a new path still gets the default.
+   */
+  private modeForOverwrite(path: string): number {
+    const existing = this.data.get(path);
+    return existing?.type === "file" ? existing.mode : DEFAULT_FILE_MODE;
+  }
+
   // Sync method for writing files
   writeFileSync(
     path: string,
@@ -270,7 +280,7 @@ export class InMemoryFs implements IFileSystem {
     this.setEntry(normalized, {
       type: "file",
       content: buffer,
-      mode: metadata?.mode ?? DEFAULT_FILE_MODE,
+      mode: metadata?.mode ?? this.modeForOverwrite(normalized),
       mtime: metadata?.mtime ?? new Date(),
     });
   }
@@ -291,7 +301,7 @@ export class InMemoryFs implements IFileSystem {
     this.setEntry(normalized, {
       type: "file",
       lazy,
-      mode: metadata?.mode ?? DEFAULT_FILE_MODE,
+      mode: metadata?.mode ?? this.modeForOverwrite(normalized),
       mtime: metadata?.mtime ?? new Date(),
     });
   }
