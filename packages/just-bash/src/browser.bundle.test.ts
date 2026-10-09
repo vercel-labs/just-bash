@@ -61,6 +61,15 @@ describe("browser bundle safety", () => {
       expect(bundleContent).not.toMatch(/from\s*["']node:child_process["']/);
     });
 
+    it("should not import any node: builtin", () => {
+      const bundleContent = readFileSync(browserBundlePath, "utf-8");
+      // Browser bundlers cannot resolve node: builtins, so one static import
+      // breaks every app that imports just-bash/browser.
+      expect(bundleContent).not.toMatch(/\bfrom\s*["']node:/);
+      expect(bundleContent).not.toMatch(/\bimport\s*["']node:/);
+      expect(bundleContent).not.toMatch(/\bimport\s*\(\s*["']node:/);
+    });
+
     it("should not contain native module artifacts", () => {
       const bundleContent = readFileSync(browserBundlePath, "utf-8");
       // Native modules (.node files) cannot work in browsers
@@ -100,6 +109,25 @@ describe("browser bundle safety", () => {
         // These commands should be available in Node.js
         expect(commandNames).toContain(excludedCmd);
       }
+    });
+  });
+
+  describe("gzip commands in the browser bundle", () => {
+    it("should fail gzip without breaking the shell", async () => {
+      const { Bash: BrowserBash } = await import(browserBundlePath);
+      const bash = new BrowserBash({ files: { "/a.txt": "hello\n" } });
+
+      const gzip = await bash.exec("gzip -c /a.txt");
+      expect(gzip.stdout).toBe("");
+      expect(gzip.stderr).toBe(
+        "gzip: /a.txt: node:zlib is not available in browser environments\n",
+      );
+      expect(gzip.exitCode).toBe(1);
+
+      const echo = await bash.exec("echo hello | tr a-z A-Z");
+      expect(echo.stdout).toBe("HELLO\n");
+      expect(echo.stderr).toBe("");
+      expect(echo.exitCode).toBe(0);
     });
   });
 
