@@ -1,0 +1,122 @@
+{
+  "0a089c11b014ce1b": {
+    "command": "printf 'a\\nb\\n' | { if :; then read x; fi; read y; echo \"x=$x y=$y\"; }",
+    "files": {
+      "loop.txt": "L1\nL2\nL3\nL4\nL5\n",
+      "file.txt": "F1\nF2\n"
+    },
+    "stdout": "x=a y=b\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1e155d5bd9ed5133": {
+    "command": "echo hi | case $(cat) in hi) echo yes;; *) echo no;; esac",
+    "files": {
+      "loop.txt": "L1\nL2\nL3\nL4\nL5\n",
+      "file.txt": "F1\nF2\n"
+    },
+    "stdout": "yes\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "29c8005d99c9e1dd": {
+    "command": "echo outer | { printf \"\" | if :; then cat; fi; cat; }",
+    "files": {
+      "loop.txt": "L1\nL2\nL3\nL4\nL5\n",
+      "file.txt": "F1\nF2\n"
+    },
+    "stdout": "outer\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "587445b257f02cd1": {
+    "command": "echo hi | case x in x) cat;; esac",
+    "files": {
+      "loop.txt": "L1\nL2\nL3\nL4\nL5\n",
+      "file.txt": "F1\nF2\n"
+    },
+    "stdout": "hi\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6e63f2b7870cbcda": {
+    "command": "echo piped | if :; then cat; fi < file.txt",
+    "files": {
+      "loop.txt": "L1\nL2\nL3\nL4\nL5\n",
+      "file.txt": "F1\nF2\n"
+    },
+    "stdout": "F1\nF2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8698da53ccad329a": {
+    "command": "while read x; do if :; then read y; fi; echo \"$x$y\"; done < loop.txt",
+    "files": {
+      "loop.txt": "L1\nL2\nL3\nL4\nL5\n",
+      "file.txt": "F1\nF2\n"
+    },
+    "stdout": "L1L2\nL3L4\nL5\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8de8f0bf863287df": {
+    "command": "f() if :; then cat; fi; echo hi | f",
+    "files": {
+      "loop.txt": "L1\nL2\nL3\nL4\nL5\n",
+      "file.txt": "F1\nF2\n"
+    },
+    "stdout": "hi\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "91d6066878704262": {
+    "command": "printf 'a\\nb\\n' | for i in 1 2; do read x; echo \"$i$x\"; done",
+    "files": {
+      "loop.txt": "L1\nL2\nL3\nL4\nL5\n",
+      "file.txt": "F1\nF2\n"
+    },
+    "stdout": "1a\n2b\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a07e3098e76d4c5c": {
+    "command": "echo hi | if :; then cat; fi",
+    "files": {
+      "loop.txt": "L1\nL2\nL3\nL4\nL5\n",
+      "file.txt": "F1\nF2\n"
+    },
+    "stdout": "hi\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "deb47a37ebc80949": {
+    "command": "printf 'a\\nb\\n' | for ((i=0; i<2; i++)); do read x; echo \"$i$x\"; done",
+    "files": {
+      "loop.txt": "L1\nL2\nL3\nL4\nL5\n",
+      "file.txt": "F1\nF2\n"
+    },
+    "stdout": "0a\n1b\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f1f736e12b03e523": {
+    "command": "printf 'a\\nb\\n' | if read x; then read y; echo \"x=$x y=$y\"; fi",
+    "files": {
+      "loop.txt": "L1\nL2\nL3\nL4\nL5\n",
+      "file.txt": "F1\nF2\n"
+    },
+    "stdout": "x=a y=b\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f67a946a0e409271": {
+    "command": "{ echo zz | if :; then cat; fi; read b; echo \"b=[$b]\"; } < loop.txt",
+    "files": {
+      "loop.txt": "L1\nL2\nL3\nL4\nL5\n",
+      "file.txt": "F1\nF2\n"
+    },
+    "stdout": "zz\nb=[L1]\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
