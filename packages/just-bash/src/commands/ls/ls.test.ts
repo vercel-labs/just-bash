@@ -280,6 +280,8 @@ describe("ls", () => {
       const lines = result.stdout.split("\n").filter((l) => l);
       expect(lines[0]).toBe("total 2");
       // symlink to dir keeps the link mode, its target and the @ suffix
+      // (the @ is just-bash's BSD-style convention; coreutils puts -F's
+      // indicator on the target and prints no @ in long format)
       expect(lines[1]).toMatch(
         /^lrwxrwxrwx 1 user user\s+12 \w{3}\s+\d+\s+[\d:]+ linkdir -> \/dir\/realdir@$/,
       );

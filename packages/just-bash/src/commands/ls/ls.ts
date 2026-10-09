@@ -137,6 +137,33 @@ function classifySuffix(stat: FsStat): string {
 }
 
 /**
+ * Stat the synthetic `.` and `..` of a long listing.
+ *
+ * `fullPath` is the operand as spelled, and an operand can be reached through a
+ * symlink — `ls -la link/` and `cd link; ls -la` both name the link while
+ * listing the directory behind it. `.` must describe that directory, so it is
+ * read with `stat`, which follows. `..` is the parent of the same directory,
+ * which is `dirname` of the resolved path, not of the spelled operand.
+ *
+ * An entry whose stat fails is left out of the map so the caller can fall back
+ * to its assumed directory mode.
+ */
+async function specialEntryStats(
+  ctx: RuntimeCommandContext,
+  fullPath: string,
+): Promise<Map<string, FsStat>> {
+  const stats = new Map<string, FsStat>();
+  try {
+    stats.set(".", await ctx.fs.stat(fullPath));
+    const resolved = await ctx.fs.realpath(fullPath);
+    stats.set("..", await ctx.fs.stat(dirname(resolved)));
+  } catch {
+    // An unresolvable listing keeps the assumed directory mode.
+  }
+  return stats;
+}
+
+/**
  * `ls -l` follows a symlink's name with ` -> target`, where the target is the
  * stored link value, not the resolved path. Reads through the filesystem's own
  * `readlink`, so a link whose target no longer resolves still prints.
@@ -594,19 +621,21 @@ async function listPath(
 
       // Add special entries first. `.` is the directory being listed and `..`
       // is its parent, so both carry a real mode rather than an assumed one.
+      // `stat`, not `lstat`: the operand may be reached through a symlink, and
+      // `.` is by definition the directory rather than the link that names it.
+      // Size and mtime stay literal here: `ls` has always reported `0` and the
+      // epoch for these two synthetic entries, and no real directory reports a
+      // meaningful size of its own.
+      const specialStats = await specialEntryStats(ctx, fullPath);
       for (const entry of specialEntries) {
-        const specialPath = entry === "." ? fullPath : dirname(fullPath);
-        let mode = "drwxr-xr-x";
-        try {
-          const specialStat = await ctx.fs.lstat(specialPath);
-          mode = formatMode(
-            specialStat.mode,
-            specialStat.isDirectory,
-            specialStat.isSymbolicLink,
-          );
-        } catch {
-          // An unreadable parent keeps the assumed directory mode.
-        }
+        const specialStat = specialStats.get(entry);
+        const mode = specialStat
+          ? formatMode(
+              specialStat.mode,
+              specialStat.isDirectory,
+              specialStat.isSymbolicLink,
+            )
+          : "drwxr-xr-x";
         stdout = appendLsOutput(
           ctx,
           stdout,
