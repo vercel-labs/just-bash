@@ -37,6 +37,7 @@ import {
   dirname,
   joinPath,
   MAX_SYMLINK_DEPTH,
+  modeAfterWrite,
   resolveSymlinkTarget,
   resolvePath as resolveVPath,
   SYMLINK_MODE,
@@ -81,6 +82,19 @@ interface MemorySymlinkEntry {
 }
 
 type MemoryEntry = MemoryFileEntry | MemoryDirEntry | MemorySymlinkEntry;
+
+/**
+ * Mode for a body written over the entry already stored at a path. Truncating
+ * a file never changes its permission bits, so an overwrite keeps the stored
+ * mode instead of falling back to the default; a new path still gets the
+ * default. Only a file entry carries over: a symlink or a directory name gets
+ * the default rather than having its own mode copied onto the new file.
+ */
+function modeForOverwrite(entry: MemoryEntry | undefined): number {
+  return entry?.type === "file"
+    ? modeAfterWrite(entry.mode)
+    : DEFAULT_FILE_MODE;
+}
 
 export interface OverlayFsOptions {
   /**
@@ -294,7 +308,7 @@ export class OverlayFs implements IFileSystem {
     this.setMemoryEntry(normalized, {
       type: "file",
       content: buffer,
-      mode: DEFAULT_FILE_MODE,
+      mode: modeForOverwrite(this.memory.get(normalized)),
       mtime: new Date(),
     });
   }
@@ -579,10 +593,34 @@ export class OverlayFs implements IFileSystem {
     this.setMemoryEntry(normalized, {
       type: "file",
       content: buffer,
-      mode: DEFAULT_FILE_MODE,
+      mode: await this.modeForOverwrite(normalized),
       mtime: new Date(),
     });
     this.deleted.delete(normalized);
+  }
+
+  /**
+   * Mode for a body written over the file already visible at `normalized`,
+   * consulting the memory layer first and the real lower layer second. The
+   * real-FS lookup uses the same gate as `stat()`: resolveRealPath_() to
+   * canonicalize and reject escapes and symlink traversal, then `lstat()` on
+   * the path it returns so the I/O cannot be pointed elsewhere.
+   */
+  private async modeForOverwrite(normalized: string): Promise<number> {
+    if (this.deleted.has(normalized)) return DEFAULT_FILE_MODE;
+    const entry = this.memory.get(normalized);
+    if (entry) return modeForOverwrite(entry);
+
+    const canonical = this.resolveRealPath_(this.toRealPath(normalized));
+    if (!canonical) return DEFAULT_FILE_MODE;
+    try {
+      const realStat = await fs.promises.lstat(canonical);
+      return realStat.isFile()
+        ? modeAfterWrite(realStat.mode)
+        : DEFAULT_FILE_MODE;
+    } catch {
+      return DEFAULT_FILE_MODE;
+    }
   }
 
   async appendFile(
@@ -602,6 +640,7 @@ export class OverlayFs implements IFileSystem {
       if (!existingEntry.appendChunks) existingEntry.appendChunks = [];
       existingEntry.appendChunks.push(newBuffer);
       this.retainedMemoryBytes += newBuffer.byteLength;
+      existingEntry.mode = modeAfterWrite(existingEntry.mode);
       existingEntry.mtime = new Date();
       this.deleted.delete(normalized);
       return;
@@ -620,7 +659,7 @@ export class OverlayFs implements IFileSystem {
       type: "file",
       content: existingBuffer,
       appendChunks: [newBuffer],
-      mode: DEFAULT_FILE_MODE,
+      mode: await this.modeForOverwrite(normalized),
       mtime: new Date(),
     });
     this.deleted.delete(normalized);

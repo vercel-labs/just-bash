@@ -61,6 +61,56 @@ describe("InMemoryFs overwrite keeps the stored mode", () => {
 
     expect((await fs.stat("/script.sh")).mode).toBe(0o644);
   });
+
+  it("clears the set-user-ID bit on overwrite", async () => {
+    const fs = new InMemoryFs();
+    await fs.writeFile("/su.sh", "#!/bin/bash\n");
+    await fs.chmod("/su.sh", 0o4755);
+
+    await fs.writeFile("/su.sh", "x\n");
+
+    expect((await fs.stat("/su.sh")).mode).toBe(0o755);
+  });
+
+  it("clears the set-user-ID bit on append", async () => {
+    const fs = new InMemoryFs();
+    await fs.writeFile("/su.sh", "#!/bin/bash\n");
+    await fs.chmod("/su.sh", 0o4644);
+
+    await fs.appendFile("/su.sh", "y\n");
+
+    expect((await fs.stat("/su.sh")).mode).toBe(0o644);
+  });
+
+  it("keeps the set-group-ID bit of a non-group-executable file", async () => {
+    const fs = new InMemoryFs();
+    await fs.writeFile("/sg.sh", "#!/bin/bash\n");
+    await fs.chmod("/sg.sh", 0o2644);
+
+    await fs.writeFile("/sg.sh", "x\n");
+
+    expect((await fs.stat("/sg.sh")).mode).toBe(0o2644);
+  });
+
+  it("clears the set-group-ID bit of a group-executable file", async () => {
+    const fs = new InMemoryFs();
+    await fs.writeFile("/sg.sh", "#!/bin/bash\n");
+    await fs.chmod("/sg.sh", 0o2755);
+
+    await fs.writeFile("/sg.sh", "x\n");
+
+    expect((await fs.stat("/sg.sh")).mode).toBe(0o755);
+  });
+
+  it("keeps the sticky bit on overwrite", async () => {
+    const fs = new InMemoryFs();
+    await fs.writeFile("/t.sh", "#!/bin/bash\n");
+    await fs.chmod("/t.sh", 0o1777);
+
+    await fs.writeFile("/t.sh", "x\n");
+
+    expect((await fs.stat("/t.sh")).mode).toBe(0o1777);
+  });
 });
 
 describe("InMemoryFs overwrite keeps an executable script runnable", () => {

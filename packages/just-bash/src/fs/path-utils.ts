@@ -19,6 +19,20 @@ export const DEFAULT_FILE_MODE = 0o644;
 export const SYMLINK_MODE = 0o777;
 
 /**
+ * The mode a file ends up with once it has been written.
+ *
+ * Truncating a file never changes its permission bits, so the permission bits
+ * are kept. The set-user-ID bit is cleared, and the set-group-ID bit of a
+ * group-executable file is cleared, because a write must not be able to hand on
+ * privileges the writer does not control. Linux applies exactly this rule in
+ * `write(2)`, so the result can only ever narrow the mode.
+ */
+export function modeAfterWrite(mode: number): number {
+  const kept = mode & 0o7777;
+  return kept & (kept & 0o0010 ? ~0o6000 : ~0o4000);
+}
+
+/**
  * Normalize a virtual path: resolve `.` and `..`, ensure it starts with `/`,
  * strip trailing slashes.  Pure function, no I/O.
  */
