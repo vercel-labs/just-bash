@@ -46,6 +46,7 @@ import {
   setFdEntry,
   writeFdEntry,
 } from "./fd-table.js";
+import { getErrorCode } from "./helpers/errors.js";
 import { checkReadonlyError } from "./helpers/readonly.js";
 import { result as makeResult } from "./helpers/result.js";
 import {
@@ -200,6 +201,11 @@ const getDupSource = (
     : null;
 };
 
+const PATH_ERROR_REASONS = new Map([
+  ["ENOENT", "No such file or directory"],
+  ["ENOTDIR", "Not a directory"],
+]);
+
 async function openOutputEntry(
   ctx: InterpreterContext,
   target: string,
@@ -228,6 +234,10 @@ async function openOutputEntry(
     if (append) await ctx.fs.appendFile(filePath, "", "binary");
     else await ctx.fs.writeFile(filePath, "", "binary");
   } catch (error) {
+    const code = getErrorCode(error);
+    const reason = code && PATH_ERROR_REASONS.get(code);
+    if (reason)
+      return { error: makeResult("", `bash: ${target}: ${reason}\n`, 1) };
     if (!handleWriteError) throw error;
     return {
       error: makeResult(

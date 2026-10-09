@@ -5,6 +5,7 @@ import type { DirentEntry } from "../../fs/interface.js";
 import { FileTraversalBudget } from "../../fs/traversal.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { getErrorCode } from "../../interpreter/helpers/errors.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -1199,19 +1200,9 @@ const UNREADABLE_DIRECTORY_REASONS = new Map<string, string>([
 /**
  * The phrase for a directory that could not be read, from the errno alone,
  * or null when the failure is not one of those, in which case it propagates.
- * The errno is read off `code` when the error carries one and off the
- * `ECODE: ...` message prefix the virtual filesystems use otherwise.
  */
 function describeUnreadableDirectory(error: unknown): string | null {
-  const code =
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    typeof error.code === "string"
-      ? error.code
-      : error instanceof Error
-        ? /^(E[A-Z]+)\b/.exec(error.message)?.[1]
-        : undefined;
+  const code = getErrorCode(error);
   if (code === undefined) return null;
   return UNREADABLE_DIRECTORY_REASONS.get(code) ?? null;
 }
