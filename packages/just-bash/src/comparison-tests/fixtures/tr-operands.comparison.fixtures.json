@@ -1,0 +1,37 @@
+{
+  "0e1b41cfac673107": {
+    "command": "echo é | tr -d 'é' '\\377'",
+    "files": {},
+    "stdout": "",
+    "stderr": "tr: extra operand ‘\\\\377’\nOnly one string may be given when deleting without squeezing repeats.\nTry 'tr --help' for more information.\n",
+    "exitCode": 1
+  },
+  "64b42a1ec815a6b0": {
+    "command": "echo é | tr -s 'é' X '\\377'",
+    "files": {},
+    "stdout": "",
+    "stderr": "tr: extra operand ‘\\\\377’\nTry 'tr --help' for more information.\n",
+    "exitCode": 1
+  },
+  "7a9eb3da82594456": {
+    "command": "echo é | tr 'é' X '\\377'",
+    "files": {},
+    "stdout": "",
+    "stderr": "tr: extra operand ‘\\\\377’\nTry 'tr --help' for more information.\n",
+    "exitCode": 1
+  },
+  "ca09d23b4b25c701": {
+    "command": "echo é | tr -ds 'é' X '\\377'",
+    "files": {},
+    "stdout": "",
+    "stderr": "tr: extra operand ‘\\\\377’\nTry 'tr --help' for more information.\n",
+    "exitCode": 1
+  },
+  "e16f58b2b373feb7": {
+    "command": "echo abc | tr a X ignored",
+    "files": {},
+    "stdout": "",
+    "stderr": "tr: extra operand ‘ignored’\nTry 'tr --help' for more information.\n",
+    "exitCode": 1
+  }
+}
