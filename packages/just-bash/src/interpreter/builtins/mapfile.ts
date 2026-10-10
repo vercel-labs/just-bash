@@ -13,7 +13,11 @@
  *   array      Array name (default: MAPFILE)
  */
 
-import { utf8ByteLength } from "../../encoding.js";
+import {
+  decodeBytesToUtf8,
+  unsafeBytesFromLatin1,
+  utf8ByteLength,
+} from "../../encoding.js";
 import type { ExecResult } from "../../types.js";
 import { ExecutionLimitError } from "../errors.js";
 import { clearArray, setArrayElement } from "../helpers/array.js";
@@ -94,7 +98,7 @@ export function handleMapfile(
         "string_length",
       );
     }
-    lines.push(line);
+    lines.push(decodeBytesToUtf8(unsafeBytesFromLatin1(line)));
   };
 
   while (cursor < effectiveStdin.length) {
