@@ -140,6 +140,7 @@ describe("read builtin", () => {
         echo "한글 café 漢字" | { read A B C; echo "\${#A} \${#B} \${#C} $A $B $C"; }
       `);
       expect(result.stdout).toBe("2 4 2 한글 café 漢字\n");
+      expect(result.stderr).toBe("");
     });
 
     it("should read each UTF-8 line correctly in a while loop", async () => {
@@ -150,6 +151,7 @@ describe("read builtin", () => {
         done
       `);
       expect(result.stdout).toBe("2 한글\n4 café\n2 漢字\n");
+      expect(result.stderr).toBe("");
     });
   });
 });
