@@ -2,7 +2,11 @@
  * read - Read a line of input builtin
  */
 
-import { utf8ByteLength } from "../../encoding.js";
+import {
+  decodeBytesToUtf8,
+  unsafeBytesFromLatin1,
+  utf8ByteLength,
+} from "../../encoding.js";
 import type { ExecResult } from "../../types.js";
 import { ExecutionLimitError } from "../errors.js";
 import { advanceFd, getFdEntry, readFd } from "../fd-table.js";
@@ -330,7 +334,7 @@ export function handleRead(
 
     // With -N, assign entire content to first variable (no IFS splitting)
     const varName = varNames[0] || "REPLY";
-    ctx.state.env.set(varName, line);
+    ctx.state.env.set(varName, decodeBytesToUtf8(unsafeBytesFromLatin1(line)));
     // Set remaining variables to empty
     for (let j = 1; j < varNames.length; j++) {
       ctx.state.env.set(varNames[j], "");
@@ -452,6 +456,9 @@ export function handleRead(
     // Consume from appropriate source
     consumeInput(consumed);
   }
+
+  // stdin holds one char per byte; decode so multibyte characters become single chars
+  line = decodeBytesToUtf8(unsafeBytesFromLatin1(line));
 
   // Remove trailing newline if present and delimiter is newline
   if (effectiveDelimiter === "\n" && line.endsWith("\n")) {
