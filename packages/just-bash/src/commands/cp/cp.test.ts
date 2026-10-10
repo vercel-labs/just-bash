@@ -146,4 +146,58 @@ describe("cp", () => {
     const content = await env.readFile("/home/user/dst.txt");
     expect(content).toBe("content");
   });
+
+  it("should accept -f flag without error", async () => {
+    const env = new Bash({
+      files: { "/src.txt": "content" },
+    });
+    const result = await env.exec("cp -f /src.txt /dst.txt");
+    expect(result.exitCode).toBe(0);
+    const out = await env.readFile("/dst.txt");
+    expect(out).toBe("content");
+  });
+
+  it("should accept --force flag without error", async () => {
+    const env = new Bash({
+      files: { "/src.txt": "content" },
+    });
+    const result = await env.exec("cp --force /src.txt /dst.txt");
+    expect(result.exitCode).toBe(0);
+    const out = await env.readFile("/dst.txt");
+    expect(out).toBe("content");
+  });
+
+  it("should overwrite existing destination with -f", async () => {
+    const env = new Bash({
+      files: {
+        "/src.txt": "new content",
+        "/dst.txt": "old content",
+      },
+    });
+    const result = await env.exec("cp -f /src.txt /dst.txt");
+    expect(result.exitCode).toBe(0);
+    const out = await env.readFile("/dst.txt");
+    expect(out).toBe("new content");
+  });
+
+  it("should let -n keep precedence over -f", async () => {
+    const env = new Bash({
+      files: {
+        "/src.txt": "new content",
+        "/dst.txt": "old content",
+      },
+    });
+    const result = await env.exec("cp -f -n /src.txt /dst.txt");
+    expect(result.exitCode).toBe(0);
+    const out = await env.readFile("/dst.txt");
+    expect(out).toBe("old content");
+  });
+
+  it("should list -f in --help output", async () => {
+    const env = new Bash({});
+    const result = await env.exec("cp --help");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("--force");
+    expect(result.stdout).toContain("-f");
+  });
 });
