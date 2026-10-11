@@ -1,6 +1,7 @@
 import { decodeBytesToUtf8 } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { describeFsError } from "../../interpreter/helpers/errors.js";
 import type { UserRegex } from "../../regex/index.js";
 import type {
   ExecResult,
@@ -403,7 +404,7 @@ export const grepCommand: RuntimeCommand = {
           rethrowFatalExecutionError(error);
           return {
             stdout: "",
-            stderr: `grep: ${patternFile}: No such file or directory\n`,
+            stderr: `grep: ${patternFile}: ${describeFsError(error)}\n`,
             exitCode: 2,
           };
         }
@@ -744,7 +745,7 @@ export const grepCommand: RuntimeCommand = {
             return { file, result };
           } catch (error) {
             rethrowFatalExecutionError(error);
-            return { error: `grep: ${file}: No such file or directory\n` };
+            return { error: `grep: ${file}: ${describeFsError(error)}\n` };
           }
         }),
       );

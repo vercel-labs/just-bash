@@ -7,6 +7,7 @@
 
 import { type ByteString, EMPTY_BYTES, readBytesFrom } from "../encoding.js";
 import { ExecutionLimitError } from "../interpreter/errors.js";
+import { describeFsError } from "../interpreter/helpers/errors.js";
 import type { ExecResult, RuntimeCommandContext } from "../types.js";
 import { DEFAULT_BATCH_SIZE } from "./constants.js";
 
@@ -120,11 +121,11 @@ export async function readFiles(
           // on the content before regex / parsing.
           const content = await readBytesFrom(ctx.fs, filePath);
           return { filename: file, content, error: null as string | null };
-        } catch {
+        } catch (error) {
           return {
             filename: file,
             content: EMPTY_BYTES,
-            error: `${cmdName}: ${file}: No such file or directory\n`,
+            error: `${cmdName}: ${file}: ${describeFsError(error)}\n`,
           };
         }
       }),

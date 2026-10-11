@@ -1,6 +1,7 @@
 import { latin1FromBytes, readBytesFrom } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { describeFsError } from "../../interpreter/helpers/errors.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -134,7 +135,7 @@ export const catCommand: RuntimeCommand = {
         stream += rawContent;
       } catch (error) {
         rethrowFatalExecutionError(error);
-        stderr += `cat: ${file}: No such file or directory\n`;
+        stderr += `cat: ${file}: ${describeFsError(error)}\n`;
         exitCode = 1;
       }
     }

@@ -1,6 +1,7 @@
 import { utf8ByteLength } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { describeFsError } from "../../interpreter/helpers/errors.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -105,7 +106,7 @@ export const statCommand: RuntimeCommand = {
         }
       } catch (error) {
         rethrowFatalExecutionError(error);
-        stderr += `stat: cannot stat '${file}': No such file or directory\n`;
+        stderr += `stat: cannot stat '${file}': ${describeFsError(error)}\n`;
         hasError = true;
       }
     }

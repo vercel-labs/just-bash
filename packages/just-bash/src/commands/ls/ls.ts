@@ -6,6 +6,7 @@ import {
   ExecutionAbortedError,
   ExecutionLimitError,
 } from "../../interpreter/errors.js";
+import { describeFsError } from "../../interpreter/helpers/errors.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -258,11 +259,11 @@ export const lsCommand: RuntimeCommand = {
               : "";
             stdout = appendLsOutput(ctx, stdout, `${path}${suffix}\n`);
           }
-        } catch {
+        } catch (error) {
           stderr = appendLsOutput(
             ctx,
             stderr,
-            `ls: cannot access '${path}': No such file or directory\n`,
+            `ls: cannot access '${path}': ${describeFsError(error)}\n`,
           );
           exitCode = 2;
         }
@@ -295,11 +296,11 @@ export const lsCommand: RuntimeCommand = {
         } else {
           fileOperands.push(path);
         }
-      } catch {
+      } catch (error) {
         stderr = appendLsOutput(
           ctx,
           stderr,
-          `ls: ${path}: No such file or directory\n`,
+          `ls: ${path}: ${describeFsError(error)}\n`,
         );
         exitCode = 2;
       }
@@ -773,7 +774,7 @@ async function listPath(
     }
     return {
       stdout: "",
-      stderr: `ls: ${path}: No such file or directory\n`,
+      stderr: `ls: ${path}: ${describeFsError(error)}\n`,
       exitCode: 2,
     };
   }

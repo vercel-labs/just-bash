@@ -1,3 +1,4 @@
+import { describeFsError } from "../../interpreter/helpers/errors.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -117,8 +118,8 @@ async function buildTree(
       result.fileCount = 1;
       return result;
     }
-  } catch {
-    result.stderr = `tree: ${path}: No such file or directory\n`;
+  } catch (error) {
+    result.stderr = `tree: ${path}: ${describeFsError(error)}\n`;
     return result;
   }
 
