@@ -11,6 +11,7 @@ import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { createUserRegex, type UserRegex } from "../../regex/index.js";
 import type { AwkExpr } from "./ast.js";
 import type { AwkRuntimeContext } from "./interpreter/context.js";
+import { ensureFieldCount, rebuildLine } from "./interpreter/fields.js";
 import type { AwkValue } from "./interpreter/types.js";
 
 /**
@@ -154,10 +155,10 @@ function applyTargetValue(
     ctx.NF = ctx.fields.length;
   } else if (targetName.startsWith("$")) {
     const idx = parseInt(targetName.slice(1), 10) - 1;
-    while (ctx.fields.length <= idx) ctx.fields.push("");
+    ensureFieldCount(ctx, idx + 1);
     ctx.fields[idx] = newValue;
     ctx.NF = ctx.fields.length;
-    ctx.line = ctx.fields.join(ctx.OFS);
+    rebuildLine(ctx);
   } else {
     ctx.vars[targetName] = newValue;
   }

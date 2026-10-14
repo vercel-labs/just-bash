@@ -4,6 +4,7 @@
  * Handles $0, $1, $2, etc. field access and modification.
  */
 
+import { ExecutionLimitError } from "../../../interpreter/errors.js";
 import { ConstantRegex, createUserRegex } from "../../../regex/index.js";
 import type { AwkRuntimeContext } from "./context.js";
 import { toAwkString } from "./type-coercion.js";
@@ -22,6 +23,42 @@ function splitFields(ctx: AwkRuntimeContext, line: string): string[] {
     return line.trim().split(/\s+/).filter(Boolean);
   }
   return ctx.fieldSep.split(line);
+}
+
+/**
+ * Grow the fields array to at least `count` entries, padding with "".
+ * Rejects counts beyond maxArrayElements before allocating anything.
+ */
+export function ensureFieldCount(ctx: AwkRuntimeContext, count: number): void {
+  if (!(count <= ctx.maxArrayElements)) {
+    throw new ExecutionLimitError(
+      `field count limit exceeded (${ctx.maxArrayElements})`,
+      "array_elements",
+    );
+  }
+  while (ctx.fields.length < count) {
+    ctx.fields.push("");
+  }
+}
+
+/**
+ * Rebuild $0 from the fields array, checking the joined size first.
+ */
+export function rebuildLine(ctx: AwkRuntimeContext): void {
+  if (ctx.maxOutputSize > 0) {
+    let size = Math.max(0, ctx.fields.length - 1) * ctx.OFS.length;
+    for (const field of ctx.fields) {
+      size += field.length;
+      if (size > ctx.maxOutputSize) break;
+    }
+    if (size > ctx.maxOutputSize) {
+      throw new ExecutionLimitError(
+        `record size limit exceeded (${ctx.maxOutputSize} bytes)`,
+        "string_length",
+      );
+    }
+  }
+  ctx.line = ctx.fields.join(ctx.OFS);
 }
 
 /**
@@ -54,13 +91,11 @@ export function setField(
     ctx.NF = ctx.fields.length;
   } else if (index > 0) {
     // Extend fields array if needed
-    while (ctx.fields.length < index) {
-      ctx.fields.push("");
-    }
+    ensureFieldCount(ctx, index);
     ctx.fields[index - 1] = toAwkString(value);
     ctx.NF = ctx.fields.length;
     // Rebuild $0 from fields
-    ctx.line = ctx.fields.join(ctx.OFS);
+    rebuildLine(ctx);
   }
 }
 
