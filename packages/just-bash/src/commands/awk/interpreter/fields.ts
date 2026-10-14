@@ -13,17 +13,33 @@ import type { AwkValue } from "./types.js";
 
 /**
  * Split a line into fields based on the field separator.
+ * Stops one field past maxArrayElements so oversized records are rejected
+ * without materializing every field.
  */
-function splitFields(ctx: AwkRuntimeContext, line: string): string[] {
+export function splitFields(ctx: AwkRuntimeContext, line: string): string[] {
   // Empty line always has 0 fields in AWK
   if (line === "") {
     return [];
   }
-  if (ctx.FS === " ") {
-    // Default FS: split on runs of whitespace, skip leading/trailing
-    return line.trim().split(/\s+/).filter(Boolean);
+  const max = ctx.maxArrayElements;
+  // String.prototype.split treats its limit as a uint32, so leave huge or
+  // unlimited maxima unbounded rather than letting them wrap
+  const limit = max < 0xfffffffe ? max + 1 : undefined;
+  const fields =
+    ctx.FS === " "
+      ? // Default FS: split on runs of whitespace, skip leading/trailing
+        line
+          .trim()
+          .split(/\s+/, limit)
+          .filter(Boolean)
+      : ctx.fieldSep.split(line, limit);
+  if (fields.length > max) {
+    throw new ExecutionLimitError(
+      `field count limit exceeded (${max})`,
+      "array_elements",
+    );
   }
-  return ctx.fieldSep.split(line);
+  return fields;
 }
 
 /**

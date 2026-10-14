@@ -140,14 +140,27 @@ describe("AWK prospective allocation limits", () => {
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 
-  it("allows assigning existing fields of a record wider than the limit", async () => {
-    const bash = new Bash({ executionLimits: { maxArrayElements: 3 } });
+  it("allows assigning existing fields of a record at the limit", async () => {
+    const bash = new Bash({ executionLimits: { maxArrayElements: 5 } });
     const result = await bash.exec(`awk '{ $4 = "x"; print }'`, {
       stdin: "a b c d e\n",
     });
     expect(result.stderr).toBe("");
     expect(result.stdout).toBe("a b c x e\n");
     expect(result.exitCode).toBe(0);
+  });
+
+  it.each([
+    ["an input record", `awk '{ print }'`, "a b c d e\n"],
+    ["an input record with FS", `awk -F, '{ print }'`, "a,b,c,d,e\n"],
+    ["$0 assignment", `awk 'BEGIN { FS = ""; $0 = "abcde" }'`, undefined],
+    ["sub on $0", `awk '{ sub(/x/, "a b c d e") }'`, "x\n"],
+  ])("rejects splitting %s beyond maxArrayElements", async (_kind, script, stdin) => {
+    const bash = new Bash({ executionLimits: { maxArrayElements: 3 } });
+    const result = await bash.exec(script, stdin ? { stdin } : {});
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("awk: field count limit exceeded (3)\n");
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 
   it("measures the rebuilt record in UTF-8 bytes", async () => {

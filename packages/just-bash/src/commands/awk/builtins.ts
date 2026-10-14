@@ -11,7 +11,11 @@ import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { createUserRegex, type UserRegex } from "../../regex/index.js";
 import type { AwkExpr } from "./ast.js";
 import type { AwkRuntimeContext } from "./interpreter/context.js";
-import { ensureFieldCount, rebuildLine } from "./interpreter/fields.js";
+import {
+  ensureFieldCount,
+  rebuildLine,
+  splitFields,
+} from "./interpreter/fields.js";
 import type { AwkValue } from "./interpreter/types.js";
 
 /**
@@ -148,10 +152,7 @@ function applyTargetValue(
 ): void {
   if (targetName === "$0") {
     ctx.line = newValue;
-    ctx.fields =
-      ctx.FS === " "
-        ? newValue.trim().split(/\s+/).filter(Boolean)
-        : ctx.fieldSep.split(newValue);
+    ctx.fields = splitFields(ctx, newValue);
     ctx.NF = ctx.fields.length;
   } else if (targetName.startsWith("$")) {
     const idx = Number(targetName.slice(1)) - 1;
