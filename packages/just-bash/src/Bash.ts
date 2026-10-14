@@ -814,6 +814,8 @@ export class Bash {
         functions: new Map(this.state.functions),
         localScopes: [...this.state.localScopes],
         options: { ...this.state.options },
+        shoptOptions: { ...this.state.shoptOptions },
+        readonlyVars: new Set(this.state.readonlyVars),
         // Share hashTable reference - it should persist across exec calls
         hashTable: this.state.hashTable,
         // Pass stdin through to commands (for bash -c with piped input).

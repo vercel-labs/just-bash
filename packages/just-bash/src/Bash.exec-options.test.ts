@@ -672,6 +672,31 @@ describe("exec options", () => {
       expect(r2.exitCode).toBe(0);
     });
 
+    it("shopt options should not leak between execs", async () => {
+      const env = new Bash({ files: { "/tmp/logs": "", "/tmp/LOG1": "" } });
+
+      await env.exec("shopt -s nocaseglob nullglob");
+
+      const r = await env.exec(
+        "shopt -p nocaseglob nullglob; echo /tmp/LOG*; echo /tmp/none*",
+      );
+      expect(r.stdout).toBe(
+        "shopt -u nocaseglob\nshopt -u nullglob\n/tmp/LOG1\n/tmp/none*\n",
+      );
+    });
+
+    it("readonly attributes should not leak between execs", async () => {
+      const env = new Bash();
+
+      await env.exec("readonly PATH HOME; declare -r FOO=1");
+
+      const r = await env.exec(
+        "PATH=/bin; HOME=/root; FOO=2; echo $PATH $HOME $FOO",
+      );
+      expect(r.stderr).toBe("");
+      expect(r.stdout).toBe("/bin /root 2\n");
+    });
+
     it("each exec is isolated even without per-exec options", async () => {
       const clock = createMockClock();
       const env = new Bash({
