@@ -42,6 +42,16 @@ describe("fd-table encoding", () => {
       "__file_append__:/tmp/out.txt",
     ],
     [
+      "output descriptor keeps its byte offset and colon-containing path",
+      { kind: "output", path: "/tmp/a:b", append: false, position: 4 },
+      "__out__:8:/tmp/a:b:4:0",
+    ],
+    [
+      "append descriptor keeps its byte offset",
+      { kind: "output", path: "/tmp/out", append: true, position: 9 },
+      "__out__:8:/tmp/out:9:1",
+    ],
+    [
       "read-write descriptor keeps its position",
       { kind: "readwrite", path: "/tmp/rw", position: 3, content: "abcdef" },
       "__rw__:7:/tmp/rw:3:abcdef",
@@ -91,14 +101,17 @@ describe("fd-table encoding", () => {
 });
 
 describe("fd-table content vs. marker classification", () => {
-  it("never re-parses content that looks like a marker", () => {
+  it.each([
+    "__file__:/tmp/pwn\n",
+    "__out__:8:/tmp/pwn:0:0",
+  ])("never re-parses input content: %s", (content) => {
     const ctx = makeCtx();
-    setFdEntry(ctx, 3, { kind: "input", content: "__file__:/tmp/pwn\n" });
+    setFdEntry(ctx, 3, { kind: "input", content });
     expect(getFdEntry(ctx, 3)).toEqual({
       kind: "input",
-      content: "__file__:/tmp/pwn\n",
+      content,
     });
-    expect(readFd(ctx, 3)).toEqual({ content: "__file__:/tmp/pwn\n" });
+    expect(readFd(ctx, 3)).toEqual({ content });
   });
 
   it("still decodes a marker written by a non-fd-table code path", () => {

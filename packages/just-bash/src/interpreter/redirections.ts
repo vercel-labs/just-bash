@@ -87,31 +87,6 @@ async function checkOutputRedirectTarget(
 
 const DEV_NULL = "/dev/null";
 
-/**
- * Determine the encoding to use for file I/O.
- * If all character codes are <= 127 (ASCII), use binary encoding (byte data).
- * Otherwise, use UTF-8 encoding (text with non-ASCII characters).
- * For performance, only check the first 8KB of large strings.
- *
- * Characters in the 128-255 range (e.g. Latin-1: Ü Ö Ä é è) need UTF-8
- * encoding because their multi-byte UTF-8 representation would be lost
- * if stored as single bytes via binary encoding.
- */
-function getFileEncoding(content: string): "binary" | "utf8" {
-  const SAMPLE_SIZE = 8192; // 8KB
-
-  // For large strings, only check the first 8KB
-  // This is sufficient since UTF-8 files typically have Unicode chars early
-  const checkLength = Math.min(content.length, SAMPLE_SIZE);
-
-  for (let i = 0; i < checkLength; i++) {
-    if (content.charCodeAt(i) > 127) {
-      return "utf8";
-    }
-  }
-  return "binary";
-}
-
 type PreparedDupSource = {
   kind: "entry";
   entry: FdEntry;
@@ -121,7 +96,6 @@ type PreparedDupSource = {
 type RedirectSink =
   | { kind: "live-stdout" }
   | { kind: "live-stderr" }
-  | { kind: "file"; path: string; append: boolean }
   | {
       kind: "descriptor";
       source: PreparedDupSource;
@@ -232,12 +206,13 @@ async function openOutputEntry(
   append: boolean,
   isClobber: boolean,
   handleWriteError = true,
+  resolvedPath?: string,
 ): Promise<
   { entry: OutputFdEntry; error?: never } | { entry?: never; error: ExecResult }
 > {
-  const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+  const filePath = resolvedPath ?? ctx.fs.resolvePath(ctx.state.cwd, target);
   if (filePath === DEV_NULL) {
-    return { entry: { kind: "output", path: DEV_NULL, append } };
+    return { entry: { kind: "output", path: DEV_NULL, append, position: 0 } };
   }
   const error = await checkOutputRedirectTarget(ctx, filePath, target, {
     checkNoclobber: !append,
@@ -249,15 +224,17 @@ async function openOutputEntry(
       error: makeResult("", "bash: /dev/full: No space left on device\n", 1),
     };
   }
-  if (target === "/dev/stdout") {
-    return { entry: { kind: "dup-out", sourceFd: 1 } };
-  }
-  if (target === "/dev/stderr") {
-    return { entry: { kind: "dup-out", sourceFd: 2 } };
-  }
   try {
     if (append) await ctx.fs.appendFile(filePath, "", "binary");
     else await ctx.fs.writeFile(filePath, "", "binary");
+    return {
+      entry: {
+        kind: "output",
+        path: filePath,
+        append,
+        position: append ? (await ctx.fs.stat(filePath)).size : 0,
+      },
+    };
   } catch (error) {
     const code = getErrorCode(error);
     const reason = code && PATH_ERROR_REASONS.get(code);
@@ -272,7 +249,6 @@ async function openOutputEntry(
       ),
     };
   }
-  return { entry: { kind: "output", path: filePath, append } };
 }
 
 async function readInputEntry(
@@ -283,7 +259,11 @@ async function readInputEntry(
   const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
   try {
     const content =
-      filePath === DEV_NULL ? "" : await ctx.fs.readFile(filePath);
+      filePath === DEV_NULL
+        ? ""
+        : readwrite
+          ? latin1FromBytes(await readBytesFrom(ctx.fs, filePath))
+          : await ctx.fs.readFile(filePath);
     return readwrite
       ? {
           entry: {
@@ -386,13 +366,11 @@ async function prepareRedirectionsWithState(
     if (fd === 1) outputRoutes.stdout = sink;
     else if (fd === 2) outputRoutes.stderr = sink;
   };
-  const openedOutputSink = (entry: OutputFdEntry): RedirectSink => {
+  const openedOutputSink = (entry: OutputFdEntry, fd: 1 | 2): RedirectSink => {
     if (entry.kind === "dup-out") {
       return entry.sourceFd === 1 ? outputRoutes.stdout : outputRoutes.stderr;
     }
-    return entry.path === DEV_NULL
-      ? { kind: "discard" }
-      : { kind: "file", path: entry.path, append: entry.append };
+    return descriptorSink({ kind: "entry", entry, descriptors: [fd] }, fd);
   };
   const snapshot = transaction.numericSnapshot;
   let stdin: string | undefined;
@@ -442,6 +420,26 @@ async function prepareRedirectionsWithState(
     entry: FdEntry,
     sink?: RedirectSink,
   ): void => {
+    if (
+      transaction.policy !== "persistent" &&
+      (fd === 1 || fd === 2) &&
+      entry.kind !== "dup-out"
+    ) {
+      bindTemporaryStandard(fd, entry);
+      if (sink) setOutputRoute(fd, sink);
+      return;
+    }
+    if (
+      transaction.policy !== "persistent" &&
+      (fd === 1 || fd === 2) &&
+      entry.kind === "dup-out" &&
+      isFdOpen(ctx, fd)
+    ) {
+      bindTemporaryStandard(fd, entry);
+      closeFd(ctx, fd);
+      if (sink) setOutputRoute(fd, sink);
+      return;
+    }
     if (fd !== null && fd < FIRST_USER_FD) standardRoutes.set(fd, entry);
     if (fd === 1 || fd === 2) {
       setOutputRoute(
@@ -451,7 +449,7 @@ async function prepareRedirectionsWithState(
             {
               kind: "entry",
               entry,
-              descriptors: transaction.policy === "persistent" ? [fd] : [],
+              descriptors: [fd],
             },
             fd,
           ),
@@ -471,7 +469,7 @@ async function prepareRedirectionsWithState(
     if (fd === 1 || fd === 2)
       setOutputRoute(
         fd,
-        descriptorSink({ kind: "entry", entry, descriptors: [] }, fd),
+        descriptorSink({ kind: "entry", entry, descriptors: [fd] }, fd),
       );
     rememberFd(ctx, transaction.standardSnapshot, fd);
     if (!transaction.standardClosedSnapshot.has(fd)) {
@@ -482,6 +480,34 @@ async function prepareRedirectionsWithState(
     }
     ctx.state.closedStandardFds?.delete(fd);
     setFdEntry(ctx, fd, entry);
+  };
+  const persistCombinedStandard = (
+    entry: OutputFdEntry,
+    sink: RedirectSink,
+  ): void => {
+    persistStandard(1, entry, sink);
+    persistStandard(2, entry, sink);
+    if (entry.kind === "output") {
+      dupFd(ctx, 2, 1);
+      if (sink.kind === "descriptor" && !sink.source.descriptors.includes(2))
+        sink.source.descriptors.push(2);
+    }
+  };
+  const closeStandard = (fd: number): void => {
+    standardRoutes.set(fd, { kind: "closed" });
+    if (fd === 1 || fd === 2)
+      setOutputRoute(fd, { kind: "invalid-output", fd });
+    if (transaction.policy !== "persistent") {
+      rememberFd(ctx, transaction.standardSnapshot, fd);
+      if (!transaction.standardClosedSnapshot.has(fd))
+        transaction.standardClosedSnapshot.set(
+          fd,
+          ctx.state.closedStandardFds?.has(fd) === true,
+        );
+    }
+    closeFd(ctx, fd);
+    ctx.state.closedStandardFds ??= new Set();
+    ctx.state.closedStandardFds.add(fd);
   };
   const getPreparedDupSource = (
     sourceFd: number,
@@ -500,7 +526,7 @@ async function prepareRedirectionsWithState(
   };
 
   for (let index = 0; index < redirections.length; index++) {
-    const redir = redirections[index];
+    let redir = redirections[index];
     const effectiveFd = effectiveRedirectFd(redir);
 
     if (redir.target.type === "HereDoc") {
@@ -550,7 +576,7 @@ async function prepareRedirectionsWithState(
     }
 
     let target: string;
-    const isDup = redir.operator === ">&" || redir.operator === "<&";
+    let isDup = redir.operator === ">&" || redir.operator === "<&";
     if (isDup) {
       if (hasQuotedMultiValueAt(ctx, redir.target as WordNode)) {
         return fail(makeResult("", "bash: $@: ambiguous redirect\n", 1), index);
@@ -578,6 +604,44 @@ async function prepareRedirectionsWithState(
         ),
         index,
       );
+    }
+
+    let combinedStreamDevice = false;
+    let outputFilePath: string | undefined;
+    // Linux opens stream-device file destinations with the requested open flags.
+    // Live streams still capture their destination before subsequent redirects.
+    if (
+      (target === "/dev/stdout" || target === "/dev/stderr") &&
+      (redir.operator === ">" ||
+        redir.operator === ">|" ||
+        redir.operator === ">>" ||
+        redir.operator === "&>" ||
+        redir.operator === "&>>" ||
+        redir.operator === ">&")
+    ) {
+      const sourceFd = target === "/dev/stdout" ? 1 : 2;
+      const source = getPreparedDupSource(sourceFd, false);
+      if (!source) {
+        return fail(
+          makeResult("", `bash: ${target}: No such file or directory\n`, 1),
+          index,
+        );
+      }
+      if (source.entry.kind === "output" || source.entry.kind === "readwrite") {
+        outputFilePath = source.entry.path;
+      } else {
+        combinedStreamDevice =
+          redir.operator === "&>" ||
+          redir.operator === "&>>" ||
+          (redir.operator === ">&" && redir.fd == null);
+        redir = {
+          ...redir,
+          operator: ">&",
+          fd: combinedStreamDevice ? null : (redir.fd ?? 1),
+        };
+        target = String(sourceFd);
+        isDup = true;
+      }
     }
 
     if (redir.fdVariable) {
@@ -648,7 +712,14 @@ async function prepareRedirectionsWithState(
               index,
             );
           }
-          const opened = await openOutputEntry(ctx, target, false, false);
+          const opened = await openOutputEntry(
+            ctx,
+            target,
+            false,
+            false,
+            true,
+            outputFilePath,
+          );
           if (opened.error) return fail(opened.error, index);
           entry = opened.entry;
         } else {
@@ -684,6 +755,8 @@ async function prepareRedirectionsWithState(
           target,
           append,
           redir.operator === ">|",
+          true,
+          outputFilePath,
         );
         if (opened.error) return fail(opened.error, index);
         entry = opened.entry;
@@ -714,7 +787,9 @@ async function prepareRedirectionsWithState(
           );
         }
       } else if (entry) {
-        setFdEntry(ctx, fd, entry);
+        if (duplicate && isFdOpen(ctx, duplicate.sourceFd))
+          dupFd(ctx, fd, duplicate.sourceFd);
+        else setFdEntry(ctx, fd, entry);
       }
       if (
         duplicate?.move &&
@@ -770,7 +845,14 @@ async function prepareRedirectionsWithState(
               index,
             );
           }
-          const opened = await openOutputEntry(ctx, target, false, false);
+          const opened = await openOutputEntry(
+            ctx,
+            target,
+            false,
+            false,
+            true,
+            outputFilePath,
+          );
           if (opened.error) return fail(opened.error, index);
           setFdEntry(ctx, fd, opened.entry as FdEntry);
           continue;
@@ -790,7 +872,8 @@ async function prepareRedirectionsWithState(
           );
         }
         if (parsed.sourceFd < FIRST_USER_FD) {
-          setFdEntry(ctx, fd, source.entry);
+          if (isFdOpen(ctx, parsed.sourceFd)) dupFd(ctx, fd, parsed.sourceFd);
+          else setFdEntry(ctx, fd, source.entry);
         } else if (
           !(parsed.move
             ? moveFd(ctx, fd, parsed.sourceFd)
@@ -824,6 +907,8 @@ async function prepareRedirectionsWithState(
           target,
           redir.operator === ">>",
           redir.operator === ">|",
+          true,
+          outputFilePath,
         );
         if (opened.error) return fail(opened.error, index);
         setFdEntry(ctx, fd, opened.entry as FdEntry);
@@ -848,17 +933,7 @@ async function prepareRedirectionsWithState(
           stdinSourceFd = -1;
         }
         if (effectiveFd !== null && effectiveFd < FIRST_USER_FD) {
-          standardRoutes.set(effectiveFd, { kind: "closed" });
-          if (effectiveFd === 1 || effectiveFd === 2)
-            setOutputRoute(effectiveFd, {
-              kind: "invalid-output",
-              fd: effectiveFd,
-            });
-          if (transaction.policy === "persistent") {
-            closeFd(ctx, effectiveFd);
-            ctx.state.closedStandardFds ??= new Set();
-            ctx.state.closedStandardFds.add(effectiveFd);
-          }
+          closeStandard(effectiveFd);
         }
         continue;
       }
@@ -870,13 +945,19 @@ async function prepareRedirectionsWithState(
             index,
           );
         }
-        const opened = await openOutputEntry(ctx, target, false, false, false);
+        const opened = await openOutputEntry(
+          ctx,
+          target,
+          false,
+          false,
+          false,
+          outputFilePath,
+        );
         if (opened.error) return fail(opened.error, index);
         const entry = opened.entry;
-        const sink = openedOutputSink(entry);
+        const sink = openedOutputSink(entry, effectiveFd === 2 ? 2 : 1);
         if (redir.fd == null) {
-          persistStandard(1, entry, sink);
-          persistStandard(2, entry, sink);
+          persistCombinedStandard(entry, sink);
         } else {
           persistStandard(effectiveFd, entry, sink);
         }
@@ -892,13 +973,21 @@ async function prepareRedirectionsWithState(
           index,
         );
       }
+      if (
+        effectiveFd === parsed.sourceFd &&
+        !parsed.move &&
+        !combinedStreamDevice
+      )
+        continue;
       const sink =
         parsed.sourceFd === 1
           ? outputRoutes.stdout
           : parsed.sourceFd === 2
             ? outputRoutes.stderr
             : descriptorSink(source, effectiveFd === 2 ? 2 : 1);
-      if (
+      if (combinedStreamDevice) {
+        persistCombinedStandard(source.entry as OutputFdEntry, sink);
+      } else if (
         transaction.policy === "persistent" &&
         effectiveFd !== null &&
         effectiveFd < FIRST_USER_FD &&
@@ -922,6 +1011,19 @@ async function prepareRedirectionsWithState(
         setOutputRoute(effectiveFd, sink);
       } else {
         persistStandard(effectiveFd, source.entry, sink);
+      }
+      if (
+        (effectiveFd === 1 || effectiveFd === 2) &&
+        effectiveFd !== parsed.sourceFd &&
+        isFdOpen(ctx, parsed.sourceFd) &&
+        (source.entry.kind === "output" || source.entry.kind === "readwrite")
+      ) {
+        dupFd(ctx, effectiveFd, parsed.sourceFd);
+        if (
+          sink.kind === "descriptor" &&
+          !sink.source.descriptors.includes(effectiveFd)
+        )
+          sink.source.descriptors.push(effectiveFd);
       }
       if (redir.operator === "<&" && effectiveFd === 0) {
         if (
@@ -958,17 +1060,7 @@ async function prepareRedirectionsWithState(
         if (parsed.sourceFd >= FIRST_USER_FD) {
           closeFd(ctx, parsed.sourceFd);
         } else {
-          standardRoutes.set(parsed.sourceFd, { kind: "closed" });
-          if (parsed.sourceFd === 1 || parsed.sourceFd === 2)
-            setOutputRoute(parsed.sourceFd, {
-              kind: "invalid-output",
-              fd: parsed.sourceFd,
-            });
-          if (transaction.policy === "persistent") {
-            closeFd(ctx, parsed.sourceFd);
-            ctx.state.closedStandardFds ??= new Set();
-            ctx.state.closedStandardFds.add(parsed.sourceFd);
-          }
+          closeStandard(parsed.sourceFd);
         }
       }
       continue;
@@ -987,13 +1079,13 @@ async function prepareRedirectionsWithState(
         redir.operator === ">>" || redir.operator === "&>>",
         redir.operator === ">|",
         false,
+        outputFilePath,
       );
       if (opened.error) return fail(opened.error, index);
       const entry = opened.entry;
-      const sink = openedOutputSink(entry);
+      const sink = openedOutputSink(entry, effectiveFd === 2 ? 2 : 1);
       if (redir.operator === "&>" || redir.operator === "&>>") {
-        persistStandard(1, entry, sink);
-        persistStandard(2, entry, sink);
+        persistCombinedStandard(entry, sink);
       } else {
         persistStandard(effectiveFd, entry, sink);
       }
@@ -1205,9 +1297,6 @@ export async function applyRedirections(
   const stdoutFileEncoding: "binary" | "utf8" = stdoutIsBytes
     ? "binary"
     : "utf8";
-  const getStdoutEncoding = (_content: string): "binary" | "utf8" =>
-    stdoutFileEncoding;
-
   const { stdout: fd1Sink, stderr: fd2Sink } = outputRoutes;
 
   // Deliver content still held in the streams to each fd's final sink.
@@ -1218,8 +1307,8 @@ export async function applyRedirections(
   // A duplication (`2>&1`) shares the source fd's sink OBJECT — one open
   // descriptor, so both streams go through it in order. Two independent
   // redirects that happen to name the same path (`> f 2> f`) are separate
-  // sinks delivered separately. Ordinary file sinks replace the file contents;
-  // this buffered representation does not preserve independent write offsets.
+  // descriptions with independent offsets. File truncation belongs to open;
+  // delivery overwrites only the written range at each description's offset.
   if (stdout !== "" || stderr !== "") {
     let pendingStdout = stdout;
     let pendingStderr = stderr;
@@ -1234,39 +1323,26 @@ export async function applyRedirections(
       pendingStderr = "";
       if (exitCode === 0) exitCode = 1;
     }
-    const deliverToFile = async (
-      sink: { path: string; append: boolean },
-      content: string,
-      encoding: "binary" | "utf8",
-    ) => {
-      if (sink.append) {
-        await ctx.fs.appendFile(sink.path, content, encoding);
-      } else {
-        await ctx.fs.writeFile(sink.path, content, encoding);
-      }
-    };
-    if (
-      fd1Sink === fd2Sink &&
-      (fd1Sink.kind === "file" || fd1Sink.kind === "descriptor")
-    ) {
+    if (fd1Sink === fd2Sink && fd1Sink.kind === "descriptor") {
       // stdout-then-stderr order, not the command's temporal write order:
       // ExecResult accumulates the two streams separately, so interleaving
       // is not recorded anywhere in the interpreter. This matches the
       // convention of the live-stream merge (`stdout += stderr`) used for a
       // bare `2>&1`.
-      const combined = pendingStdout + pendingStderr;
+      // stdout may already contain raw bytes; stderr is always Unicode text.
+      const combined =
+        (stdoutIsBytes
+          ? pendingStdout
+          : latin1FromBytes(encodeUtf8ToBytes(pendingStdout))) +
+        latin1FromBytes(encodeUtf8ToBytes(pendingStderr));
       if (combined !== "") {
-        if (fd1Sink.kind === "file") {
-          await deliverToFile(fd1Sink, combined, getStdoutEncoding(combined));
-        } else {
-          await writeFdEntry(
-            ctx,
-            fd1Sink.source.entry,
-            fd1Sink.source.descriptors,
-            combined,
-            getStdoutEncoding(combined),
-          );
-        }
+        await writeFdEntry(
+          ctx,
+          fd1Sink.source.entry,
+          fd1Sink.source.descriptors,
+          combined,
+          "binary",
+        );
       }
     } else {
       for (const [content, sink, isStdout] of [
@@ -1283,20 +1359,13 @@ export async function applyRedirections(
           case "live-stderr":
             stderr += content;
             break;
-          case "file":
-            await deliverToFile(
-              sink,
-              content,
-              isStdout ? getStdoutEncoding(content) : getFileEncoding(content),
-            );
-            break;
           case "descriptor":
             await writeFdEntry(
               ctx,
               sink.source.entry,
               sink.source.descriptors,
               content,
-              isStdout ? getStdoutEncoding(content) : getFileEncoding(content),
+              isStdout ? stdoutFileEncoding : "utf8",
             );
             break;
           case "invalid-output":

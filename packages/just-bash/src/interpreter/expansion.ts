@@ -25,6 +25,7 @@ import {
   ExecutionLimitError,
   ExitError,
 } from "./errors.js";
+import { withCapturedStdout } from "./fd-table.js";
 import { cloneArrays } from "./helpers/array.js";
 
 /**
@@ -826,7 +827,9 @@ async function expandPart(
       const savedSuppressVerbose = ctx.state.suppressVerbose;
       ctx.state.suppressVerbose = true;
       try {
-        const result = await ctx.executeScript(part.body);
+        const result = await withCapturedStdout(ctx, () =>
+          ctx.executeScript(part.body),
+        );
         // Restore environment but preserve exit code
         const exitCode = result.exitCode;
         ctx.state.env = savedEnv;

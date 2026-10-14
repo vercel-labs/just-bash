@@ -87,10 +87,11 @@ export async function executeSubshell(
       const consumed =
         parentEntry.kind === "input" && childEntry?.kind === "input"
           ? parentEntry.content.length - childEntry.content.length
-          : parentEntry.kind === "readwrite" &&
-              childEntry?.kind === "readwrite" &&
+          : (parentEntry.kind === "readwrite" ||
+                parentEntry.kind === "output") &&
+              childEntry?.kind === parentEntry.kind &&
               parentEntry.path === childEntry.path
-            ? childEntry.position - parentEntry.position
+            ? (childEntry.position ?? 0) - (parentEntry.position ?? 0)
             : 0;
       if (consumed <= 0) continue;
       const sourceFd = Math.min(...getFdAliasMembers(ctx, fd));

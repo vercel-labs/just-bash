@@ -2,7 +2,11 @@
  * read - Read a line of input builtin
  */
 
-import { utf8ByteLength } from "../../encoding.js";
+import {
+  decodeBytesToUtf8,
+  unsafeBytesFromLatin1,
+  utf8ByteLength,
+} from "../../encoding.js";
 import type { ExecResult } from "../../types.js";
 import { ExecutionLimitError } from "../errors.js";
 import { advanceFd, getFdEntry, readFd } from "../fd-table.js";
@@ -271,6 +275,19 @@ export function handleRead(
     effectiveStdin = ctx.state.groupStdin;
   }
 
+  const inputEntry = readsFromFd
+    ? savedStdinFd
+    : getFdEntry(
+        ctx,
+        stdinSourceFd >= 0
+          ? stdinSourceFd
+          : (ctx.state.groupStdinSourceFd ?? -1),
+      );
+  const byteStdin = effectiveStdin;
+  if (inputEntry?.kind === "readwrite") {
+    effectiveStdin = decodeBytesToUtf8(unsafeBytesFromLatin1(byteStdin));
+  }
+
   // Handle -d '' (empty delimiter) - reads until NUL byte
   // Empty string delimiter means read until NUL byte (\0)
   const effectiveDelimiter = delimiter === "" ? "\0" : delimiter;
@@ -303,14 +320,20 @@ export function handleRead(
   // Advance whichever input this read consumed from. A descriptor carries a
   // single shared position, so the next `read -u N` / `read <&N` continues
   // where this one stopped.
-  const consumeInput = (bytesConsumed: number) => {
+  const consumeInput = (charactersConsumed: number) => {
+    // read assigns text, but a read-write descriptor's shared offset counts bytes.
+    // Invalid UTF-8 stays in the raw byte view and must not be re-encoded.
+    const bytesConsumed =
+      effectiveStdin === byteStdin
+        ? charactersConsumed
+        : utf8ByteLength(effectiveStdin.slice(0, charactersConsumed));
     if (readsFromFd) {
       advanceFd(ctx, fileDescriptor, bytesConsumed);
     } else if (stdinSourceFd >= 0) {
       // stdin came from `<&N`; move N forward by exactly what was read.
       advanceFd(ctx, stdinSourceFd, bytesConsumed);
     } else if (ctx.state.groupStdin !== undefined && !stdin) {
-      ctx.state.groupStdin = effectiveStdin.substring(bytesConsumed);
+      ctx.state.groupStdin = byteStdin.substring(bytesConsumed);
       if (ctx.state.groupStdinSourceFd !== undefined) {
         advanceFd(ctx, ctx.state.groupStdinSourceFd, bytesConsumed);
       }

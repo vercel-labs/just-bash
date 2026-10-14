@@ -39,6 +39,7 @@ import type {
 import { MountableFs } from "../fs/mountable-fs/index.js";
 import type { ExecResult } from "../types.js";
 import { ExecutionLimitError, ExitError } from "./errors.js";
+import { withCapturedStdout } from "./fd-table.js";
 import { cloneArrays } from "./helpers/array.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -283,7 +284,10 @@ async function runBody(
 
   let result: ExecResult;
   try {
-    result = await ctx.executeScript(body);
+    result =
+      stdin === undefined
+        ? await withCapturedStdout(ctx, () => ctx.executeScript(body))
+        : await ctx.executeScript(body);
   } catch (error) {
     // Safety limits always propagate.
     if (error instanceof ExecutionLimitError) throw error;

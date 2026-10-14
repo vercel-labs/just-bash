@@ -14,6 +14,7 @@ import { relinquishPipelineOutput } from "../execution-scope.js";
 import { _performanceNow } from "../security/trusted-globals.js";
 import type { ExecResult } from "../types.js";
 import { BadSubstitutionError, ErrexitError, ExitError } from "./errors.js";
+import { closeFd, restoreFds, snapshotFds } from "./fd-table.js";
 import { clearArray, cloneArrays, setArrayElement } from "./helpers/array.js";
 import { OK } from "./helpers/result.js";
 import type { InterpreterContext } from "./types.js";
@@ -91,6 +92,23 @@ export async function executePipeline(
     const savedArrays = runsInSubshell ? cloneArrays(ctx.state.arrays) : null;
 
     let result: ExecResult;
+    // A non-final stage owns fd 1 as its pipe, not the enclosing file redirect.
+    // Other descriptors duplicated from that file remain attached to it.
+    const pipeDescriptors = !isLast
+      ? node.pipeStderr?.[i]
+        ? [1, 2]
+        : [1]
+      : [];
+    const stdoutSnapshot = !isLast ? snapshotFds(ctx, pipeDescriptors) : null;
+    const closedPipeDescriptors = pipeDescriptors.filter((fd) =>
+      ctx.state.closedStandardFds?.has(fd),
+    );
+    if (stdoutSnapshot) {
+      for (const fd of pipeDescriptors) {
+        closeFd(ctx, fd);
+        ctx.state.closedStandardFds?.delete(fd);
+      }
+    }
     const outputCheckpoint = ctx.executionScope.outputBytesUsed;
     try {
       ctx.state.commandCount = ctx.executionScope.chargeCommand();
@@ -130,6 +148,12 @@ export async function executePipeline(
         throw error;
       }
     } finally {
+      if (stdoutSnapshot) restoreFds(ctx, stdoutSnapshot);
+      for (const fd of pipeDescriptors) {
+        if (closedPipeDescriptors.includes(fd))
+          ctx.state.closedStandardFds?.add(fd);
+        else ctx.state.closedStandardFds?.delete(fd);
+      }
       if (isMultiCommandPipeline) {
         // The first stage held the shell's stdin, so whatever it consumed
         // (a `read` builtin advances the position, `true` does not) is now

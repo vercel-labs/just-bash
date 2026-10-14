@@ -10,8 +10,8 @@
  * - `input`      readable content (`N< file`, `N<<EOF`, `N<<<word`). Reading
  *                is destructive: the remaining content is written back, so
  *                successive `read -u N` calls advance a shared position.
- * - `output`     a file opened for writing (`N> file`, `N>> file`).
- * - `readwrite`  `N<> file` — content plus an explicit read position.
+ * - `output`     a write-only file with a byte offset (`N> file`, `N>> file`).
+ * - `readwrite`  `N<> file` — raw bytes plus an explicit byte position.
  * - `dup-out`    fd duplicated from stdout/stderr (`N>&1`).
  * - `dup-in`     fd duplicated from stdin (`N<&0`).
  *
@@ -23,11 +23,18 @@
  * older code paths.
  */
 
+import {
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+  readBytesFrom,
+  utf8ByteLength,
+} from "../encoding.js";
 import { checkFdLimit } from "./helpers/result.js";
 import type { InterpreterContext } from "./types.js";
 
 const FILE_PREFIX = "__file__:";
 const FILE_APPEND_PREFIX = "__file_append__:";
+const OUTPUT_PREFIX = "__out__:";
 const RW_PREFIX = "__rw__:";
 const DUP_OUT_PREFIX = "__dupout__:";
 const DUP_IN_PREFIX = "__dupin__:";
@@ -37,7 +44,7 @@ export const FIRST_USER_FD = 3;
 
 export type FdEntry =
   | { kind: "input"; content: string }
-  | { kind: "output"; path: string; append: boolean }
+  | { kind: "output"; path: string; append: boolean; position?: number }
   | { kind: "readwrite"; path: string; position: number; content: string }
   | { kind: "dup-out"; sourceFd: number }
   | { kind: "dup-in"; sourceFd: number }
@@ -64,8 +71,9 @@ export type FdSnapshot = Map<number, FdSnapshotEntry>;
  */
 function parseReadWrite(
   raw: string,
+  prefix = RW_PREFIX,
 ): { path: string; position: number; content: string } | null {
-  const afterPrefix = raw.slice(RW_PREFIX.length);
+  const afterPrefix = raw.slice(prefix.length);
   const firstColonIdx = afterPrefix.indexOf(":");
   if (firstColonIdx === -1) return null;
   const pathLength = Number.parseInt(afterPrefix.slice(0, firstColonIdx), 10);
@@ -91,6 +99,17 @@ function parseDupSource(raw: string, prefix: string): number | null {
  * {@link getFdEntry}, which consults `inputFds` first and never guesses.
  */
 export function decodeFdEntry(raw: string): FdEntry {
+  if (raw.startsWith(OUTPUT_PREFIX)) {
+    const parsed = parseReadWrite(raw, OUTPUT_PREFIX);
+    if (parsed && (parsed.content === "0" || parsed.content === "1")) {
+      return {
+        kind: "output",
+        path: parsed.path,
+        position: parsed.position,
+        append: parsed.content === "1",
+      };
+    }
+  }
   if (raw.startsWith(FILE_PREFIX)) {
     return {
       kind: "output",
@@ -126,6 +145,8 @@ export function encodeFdEntry(entry: FdEntry): string {
     case "input":
       return entry.content;
     case "output":
+      if (entry.position !== undefined)
+        return `${OUTPUT_PREFIX}${entry.path.length}:${entry.path}:${entry.position}:${entry.append ? 1 : 0}`;
       return `${entry.append ? FILE_APPEND_PREFIX : FILE_PREFIX}${entry.path}`;
     case "readwrite":
       return `${RW_PREFIX}${entry.path.length}:${entry.path}:${entry.position}:${entry.content}`;
@@ -280,6 +301,7 @@ export function dupFd(
 ): boolean {
   const raw = getRawFd(ctx, sourceFd);
   if (raw === undefined) return false;
+  if (fd === sourceFd) return true;
   setRawFd(ctx, fd, raw, ctx.state.inputFds?.has(sourceFd) === true);
   joinAliasGroup(ctx, fd, sourceFd);
   return true;
@@ -331,7 +353,7 @@ export function readFd(
 }
 
 /**
- * Advance the read position of `fd` by `count` characters.
+ * Advance the read position of `fd` by `count` bytes.
  * `input` entries keep only the unread remainder, matching bash's single
  * shared file offset: every later read continues where this one stopped —
  * including reads through a descriptor duplicated from this one, which
@@ -347,8 +369,11 @@ export function advanceFd(
   let advanced: FdEntry;
   if (entry.kind === "input") {
     advanced = { kind: "input", content: entry.content.slice(count) };
-  } else if (entry.kind === "readwrite") {
-    advanced = { ...entry, position: entry.position + count };
+  } else if (
+    entry.kind === "readwrite" ||
+    (entry.kind === "output" && entry.position !== undefined)
+  ) {
+    advanced = { ...entry, position: (entry.position ?? 0) + count };
   } else {
     return;
   }
@@ -369,31 +394,70 @@ export async function writeFdEntry(
   content: string,
   encoding: "binary" | "utf8",
 ): Promise<boolean> {
-  if (entry.kind === "output") {
-    await ctx.fs.appendFile(entry.path, content, encoding);
-    return true;
-  }
-  const liveEntry = descriptors
+  const members = [
+    ...new Set(descriptors.flatMap((fd) => getFdAliasMembers(ctx, fd))),
+  ];
+  const liveEntry = members
     .map((fd) => getFdEntry(ctx, fd))
     .find(
-      (candidate): candidate is Extract<FdEntry, { kind: "readwrite" }> =>
-        candidate?.kind === "readwrite",
+      (
+        candidate,
+      ): candidate is Extract<FdEntry, { kind: "output" | "readwrite" }> =>
+        (candidate?.kind === "readwrite" || candidate?.kind === "output") &&
+        (entry.kind === "readwrite" || entry.kind === "output") &&
+        candidate.path === entry.path,
     );
   const writeEntry = liveEntry ?? entry;
+  if (writeEntry.kind === "output") {
+    const size = (await ctx.fs.stat(writeEntry.path)).size;
+    const position =
+      writeEntry.append || writeEntry.position === undefined
+        ? size
+        : writeEntry.position;
+    const length =
+      encoding === "binary" ? content.length : utf8ByteLength(content);
+    if (position === size) {
+      await ctx.fs.appendFile(writeEntry.path, content, encoding);
+    } else {
+      const current = latin1FromBytes(
+        await readBytesFrom(ctx.fs, writeEntry.path),
+      );
+      const bytes =
+        encoding === "binary"
+          ? content
+          : latin1FromBytes(encodeUtf8ToBytes(content));
+      const updated =
+        current.slice(0, position).padEnd(position, "\0") +
+        bytes +
+        current.slice(position + length);
+      await ctx.fs.writeFile(writeEntry.path, updated, "binary");
+    }
+    const updated: FdEntry = { ...writeEntry, position: position + length };
+    const raw = encodeFdEntry(updated);
+    for (const fd of members) {
+      if (isFdOpen(ctx, fd)) writeRawFd(ctx, fd, raw, false);
+    }
+    return true;
+  }
   if (writeEntry.kind !== "readwrite") return false;
-
+  // Independent opens may modify the file without advancing this offset.
+  const current = latin1FromBytes(await readBytesFrom(ctx.fs, writeEntry.path));
+  const bytes =
+    encoding === "binary"
+      ? content
+      : latin1FromBytes(encodeUtf8ToBytes(content));
   const updatedContent =
-    writeEntry.content.slice(0, writeEntry.position) +
-    content +
-    writeEntry.content.slice(writeEntry.position + content.length);
+    current.slice(0, writeEntry.position).padEnd(writeEntry.position, "\0") +
+    bytes +
+    current.slice(writeEntry.position + bytes.length);
   const updated: FdEntry = {
     ...writeEntry,
-    position: writeEntry.position + content.length,
+    position: writeEntry.position + bytes.length,
     content: updatedContent,
   };
-  await ctx.fs.writeFile(writeEntry.path, updatedContent, encoding);
+  await ctx.fs.writeFile(writeEntry.path, updatedContent, "binary");
   const raw = encodeFdEntry(updated);
-  for (const fd of descriptors) {
+  for (const fd of members) {
     if (isFdOpen(ctx, fd)) writeRawFd(ctx, fd, raw, false);
   }
   return true;
@@ -431,6 +495,25 @@ export function snapshotFds(
   return snapshot;
 }
 
+/** A substitution owns stdout as its capture pipe, not the inherited file. */
+export async function withCapturedStdout<T>(
+  ctx: InterpreterContext,
+  execute: () => Promise<T>,
+): Promise<T> {
+  const snapshot = snapshotFds(ctx, [1]);
+  const wasClosed = ctx.state.closedStandardFds?.has(1) === true;
+  // Detach only fd 1. Copies such as fd 2 and fd 3 still own the inherited file.
+  closeFd(ctx, 1);
+  ctx.state.closedStandardFds?.delete(1);
+  try {
+    return await execute();
+  } finally {
+    restoreFds(ctx, snapshot);
+    if (wasClosed) ctx.state.closedStandardFds?.add(1);
+    else ctx.state.closedStandardFds?.delete(1);
+  }
+}
+
 /**
  * Undo the descriptor changes recorded by {@link rememberFd}.
  *
@@ -450,10 +533,25 @@ export function restoreFds(
       continue;
     }
     // Re-opening the saved value detaches fd from whatever it aliases now.
-    setRawFd(ctx, fd, raw, isInput);
+    const savedEntry: FdEntry = isInput
+      ? { kind: "input", content: raw }
+      : decodeFdEntry(raw);
+    const survivor = aliases.find((member) => {
+      if (savedEntry.kind !== "output" && savedEntry.kind !== "readwrite")
+        return fds.has(member);
+      const current = getFdEntry(ctx, member);
+      return (
+        current?.kind === savedEntry.kind && current.path === savedEntry.path
+      );
+    });
+    setRawFd(
+      ctx,
+      fd,
+      survivor === undefined ? raw : (getRawFd(ctx, survivor) as string),
+      isInput,
+    );
     // Then re-attach it to whichever of its original co-members is still
     // open — they all share one description, so any survivor will do.
-    const survivor = aliases.find((member) => fds.has(member));
     if (survivor !== undefined) joinAliasGroup(ctx, fd, survivor);
   }
 }
