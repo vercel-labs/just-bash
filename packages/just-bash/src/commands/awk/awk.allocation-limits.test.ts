@@ -103,6 +103,7 @@ describe("AWK prospective allocation limits", () => {
     ["sub field target", `awk 'BEGIN { sub(/^/, "x", $100000000) }'`],
     ["gsub field target", `awk 'BEGIN { gsub(/^/, "x", $100000000) }'`],
     ["infinite NF", `awk 'BEGIN { NF = 1e400 }'`],
+    ["negative infinite NF", `awk 'BEGIN { NF = -1e400 }'`],
   ])("rejects %s beyond maxArrayElements before growing fields", async (_kind, script) => {
     const bash = new Bash({ executionLimits: { maxArrayElements: 10 } });
     const result = await bash.exec(script);

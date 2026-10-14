@@ -32,7 +32,7 @@ function splitFields(ctx: AwkRuntimeContext, line: string): string[] {
  * the limit is Infinity) before allocating.
  */
 export function ensureFieldCount(ctx: AwkRuntimeContext, count: number): void {
-  if (count <= ctx.fields.length) return;
+  if (Number.isFinite(count) && count <= ctx.fields.length) return;
   if (!Number.isFinite(count) || count > ctx.maxArrayElements) {
     throw new ExecutionLimitError(
       `field count limit exceeded (${ctx.maxArrayElements})`,
