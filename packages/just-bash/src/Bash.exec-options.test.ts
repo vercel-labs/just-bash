@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Bash, type BashLogger } from "./Bash.js";
+import { defineCommand } from "./custom-commands.js";
 
 // Helper to create a mock clock for testing sleep
 function createMockClock() {
@@ -695,6 +696,31 @@ describe("exec options", () => {
 
       const r2 = await env.exec("ls /tmp; hash");
       expect(r2.stdout).toBe("evil\nhits\tcommand\n   1\t/usr/bin/ls\n");
+    });
+
+    it("recursive execs inherit the calling shell's state", async () => {
+      const run = defineCommand("run", async (args, ctx) => {
+        if (!ctx.exec) {
+          return { stdout: "", stderr: "exec not available\n", exitCode: 1 };
+        }
+        return ctx.exec(args.join(" "), { cwd: ctx.cwd });
+      });
+      const env = new Bash({ customCommands: [run] });
+
+      const r = await env.exec(
+        [
+          "echo 'echo evil' > /tmp/evil; chmod +x /tmp/evil",
+          "shopt -s nullglob; readonly RO=1; hash -p /tmp/evil ls",
+          "run 'echo x /none*'",
+          "run 'RO=2' 2>/dev/null || echo readonly",
+          "time ls",
+        ].join("\n"),
+      );
+      expect(r.stdout).toBe("x\nreadonly\nevil\n");
+
+      // Recursive execs work on copies, so nothing reaches later execs
+      const r2 = await env.exec("echo /none*; RO=2; echo $RO; ls /tmp");
+      expect(r2.stdout).toBe("/none*\n2\nevil\n");
     });
 
     it("readonly attributes should not leak between execs", async () => {

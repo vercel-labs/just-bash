@@ -801,6 +801,13 @@ export class Bash {
         execEnv.set("BASHOPTS", buildBashopts(this.state.shoptOptions));
       }
 
+      // A recursive exec continues the calling shell, so it inherits that
+      // shell's shopt settings, readonly attributes, and hashed commands. A
+      // top-level exec or new shell starts from the instance defaults. Each
+      // is copied so changes never reach the source.
+      const shellSource =
+        callerState && !effectiveOptions.newShell ? callerState : this.state;
+
       const execState: InterpreterState = {
         ...this.state,
         env: execEnv,
@@ -814,9 +821,9 @@ export class Bash {
         functions: new Map(this.state.functions),
         localScopes: [...this.state.localScopes],
         options: { ...this.state.options },
-        shoptOptions: { ...this.state.shoptOptions },
-        readonlyVars: new Set(this.state.readonlyVars),
-        hashTable: new Map(this.state.hashTable),
+        shoptOptions: { ...shellSource.shoptOptions },
+        readonlyVars: new Set(shellSource.readonlyVars),
+        hashTable: new Map(shellSource.hashTable),
         // Pass stdin through to commands (for bash -c with piped input).
         // The pipeline contract is "stdin is a latin1-shaped byte buffer";
         // text-shaped user input (the default) needs UTF-8 encoding here
