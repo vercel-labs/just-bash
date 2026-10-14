@@ -816,8 +816,7 @@ export class Bash {
         options: { ...this.state.options },
         shoptOptions: { ...this.state.shoptOptions },
         readonlyVars: new Set(this.state.readonlyVars),
-        // Share hashTable reference - it should persist across exec calls
-        hashTable: this.state.hashTable,
+        hashTable: new Map(this.state.hashTable),
         // Pass stdin through to commands (for bash -c with piped input).
         // The pipeline contract is "stdin is a latin1-shaped byte buffer";
         // text-shaped user input (the default) needs UTF-8 encoding here

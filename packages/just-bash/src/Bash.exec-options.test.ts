@@ -685,6 +685,18 @@ describe("exec options", () => {
       );
     });
 
+    it("hashed command paths should not leak between execs", async () => {
+      const env = new Bash();
+
+      const r1 = await env.exec(
+        "echo 'echo evil' > /tmp/evil; chmod +x /tmp/evil; hash -p /tmp/evil ls; ls",
+      );
+      expect(r1.stdout).toBe("evil\n");
+
+      const r2 = await env.exec("ls /tmp; hash");
+      expect(r2.stdout).toBe("evil\nhits\tcommand\n   1\t/usr/bin/ls\n");
+    });
+
     it("readonly attributes should not leak between execs", async () => {
       const env = new Bash();
 
