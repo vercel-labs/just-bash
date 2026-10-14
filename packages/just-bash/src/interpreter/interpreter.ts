@@ -10,6 +10,7 @@
  * - Redirections (redirections.ts)
  */
 
+import { combineAbortSignals } from "../abort-signals.js";
 import type {
   ArithmeticCommandNode,
   CommandNode,
@@ -103,6 +104,7 @@ import {
   withPreparedRedirections,
 } from "./redirections.js";
 import { processAssignments } from "./simple-command-assignments.js";
+import { executeStreamingPipeline } from "./streaming-pipeline.js";
 import {
   executeGroup as executeGroupHelper,
   executeSubshell as executeSubshellHelper,
@@ -155,7 +157,10 @@ export interface InterpreterOptions {
 export class Interpreter {
   private ctx: InterpreterContext;
 
-  constructor(options: InterpreterOptions, state: InterpreterState) {
+  constructor(
+    private readonly options: InterpreterOptions,
+    state: InterpreterState,
+  ) {
     this.ctx = {
       state,
       fs: options.fs,
@@ -530,8 +535,45 @@ export class Interpreter {
   }
 
   private async executePipeline(node: PipelineNode): Promise<ExecResult> {
-    return executePipelineHelper(this.ctx, node, (cmd, stdin) =>
-      this.executeCommand(cmd, stdin),
+    return executePipelineHelper(
+      this.ctx,
+      node,
+      (cmd, stdin) => this.executeCommand(cmd, stdin),
+      () =>
+        executeStreamingPipeline(
+          this.ctx,
+          node,
+          async (command, state, stdin, stdio, resolved) => {
+            // @banned-pattern-ignore: pipeline stages reuse the parent executionScope and isolate only shell state.
+            const interpreter = new Interpreter(this.options, state);
+            interpreter.ctx.execFn = async (
+              script,
+              options,
+              stdinAccounted,
+            ) => {
+              const combined = combineAbortSignals(
+                state.signal,
+                options?.signal,
+              );
+              try {
+                return await this.options.exec(
+                  script,
+                  { ...options, signal: combined.signal },
+                  stdinAccounted,
+                );
+              } finally {
+                combined.cleanup();
+              }
+            };
+            interpreter.ctx.stdio = stdio;
+            const name = command.name?.parts[0];
+            interpreter.ctx.pipelineCommand = {
+              name: name?.type === "Literal" ? name.value : "",
+              resolved,
+            };
+            return interpreter.executeCommand(command, stdin);
+          },
+        ),
     );
   }
 
