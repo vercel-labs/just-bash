@@ -88,6 +88,7 @@ import { nullCommandExitStatus } from "./helpers/substitution-status.js";
 import { isWordLiteralMatch } from "./helpers/word-matching.js";
 import { traceSimpleCommand } from "./helpers/xtrace.js";
 import { executePipeline as executePipelineHelper } from "./pipeline-execution.js";
+import { PrefixBindings } from "./prefix-bindings.js";
 import {
   markProcessSubstitutions,
   releaseProcessSubstitutions,
@@ -676,405 +677,386 @@ export class Interpreter {
     // clean marker rather than inheriting the previous command's.
     this.ctx.state.lastSubstitutionExitCode = null;
 
-    // Process all assignments (array, subscript, and scalar)
-    const assignmentResult = await processAssignments(this.ctx, node);
-    if (assignmentResult.error) {
-      return assignmentResult.error;
-    }
-    const tempAssignments = assignmentResult.tempAssignments;
-    const xtraceAssignmentOutput = assignmentResult.xtraceOutput;
-    const restoreTempAssignments = (): void => {
-      for (const [name, value] of tempAssignments) {
-        if (value === undefined) this.ctx.state.env.delete(name);
-        else this.ctx.state.env.set(name, value);
-      }
-    };
-    if (!node.name) {
-      // No command name - could be assignment-only or redirect-only (bare redirects)
-      // e.g., "x=5" (assignment-only) or "> file" (bare redirect to create empty file)
-
-      // Handle bare redirections (no command, just redirects like "> file")
-      // In bash, this creates/truncates the file and returns success
-      if (node.redirections.length > 0) {
-        const transaction = createRedirectionTransaction(
+    let bindings: PrefixBindings | undefined;
+    let cleanupPolicy: "retain" | "restore" = "restore";
+    let commandName = "";
+    try {
+      let xtraceAssignmentOutput = "";
+      if (!node.name) {
+        bindings = new PrefixBindings(this.ctx);
+        const assignmentResult = await processAssignments(
           this.ctx,
-          node.redirections,
-          BARE_REDIRECTION_POLICY,
+          node,
+          bindings,
         );
-        onTransaction(transaction);
-        const preparedRedirections = await transaction.prepare(stdin);
-        if (preparedRedirections.error) {
-          restoreTempAssignments();
-          if (!preparedRedirections.errorCause) {
-            transaction.finish();
-            return preparedRedirections.error;
+        if (assignmentResult.error) return assignmentResult.error;
+        xtraceAssignmentOutput = assignmentResult.xtraceOutput;
+        bindings.endExpansion();
+        // No command name - could be assignment-only or redirect-only (bare redirects)
+        // e.g., "x=5" (assignment-only) or "> file" (bare redirect to create empty file)
+
+        // Handle bare redirections (no command, just redirects like "> file")
+        // In bash, this creates/truncates the file and returns success
+        if (node.redirections.length > 0) {
+          const transaction = createRedirectionTransaction(
+            this.ctx,
+            node.redirections,
+            BARE_REDIRECTION_POLICY,
+          );
+          onTransaction(transaction);
+          const preparedRedirections = await transaction.prepare(stdin);
+          if (preparedRedirections.error) {
+            if (!preparedRedirections.errorCause) {
+              transaction.finish();
+              return preparedRedirections.error;
+            }
+            try {
+              return preparedRedirectionError(preparedRedirections);
+            } finally {
+              transaction.finish();
+            }
           }
-          try {
-            return preparedRedirectionError(preparedRedirections);
-          } finally {
-            transaction.finish();
-          }
+          // After `prepare`, so a substitution in a redirection target counts.
+          const baseResult = result(
+            "",
+            xtraceAssignmentOutput,
+            nullCommandExitStatus(this.ctx.state, node.redirections),
+          );
+          const redirected = await applyRedirections(
+            this.ctx,
+            baseResult,
+            node.redirections,
+            preparedRedirections.targets,
+            preparedRedirections.dupSources,
+            preparedRedirections.standardRoutes,
+          );
+          transaction.finish();
+          return redirected;
         }
-        // After `prepare`, so a substitution in a redirection target counts.
-        const baseResult = result(
+
+        // Assignment-only command: the status is the one from a command
+        // substitution in the values (`x=$(false)` is 1), and 0 when there was
+        // none — a bare `x=1` never re-reports the previous command's status.
+        // Also clear $_ - bash clears it for bare assignments
+        this.ctx.state.lastArg = "";
+        // Include any stderr from command substitutions (e.g., FOO=$(echo foo 1>&2))
+        const stderrOutput =
+          (this.ctx.state.expansionStderr || "") + xtraceAssignmentOutput;
+        this.ctx.state.expansionStderr = "";
+        return result(
           "",
-          xtraceAssignmentOutput,
-          nullCommandExitStatus(this.ctx.state, node.redirections),
-        );
-        const redirected = await applyRedirections(
-          this.ctx,
-          baseResult,
-          node.redirections,
-          preparedRedirections.targets,
-          preparedRedirections.dupSources,
-          preparedRedirections.standardRoutes,
-        );
-        transaction.finish();
-        return redirected;
-      }
-
-      // Assignment-only command: the status is the one from a command
-      // substitution in the values (`x=$(false)` is 1), and 0 when there was
-      // none — a bare `x=1` never re-reports the previous command's status.
-      // Also clear $_ - bash clears it for bare assignments
-      this.ctx.state.lastArg = "";
-      // Include any stderr from command substitutions (e.g., FOO=$(echo foo 1>&2))
-      const stderrOutput =
-        (this.ctx.state.expansionStderr || "") + xtraceAssignmentOutput;
-      this.ctx.state.expansionStderr = "";
-      return result(
-        "",
-        stderrOutput,
-        nullCommandExitStatus(this.ctx.state, []),
-      );
-    }
-
-    // Mark prefix assignment variables as temporarily exported for this command
-    // In bash, FOO=bar cmd makes FOO visible in cmd's environment
-    // EXCEPTION: For assignment builtins (readonly, declare, local, export, typeset),
-    // temp bindings should NOT be exported to command substitutions in the arguments.
-    // e.g., `FOO=foo readonly v=$(printenv.py FOO)` - the $(printenv.py FOO) should NOT see FOO.
-    // This is because assignment builtins don't actually run as external commands that receive
-    // an exported environment - they process their arguments in the current shell context.
-    const isLiteralAssignmentBuiltinForExport =
-      node.name &&
-      isWordLiteralMatch(node.name, [
-        "local",
-        "declare",
-        "typeset",
-        "export",
-        "readonly",
-      ]);
-    const tempExportedVars = Array.from(tempAssignments.keys());
-    if (tempExportedVars.length > 0 && !isLiteralAssignmentBuiltinForExport) {
-      this.ctx.state.tempExportedVars =
-        this.ctx.state.tempExportedVars || new Set();
-      for (const name of tempExportedVars) {
-        this.ctx.state.tempExportedVars.add(name);
-      }
-    }
-
-    let commandName = await expandWord(this.ctx, node.name);
-
-    const args: string[] = [];
-    const quotedArgs: boolean[] = [];
-    const appendArgument = (value: string, quoted: boolean): void => {
-      if (args.length >= this.ctx.limits.maxArrayElements) {
-        throw new ExecutionLimitError(
-          `expanded argument element limit exceeded (${this.ctx.limits.maxArrayElements})`,
-          "array_elements",
+          stderrOutput,
+          nullCommandExitStatus(this.ctx.state, []),
         );
       }
-      args.push(value);
-      quotedArgs.push(quoted);
-    };
 
-    // Handle local/declare/export/readonly arguments specially:
-    // - For array assignments like `local a=(1 "2 3")`, preserve quote structure
-    // - For scalar assignments like `local foo=$bar`, DON'T glob expand the value
-    // This matches bash behavior where assignment values aren't subject to word splitting/globbing
-    //
-    // IMPORTANT: This special handling only applies when the command is a LITERAL keyword,
-    // not when it's determined via variable expansion. For example:
-    // - `export var=$x` -> no word splitting (literal export keyword)
-    // - `e=export; $e var=$x` -> word splitting DOES occur (export via variable)
-    //
-    // This is because bash determines at parse time whether the command is an assignment builtin.
-    const isLiteralAssignmentBuiltin =
-      isWordLiteralMatch(node.name, [
-        "local",
-        "declare",
-        "typeset",
-        "export",
-        "readonly",
-      ]) &&
-      (commandName === "local" ||
-        commandName === "declare" ||
-        commandName === "typeset" ||
-        commandName === "export" ||
-        commandName === "readonly");
+      // Bash expands command words and arguments before prefix values.
+      // A failed argument expansion must not evaluate any prefix RHS;
+      // argument mutations remain real shell state, not temporary bindings.
+      commandName = await expandWord(this.ctx, node.name);
 
-    if (isLiteralAssignmentBuiltin) {
-      for (const arg of node.args) {
-        const arrayAssignResult = await expandLocalArrayAssignmentHelper(
-          this.ctx,
-          arg,
-        );
-        if (arrayAssignResult) {
-          appendArgument(arrayAssignResult, true);
-        } else {
-          // Check if this looks like a scalar assignment (name=value)
-          // For assignments, we should NOT glob-expand the value part
-          const scalarAssignResult = await expandScalarAssignmentArgHelper(
+      const args: string[] = [];
+      const quotedArgs: boolean[] = [];
+      const appendArgument = (value: string, quoted: boolean): void => {
+        if (args.length >= this.ctx.limits.maxArrayElements) {
+          throw new ExecutionLimitError(
+            `expanded argument element limit exceeded (${this.ctx.limits.maxArrayElements})`,
+            "array_elements",
+          );
+        }
+        args.push(value);
+        quotedArgs.push(quoted);
+      };
+
+      // Handle local/declare/export/readonly arguments specially:
+      // - For array assignments like `local a=(1 "2 3")`, preserve quote structure
+      // - For scalar assignments like `local foo=$bar`, DON'T glob expand the value
+      // This matches bash behavior where assignment values aren't subject to word splitting/globbing
+      //
+      // IMPORTANT: This special handling only applies when the command is a LITERAL keyword,
+      // not when it's determined via variable expansion. For example:
+      // - `export var=$x` -> no word splitting (literal export keyword)
+      // - `e=export; $e var=$x` -> word splitting DOES occur (export via variable)
+      //
+      // This is because bash determines at parse time whether the command is an assignment builtin.
+      const isLiteralAssignmentBuiltin =
+        isWordLiteralMatch(node.name, [
+          "local",
+          "declare",
+          "typeset",
+          "export",
+          "readonly",
+        ]) &&
+        (commandName === "local" ||
+          commandName === "declare" ||
+          commandName === "typeset" ||
+          commandName === "export" ||
+          commandName === "readonly");
+
+      if (isLiteralAssignmentBuiltin) {
+        for (const arg of node.args) {
+          const arrayAssignResult = await expandLocalArrayAssignmentHelper(
             this.ctx,
             arg,
           );
-          if (scalarAssignResult !== null) {
-            appendArgument(scalarAssignResult, true);
+          if (arrayAssignResult) {
+            appendArgument(arrayAssignResult, true);
           } else {
-            // Not an assignment - use normal glob expansion
-            const expanded = await expandWordWithGlob(this.ctx, arg);
-            for (const value of expanded.values) {
-              appendArgument(value, expanded.quoted);
+            // Check if this looks like a scalar assignment (name=value)
+            // For assignments, we should NOT glob-expand the value part
+            const scalarAssignResult = await expandScalarAssignmentArgHelper(
+              this.ctx,
+              arg,
+            );
+            if (scalarAssignResult !== null) {
+              appendArgument(scalarAssignResult, true);
+            } else {
+              // Not an assignment - use normal glob expansion
+              const expanded = await expandWordWithGlob(this.ctx, arg);
+              for (const value of expanded.values) {
+                appendArgument(value, expanded.quoted);
+              }
             }
           }
         }
-      }
-    } else {
-      // Expand args even if command name is empty (they may have side effects)
-      for (const arg of node.args) {
-        const expanded = await expandWordWithGlob(this.ctx, arg);
-        for (const value of expanded.values) {
-          appendArgument(value, expanded.quoted);
+      } else {
+        // Expand args even if command name is empty (they may have side effects)
+        for (const arg of node.args) {
+          const expanded = await expandWordWithGlob(this.ctx, arg);
+          for (const value of expanded.values) {
+            appendArgument(value, expanded.quoted);
+          }
         }
       }
-    }
 
-    const commandIsOnlyExpansions = node.name.parts.every(
-      (part) =>
-        part.type === "CommandSubstitution" ||
-        part.type === "ParameterExpansion" ||
-        part.type === "ArithmeticExpansion",
-    );
-    if (!commandName && commandIsOnlyExpansions && args.length > 0) {
-      commandName = args.shift() as string;
-      quotedArgs.shift();
-    }
-
-    const transaction = createRedirectionTransaction(
-      this.ctx,
-      node.redirections,
-      commandName === "exec"
-        ? EXEC_REDIRECTION_POLICY
-        : SIMPLE_REDIRECTION_POLICY,
-    );
-    onTransaction(transaction);
-    const preparedRedirections = await transaction.prepare(stdin);
-    if (preparedRedirections.error) {
-      restoreTempAssignments();
-      if (!preparedRedirections.errorCause) {
-        transaction.finish();
-        return preparedRedirections.error;
+      const commandIsOnlyExpansions = node.name.parts.every(
+        (part) =>
+          part.type === "CommandSubstitution" ||
+          part.type === "ParameterExpansion" ||
+          part.type === "ArithmeticExpansion",
+      );
+      if (!commandName && commandIsOnlyExpansions && args.length > 0) {
+        commandName = args.shift() as string;
+        quotedArgs.shift();
       }
-      return preparedRedirectionError(preparedRedirections);
-    }
-    const stdinSourceFd = preparedRedirections.stdinSourceFd;
-    const stdinRedirected = preparedRedirections.stdin !== undefined;
-    if (preparedRedirections.stdin !== undefined) {
-      stdin = preparedRedirections.stdin;
-    }
 
-    // Handle empty command name specially
-    // If the command word contains ONLY command substitutions/expansions and expands
-    // to empty, word-splitting removes the empty result. If there are args, the first
-    // arg becomes the command name. This matches bash behavior:
-    // - x=''; $x is a no-op (empty, no args)
-    // - x=''; $x Y runs command Y (empty command name, Y becomes command)
-    // - `true` X runs command X (since `true` outputs nothing)
-    // However, a literal empty string (like '') is "command not found".
-    if (!commandName) {
-      if (commandIsOnlyExpansions) {
-        // No args - treat as a no-op that reports the status of a command
-        // substitution in the word (`$(exit 42)` is 42) and 0 otherwise.
-        transaction.finish();
-        return result(
-          "",
-          "",
-          nullCommandExitStatus(this.ctx.state, node.redirections),
-        );
-      }
-      // Literal empty command name - command not found
-      transaction.finish();
-      return failure("bash: : command not found\n", 127);
-    }
+      const assignmentOnly = !commandName && commandIsOnlyExpansions;
+      bindings = new PrefixBindings(this.ctx);
+      const tempAssignments = bindings.records;
+      const assignmentResult = await processAssignments(
+        this.ctx,
+        assignmentOnly ? { ...node, name: null } : node,
+        bindings,
+      );
+      if (assignmentResult.error) return assignmentResult.error;
+      xtraceAssignmentOutput = assignmentResult.xtraceOutput;
+      bindings.endExpansion();
+      if (assignmentOnly) cleanupPolicy = "retain";
 
-    // Special handling for 'exec' with only redirections (no command to run)
-    // In this case, the redirections apply persistently to the shell
-    if (commandName === "exec" && (args.length === 0 || args[0] === "--")) {
-      // In bash, "exec" with only redirections does NOT persist prefix assignments
-      // This is the "special case of the special case" - unlike other special builtins
-      // (like ":"), exec without a command restores temp assignments
-      for (const [name, value] of tempAssignments) {
-        if (value === undefined) this.ctx.state.env.delete(name);
-        else this.ctx.state.env.set(name, value);
-      }
-      // Clear temp exported vars
-      if (this.ctx.state.tempExportedVars) {
-        for (const name of tempAssignments.keys()) {
-          this.ctx.state.tempExportedVars.delete(name);
+      // Keep completed redirection expansion assignments when preparation
+      // fails, without changing which environment dispatch receives.
+      bindings.beginExpansion(true);
+      const transaction = createRedirectionTransaction(
+        this.ctx,
+        node.redirections,
+        commandName === "exec"
+          ? EXEC_REDIRECTION_POLICY
+          : SIMPLE_REDIRECTION_POLICY,
+      );
+      onTransaction(transaction);
+      const preparedRedirections = await transaction.prepare(stdin);
+      // After successful preparation, unwinding temporary bindings restores
+      // their pre-redirection values. Preparation failure preserves completed
+      // redirection expansion assignments in the underlying shell state.
+      bindings.endExpansion(preparedRedirections.error !== null);
+      if (preparedRedirections.error) {
+        if (!preparedRedirections.errorCause) {
+          transaction.finish();
+          return preparedRedirections.error;
         }
+        return preparedRedirectionError(preparedRedirections);
       }
-      transaction.finish();
-      return OK;
-    }
+      const stdinSourceFd = preparedRedirections.stdinSourceFd;
+      const stdinRedirected = preparedRedirections.stdin !== undefined;
+      if (preparedRedirections.stdin !== undefined) {
+        stdin = preparedRedirections.stdin;
+      }
 
-    // Append extra args injected via exec({ args }) and consume them
-    if (this.ctx.state.extraArgs) {
-      const extraArgs = this.ctx.state.extraArgs;
-      this.ctx.state.extraArgs = undefined;
-      for (const extraArg of extraArgs) appendArgument(extraArg, true);
-    }
+      // Mark prefix bindings exported only for dispatch, after target preparation.
+      if (!isLiteralAssignmentBuiltin && tempAssignments.size > 0) {
+        this.ctx.state.tempExportedVars ??= new Set();
+        for (const name of tempAssignments.keys())
+          this.ctx.state.tempExportedVars.add(name);
+      }
 
-    // Generate xtrace output before running the command
-    const xtraceOutput = await traceSimpleCommand(this.ctx, commandName, args);
+      // Handle empty command name specially
+      // If the command word contains ONLY command substitutions/expansions and expands
+      // to empty, word-splitting removes the empty result. If there are args, the first
+      // arg becomes the command name. This matches bash behavior:
+      // - x=''; $x is a no-op (empty, no args)
+      // - x=''; $x Y runs command Y (empty command name, Y becomes command)
+      // - `true` X runs command X (since `true` outputs nothing)
+      // However, a literal empty string (like '') is "command not found".
+      if (!commandName) {
+        if (commandIsOnlyExpansions) {
+          cleanupPolicy = "retain";
+          // No args - treat as a no-op that reports the status of a command
+          // substitution in the word (`$(exit 42)` is 42) and 0 otherwise.
+          transaction.finish();
+          return result(
+            "",
+            "",
+            nullCommandExitStatus(this.ctx.state, node.redirections),
+          );
+        }
+        // Literal empty command name - command not found
+        transaction.finish();
+        return failure("bash: : command not found\n", 127);
+      }
 
-    // Push tempEnvBindings onto the stack so unset can see them
-    // This allows `unset v` to reveal the underlying global value when
-    // v was set by a prefix assignment like `v=tempenv cmd`
-    if (tempAssignments.size > 0) {
-      this.ctx.state.tempEnvBindings = this.ctx.state.tempEnvBindings || [];
-      this.ctx.state.tempEnvBindings.push(new Map(tempAssignments));
-    }
+      // Special handling for 'exec' with only redirections (no command to run)
+      // In this case, the redirections apply persistently to the shell
+      if (commandName === "exec" && (args.length === 0 || args[0] === "--")) {
+        // In bash, "exec" with only redirections does NOT persist prefix assignments
+        // This is the "special case of the special case" - unlike other special builtins
+        // (like ":"), exec without a command restores temp assignments
+        transaction.finish();
+        return OK;
+      }
 
-    let cmdResult: ExecResult;
-    let controlFlowError: BreakError | ContinueError | null = null;
+      // Append extra args injected via exec({ args }) and consume them
+      if (this.ctx.state.extraArgs) {
+        const extraArgs = this.ctx.state.extraArgs;
+        this.ctx.state.extraArgs = undefined;
+        for (const extraArg of extraArgs) appendArgument(extraArg, true);
+      }
 
-    try {
-      cmdResult = await this.runCommand(
+      // Generate xtrace output before running the command
+      const xtraceOutput = await traceSimpleCommand(
+        this.ctx,
         commandName,
         args,
-        quotedArgs,
-        stdin,
-        false,
-        false,
-        stdinSourceFd,
-        stdinRedirected,
       );
-    } catch (error) {
-      // For break/continue, we still need to apply redirections before propagating
-      // This handles cases like "break > file" where the file should be created
-      if (error instanceof BreakError || error instanceof ContinueError) {
-        controlFlowError = error;
-        cmdResult = OK; // break/continue have exit status 0
+
+      let cmdResult: ExecResult;
+      let controlFlowError: BreakError | ContinueError | null = null;
+
+      try {
+        bindings.beginDispatch();
+        cmdResult = await this.runCommand(
+          commandName,
+          args,
+          quotedArgs,
+          stdin,
+          false,
+          false,
+          stdinSourceFd,
+          stdinRedirected,
+        );
+      } catch (error) {
+        // For break/continue, we still need to apply redirections before propagating
+        // This handles cases like "break > file" where the file should be created
+        if (error instanceof BreakError || error instanceof ContinueError) {
+          controlFlowError = error;
+          cmdResult = OK; // break/continue have exit status 0
+        } else {
+          throw error;
+        }
+      }
+
+      // Commands without stdin access leave descriptor input untouched. `read`
+      // advances its source exactly in consumeInput.
+      if (stdinSourceFd >= 0 && commandName !== "read") {
+        advanceFd(
+          this.ctx,
+          stdinSourceFd,
+          cmdResult.internalStdinConsumed ?? 0,
+        );
+      }
+
+      // Prepend xtrace output and any assignment warnings to stderr
+      const stderrPrefix = xtraceAssignmentOutput + xtraceOutput;
+      if (stderrPrefix) {
+        cmdResult = {
+          ...cmdResult,
+          stderr: stderrPrefix + cmdResult.stderr,
+        };
+      }
+
+      // Descriptors opened by number stay visible while output is delivered
+      // (`echo hi 4> log >&4`), then go away with the command.
+      cmdResult = await applyRedirections(
+        this.ctx,
+        cmdResult,
+        node.redirections,
+        preparedRedirections.targets,
+        preparedRedirections.dupSources,
+        preparedRedirections.standardRoutes,
+        cmdResult.internalProducerCommand ?? commandName,
+        cmdResult.internalProducerOmitsShellPrefix,
+      );
+      transaction.finish();
+
+      // If we caught a break/continue error, re-throw it after applying redirections
+      if (controlFlowError) {
+        throw controlFlowError;
+      }
+
+      // Update $_ to the last argument of this command (after expansion)
+      // If no arguments, $_ is set to the command name
+      // Special case: for declare/local/typeset with array assignments like "a=(1 2)",
+      // bash sets $_ to just the variable name "a", not the full "a=(1 2)"
+      if (args.length > 0) {
+        let lastArg = args[args.length - 1];
+        if (
+          (commandName === "declare" ||
+            commandName === "local" ||
+            commandName === "typeset") &&
+          /^[a-zA-Z_][a-zA-Z0-9_]*=\(/.test(lastArg)
+        ) {
+          // Extract just the variable name from array assignment
+          const match = lastArg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)=\(/);
+          if (match) {
+            lastArg = match[1];
+          }
+        }
+        this.ctx.state.lastArg = lastArg;
       } else {
-        throw error;
+        this.ctx.state.lastArg = commandName;
       }
-    }
 
-    // Commands without stdin access leave descriptor input untouched. `read`
-    // advances its source exactly in consumeInput.
-    if (stdinSourceFd >= 0 && commandName !== "read") {
-      advanceFd(this.ctx, stdinSourceFd, cmdResult.internalStdinConsumed ?? 0);
-    }
-
-    // Prepend xtrace output and any assignment warnings to stderr
-    const stderrPrefix = xtraceAssignmentOutput + xtraceOutput;
-    if (stderrPrefix) {
-      cmdResult = {
-        ...cmdResult,
-        stderr: stderrPrefix + cmdResult.stderr,
-      };
-    }
-
-    // Descriptors opened by number stay visible while output is delivered
-    // (`echo hi 4> log >&4`), then go away with the command.
-    cmdResult = await applyRedirections(
-      this.ctx,
-      cmdResult,
-      node.redirections,
-      preparedRedirections.targets,
-      preparedRedirections.dupSources,
-      preparedRedirections.standardRoutes,
-      cmdResult.internalProducerCommand ?? commandName,
-      cmdResult.internalProducerOmitsShellPrefix,
-    );
-    transaction.finish();
-
-    // If we caught a break/continue error, re-throw it after applying redirections
-    if (controlFlowError) {
-      throw controlFlowError;
-    }
-
-    // Update $_ to the last argument of this command (after expansion)
-    // If no arguments, $_ is set to the command name
-    // Special case: for declare/local/typeset with array assignments like "a=(1 2)",
-    // bash sets $_ to just the variable name "a", not the full "a=(1 2)"
-    if (args.length > 0) {
-      let lastArg = args[args.length - 1];
-      if (
-        (commandName === "declare" ||
-          commandName === "local" ||
-          commandName === "typeset") &&
-        /^[a-zA-Z_][a-zA-Z0-9_]*=\(/.test(lastArg)
-      ) {
-        // Extract just the variable name from array assignment
-        const match = lastArg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)=\(/);
-        if (match) {
-          lastArg = match[1];
-        }
+      // Include any stderr from expansion errors
+      if (this.ctx.state.expansionStderr) {
+        cmdResult = {
+          ...cmdResult,
+          stderr: this.ctx.state.expansionStderr + cmdResult.stderr,
+        };
+        this.ctx.state.expansionStderr = "";
       }
-      this.ctx.state.lastArg = lastArg;
-    } else {
-      this.ctx.state.lastArg = commandName;
+
+      return cmdResult;
+    } catch (error) {
+      // Explicit exit retains prefix bindings in result.env. Bash 3.2 exposes
+      // those bindings to EXIT traps; Bash 5.3 restores them at top level.
+      // Fatal expansion failures, including propagated eval failures, unwind them.
+      if (error instanceof ExitError && error.reason === "exit")
+        cleanupPolicy = "retain";
+      throw error;
+    } finally {
+      // Successful null commands retain assignments, as do dispatched POSIX
+      // special builtins. Failed preparation must unwind prefix bindings.
+      const isPosixSpecialWithPersistence =
+        isPosixSpecialBuiltin(commandName) &&
+        commandName !== "unset" &&
+        commandName !== "eval";
+      bindings?.finish(
+        bindings.dispatched &&
+          this.ctx.state.options.posix &&
+          isPosixSpecialWithPersistence
+          ? "retain"
+          : cleanupPolicy,
+      );
     }
-
-    // In POSIX mode, prefix assignments persist after special builtins
-    // e.g., `foo=bar :` leaves foo=bar in the environment
-    // Exception: `unset` and `eval` - bash doesn't apply POSIX temp binding persistence
-    // for these builtins when they modify the same variable as the temp binding
-    // In non-POSIX mode (bash default), temp assignments are always restored
-    const isPosixSpecialWithPersistence =
-      isPosixSpecialBuiltin(commandName) &&
-      commandName !== "unset" &&
-      commandName !== "eval";
-    const shouldRestoreTempAssignments =
-      !this.ctx.state.options.posix || !isPosixSpecialWithPersistence;
-
-    if (shouldRestoreTempAssignments) {
-      for (const [name, value] of tempAssignments) {
-        // Skip restoration if this variable was a local that was fully unset
-        // This implements bash's behavior where unsetting all local cells
-        // prevents the tempenv from being restored
-        if (this.ctx.state.fullyUnsetLocals?.has(name)) {
-          continue;
-        }
-        if (value === undefined) this.ctx.state.env.delete(name);
-        else this.ctx.state.env.set(name, value);
-      }
-    }
-
-    // Clear temp exported vars after command execution
-    if (this.ctx.state.tempExportedVars) {
-      for (const name of tempAssignments.keys()) {
-        this.ctx.state.tempExportedVars.delete(name);
-      }
-    }
-
-    // Pop tempEnvBindings from the stack
-    if (tempAssignments.size > 0 && this.ctx.state.tempEnvBindings) {
-      this.ctx.state.tempEnvBindings.pop();
-    }
-
-    // Include any stderr from expansion errors
-    if (this.ctx.state.expansionStderr) {
-      cmdResult = {
-        ...cmdResult,
-        stderr: this.ctx.state.expansionStderr + cmdResult.stderr,
-      };
-      this.ctx.state.expansionStderr = "";
-    }
-
-    return cmdResult;
   }
 
   private async runCommand(

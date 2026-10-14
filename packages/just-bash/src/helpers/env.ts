@@ -20,21 +20,6 @@ export function mapToRecord(env: Map<string, string>): Record<string, string> {
 }
 
 /**
- * Convert a Map<string, string> to a null-prototype Record, with optional
- * additional properties to merge.
- *
- * @param env - The environment Map to convert
- * @param extra - Additional properties to merge into the result
- * @returns A null-prototype object with the combined key-value pairs
- */
-export function mapToRecordWithExtras(
-  env: Map<string, string>,
-  extra?: Record<string, string>,
-): Record<string, string> {
-  return Object.assign(Object.create(null), Object.fromEntries(env), extra);
-}
-
-/**
  * Merge multiple objects into a null-prototype object.
  *
  * This prevents prototype pollution when merging user-controlled objects

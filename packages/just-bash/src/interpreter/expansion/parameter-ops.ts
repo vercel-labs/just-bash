@@ -31,6 +31,7 @@ import {
   ExitError,
 } from "../errors.js";
 import { getArrayElement, setArrayElement } from "../helpers/array.js";
+import { setExpansionVariable } from "../helpers/expansion-assignment.js";
 import { getIfsSeparator } from "../helpers/ifs.js";
 import { getNamerefTarget, isNameref } from "../helpers/nameref.js";
 import { escapeRegex } from "../helpers/regex.js";
@@ -166,7 +167,7 @@ export async function handleAssignDefault(
       // Set array element
       setArrayElement(ctx, arrayName, index, defaultValue);
     } else {
-      ctx.state.env.set(parameter, defaultValue);
+      setExpansionVariable(ctx, parameter, defaultValue);
     }
     return defaultValue;
   }

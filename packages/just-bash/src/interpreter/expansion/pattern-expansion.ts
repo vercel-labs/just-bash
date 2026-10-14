@@ -10,6 +10,7 @@ import { Parser } from "../../parser/parser.js";
 import { ExecutionLimitError, ExitError } from "../errors.js";
 import { cloneArrays } from "../helpers/array.js";
 import { recordSubstitutionExit } from "../helpers/substitution-status.js";
+import { cloneTemporaryBindings } from "../prefix-bindings.js";
 import type { InterpreterContext } from "../types.js";
 import { escapeGlobChars } from "./glob-escape.js";
 
@@ -117,10 +118,21 @@ async function executeCommandSubstitutionFromString(
   }
 
   // Execute in subshell-like context
+  const childBindings = cloneTemporaryBindings(ctx);
   const savedBashPid = ctx.state.bashPid;
   ctx.state.bashPid = ctx.state.nextVirtualPid++;
-  const savedEnv = new Map(ctx.state.env);
-  const savedArrays = cloneArrays(ctx.state.arrays);
+  // Execute on child copies so the parent assignment journal never sees child
+  // mutations and remain installed when this substitution returns.
+  const savedEnv = ctx.state.env;
+  const savedArrays = ctx.state.arrays;
+  const savedBindings = ctx.state.tempEnvBindings;
+  const savedTempExports = ctx.state.tempExportedVars;
+  ctx.state.env = new Map(savedEnv);
+  ctx.state.arrays = cloneArrays(savedArrays);
+  ctx.state.tempEnvBindings = childBindings;
+  ctx.state.tempExportedVars = savedTempExports
+    ? new Set(savedTempExports)
+    : undefined;
   const savedCwd = ctx.state.cwd;
   const savedSuppressVerbose = ctx.state.suppressVerbose;
   ctx.state.suppressVerbose = true;
@@ -131,6 +143,8 @@ async function executeCommandSubstitutionFromString(
     const exitCode = result.exitCode;
     ctx.state.env = savedEnv;
     ctx.state.arrays = savedArrays;
+    ctx.state.tempEnvBindings = savedBindings;
+    ctx.state.tempExportedVars = savedTempExports;
     ctx.state.cwd = savedCwd;
     ctx.state.suppressVerbose = savedSuppressVerbose;
     recordSubstitutionExit(ctx.state, exitCode);
@@ -143,6 +157,8 @@ async function executeCommandSubstitutionFromString(
   } catch (error) {
     ctx.state.env = savedEnv;
     ctx.state.arrays = savedArrays;
+    ctx.state.tempEnvBindings = savedBindings;
+    ctx.state.tempExportedVars = savedTempExports;
     ctx.state.cwd = savedCwd;
     ctx.state.bashPid = savedBashPid;
     ctx.state.suppressVerbose = savedSuppressVerbose;

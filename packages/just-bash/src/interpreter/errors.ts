@@ -117,7 +117,7 @@ export class NounsetError extends ControlFlowError {
 }
 
 /**
- * Error thrown when exit builtin is called to terminate the script.
+ * Shell termination, either an explicit exit or a fatal execution failure.
  */
 export class ExitError extends ControlFlowError {
   readonly name = "ExitError";
@@ -126,6 +126,7 @@ export class ExitError extends ControlFlowError {
     public readonly exitCode: number,
     stdout: string = "",
     stderr: string = "",
+    public readonly reason: "exit" | "failure" = "failure",
   ) {
     super(`exit`, stdout, stderr);
   }

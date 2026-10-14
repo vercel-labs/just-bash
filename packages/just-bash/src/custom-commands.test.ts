@@ -203,6 +203,36 @@ describe("custom-commands", () => {
   });
 
   describe("Bash with customCommands", () => {
+    it.each([
+      "",
+      ' 2>/dev/null >"$((REDIRECT=1))"',
+    ])("preserves explicit shell assignments with redirections %s", async (redirections) => {
+      const bash = new Bash({
+        customCommands: [
+          {
+            name: "assign-value",
+            execute: async (_args, ctx) => {
+              await ctx.assignShellVariable?.("RESULT", "written");
+              expect(ctx.env.get("RESULT")).toBe("written");
+              await ctx.assignShellVariable?.("values", "element", "0");
+              ctx.env.set("INCIDENTAL", "child");
+              return { stdout: "", stderr: "", exitCode: 0 };
+            },
+          },
+        ],
+      });
+      const result = await bash.exec(
+        `assign-value${redirections}; printf "<%s>:<%s>:<%s>\\n" "\${RESULT-unset}" "\${values[0]-unset}" "\${REDIRECT-unset}"`,
+      );
+      expect(result.stdout).toBe(
+        redirections
+          ? "<written>:<element>:<1>\n"
+          : "<written>:<element>:<unset>\n",
+      );
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+      expect(result.env.INCIDENTAL).toBe("child");
+    });
     it("preserves prototype methods on class-based commands", async () => {
       class ClassCommand implements Command {
         readonly name = "class-command";
