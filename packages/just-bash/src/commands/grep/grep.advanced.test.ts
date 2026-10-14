@@ -182,6 +182,17 @@ describe("grep advanced", () => {
   });
 
   describe("-m flag (max count)", () => {
+    for (const input of ["printf 'foo foo\\nfoo\\nfoo\\n' |", ""]) {
+      it(`limits count output with -m (${input ? "stdin" : "file"})`, async () => {
+        const env = new Bash({ files: { "/test.txt": "foo foo\nfoo\nfoo\n" } });
+        const result = await env.exec(
+          `${input} grep -c -m1 foo ${input ? "" : "/test.txt"}`,
+        );
+        expect(result.stdout).toBe("1\n");
+        expect(result.stderr).toBe("");
+        expect(result.exitCode).toBe(0);
+      });
+    }
     it("should stop after -m matches", async () => {
       const env = new Bash({
         files: { "/test.txt": "line1\nline2\nline3\nline4\nline5\n" },

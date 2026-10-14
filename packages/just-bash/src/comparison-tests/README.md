@@ -25,6 +25,27 @@ pnpm test:comparison:record
 RECORD_FIXTURES=force pnpm test:comparison
 ```
 
+## Recording the ripgrep compatibility fixtures
+
+`rg-grep-tool.comparison.test.ts` requires ripgrep **15.2.0** when recording. Playback does not require a host `rg`. Put a 15.2.0 binary first on `PATH`; do not record with a different installed version.
+
+If needed, build the tagged upstream source in a separate ripgrep checkout:
+
+```sh
+# In a ripgrep checkout at tag 15.2.0, with Rust installed:
+cargo build --release --locked
+./target/release/rg --version
+```
+
+Then run from the just-bash repository root, replacing the example path with the absolute path to that checkout:
+
+```sh
+PATH="/path/to/ripgrep/target/release:$PATH" RECORD_FIXTURES=1 pnpm --filter just-bash test:comparison src/comparison-tests/rg-grep-tool.comparison.test.ts
+pnpm --filter just-bash test:comparison src/comparison-tests/rg-grep-tool.comparison.test.ts
+```
+
+Commit the updated fixture JSON with its test. Recording currently retains entries for removed test cases; inspect the diff and remove orphaned entries when changing existing cases.
+
 ## Adding New Tests
 
 ### 1. Add the test case

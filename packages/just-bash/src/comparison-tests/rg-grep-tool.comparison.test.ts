@@ -141,4 +141,24 @@ describe("rg Grep tool compatibility (ripgrep 15.2.0)", () => {
       );
     });
   }
+
+  for (const flags of [
+    "-cm1",
+    "-c -m2",
+    "--count-matches -m1",
+    "--count-matches -m2",
+    "-c -v -m1",
+  ]) {
+    it(`limits matching lines per file in count mode: ${flags}`, async () => {
+      const env = await setupFiles(testDir, {
+        "a.txt": "other\nfoo foo foo\nother\nfoo foo\nfoo\n",
+        "b.txt": "foo foo\nfoo\nother\n",
+      });
+      await compareOutputs(
+        env,
+        testDir,
+        `RIPGREP_CONFIG_PATH= rg --sort path ${flags} foo a.txt b.txt`,
+      );
+    });
+  }
 });

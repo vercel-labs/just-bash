@@ -152,6 +152,16 @@
     "stderr": "",
     "exitCode": 0
   },
+  "209a0d654c45a0de": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --count-matches -m2 foo a.txt b.txt",
+    "files": {
+      "a.txt": "other\nfoo foo foo\nother\nfoo foo\nfoo\n",
+      "b.txt": "foo foo\nfoo\nother\n"
+    },
+    "stdout": "a.txt:5\nb.txt:3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "20a7dabfde24404c": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -nm 1 -- Permission a.ts",
     "files": {
@@ -237,6 +247,16 @@
       "empty.ts": "nothing\n"
     },
     "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "340b4b10f8579aad": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --count-matches -m1 foo a.txt b.txt",
+    "files": {
+      "a.txt": "other\nfoo foo foo\nother\nfoo foo\nfoo\n",
+      "b.txt": "foo foo\nfoo\nother\n"
+    },
+    "stdout": "a.txt:3\nb.txt:2\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -684,6 +704,16 @@
     "stderr": "",
     "exitCode": 0
   },
+  "7fb45a4aa6984746": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -cm1 foo a.txt b.txt",
+    "files": {
+      "a.txt": "other\nfoo foo foo\nother\nfoo foo\nfoo\n",
+      "b.txt": "foo foo\nfoo\nother\n"
+    },
+    "stdout": "a.txt:1\nb.txt:1\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "7ffecbac2b993626": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --glob '*.ts' -- Permission .",
     "files": {
@@ -777,6 +807,16 @@
       "empty.ts": "nothing\n"
     },
     "stdout": "./a.ts\n1-before\n2:Permission Permission\n3-permission\n4:Permission\n5-after\n--\n7-gap\n8:Permission\n9-after\n\n./b.ts\n1:Permission\n2-after\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "99dfbec2ace88bed": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -c -v -m1 foo a.txt b.txt",
+    "files": {
+      "a.txt": "other\nfoo foo foo\nother\nfoo foo\nfoo\n",
+      "b.txt": "foo foo\nfoo\nother\n"
+    },
+    "stdout": "a.txt:1\nb.txt:1\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -1205,6 +1245,16 @@
       "nested/a.ts": "Permission\n"
     },
     "stdout": "1-before\n2:Permission\n3:Permission\n4-after\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e735fe2e25365c58": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -c -m2 foo a.txt b.txt",
+    "files": {
+      "a.txt": "other\nfoo foo foo\nother\nfoo foo\nfoo\n",
+      "b.txt": "foo foo\nfoo\nother\n"
+    },
+    "stdout": "a.txt:2\nb.txt:2\n",
     "stderr": "",
     "exitCode": 0
   },
