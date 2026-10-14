@@ -177,4 +177,25 @@ describe("AWK prospective allocation limits", () => {
     expect(result.stderr).toBe("awk: field count limit exceeded (10)\n");
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
+
+  it("rejects padding that could never fit the record size limit", async () => {
+    const bash = new Bash({
+      executionLimits: {
+        maxArrayElements: Number.POSITIVE_INFINITY,
+        maxStringLength: 64,
+      },
+    });
+    const result = await bash.exec(`awk 'BEGIN { NF = 100000000 }'`);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("awk: record size limit exceeded (64 bytes)\n");
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+  });
+
+  it("rejects a negative NF", async () => {
+    const bash = new Bash();
+    const result = await bash.exec(`echo a b | awk '{ NF = -1 }'`);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("awk: NF set to negative value\n");
+    expect(result.exitCode).toBe(2);
+  });
 });

@@ -39,9 +39,24 @@ export function ensureFieldCount(ctx: AwkRuntimeContext, count: number): void {
       "array_elements",
     );
   }
+  // The padded record needs at least count - 1 separators, so reject growth
+  // that could never be rebuilt before allocating the padding
+  if (
+    ctx.maxOutputSize > 0 &&
+    (count - 1) * utf8ByteLength(ctx.OFS) > ctx.maxOutputSize
+  ) {
+    throw recordSizeError(ctx);
+  }
   while (ctx.fields.length < count) {
     ctx.fields.push("");
   }
+}
+
+function recordSizeError(ctx: AwkRuntimeContext): ExecutionLimitError {
+  return new ExecutionLimitError(
+    `record size limit exceeded (${ctx.maxOutputSize} bytes)`,
+    "string_length",
+  );
 }
 
 /**
@@ -55,10 +70,7 @@ export function rebuildLine(ctx: AwkRuntimeContext): void {
       if (size > ctx.maxOutputSize) break;
     }
     if (size > ctx.maxOutputSize) {
-      throw new ExecutionLimitError(
-        `record size limit exceeded (${ctx.maxOutputSize} bytes)`,
-        "string_length",
-      );
+      throw recordSizeError(ctx);
     }
   }
   ctx.line = ctx.fields.join(ctx.OFS);

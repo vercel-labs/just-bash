@@ -73,6 +73,8 @@ export function setVariable(
       if (!Number.isFinite(newNF)) {
         // Rejects NaN and both infinities before touching fields
         ensureFieldCount(ctx, newNF);
+      } else if (newNF < 0) {
+        throw new Error("NF set to negative value");
       } else if (newNF < ctx.NF) {
         ctx.fields = ctx.fields.slice(0, newNF);
         rebuildLine(ctx);
