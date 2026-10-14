@@ -303,7 +303,6 @@ function makeCond(
   const node = nullPrototype<Record<string, unknown>>({
     type: "Cond",
     cond,
-    elifs: [],
     else: elseBranch || { type: "Literal", value: null },
   });
   node[THEN_PROP] = thenBranch;

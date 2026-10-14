@@ -22,6 +22,8 @@ const SKIP_FILES: Set<string> = new Set<string>([
  * Format: "fileName:testName" -> skipReason
  */
 const SKIP_TESTS: Map<string, string> = new Map<string, string>([
+  ["jq.test:del(.[2:4],.[0],.[-2:])", "del with slice paths"],
+  ["jq.test:del(.[1], .[-6], .[2], .[-3:9])", "del with slice paths"],
   // ============================================================
   // Destructuring edge cases
   // ============================================================
@@ -175,7 +177,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   // ============================================================
   // path() with select/map
   // ============================================================
-  ["jq.test:path(.[] | select(.>3))", "path with select not supported"],
   [
     "jq.test:try path(.a | map(select(.b == 0))) catch .",
     "path with map/select not supported",
@@ -390,16 +391,6 @@ const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   // IMPLEMENTATION BUGS
   // ============================================================
 
-  // del with generator args
-  {
-    pattern: /\bdel\(\.[^)]+,\.[^)]+\)/,
-    reason: "Parser: generator args in del",
-  },
-
-  // path() function limitations
-  { pattern: /path\(\.\[\] \| select/, reason: "path with select" },
-  { pattern: /try path\(\.a \| map\(select/, reason: "path with map/select" },
-
   // Update expressions with select/empty
   {
     pattern: /\(\.\[\] \| select.*\) \|= empty/,
@@ -418,10 +409,6 @@ const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
 
   // del/delpaths edge cases
   { pattern: /try delpaths\(\d+\)/, reason: "delpaths type error" },
-  { pattern: /del\(\.\),/, reason: "del(.) expression" },
-  { pattern: /del\(empty\)/, reason: "del(empty) expression" },
-  { pattern: /del\(\(\.[^)]+,\.[^)]+\)/, reason: "del with comma expressions" },
-  { pattern: /del\(\.\[.*,.*\]\)/, reason: "del with multiple indices" },
   {
     pattern: /delpaths\(\[\[-\d+\]\]\)/,
     reason: "delpaths with large negative",
@@ -492,8 +479,6 @@ const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
     pattern: /\[min, max, min_by\(\.\[1\]\)/,
     reason: "min/max with complex comparison",
   },
-
-  // Dynamic field access
 
   // Keywords as identifiers
   { pattern: /\$foreach.*\$and.*\$or/, reason: "Keywords as variables" },

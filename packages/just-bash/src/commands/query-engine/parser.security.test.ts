@@ -45,4 +45,13 @@ describe("query parser limits", () => {
     expect(() => parse("try try . catch .", { maxDepth: 16 })).not.toThrow();
     expect(() => parse(".a = .b = 1", { maxDepth: 16 })).not.toThrow();
   });
+
+  it("counts elif branches as nested conditionals", () => {
+    const chain = (count: number) =>
+      `if . then . ${"elif . then . ".repeat(count)}else . end`;
+    expect(() => parse(chain(40), { maxDepth: 16 })).toThrow(
+      "query parse depth limit exceeded (16)",
+    );
+    expect(() => parse(chain(8), { maxDepth: 16 })).not.toThrow();
+  });
 });

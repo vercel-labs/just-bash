@@ -1,0 +1,101 @@
+{
+  "05a765976401602a": {
+    "command": "jq -c 'path(try .)' input.json",
+    "files": {
+      "input.json": "{\"a\":1}"
+    },
+    "stdout": "[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "23c6ba55b3c20856": {
+    "command": "jq -c --arg __proto__ keep '$ARGS.named | path(.[\"__proto__\"] | select(. == \"keep\"))' input.json",
+    "files": {
+      "input.json": "null"
+    },
+    "stdout": "[\"__proto__\"]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "375e04502f8e8099": {
+    "command": "jq -c 'pick(if true then . else empty end)' input.json",
+    "files": {
+      "input.json": "{\"a\":1}"
+    },
+    "stdout": "{\"a\":1}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "677ab84927bf34c4": {
+    "command": "jq -c 'path(def keep: .; keep)' input.json",
+    "files": {
+      "input.json": "{\"a\":1}"
+    },
+    "stdout": "[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "736afa9aa66613d1": {
+    "command": "jq -c 'path(objects)' input.json",
+    "files": {
+      "input.json": "{\"a\":1}"
+    },
+    "stdout": "[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "82a1dba7487e9e9d": {
+    "command": "jq -c 'path(.a | numbers)' input.json",
+    "files": {
+      "input.json": "{\"a\":1}"
+    },
+    "stdout": "[\"a\"]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "998cd499f45661d7": {
+    "command": "jq -c 'path(if true then . else empty end)' input.json",
+    "files": {
+      "input.json": "{\"a\":1}"
+    },
+    "stdout": "[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9a13583770acdb4c": {
+    "command": "jq -c 'try path(.a.b | select(. == null)) catch .' input.json",
+    "files": {
+      "input.json": "{\"a\":1}"
+    },
+    "stdout": "\"Cannot index number with string \\\"b\\\"\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9c3b4bf3f77844ce": {
+    "command": "jq -c 'path(values)' input.json",
+    "files": {
+      "input.json": "{\"a\":1}"
+    },
+    "stdout": "[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b609857726480090": {
+    "command": "jq -c 'try pick(.a.b | select(. == null)) catch .' input.json",
+    "files": {
+      "input.json": "{\"a\":1}"
+    },
+    "stdout": "\"Cannot index number with string \\\"b\\\"\"\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c0f45da9bb6be520": {
+    "command": "jq -c 'path(. as $x | .)' input.json",
+    "files": {
+      "input.json": "{\"a\":1}"
+    },
+    "stdout": "[]\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
