@@ -65,7 +65,7 @@ function validateNonnegativeInteger(
   option: string,
   value: string,
 ): ExecResult | null {
-  if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) {
+  if (!/^\+?\d+$/.test(value) || !Number.isSafeInteger(Number(value))) {
     return {
       stdout: "",
       stderr: `rg: invalid ${option.startsWith("-") ? option : `--${option}`} value: ${value}\n`,
@@ -668,37 +668,6 @@ function parseSort(
 }
 
 /**
- * Parse context flag (-A, -B, -C)
- */
-function parseContextFlag(
-  args: string[],
-  i: number,
-): { flag: "A" | "B" | "C"; value: string; newIndex: number } | null {
-  const arg = args[i];
-
-  // -A2, -B3, -C1 form
-  const attached = arg.match(/^-([ABC])(.+)$/);
-  if (attached) {
-    return {
-      flag: attached[1] as "A" | "B" | "C",
-      value: attached[2],
-      newIndex: i,
-    };
-  }
-
-  // -A 2, -B 3, -C 1 form
-  if ((arg === "-A" || arg === "-B" || arg === "-C") && i + 1 < args.length) {
-    return {
-      flag: arg[1] as "A" | "B" | "C",
-      value: args[i + 1],
-      newIndex: i + 1,
-    };
-  }
-
-  return null;
-}
-
-/**
  * Parse rg command arguments
  */
 export function parseArgs(args: string[]): ParseArgsResult {
@@ -722,20 +691,6 @@ export function parseArgs(args: string[]): ParseArgsResult {
     }
 
     if (!endOfOptions && arg.startsWith("-") && arg !== "-") {
-      // Try context flags first (-A, -B, -C)
-      const contextResult = parseContextFlag(args, i);
-      if (contextResult) {
-        const { flag, value: rawValue, newIndex } = contextResult;
-        const error = validateNonnegativeInteger(`-${flag}`, rawValue);
-        if (error) return { success: false, error };
-        const value = Number(rawValue);
-        if (flag === "A") explicitA = Math.max(explicitA, value);
-        else if (flag === "B") explicitB = Math.max(explicitB, value);
-        else explicitC = value; // -C overwrites, doesn't max
-        i = newIndex;
-        continue;
-      }
-
       // Try value options
       const valueResult = tryParseValueOpt(args, i, options);
       if (valueResult) {
@@ -756,9 +711,8 @@ export function parseArgs(args: string[]): ParseArgsResult {
 
       // Parse boolean flags (handles both --flag and -xyz combined)
       const flags = arg.startsWith("--") ? [arg] : arg.slice(1).split("");
-      let consumedNextArg = false;
-
-      for (const flag of flags) {
+      for (let flagIndex = 0; flagIndex < flags.length; flagIndex++) {
+        const flag = flags[flagIndex];
         // Check for line number flags (special case that returns a value)
         if (LINE_NUMBER_FLAGS.has(flag)) {
           options.lineNumber = true;
@@ -785,21 +739,30 @@ export function parseArgs(args: string[]): ParseArgsResult {
           };
         }
 
-        // Check if this is a value option short form (e.g., 'f' in '-Ff')
+        // A short value option consumes the rest of its token, or the next
+        // argument if nothing is attached. Those characters are not flags.
+        // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/core/flags/parse.rs#L226-L258
         if (flag.length === 1) {
           const valueDef = findValueOptByShort(flag);
-          if (valueDef) {
-            // Value option in combined flags - consume next argument
-            if (i + 1 >= args.length) {
+          const isContext = flag === "A" || flag === "B" || flag === "C";
+          if (valueDef || isContext) {
+            const attached = arg.slice(flagIndex + 2);
+            if (!attached && i + 1 >= args.length) {
               return { success: false, error: unknownOption(`-${flag}`) };
             }
-            const error = applyValueOpt(options, valueDef, args[i + 1]);
-            if (error) {
-              return { success: false, error };
+            const rawValue = attached || args[++i];
+            if (isContext) {
+              const error = validateNonnegativeInteger(`-${flag}`, rawValue);
+              if (error) return { success: false, error };
+              const value = Number(rawValue);
+              if (flag === "A") explicitA = Math.max(explicitA, value);
+              else if (flag === "B") explicitB = Math.max(explicitB, value);
+              else explicitC = value;
+            } else if (valueDef) {
+              const error = applyValueOpt(options, valueDef, rawValue);
+              if (error) return { success: false, error };
             }
-            i++;
-            consumedNextArg = true;
-            continue;
+            break;
           }
         }
 
@@ -818,9 +781,6 @@ export function parseArgs(args: string[]): ParseArgsResult {
           return { success: false, error: unknownOption(`-${flag}`) };
         }
       }
-      // If we consumed the next arg (for a value option in combined flags),
-      // the outer loop will naturally skip it since i was incremented
-      void consumedNextArg;
     } else if (
       positionalPattern === null &&
       options.patterns.length === 0 &&

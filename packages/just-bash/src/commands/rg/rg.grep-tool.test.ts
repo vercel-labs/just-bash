@@ -28,6 +28,8 @@ describe("rg Grep tool argument and error boundaries", () => {
     ["-C junk", "rg: invalid -C value: junk\n"],
     ["--type nonexistent", "rg: unrecognized file type: nonexistent\n"],
     ["--glob '['", "rg: glob '[' has an unclosed character class\n"],
+    ["--iglob '['", "rg: glob '[' has an unclosed character class\n"],
+    ["--files --type nonexistent", "rg: unrecognized file type: nonexistent\n"],
   ];
   for (const [flags, stderr] of errors) {
     it(`reports ${flags} as an error, not no matches`, async () => {

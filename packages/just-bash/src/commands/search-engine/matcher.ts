@@ -66,6 +66,8 @@ export interface SearchOptions {
   afterContext?: number;
   /** Stop after NUM matches (0 = unlimited) */
   maxCount?: number;
+  /** rg classifies matches in trailing context; grep treats them as context after its limit. */
+  matchBeyondMaxCount?: boolean;
   /** Separator between context groups (default: --) */
   contextSeparator?: string;
   /** Show column number of first match */
@@ -130,6 +132,7 @@ export function searchContent(
     beforeContext = 0,
     afterContext = 0,
     maxCount = 0,
+    matchBeyondMaxCount = true,
     contextSeparator = "--",
     showColumn = false,
     vimgrep = false,
@@ -449,8 +452,8 @@ export function searchContent(
 
     // Print each line once and classify it independently of the context range.
     // A later match can overlap earlier context, or lie in trailing context
-    // after maxCount. It still gets a match prefix, but does not extend that
-    // final context window past the limit.
+    // after maxCount. rg still uses a match prefix; grep uses a context prefix
+    // after its last counted match. Neither extends the final context window.
     // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/searcher/src/searcher/core.rs#L334-L373
     const contextEnd = Math.min(lastIdx - 1, lineNum + afterContext);
     for (
@@ -462,7 +465,10 @@ export function searchContent(
       lastPrintedLine = i;
       const line = lines[i];
       regex.lastIndex = 0;
-      const isMatch = regex.test(line) !== invertMatch;
+      const isMatch =
+        (matchBeyondMaxCount ||
+          i <= matchingLineNumbers[matchingLineNumbers.length - 1]) &&
+        regex.test(line) !== invertMatch;
 
       if (isMatch && onlyMatching) {
         regex.lastIndex = 0;

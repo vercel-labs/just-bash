@@ -101,6 +101,19 @@ describe("grep advanced", () => {
 
   // Context flags (-A, -B, -C) tests
   describe("context flags (-A, -B, -C)", () => {
+    for (const command of ["grep", "egrep", "fgrep"]) {
+      for (const input of ["printf 'a\\na\\na\\n' |", ""]) {
+        it(`${command} labels matching trailing lines as context after -m (${input ? "stdin" : "file"})`, async () => {
+          const env = new Bash({ files: { "/test.txt": "a\na\na\n" } });
+          const result = await env.exec(
+            `${input} ${command} -n -m1 -A2 a ${input ? "" : "/test.txt"}`,
+          );
+          expect(result.stdout).toBe("1:a\n2-a\n3-a\n");
+          expect(result.stderr).toBe("");
+          expect(result.exitCode).toBe(0);
+        });
+      }
+    }
     const contextEnv = () =>
       new Bash({
         files: {

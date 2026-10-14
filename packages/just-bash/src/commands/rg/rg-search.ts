@@ -136,19 +136,12 @@ export async function executeSearch(
   const { ctx, options, paths: inputPaths, explicitLineNumbers } = searchCtx;
 
   // Validate glob patterns for errors
-  for (const glob of options.globs) {
+  for (const glob of [...options.globs, ...options.iglobs]) {
     const globToValidate = glob.startsWith("!") ? glob.slice(1) : glob;
     const error = validateGlob(globToValidate);
     if (error) {
       return { stdout: "", stderr: `${error}\n`, exitCode: 2 };
     }
-  }
-
-  // Handle --files mode: list files without searching
-  // In --files mode, positional args (including what would be the pattern) are paths
-  if (options.files) {
-    const filesPaths = [...options.patterns, ...inputPaths];
-    return listFiles(ctx, filesPaths, options);
   }
 
   // Validate types after applying custom definitions, but before searching.
@@ -163,6 +156,12 @@ export async function executeSearch(
         exitCode: 2,
       };
     }
+  }
+
+  // In --files mode, positional args (including the pattern) are paths.
+  if (options.files) {
+    const filesPaths = [...options.patterns, ...inputPaths];
+    return listFiles(ctx, filesPaths, options, typeRegistry);
   }
 
   if (options.patterns.length > ctx.limits.maxArrayElements) {
@@ -771,7 +770,11 @@ function shouldIncludeFile(
 
   const globOverride = matchGlobOverride(relativePath, options);
   if (globOverride !== undefined) return globOverride;
-  if (options.globs.some((glob) => !glob.startsWith("!"))) return false;
+  if (
+    options.globs.some((glob) => !glob.startsWith("!")) ||
+    options.iglobs.some((glob) => !glob.startsWith("!"))
+  )
+    return false;
 
   if (gitignore?.matches(absolutePath, false)) return false;
   if (
@@ -785,44 +788,6 @@ function shouldIncludeFile(
   )
     return false;
 
-  // Handle iglobs (case-insensitive globs)
-  if (options.iglobs.length > 0) {
-    const positiveIglobs = options.iglobs.filter((g) => !g.startsWith("!"));
-    const negativeIglobs = options.iglobs
-      .filter((g) => g.startsWith("!"))
-      .map((g) => g.slice(1));
-
-    if (positiveIglobs.length > 0) {
-      let matchesPositive = false;
-      for (const glob of positiveIglobs) {
-        if (
-          matchGlob(filename, glob, true) ||
-          matchGlob(relativePath, glob, true)
-        ) {
-          matchesPositive = true;
-          break;
-        }
-      }
-      if (!matchesPositive) {
-        return false;
-      }
-    }
-
-    for (const glob of negativeIglobs) {
-      if (glob.startsWith("/")) {
-        const rootedGlob = glob.slice(1);
-        if (matchGlob(relativePath, rootedGlob, true)) {
-          return false;
-        }
-      } else if (
-        matchGlob(filename, glob, true) ||
-        matchGlob(relativePath, glob, true)
-      ) {
-        return false;
-      }
-    }
-  }
-
   return true;
 }
 
@@ -835,14 +800,25 @@ function matchGlobOverride(
 ): boolean | undefined {
   const relativePath = path.replace(/^\.\//, "");
   const filename = relativePath.split("/").pop() || relativePath;
-  for (let index = options.globs.length - 1; index >= 0; index--) {
-    const value = options.globs[index];
+  // rg appends iglobs after globs, independent of their CLI ordering.
+  // Scan that unified override order backwards so the last match wins.
+  // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/core/flags/hiargs.rs#L1210-L1231
+  for (
+    let index = options.globs.length + options.iglobs.length - 1;
+    index >= 0;
+    index--
+  ) {
+    const isIglob = index >= options.globs.length;
+    const value = isIglob
+      ? options.iglobs[index - options.globs.length]
+      : options.globs[index];
+    const ignoreCase = isIglob || options.globCaseInsensitive;
     const negative = value.startsWith("!");
     const glob = negative ? value.slice(1) : value;
     const matched = glob.startsWith("/")
-      ? matchGlob(relativePath, glob.slice(1), options.globCaseInsensitive)
-      : matchGlob(filename, glob, options.globCaseInsensitive) ||
-        matchGlob(relativePath, glob, options.globCaseInsensitive);
+      ? matchGlob(relativePath, glob.slice(1), ignoreCase)
+      : matchGlob(filename, glob, ignoreCase) ||
+        matchGlob(relativePath, glob, ignoreCase);
     if (matched) return !negative;
   }
   return undefined;
@@ -895,6 +871,7 @@ async function listFiles(
   ctx: RuntimeCommandContext,
   inputPaths: string[],
   options: RgOptions,
+  typeRegistry: FileTypeRegistry,
 ): Promise<ExecResult> {
   // Load gitignore files
   let gitignore: GitignoreManager | null = null;
@@ -906,15 +883,6 @@ async function listFiles(
       options.noIgnoreVcs,
       options.ignoreFiles,
     );
-  }
-
-  // Create file type registry and apply --type-clear and --type-add
-  const typeRegistry = new FileTypeRegistry();
-  for (const name of options.typeClear) {
-    typeRegistry.clearType(name);
-  }
-  for (const spec of options.typeAdd) {
-    typeRegistry.addType(spec);
   }
 
   // Default to current directory

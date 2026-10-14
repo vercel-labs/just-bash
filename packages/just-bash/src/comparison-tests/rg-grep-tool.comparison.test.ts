@@ -4,6 +4,7 @@ import {
   cleanupTestDir,
   compareOutputs,
   createTestDir,
+  isRecordMode,
   setupFiles,
 } from "./fixture-runner.js";
 
@@ -16,7 +17,7 @@ describe("rg Grep tool compatibility (ripgrep 15.2.0)", () => {
   let testDir: string;
 
   beforeAll(() => {
-    if (process.env.RECORD_FIXTURES) {
+    if (isRecordMode) {
       const version = execFileSync("rg", ["--version"], { encoding: "utf8" });
       if (!version.startsWith("ripgrep 15.2.0\n")) {
         throw new Error("Record these fixtures with ripgrep 15.2.0");
@@ -94,6 +95,31 @@ describe("rg Grep tool compatibility (ripgrep 15.2.0)", () => {
       "--glob '.hidden.ts' -- Permission .",
     ],
     ["glob matches nested paths", "--glob 'nested/*.ts' -- Permission ."],
+    [
+      "iglob excludes a glob match",
+      "--glob '*.ts' --iglob '!nested/*' -- Permission .",
+    ],
+    [
+      "iglob exclusions follow globs regardless of argument order",
+      "--iglob '!nested/*' --glob '*.ts' -- Permission .",
+    ],
+    [
+      "positive glob and iglob form a union",
+      "--glob '*.ts' --iglob '*.PY' -- Permission .",
+    ],
+    [
+      "last iglob match wins",
+      "--iglob '!nested/*' --iglob '*.TS' -- Permission .",
+    ],
+    ["iglob overrides type", "--type py --iglob '*.TS' -- Permission ."],
+    ["iglob overrides ignore", "--iglob 'IGNORED.TS' -- Permission ."],
+    ["iglob includes hidden files", "--iglob '.HIDDEN.TS' -- Permission ."],
+    ["combined short context flag", "-nC1 -- Permission a.ts"],
+    ["combined short max-count flag", "-nm1 -- Permission a.ts"],
+    ["combined short separate max-count value", "-nm 1 -- Permission a.ts"],
+    ["combined short pattern value", "-nePermission a.ts"],
+    ["positive signed max-count", "-m+1 -- Permission a.ts"],
+    ["positive signed context", "-A+1 -- Permission a.ts"],
   ];
   for (const [name, args] of cases) {
     it(name, async () => {
