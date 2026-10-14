@@ -153,7 +153,7 @@ describe("AWK prospective allocation limits", () => {
   it.each([
     ["an input record", `awk '{ print }'`, "a b c d e\n"],
     ["an input record with FS", `awk -F, '{ print }'`, "a,b,c,d,e\n"],
-    ["$0 assignment", `awk 'BEGIN { FS = ""; $0 = "abcde" }'`, undefined],
+    ["$0 assignment", `awk 'BEGIN { FS = ","; $0 = "a,b,c,d,e" }'`, undefined],
     ["sub on $0", `awk '{ sub(/x/, "a b c d e") }'`, "x\n"],
   ])("rejects splitting %s beyond maxArrayElements", async (_kind, script, stdin) => {
     const bash = new Bash({ executionLimits: { maxArrayElements: 3 } });
