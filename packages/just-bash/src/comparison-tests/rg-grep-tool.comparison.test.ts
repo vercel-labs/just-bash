@@ -4,7 +4,6 @@ import {
   cleanupTestDir,
   compareOutputs,
   createTestDir,
-  isRecordMode,
   setupFiles,
 } from "./fixture-runner.js";
 
@@ -17,7 +16,8 @@ describe("rg Grep tool compatibility (ripgrep 15.2.0)", () => {
   let testDir: string;
 
   beforeAll(() => {
-    if (isRecordMode) {
+    // Ordinary record mode reuses the locked oracle fixtures, even without rg.
+    if (process.env.RECORD_FIXTURES === "force") {
       const version = execFileSync("rg", ["--version"], { encoding: "utf8" });
       if (!version.startsWith("ripgrep 15.2.0\n")) {
         throw new Error("Record these fixtures with ripgrep 15.2.0");

@@ -9,7 +9,8 @@
     },
     "stdout": "./a.ts\n1-before\n2:Permission Permission\n3-permission\n4:Permission\n5-after\n--\n7-gap\n8:Permission\n9-after\n\n./b.ts\n1:Permission\n2-after\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "057f4de270a2ebe4": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --glob '*.ts' --max-count 2 --files-with-matches -- Permission .",
@@ -21,7 +22,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "0af4ddf06dbc6029": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --max-count 2 --files-with-matches -- Permission .",
@@ -33,7 +35,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n./c.py\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "0da8434216bcbc9e": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --glob '*.ts' --iglob '*.PY' -- Permission .",
@@ -49,7 +52,8 @@
     },
     "stdout": "./-file.ts\n1:-Permission\n\n./.hidden.ts\n1:Permission\n\n./a.ts\n2:Permission\n7:Permission\n\n./b.ts\n2:Permission\n3:Permission\n\n./c.py\n1:Permission\n\n./ignored.ts\n1:Permission\n\n./nested/a.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "0dd16c98bd4f8739": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --type py --iglob '*.TS' -- Permission .",
@@ -65,7 +69,8 @@
     },
     "stdout": "./-file.ts\n1:-Permission\n\n./.hidden.ts\n1:Permission\n\n./a.ts\n2:Permission\n7:Permission\n\n./b.ts\n2:Permission\n3:Permission\n\n./ignored.ts\n1:Permission\n\n./nested/a.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "0f22fa3202d9983e": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --glob '!b.ts' -- Permission .",
@@ -81,7 +86,8 @@
     },
     "stdout": "./-file.ts\n1:-Permission\n\n./a.ts\n2:Permission\n7:Permission\n\n./c.py\n1:Permission\n\n./nested/a.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "14189527b2c590f6": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -- -Permission -file.ts",
@@ -97,7 +103,8 @@
     },
     "stdout": "1:-Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "169f974bf602dff2": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -C 1 -- Permission a.ts",
@@ -113,7 +120,8 @@
     },
     "stdout": "1-before\n2:Permission\n3-after\n--\n6-before\n7:Permission\n8-after\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "1874b158e3b4d37b": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -- Permission a.ts",
@@ -129,7 +137,8 @@
     },
     "stdout": "2:Permission\n7:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "1bbaf8e5bbad3e22": {
     "command": "RIPGREP_CONFIG_PATH= rg --line-number --heading --color never -- permission .",
@@ -138,7 +147,8 @@
     },
     "stdout": "./a.ts\n1:permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "1d209b78b9091309": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --max-count 2 --files-with-matches -- Permission .",
@@ -150,7 +160,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n./c.py\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "209a0d654c45a0de": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --count-matches -m2 foo a.txt b.txt",
@@ -160,7 +171,8 @@
     },
     "stdout": "a.txt:5\nb.txt:3\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "20a7dabfde24404c": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -nm 1 -- Permission a.ts",
@@ -176,7 +188,8 @@
     },
     "stdout": "2:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "21d00f7c8df0a9e8": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -C 1 --max-count 2 --files-with-matches -- Permission .",
@@ -188,7 +201,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n./c.py\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "252c94ab21a944f7": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --files-with-matches -- Permission .",
@@ -200,7 +214,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n./c.py\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "2b9fd9b3e1858fbb": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --glob '*.ts' -C 1 --max-count 2 -- Permission .",
@@ -212,7 +227,8 @@
     },
     "stdout": "./a.ts\n1-before\n2:Permission Permission\n3-permission\n4:Permission\n5-after\n\n./b.ts\n1:Permission\n2-after\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "2f11f72ebc0def48": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts -C 1 --max-count 2 --files-with-matches -- Permission .",
@@ -224,7 +240,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "32b8174bd7f87d93": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --glob '*.ts' --max-count 2 --files-with-matches -- Permission .",
@@ -236,7 +253,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "3318276eb3aabb9a": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --glob '*.ts' -C 1 --files-with-matches -- Permission .",
@@ -248,7 +266,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "340b4b10f8579aad": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --count-matches -m1 foo a.txt b.txt",
@@ -258,7 +277,8 @@
     },
     "stdout": "a.txt:3\nb.txt:2\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "34d9f2531933c512": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --glob 'nested/*.ts' -- Permission .",
@@ -274,7 +294,8 @@
     },
     "stdout": "./nested/a.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "403e0fed7660a603": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --glob '*.ts' --max-count 2 --files-with-matches -- Permission .",
@@ -286,7 +307,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "41f7aa882b4f8fe8": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --max-count 2 -- Permission .",
@@ -298,7 +320,8 @@
     },
     "stdout": "./a.ts\n2:Permission Permission\n4:Permission\n\n./b.ts\n1:Permission\n\n./c.py\n2:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "53cc1dc6b600c485": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --glob '*.ts' -- Permission .",
@@ -310,7 +333,8 @@
     },
     "stdout": "./a.ts\n2:Permission Permission\n3:permission\n4:Permission\n8:Permission\n\n./b.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "54357bc301117ea7": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -C 1 -- Permission .",
@@ -322,7 +346,8 @@
     },
     "stdout": "./a.ts\n1-before\n2:Permission Permission\n3-permission\n4:Permission\n5-after\n--\n7-gap\n8:Permission\n9-after\n\n./b.ts\n1:Permission\n2-after\n\n./c.py\n1-permission\n2:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "55d3f5fcd67a1a75": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --glob '*.ts' --files-with-matches -- Permission .",
@@ -334,7 +359,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "561bcf82ecc1fd14": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --glob '*.ts' -C 1 --max-count 2 -- Permission .",
@@ -346,7 +372,8 @@
     },
     "stdout": "./a.ts\n1-before\n2:Permission Permission\n3:permission\n4:Permission\n\n./b.ts\n1:Permission\n2-after\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "5821e755381d3f9e": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i -C 1 -- Permission .",
@@ -358,7 +385,8 @@
     },
     "stdout": "./a.ts\n1-before\n2:Permission Permission\n3:permission\n4:Permission\n5-after\n--\n7-gap\n8:Permission\n9-after\n\n./b.ts\n1:Permission\n2-after\n\n./c.py\n1:permission\n2:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "599018d9844dd4aa": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --max-count 2 --files-with-matches -- Permission .",
@@ -370,7 +398,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "5b260e27af208d98": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --max-count 2 --files-with-matches -- Permission .",
@@ -382,7 +411,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "5bf67d9f10770ab0": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --glob '*.ts' --files-with-matches -- Permission .",
@@ -394,7 +424,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "5c030ac1fc14112a": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts -C 1 --files-with-matches -- Permission .",
@@ -406,7 +437,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "5f5e867f7f7899f8": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --max-count 2 -- Permission .",
@@ -418,7 +450,8 @@
     },
     "stdout": "./a.ts\n2:Permission Permission\n3:permission\n\n./b.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "60427b9549e2eaf6": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --glob '*.ts' -C 1 --files-with-matches -- Permission .",
@@ -430,7 +463,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "6112a21c69c6a399": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --max-count 2 -- Permission .",
@@ -442,7 +476,8 @@
     },
     "stdout": "./a.ts\n2:Permission Permission\n3:permission\n\n./b.ts\n1:Permission\n\n./c.py\n1:permission\n2:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "62451ac4cb63d843": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --glob '*.ts' --iglob '!nested/*' -- Permission .",
@@ -458,7 +493,8 @@
     },
     "stdout": "./-file.ts\n1:-Permission\n\n./.hidden.ts\n1:Permission\n\n./a.ts\n2:Permission\n7:Permission\n\n./b.ts\n2:Permission\n3:Permission\n\n./ignored.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "63f786d337d2fca9": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --type ts --glob '*.py' -- Permission .",
@@ -474,7 +510,8 @@
     },
     "stdout": "./c.py\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "6620fd569696c4d8": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --glob '*.py' -- Permission a.ts",
@@ -490,7 +527,8 @@
     },
     "stdout": "2:Permission\n7:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "6977e91dfd9583eb": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --glob '*.ts' -C 1 --max-count 2 --files-with-matches -- Permission .",
@@ -502,7 +540,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "6ba118b7ed586e6b": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -A+1 -- Permission a.ts",
@@ -518,7 +557,8 @@
     },
     "stdout": "2:Permission\n3-after\n--\n7:Permission\n8-after\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "6dc755a79a90f33c": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -- Permission a.ts missing",
@@ -534,7 +574,8 @@
     },
     "stdout": "a.ts\n2:Permission\n7:Permission\n",
     "stderr": "rg: missing: IO error for operation on missing: No such file or directory (os error 2)\n",
-    "exitCode": 2
+    "exitCode": 2,
+    "locked": true
   },
   "6fad1ad426275fda": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -nePermission a.ts",
@@ -550,7 +591,8 @@
     },
     "stdout": "2:Permission\n7:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "70d772912c12a867": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --files-with-matches -- Permission .",
@@ -562,7 +604,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "771406a12b757524": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -- --help -file.ts",
@@ -578,7 +621,8 @@
     },
     "stdout": "2:--help\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "7746fdff1137a6e1": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --glob '*.ts' -C 1 -- Permission .",
@@ -590,7 +634,8 @@
     },
     "stdout": "./a.ts\n1-before\n2:Permission Permission\n3:permission\n4:Permission\n5-after\n--\n7-gap\n8:Permission\n9-after\n\n./b.ts\n1:Permission\n2-after\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "77a6e3ce693d437a": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --glob '*.ts' -- Permission .",
@@ -606,7 +651,8 @@
     },
     "stdout": "./-file.ts\n1:-Permission\n\n./.hidden.ts\n1:Permission\n\n./a.ts\n2:Permission\n7:Permission\n\n./b.ts\n2:Permission\n3:Permission\n\n./ignored.ts\n1:Permission\n\n./nested/a.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "77b1cc74bdfb3143": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --files-with-matches -- Permission .",
@@ -618,7 +664,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "780ea83d10290c21": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --iglob '!nested/*' --iglob '*.TS' -- Permission .",
@@ -634,7 +681,8 @@
     },
     "stdout": "./-file.ts\n1:-Permission\n\n./.hidden.ts\n1:Permission\n\n./a.ts\n2:Permission\n7:Permission\n\n./b.ts\n2:Permission\n3:Permission\n\n./ignored.ts\n1:Permission\n\n./nested/a.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "7b937b99582753c3": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --glob '*.ts' --max-count 2 --files-with-matches -- Permission .",
@@ -646,7 +694,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "7ba2c073d944d170": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --iglob '.HIDDEN.TS' -- Permission .",
@@ -662,7 +711,8 @@
     },
     "stdout": "./.hidden.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "7c38485bb8119752": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts -C 1 --files-with-matches -- Permission .",
@@ -674,7 +724,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "7db44dd6729f992e": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --files-with-matches -- Permission .",
@@ -686,7 +737,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n./c.py\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "7f72590ce40c9b31": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --glob a.ts -- Permission .",
@@ -702,7 +754,8 @@
     },
     "stdout": "./a.ts\n2:Permission\n7:Permission\n\n./nested/a.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "7fb45a4aa6984746": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path -cm1 foo a.txt b.txt",
@@ -712,7 +765,8 @@
     },
     "stdout": "a.txt:1\nb.txt:1\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "7ffecbac2b993626": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --glob '*.ts' -- Permission .",
@@ -724,7 +778,8 @@
     },
     "stdout": "./a.ts\n2:Permission Permission\n4:Permission\n8:Permission\n\n./b.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "86fefecfa20826fe": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --glob '*.ts' -- Permission .",
@@ -736,7 +791,8 @@
     },
     "stdout": "./a.ts\n2:Permission Permission\n3:permission\n4:Permission\n8:Permission\n\n./b.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "8cd358cd5a367454": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --iglob 'IGNORED.TS' -- Permission .",
@@ -752,7 +808,8 @@
     },
     "stdout": "./ignored.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "8fefd453e11d0712": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -m+1 -- Permission a.ts",
@@ -768,7 +825,8 @@
     },
     "stdout": "2:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "953944c547055d49": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -C 1 --max-count 1 -- Permission b.ts",
@@ -784,7 +842,8 @@
     },
     "stdout": "1-before\n2:Permission\n3:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "95b9549ef1ad9e73": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --glob '*.ts' -C 1 --max-count 2 --files-with-matches -- Permission .",
@@ -796,7 +855,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "99be04278b74de04": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --glob '*.ts' -C 1 -- Permission .",
@@ -808,7 +868,8 @@
     },
     "stdout": "./a.ts\n1-before\n2:Permission Permission\n3-permission\n4:Permission\n5-after\n--\n7-gap\n8:Permission\n9-after\n\n./b.ts\n1:Permission\n2-after\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "99dfbec2ace88bed": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path -c -v -m1 foo a.txt b.txt",
@@ -818,7 +879,8 @@
     },
     "stdout": "a.txt:1\nb.txt:1\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "a11c70c4ed273ba5": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -C 1 --files-with-matches -- Permission .",
@@ -830,7 +892,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n./c.py\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "a3fbe45a98a630ce": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i -C 1 --max-count 2 -- Permission .",
@@ -842,7 +905,8 @@
     },
     "stdout": "./a.ts\n1-before\n2:Permission Permission\n3:permission\n4:Permission\n\n./b.ts\n1:Permission\n2-after\n\n./c.py\n1:permission\n2:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "aa512fa849c702fa": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --glob '*.ts' -C 1 --max-count 2 -- Permission .",
@@ -854,7 +918,8 @@
     },
     "stdout": "./a.ts\n1-before\n2:Permission Permission\n3:permission\n4:Permission\n\n./b.ts\n1:Permission\n2-after\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "aa9445a18b8e5bdb": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts -- Permission .",
@@ -866,7 +931,8 @@
     },
     "stdout": "./a.ts\n2:Permission Permission\n4:Permission\n8:Permission\n\n./b.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "ae5d3cffbc10e24f": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --max-count 2 -- Permission .",
@@ -878,7 +944,8 @@
     },
     "stdout": "./a.ts\n2:Permission Permission\n4:Permission\n\n./b.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "af0bd9734f361287": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --glob '*.ts' -C 1 --max-count 2 -- Permission .",
@@ -890,7 +957,8 @@
     },
     "stdout": "./a.ts\n1-before\n2:Permission Permission\n3-permission\n4:Permission\n5-after\n\n./b.ts\n1:Permission\n2-after\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "b0770c0900724c7e": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts -C 1 --max-count 2 --files-with-matches -- Permission .",
@@ -902,7 +970,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "b422544e3ac9c722": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --glob '*.ts' -C 1 -- Permission .",
@@ -914,7 +983,8 @@
     },
     "stdout": "./a.ts\n1-before\n2:Permission Permission\n3:permission\n4:Permission\n5-after\n--\n7-gap\n8:Permission\n9-after\n\n./b.ts\n1:Permission\n2-after\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "b448496483e15704": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -- --type-list -file.ts",
@@ -930,7 +1000,8 @@
     },
     "stdout": "3:--type-list\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "b5decc9556667bd7": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts -C 1 --max-count 2 -- Permission .",
@@ -942,7 +1013,8 @@
     },
     "stdout": "./a.ts\n1-before\n2:Permission Permission\n3-permission\n4:Permission\n5-after\n\n./b.ts\n1:Permission\n2-after\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "b75a0580c280559c": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --glob '*.ts' --files-with-matches -- Permission .",
@@ -954,7 +1026,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "bad9d402e7c4d435": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts -- Permission .",
@@ -966,7 +1039,8 @@
     },
     "stdout": "./a.ts\n2:Permission Permission\n3:permission\n4:Permission\n8:Permission\n\n./b.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "bd0881c960fe7dc8": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts -C 1 --max-count 2 -- Permission .",
@@ -978,7 +1052,8 @@
     },
     "stdout": "./a.ts\n1-before\n2:Permission Permission\n3:permission\n4:Permission\n\n./b.ts\n1:Permission\n2-after\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "bf8c44d2427c3df4": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -C 1 --max-count 2 -- Permission .",
@@ -990,7 +1065,8 @@
     },
     "stdout": "./a.ts\n1-before\n2:Permission Permission\n3-permission\n4:Permission\n5-after\n\n./b.ts\n1:Permission\n2-after\n\n./c.py\n1-permission\n2:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "bfb505a86377d854": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --glob '*.ts' -C 1 --files-with-matches -- Permission .",
@@ -1002,7 +1078,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "c069fd2e4f734f6a": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --glob '*.ts' --files-with-matches -- Permission .",
@@ -1014,7 +1091,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "c88f397f4620bd3f": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --iglob '!nested/*' --glob '*.ts' -- Permission .",
@@ -1030,7 +1108,8 @@
     },
     "stdout": "./-file.ts\n1:-Permission\n\n./.hidden.ts\n1:Permission\n\n./a.ts\n2:Permission\n7:Permission\n\n./b.ts\n2:Permission\n3:Permission\n\n./ignored.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "caf8243ad1a58c44": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i -C 1 --files-with-matches -- Permission .",
@@ -1042,7 +1121,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n./c.py\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "ccb907d51edc52c2": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i -- Permission .",
@@ -1054,7 +1134,8 @@
     },
     "stdout": "./a.ts\n2:Permission Permission\n3:permission\n4:Permission\n8:Permission\n\n./b.ts\n1:Permission\n\n./c.py\n1:permission\n2:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "d107ef24308e95f5": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --glob '*.ts' -C 1 --max-count 2 --files-with-matches -- Permission .",
@@ -1066,7 +1147,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "d18e28a126d93677": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --glob '*.ts' --max-count 2 -- Permission .",
@@ -1078,7 +1160,8 @@
     },
     "stdout": "./a.ts\n2:Permission Permission\n4:Permission\n\n./b.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "d2ccd2ca4073d26c": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts -C 1 -- Permission .",
@@ -1090,7 +1173,8 @@
     },
     "stdout": "./a.ts\n1-before\n2:Permission Permission\n3:permission\n4:Permission\n5-after\n--\n7-gap\n8:Permission\n9-after\n\n./b.ts\n1:Permission\n2-after\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "d3d84568228ae934": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -nC1 -- Permission a.ts",
@@ -1106,7 +1190,8 @@
     },
     "stdout": "1-before\n2:Permission\n3-after\n--\n6-before\n7:Permission\n8-after\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "d4ce879e9846b083": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never  -- Permission .",
@@ -1118,7 +1203,8 @@
     },
     "stdout": "./a.ts\n2:Permission Permission\n4:Permission\n8:Permission\n\n./b.ts\n1:Permission\n\n./c.py\n2:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "d642d8e7852b08ad": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --type py -- Permission a.ts",
@@ -1134,7 +1220,8 @@
     },
     "stdout": "2:Permission\n7:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "d76354d05eade326": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --glob '*.ts' -- Permission .",
@@ -1146,7 +1233,8 @@
     },
     "stdout": "./a.ts\n2:Permission Permission\n4:Permission\n8:Permission\n\n./b.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "d92923471bf0fbb4": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --max-count 0 -- Permission .",
@@ -1162,7 +1250,8 @@
     },
     "stdout": "",
     "stderr": "",
-    "exitCode": 1
+    "exitCode": 1,
+    "locked": true
   },
   "dcb91c20b73d0d2a": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --glob '*.ts' --max-count 2 -- Permission .",
@@ -1174,7 +1263,8 @@
     },
     "stdout": "./a.ts\n2:Permission Permission\n4:Permission\n\n./b.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "e0ba63062282ae91": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts -C 1 -- Permission .",
@@ -1186,7 +1276,8 @@
     },
     "stdout": "./a.ts\n1-before\n2:Permission Permission\n3-permission\n4:Permission\n5-after\n--\n7-gap\n8:Permission\n9-after\n\n./b.ts\n1:Permission\n2-after\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "e12c852b30608237": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --glob '.hidden.ts' -- Permission .",
@@ -1202,7 +1293,8 @@
     },
     "stdout": "./.hidden.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "e38d0a907cb1f02d": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --glob '*.ts' -C 1 --files-with-matches -- Permission .",
@@ -1214,7 +1306,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "e4030ae46f439483": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -nm1 -- Permission a.ts",
@@ -1230,7 +1323,8 @@
     },
     "stdout": "2:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "e50ceacfccd95707": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -C 1 -- Permission b.ts",
@@ -1246,7 +1340,8 @@
     },
     "stdout": "1-before\n2:Permission\n3:Permission\n4-after\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "e735fe2e25365c58": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path -c -m2 foo a.txt b.txt",
@@ -1256,7 +1351,8 @@
     },
     "stdout": "a.txt:2\nb.txt:2\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "ef76e6e1fe95e0d8": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --glob '*.ts' --max-count 2 -- Permission .",
@@ -1268,7 +1364,8 @@
     },
     "stdout": "./a.ts\n2:Permission Permission\n3:permission\n\n./b.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "f1caa1e8845cc650": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --glob '*.ts' --max-count 2 -- Permission .",
@@ -1280,7 +1377,8 @@
     },
     "stdout": "./a.ts\n2:Permission Permission\n3:permission\n\n./b.ts\n1:Permission\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "f340e2afc33b008a": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -- Missing .",
@@ -1296,7 +1394,8 @@
     },
     "stdout": "",
     "stderr": "",
-    "exitCode": 1
+    "exitCode": 1,
+    "locked": true
   },
   "f4ded01ff33b12a9": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --glob '*.ts' -C 1 --max-count 2 --files-with-matches -- Permission .",
@@ -1308,7 +1407,8 @@
     },
     "stdout": "./a.ts\n./b.ts\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   },
   "f61d04cf358fcae8": {
     "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i -C 1 --max-count 2 --files-with-matches -- Permission .",
@@ -1320,6 +1420,7 @@
     },
     "stdout": "./a.ts\n./b.ts\n./c.py\n",
     "stderr": "",
-    "exitCode": 0
+    "exitCode": 0,
+    "locked": true
   }
 }
