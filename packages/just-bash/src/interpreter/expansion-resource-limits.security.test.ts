@@ -152,7 +152,7 @@ describe("interpreter expansion resource limits", () => {
     expect(() =>
       expandAlias(
         {
-          env: new Map([["BASH_ALIAS_a", "echo"]]),
+          aliases: new Map([["a", "echo"]]),
           limits: resolveLimits({ maxStringLength: 12 }),
         },
         node,

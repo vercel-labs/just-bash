@@ -12,10 +12,6 @@ const aliasHelp = {
   options: ["    --help display this help and exit"],
 };
 
-// Aliases are stored in the environment
-// Format: BASH_ALIASES_<name>=<value>
-const ALIAS_PREFIX = "BASH_ALIAS_";
-
 export const aliasCommand: RuntimeCommand = {
   name: "alias",
 
@@ -26,15 +22,14 @@ export const aliasCommand: RuntimeCommand = {
     if (hasHelpFlag(args)) {
       return showHelp(aliasHelp);
     }
+    ctx.aliases ??= new Map();
+    const aliases = ctx.aliases;
 
     // No arguments: list all aliases
     if (args.length === 0) {
       let stdout = "";
-      for (const [key, value] of ctx.env) {
-        if (key.startsWith(ALIAS_PREFIX)) {
-          const name = key.slice(ALIAS_PREFIX.length);
-          stdout += `alias ${name}='${value}'\n`;
-        }
+      for (const [name, value] of aliases) {
+        stdout += `alias ${name}='${value}'\n`;
       }
       return { stdout, stderr: "", exitCode: 0 };
     }
@@ -46,10 +41,9 @@ export const aliasCommand: RuntimeCommand = {
       const eqIdx = arg.indexOf("=");
       if (eqIdx === -1) {
         // Show single alias
-        const key = ALIAS_PREFIX + arg;
-        if (ctx.env.get(key)) {
+        if (aliases.get(arg)) {
           return {
-            stdout: `alias ${arg}='${ctx.env.get(key)}'\n`,
+            stdout: `alias ${arg}='${aliases.get(arg)}'\n`,
             stderr: "",
             exitCode: 0,
           };
@@ -71,7 +65,7 @@ export const aliasCommand: RuntimeCommand = {
         ) {
           value = value.slice(1, -1);
         }
-        ctx.env.set(ALIAS_PREFIX + name, value);
+        aliases.set(name, value);
       }
     }
 
@@ -106,13 +100,11 @@ export const unaliasCommand: RuntimeCommand = {
       };
     }
 
+    ctx.aliases ??= new Map();
+    const aliases = ctx.aliases;
     // Handle -a to remove all aliases
     if (args[0] === "-a") {
-      for (const key of ctx.env.keys()) {
-        if (key.startsWith(ALIAS_PREFIX)) {
-          ctx.env.delete(key);
-        }
-      }
+      aliases.clear();
       return { stdout: "", stderr: "", exitCode: 0 };
     }
 
@@ -122,9 +114,8 @@ export const unaliasCommand: RuntimeCommand = {
     let anyError = false;
     let stderr = "";
     for (const name of processArgs) {
-      const key = ALIAS_PREFIX + name;
-      if (ctx.env.get(key)) {
-        ctx.env.delete(key);
+      if (aliases.get(name)) {
+        aliases.delete(name);
       } else {
         stderr += `unalias: ${name}: not found\n`;
         anyError = true;

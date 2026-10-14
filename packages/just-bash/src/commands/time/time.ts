@@ -122,6 +122,7 @@ export const timeCommand: RuntimeCommand = {
         };
       }
       result = await ctx.exec(shellJoinArgs([commandArgs[0]]), {
+        internalDispatch: true,
         env: mapToRecord(ctx.env),
         cwd: ctx.cwd,
         stdin: latin1FromBytes(ctx.stdin),

@@ -165,7 +165,7 @@ export async function traceSimpleCommand(
   commandName: string,
   args: string[],
 ): Promise<string> {
-  if (!ctx.state.options.xtrace) {
+  if (!ctx.state.options.xtrace || ctx.state.suppressXtrace) {
     return "";
   }
 
@@ -185,7 +185,7 @@ export async function traceAssignment(
   name: string,
   value: string,
 ): Promise<string> {
-  if (!ctx.state.options.xtrace) {
+  if (!ctx.state.options.xtrace || ctx.state.suppressXtrace) {
     return "";
   }
 

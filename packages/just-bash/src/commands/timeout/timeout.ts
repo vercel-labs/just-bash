@@ -145,6 +145,7 @@ export const timeoutCommand: RuntimeCommand = {
 
       const execPromise = ctx
         .exec(shellJoinArgs([commandArgs[0]]), {
+          internalDispatch: true,
           cwd: ctx.cwd,
           signal: combinedAbort.signal,
           stdin: latin1FromBytes(ctx.stdin),

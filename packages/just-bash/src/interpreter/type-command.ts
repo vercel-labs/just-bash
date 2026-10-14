@@ -144,8 +144,7 @@ export async function handleType(
     }
 
     // Check aliases
-    // Aliases are stored in env with BASH_ALIAS_ prefix
-    const alias = ctx.state.env.get(`BASH_ALIAS_${name}`);
+    const alias = ctx.state.aliases?.get(name);
     const hasAlias = alias !== undefined;
     if (hasAlias && (showAll || !foundAny)) {
       // -p: print nothing for aliases (no path), but count as "found"
@@ -400,7 +399,7 @@ export async function handleCommandV(
     }
 
     // Check aliases first (before other checks)
-    const alias = ctx.state.env.get(`BASH_ALIAS_${name}`);
+    const alias = ctx.state.aliases?.get(name);
     if (alias !== undefined) {
       if (verboseDescribe) {
         stdout += `${name} is an alias for "${alias}"\n`;

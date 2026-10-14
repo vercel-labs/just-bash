@@ -779,12 +779,8 @@ function getAliasNames(
 ): string[] {
   const candidates = createCandidateCollector(ctx, prefix, maximum);
 
-  // Look for BASH_ALIAS_ prefixed variables
-  for (const key of ctx.state.env.keys()) {
-    if (key.startsWith("BASH_ALIAS_")) {
-      const aliasName = key.slice("BASH_ALIAS_".length);
-      candidates.add(aliasName);
-    }
+  for (const name of ctx.state.aliases?.keys() ?? []) {
+    candidates.add(name);
   }
 
   return candidates.build();
@@ -974,10 +970,8 @@ async function getCommandCompletions(
   }
 
   // Add aliases
-  for (const key of ctx.state.env.keys()) {
-    if (key.startsWith("BASH_ALIAS_")) {
-      candidates.add(key.slice("BASH_ALIAS_".length));
-    }
+  for (const name of ctx.state.aliases?.keys() ?? []) {
+    candidates.add(name);
   }
 
   // Add keywords

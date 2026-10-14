@@ -48,6 +48,9 @@ import { cloneArrays } from "./interpreter/helpers/array.js";
 import {
   buildBashopts,
   buildShellopts,
+  createShellOptions,
+  createShoptOptions,
+  initializeShellOptions,
 } from "./interpreter/helpers/shellopts.js";
 import {
   Interpreter,
@@ -437,33 +440,8 @@ export class Bash {
       bashPid: options.processInfo?.pid ?? 1, // BASHPID starts as virtual PID
       nextVirtualPid: (options.processInfo?.pid ?? 1) + 1, // Counter for unique subshell PIDs
       currentLine: 1, // $LINENO starts at 1
-      options: {
-        errexit: false,
-        pipefail: false,
-        nounset: false,
-        xtrace: false,
-        verbose: false,
-        posix: false,
-        allexport: false,
-        noclobber: false,
-        noglob: false,
-        noexec: false,
-        vi: false,
-        emacs: false,
-      },
-      shoptOptions: {
-        extglob: false,
-        dotglob: false,
-        nullglob: false,
-        failglob: false,
-        globstar: false,
-        globskipdots: true, // Default to true in bash >=5.2
-        nocaseglob: false,
-        nocasematch: false,
-        expand_aliases: false,
-        lastpipe: false,
-        xpg_echo: false,
-      },
+      options: createShellOptions(),
+      shoptOptions: createShoptOptions(),
       inCondition: false,
       loopDepth: 0,
       // Export standard shell variables by default (matches bash behavior)
@@ -671,7 +649,9 @@ export class Bash {
 
   private async execInScope(
     commandLine: string,
-    options: (ExecOptions & { newShell?: boolean }) | undefined,
+    options:
+      | (ExecOptions & { newShell?: boolean; internalDispatch?: boolean })
+      | undefined,
     executionScope: ExecutionScope,
     execDepth: number,
     parentSignal: AbortSignal | undefined,
@@ -784,6 +764,21 @@ export class Bash {
         }
       }
 
+      // A nested shell starts from defaults plus its exported option lists.
+      // Its shopt changes must not mutate the parent's shared option object.
+      const startupOptions = effectiveOptions.newShell
+        ? initializeShellOptions(
+            execEnv.get("SHELLOPTS"),
+            execEnv.get("BASHOPTS"),
+          )
+        : undefined;
+      const shellOptions = startupOptions
+        ? startupOptions.options
+        : { ...(callerState ?? this.state).options };
+      const shoptOptions = startupOptions
+        ? startupOptions.shoptOptions
+        : { ...(callerState ?? this.state).shoptOptions };
+
       if (effectiveOptions.newShell) {
         // Startup defaults do not add export attributes. Resetting inherited
         // values retains their existing export attributes.
@@ -797,12 +792,14 @@ export class Bash {
         }
         execEnv.set("IFS", " \t\n");
         execEnv.set("OPTIND", "1");
-        execEnv.set("SHELLOPTS", buildShellopts(this.state.options));
-        execEnv.set("BASHOPTS", buildBashopts(this.state.shoptOptions));
+        execEnv.set("SHELLOPTS", buildShellopts(shellOptions));
+        execEnv.set("BASHOPTS", buildBashopts(shoptOptions));
       }
 
       const execState: InterpreterState = {
         ...this.state,
+        suppressXtrace: effectiveOptions.internalDispatch ?? false,
+        suppressVerbose: effectiveOptions.internalDispatch ?? false,
         env: execEnv,
         exportedVars,
         arrays: replaceEnv ? new Map() : cloneArrays(this.state.arrays),
@@ -812,8 +809,12 @@ export class Bash {
           (replaceEnv ? "" : this.state.previousDir),
         // Deep copy mutable objects to prevent interference
         functions: new Map(this.state.functions),
+        aliases: effectiveOptions.newShell
+          ? new Map()
+          : new Map((callerState ?? this.state).aliases),
         localScopes: [...this.state.localScopes],
-        options: { ...this.state.options },
+        options: shellOptions,
+        shoptOptions,
         // Share hashTable reference - it should persist across exec calls
         hashTable: this.state.hashTable,
         // Pass stdin through to commands (for bash -c with piped input).
