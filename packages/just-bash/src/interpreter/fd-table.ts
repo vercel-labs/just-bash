@@ -31,7 +31,6 @@ const FILE_APPEND_PREFIX = "__file_append__:";
 const RW_PREFIX = "__rw__:";
 const DUP_OUT_PREFIX = "__dupout__:";
 const DUP_IN_PREFIX = "__dupin__:";
-const NULL_DEVICE = "__device_null__";
 
 /** Lowest descriptor a script may open by number. 0/1/2 are the std streams. */
 export const FIRST_USER_FD = 3;
@@ -39,7 +38,13 @@ export const FIRST_USER_FD = 3;
 export type FdEntry =
   | { kind: "input"; content: string; device?: boolean }
   | { kind: "output"; path: string; append: boolean }
-  | { kind: "readwrite"; path: string; position: number; content: string }
+  | {
+      kind: "readwrite";
+      path: string;
+      position: number;
+      content: string;
+      device?: boolean;
+    }
   | { kind: "dup-out"; sourceFd: number }
   | { kind: "dup-in"; sourceFd: number }
   | { kind: "closed" };
@@ -51,6 +56,7 @@ export type FdEntry =
 interface FdSnapshotEntry {
   raw: string | undefined;
   isInput: boolean;
+  isDevice: boolean;
   aliases: number[];
 }
 
@@ -92,9 +98,6 @@ function parseDupSource(raw: string, prefix: string): number | null {
  * {@link getFdEntry}, which consults `inputFds` first and never guesses.
  */
 export function decodeFdEntry(raw: string): FdEntry {
-  if (raw === NULL_DEVICE) {
-    return { kind: "input", content: "", device: true };
-  }
   if (raw.startsWith(FILE_PREFIX)) {
     return {
       kind: "output",
@@ -128,7 +131,7 @@ export function decodeFdEntry(raw: string): FdEntry {
 export function encodeFdEntry(entry: FdEntry): string {
   switch (entry.kind) {
     case "input":
-      return entry.device ? NULL_DEVICE : entry.content;
+      return entry.content;
     case "output":
       return `${entry.append ? FILE_APPEND_PREFIX : FILE_PREFIX}${entry.path}`;
     case "readwrite":
@@ -220,8 +223,16 @@ export function getFdEntry(
   if (raw === undefined) return undefined;
   // A descriptor known to hold content is never re-parsed: a file whose
   // first line reads `__file__:/tmp/x` is data, not a marker.
-  if (ctx.state.inputFds?.has(fd)) return { kind: "input", content: raw };
-  return decodeFdEntry(raw);
+  const entry: FdEntry = ctx.state.inputFds?.has(fd)
+    ? { kind: "input", content: raw }
+    : decodeFdEntry(raw);
+  if (
+    ctx.state.deviceFds?.has(fd) &&
+    (entry.kind === "input" || entry.kind === "readwrite")
+  ) {
+    return { ...entry, device: true };
+  }
+  return entry;
 }
 
 export function isFdOpen(ctx: InterpreterContext, fd: number): boolean {
@@ -234,11 +245,18 @@ function writeRawFd(
   fd: number,
   raw: string,
   isInput: boolean,
+  isDevice = false,
 ): void {
   const fds = table(ctx);
   if (!fds.has(fd)) checkFdLimit(ctx);
   fds.set(fd, raw);
   markContent(ctx, fd, isInput);
+  if (isDevice) {
+    ctx.state.deviceFds ??= new Set();
+    ctx.state.deviceFds.add(fd);
+  } else {
+    ctx.state.deviceFds?.delete(fd);
+  }
 }
 
 /**
@@ -252,9 +270,10 @@ export function setRawFd(
   fd: number,
   raw: string,
   isInput = false,
+  isDevice = false,
 ): void {
   leaveAliasGroup(ctx, fd);
-  writeRawFd(ctx, fd, raw, isInput);
+  writeRawFd(ctx, fd, raw, isInput, isDevice);
 }
 
 export function setFdEntry(
@@ -266,13 +285,16 @@ export function setFdEntry(
     ctx,
     fd,
     encodeFdEntry(entry),
-    entry.kind === "input" && !entry.device,
+    entry.kind === "input",
+    (entry.kind === "input" || entry.kind === "readwrite") &&
+      entry.device === true,
   );
 }
 
 export function closeFd(ctx: InterpreterContext, fd: number): void {
   ctx.state.fileDescriptors?.delete(fd);
   ctx.state.inputFds?.delete(fd);
+  ctx.state.deviceFds?.delete(fd);
   leaveAliasGroup(ctx, fd);
 }
 
@@ -289,7 +311,13 @@ export function dupFd(
 ): boolean {
   const raw = getRawFd(ctx, sourceFd);
   if (raw === undefined) return false;
-  setRawFd(ctx, fd, raw, ctx.state.inputFds?.has(sourceFd) === true);
+  setRawFd(
+    ctx,
+    fd,
+    raw,
+    ctx.state.inputFds?.has(sourceFd) === true,
+    ctx.state.deviceFds?.has(sourceFd) === true,
+  );
   joinAliasGroup(ctx, fd, sourceFd);
   return true;
 }
@@ -303,11 +331,12 @@ export function moveFd(
   if (raw === undefined) return false;
   if (fd === sourceFd) return true;
   const isInput = ctx.state.inputFds?.has(sourceFd) === true;
+  const isDevice = ctx.state.deviceFds?.has(sourceFd) === true;
   const aliases = [...(aliasGroup(ctx, sourceFd) ?? [])].filter(
     (member) => member !== sourceFd,
   );
   closeFd(ctx, sourceFd);
-  setRawFd(ctx, fd, raw, isInput);
+  setRawFd(ctx, fd, raw, isInput, isDevice);
   const survivor = aliases.find((member) => isFdOpen(ctx, member));
   if (survivor !== undefined) joinAliasGroup(ctx, fd, survivor);
   return true;
@@ -362,12 +391,12 @@ export function advanceFd(
     return;
   }
   const raw = encodeFdEntry(advanced);
-  const isInput = advanced.kind === "input" && !advanced.device;
+  const isInput = advanced.kind === "input";
   // The offset lives in the open file description, not the descriptor, so
   // every alias moves with it. writeRawFd, not setRawFd: this is a read, and
   // a read must not break the aliasing it is moving.
   for (const member of aliasGroup(ctx, fd) ?? [fd]) {
-    writeRawFd(ctx, member, raw, isInput);
+    writeRawFd(ctx, member, raw, isInput, advanced.device === true);
   }
 }
 
@@ -403,7 +432,8 @@ export async function writeFdEntry(
   await ctx.fs.writeFile(writeEntry.path, updatedContent, encoding);
   const raw = encodeFdEntry(updated);
   for (const fd of descriptors) {
-    if (isFdOpen(ctx, fd)) writeRawFd(ctx, fd, raw, false);
+    if (isFdOpen(ctx, fd))
+      writeRawFd(ctx, fd, raw, false, updated.device === true);
   }
   return true;
 }
@@ -423,6 +453,7 @@ export function rememberFd(
   snapshot.set(fd, {
     raw: getRawFd(ctx, fd),
     isInput: ctx.state.inputFds?.has(fd) === true,
+    isDevice: ctx.state.deviceFds?.has(fd) === true,
     aliases: group ? [...group].filter((member) => member !== fd) : [],
   });
 }
@@ -453,13 +484,13 @@ export function restoreFds(
 ): void {
   const fds = ctx.state.fileDescriptors;
   if (!fds) return;
-  for (const [fd, { raw, isInput, aliases }] of snapshot) {
+  for (const [fd, { raw, isInput, isDevice, aliases }] of snapshot) {
     if (raw === undefined) {
       closeFd(ctx, fd);
       continue;
     }
     // Re-opening the saved value detaches fd from whatever it aliases now.
-    setRawFd(ctx, fd, raw, isInput);
+    setRawFd(ctx, fd, raw, isInput, isDevice);
     // Then re-attach it to whichever of its original co-members is still
     // open — they all share one description, so any survivor will do.
     const survivor = aliases.find((member) => fds.has(member));

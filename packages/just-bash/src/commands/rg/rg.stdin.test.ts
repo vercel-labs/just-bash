@@ -36,14 +36,50 @@ describe("rg searches stdin when no paths are given", () => {
     "rg target 3< /dev/null <&3",
     "exec 3< /dev/null; rg target <&3",
     "printf '' | rg target < /dev/null",
+    "rg target <&-",
+    "printf '' | builtin command rg target <&-",
+    "exec 0<&-; rg target",
+    "rg target < /dev/zero",
+    "rg target < /dev/random",
+    "rg target < /dev/urandom",
   ]) {
-    it(`searches cwd for character-device stdin: ${command}`, async () => {
-      const env = new Bash({ files: { "/decoy.txt": "target line\n" } });
+    it(`searches cwd for unavailable stdin: ${command}`, async () => {
+      const env = new Bash({
+        files: {
+          "/decoy.txt": "target line\n",
+          "/dev/random": "",
+          "/dev/urandom": "",
+        },
+      });
       const result = await env.exec(command);
       expect(result).toMatchObject({
         stdout: "decoy.txt:1:target line\n",
         stderr: "",
         exitCode: 0,
+      });
+    });
+  }
+
+  for (const [command, exitCode] of [
+    ["exec 3< /dev/null; : 3< /empty.txt; rg target <&3", 0],
+    ["exec 3< /dev/null; exec 3< /empty.txt; rg target <&3", 1],
+    ["exec 3< /dev/null; exec 3<&-; exec 3< /empty.txt; rg target <&3", 1],
+    ["exec 3< /empty.txt; (exec 3< /dev/null); rg target <&3", 1],
+    ["exec 3< /dev/null; (exec 3< /empty.txt); rg target <&3", 0],
+    ["exec 3< /dev/null; read -u 3 x; rg target <&3", 0],
+    ["rg target <> /dev/zero", 0],
+    ["rg target < /dev/null < /empty.txt", 1],
+    ["rg target <&- < /empty.txt", 1],
+  ] as const) {
+    it(`preserves stdin classification across descriptor lifetimes: ${command}`, async () => {
+      const env = new Bash({
+        files: { "/decoy.txt": "target line\n", "/empty.txt": "" },
+      });
+      const result = await env.exec(command);
+      expect(result).toMatchObject({
+        stdout: exitCode === 0 ? "decoy.txt:1:target line\n" : "",
+        stderr: "",
+        exitCode,
       });
     });
   }

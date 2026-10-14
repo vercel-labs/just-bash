@@ -8,4 +8,4 @@ rg: search an empty piped or redirected stdin instead of the current directory
 
 This applies to every external command: inside a group with its own stdin, `{ cat < empty-file; } < other` now reads EOF instead of falling back to `other`.
 
-Character-device stdin (`</dev/null`) remains EOF for commands that read it, while `rg` searches the current directory as real ripgrep does.
+`rg` searches the current directory for character-device stdin (`</dev/null`, `</dev/zero`, `</dev/random`, `</dev/urandom`) or closed stdin (`<&-`), as real ripgrep does. Custom commands continue to receive device descriptor content as an empty string in `fileDescriptors`.

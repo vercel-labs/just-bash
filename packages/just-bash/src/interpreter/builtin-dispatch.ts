@@ -93,7 +93,7 @@ export type RunCommandFn = (
   stdinSourceFd?: number,
   stdinRedirected?: boolean,
   stdinProvided?: boolean,
-  stdinIsDevice?: boolean,
+  stdinUnavailable?: boolean,
 ) => Promise<ExecResult>;
 
 interface RevocableCommandContext {
@@ -464,7 +464,7 @@ export async function dispatchBuiltin(
    * re-dispatch forward it.
    */
   stdinProvided = false,
-  stdinIsDevice = false,
+  stdinUnavailable = false,
 ): Promise<ExecResult | null> {
   const { ctx, runCommand } = dispatchCtx;
 
@@ -601,7 +601,7 @@ export async function dispatchBuiltin(
       stdin,
       stdinRedirected,
       stdinProvided,
-      stdinIsDevice,
+      stdinUnavailable,
     );
   }
   if (commandName === "builtin") {
@@ -611,7 +611,7 @@ export async function dispatchBuiltin(
       stdin,
       stdinRedirected,
       stdinProvided,
-      stdinIsDevice,
+      stdinUnavailable,
     );
   }
   if (commandName === "shopt") {
@@ -635,7 +635,7 @@ export async function dispatchBuiltin(
       -1,
       stdinRedirected,
       stdinProvided,
-      stdinIsDevice,
+      stdinUnavailable,
     );
     return { ...result, internalProducerOmitsShellPrefix: true };
   }
@@ -684,7 +684,7 @@ async function handleCommandBuiltin(
   /** Forwarded to the wrapped command: it runs on this command's fd 0. */
   stdinRedirected = false,
   stdinProvided = false,
-  stdinIsDevice = false,
+  stdinUnavailable = false,
 ): Promise<ExecResult> {
   const { ctx, runCommand } = dispatchCtx;
 
@@ -739,7 +739,7 @@ async function handleCommandBuiltin(
     -1,
     stdinRedirected,
     stdinProvided,
-    stdinIsDevice,
+    stdinUnavailable,
   );
 }
 
@@ -753,7 +753,7 @@ async function handleBuiltinBuiltin(
   /** Forwarded to the wrapped builtin: it runs on this command's fd 0. */
   stdinRedirected = false,
   stdinProvided = false,
-  stdinIsDevice = false,
+  stdinUnavailable = false,
 ): Promise<ExecResult> {
   const { runCommand } = dispatchCtx;
 
@@ -787,7 +787,7 @@ async function handleBuiltinBuiltin(
     -1,
     stdinRedirected,
     stdinProvided,
-    stdinIsDevice,
+    stdinUnavailable,
   );
 }
 
@@ -802,7 +802,7 @@ export async function executeExternalCommand(
   stdin: string,
   useDefaultPath: boolean,
   stdinProvided = false,
-  stdinIsDevice = false,
+  stdinUnavailable = false,
 ): Promise<ExecResult> {
   const { ctx, buildExportedEnv, executeUserScript } = dispatchCtx;
 
@@ -857,7 +857,7 @@ export async function executeExternalCommand(
   // stdin keeps the established content-based fallback until descriptor-aware
   // ownership can be preserved across every nested execution path.
   const commandStdinProvided =
-    stdinProvided || stdinIsDevice || stdin.length > 0;
+    stdinProvided || stdinUnavailable || stdin.length > 0;
   const effectiveStdin = unsafeBytesFromLatin1(
     commandStdinProvided ? stdin : ctx.state.groupStdin || "",
   );
@@ -929,7 +929,7 @@ export async function executeExternalCommand(
       return effectiveStdin;
     },
     stdinProvided: commandStdinProvided,
-    stdinIsDevice,
+    stdinUnavailable,
     limits: ctx.limits,
     executionScope: cmd.internalIsExtension
       ? createCommandExecutionBudget(ctx.executionScope)

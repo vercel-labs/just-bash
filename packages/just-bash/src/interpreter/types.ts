@@ -328,6 +328,8 @@ export interface IOState {
    * for one. Maintained exclusively by `fd-table.ts`.
    */
   inputFds?: Set<number>;
+  /** Character-device metadata kept separate from public descriptor content. */
+  deviceFds?: Set<number>;
   /**
    * Descriptors that share one open file description because of `N<&M`, and
    * therefore share a read offset. Every member of a group maps to the same

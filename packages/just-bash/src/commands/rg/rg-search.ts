@@ -289,12 +289,12 @@ export async function executeSearch(
   // double-consuming it as both pattern source and search input.
   const stdinConsumedByPatternFile = options.patternFiles.includes("-");
   const stdinText = decodeBytesToUtf8(ctx.stdin);
-  // Ripgrep treats character devices (including /dev/null) as absent input.
+  // Ripgrep treats character devices and closed descriptors as absent input.
   // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/cli/src/lib.rs#L204-L208
   if (
     inputPaths.length === 0 &&
     (ctx.stdinProvided || stdinText.length > 0) &&
-    !ctx.stdinIsDevice &&
+    !ctx.stdinUnavailable &&
     !stdinConsumedByPatternFile
   ) {
     const content = stdinText;
