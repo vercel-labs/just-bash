@@ -280,7 +280,9 @@ async function awkSub(
         createSubReplacement(replacement, match[0], awkStringLimit(ctx)),
       awkStringLimit(ctx),
     );
-    applyTargetValue(targetName, replaced.value, ctx);
+    if (replaced.replacements > 0) {
+      applyTargetValue(targetName, replaced.value, ctx);
+    }
     return replaced.replacements;
   } catch (error) {
     rethrowFatalExecutionError(error);
@@ -310,7 +312,9 @@ async function awkGsub(
         createSubReplacement(replacement, match[0], awkStringLimit(ctx)),
       awkStringLimit(ctx),
     );
-    applyTargetValue(targetName, replaced.value, ctx);
+    if (replaced.replacements > 0) {
+      applyTargetValue(targetName, replaced.value, ctx);
+    }
     return replaced.replacements;
   } catch (error) {
     rethrowFatalExecutionError(error);
