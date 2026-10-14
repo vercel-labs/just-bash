@@ -17,6 +17,7 @@ import {
   readBytesFrom,
   utf8ByteLength,
 } from "../encoding.js";
+import type { FsStat } from "../fs/interface.js";
 import type { ExecResult } from "../types.js";
 import {
   ControlFlowError,
@@ -55,9 +56,31 @@ import {
 } from "./numeric-fd-redirects.js";
 import type { InterpreterContext } from "./types.js";
 
+const OPEN_ERROR_REASONS = new Map([
+  ["ENOENT", "No such file or directory"],
+  ["ENOTDIR", "Not a directory"],
+]);
+
+/**
+ * The bash diagnostic for an output open that failed with `error`, shared by
+ * the target stat and the open so both map an errno the same way. Null when
+ * the errno is unknown.
+ */
+function outputOpenDiagnostic(target: string, error: unknown): string | null {
+  const reason = OPEN_ERROR_REASONS.get(getErrorCode(error) ?? "");
+  return reason ? `bash: ${target}: ${reason}\n` : null;
+}
+
+const unknownOpenError = (target: string): string =>
+  `bash: ${target}: cannot open redirect target\n`;
+
 /**
  * Check if a redirect target is valid for output (not a directory, respects noclobber).
  * Returns an error message string if invalid, null if valid.
+ *
+ * One stat answers both questions. ENOENT and ENOTDIR mean the target is
+ * missing, which the open then reports; any other stat error refuses the
+ * redirect rather than skipping the noclobber check.
  */
 async function checkOutputRedirectTarget(
   ctx: InterpreterContext,
@@ -65,24 +88,37 @@ async function checkOutputRedirectTarget(
   target: string,
   options: { checkNoclobber?: boolean; isClobber?: boolean },
 ): Promise<string | null> {
+  let stat: FsStat;
   try {
-    if (!(await ctx.fs.exists(filePath))) return null;
-    const stat = await ctx.fs.stat(filePath);
-    if (stat.isDirectory) {
-      return `bash: ${target}: Is a directory\n`;
-    }
-    if (
-      options.checkNoclobber &&
-      ctx.state.options.noclobber &&
-      !options.isClobber &&
-      target !== "/dev/null"
-    ) {
-      return `bash: ${target}: cannot overwrite existing file\n`;
-    }
-  } catch {
-    return `bash: ${target}: cannot open redirect target\n`;
+    stat = await ctx.fs.stat(filePath);
+  } catch (error) {
+    const code = getErrorCode(error);
+    if (code === "ENOENT" || code === "ENOTDIR") return null;
+    return outputOpenDiagnostic(target, error) ?? unknownOpenError(target);
+  }
+  if (stat.isDirectory) {
+    return `bash: ${target}: Is a directory\n`;
+  }
+  if (
+    options.checkNoclobber &&
+    ctx.state.options.noclobber &&
+    !options.isClobber &&
+    target !== "/dev/null"
+  ) {
+    return `bash: ${target}: cannot overwrite existing file\n`;
   }
   return null;
+}
+
+async function writeOutputTarget(
+  ctx: InterpreterContext,
+  path: string,
+  append: boolean,
+  content: string,
+  encoding: "binary" | "utf8",
+): Promise<void> {
+  if (append) await ctx.fs.appendFile(path, content, encoding);
+  else await ctx.fs.writeFile(path, content, encoding);
 }
 
 const DEV_NULL = "/dev/null";
@@ -203,11 +239,6 @@ const getDupSource = (
     : null;
 };
 
-const PATH_ERROR_REASONS = new Map([
-  ["ENOENT", "No such file or directory"],
-  ["ENOTDIR", "Not a directory"],
-]);
-
 async function openOutputEntry(
   ctx: InterpreterContext,
   target: string,
@@ -236,21 +267,12 @@ async function openOutputEntry(
     return { entry: { kind: "dup-out", sourceFd: 2 } };
   }
   try {
-    if (append) await ctx.fs.appendFile(filePath, "", "binary");
-    else await ctx.fs.writeFile(filePath, "", "binary");
+    await writeOutputTarget(ctx, filePath, append, "", "binary");
   } catch (error) {
-    const code = getErrorCode(error);
-    const reason = code && PATH_ERROR_REASONS.get(code);
-    if (reason)
-      return { error: makeResult("", `bash: ${target}: ${reason}\n`, 1) };
+    const diagnostic = outputOpenDiagnostic(target, error);
+    if (diagnostic) return { error: makeResult("", diagnostic, 1) };
     if (!handleWriteError) throw error;
-    return {
-      error: makeResult(
-        "",
-        `bash: ${target}: cannot open redirect target\n`,
-        1,
-      ),
-    };
+    return { error: makeResult("", unknownOpenError(target), 1) };
   }
   return { entry: { kind: "output", path: filePath, append } };
 }
@@ -1339,17 +1361,11 @@ export async function applyRedirections(
       exitCode = 1;
     }
     if (fd2Sink.kind === "invalid-output") pendingStderr = "";
-    const deliverToFile = async (
+    const deliverToFile = (
       sink: { path: string; append: boolean },
       content: string,
       encoding: "binary" | "utf8",
-    ) => {
-      if (sink.append) {
-        await ctx.fs.appendFile(sink.path, content, encoding);
-      } else {
-        await ctx.fs.writeFile(sink.path, content, encoding);
-      }
-    };
+    ) => writeOutputTarget(ctx, sink.path, sink.append, content, encoding);
     if (
       fd1Sink === fd2Sink &&
       (fd1Sink.kind === "file" || fd1Sink.kind === "descriptor")
