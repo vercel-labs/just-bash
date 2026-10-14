@@ -19,6 +19,14 @@ export const DEFAULT_FILE_MODE = 0o644;
 export const SYMLINK_MODE = 0o777;
 
 /**
+ * Like Linux for an unprivileged writer, a write that changes a file's content
+ * clears set-user-ID, and clears set-group-ID when the group can execute.
+ */
+export function clearSetIdOnWrite(mode: number): number {
+  return mode & ~(mode & 0o010 ? 0o6000 : 0o4000);
+}
+
+/**
  * Normalize a virtual path: resolve `.` and `..`, ensure it starts with `/`,
  * strip trailing slashes.  Pure function, no I/O.
  */
