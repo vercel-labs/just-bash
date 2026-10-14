@@ -1,3 +1,4 @@
+import { decodeByteEscapes, readZeroOctalOrHexEscape } from "../../encoding.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -61,44 +62,19 @@ function processEscapes(input: string): { output: string; stop: boolean } {
         case "c":
           // \c stops output and suppresses trailing newline
           return { output: result, stop: true };
-        case "0": {
-          // \0NNN - octal (up to 3 digits after the 0)
-          let octal = "";
-          let j = i + 2;
-          while (j < input.length && j < i + 5 && /[0-7]/.test(input[j])) {
-            octal += input[j];
-            j++;
-          }
-          if (octal.length === 0) {
-            // \0 alone is NUL
-            result += "\0";
-          } else {
-            const code = parseInt(octal, 8) % 256;
-            result += String.fromCharCode(code);
-          }
-          i = j;
-          break;
-        }
+        case "0":
         case "x": {
-          // \xHH - hex (1-2 hex digits)
-          let hex = "";
-          let j = i + 2;
-          while (
-            j < input.length &&
-            j < i + 4 &&
-            /[0-9a-fA-F]/.test(input[j])
-          ) {
-            hex += input[j];
-            j++;
-          }
-          if (hex.length === 0) {
+          // \0NNN - octal (up to 3 digits after the 0; \0 alone is NUL) and
+          // \xHH - hex (1-2 hex digits). A run of these is decoded as UTF-8
+          // together, with invalid bytes as Latin-1 characters.
+          const run = decodeByteEscapes(input, i, readZeroOctalOrHexEscape);
+          if (run.next > i) {
+            result += run.text;
+            i = run.next;
+          } else {
             // \x with no valid hex digits - output literally
             result += "\\x";
             i += 2;
-          } else {
-            const code = parseInt(hex, 16);
-            result += String.fromCharCode(code);
-            i = j;
           }
           break;
         }
