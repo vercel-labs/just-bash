@@ -87,6 +87,31 @@ async function checkOutputRedirectTarget(
 
 const DEV_NULL = "/dev/null";
 
+type OutputTarget =
+  | { kind: "stream"; fd: 1 | 2 }
+  | { kind: "null" }
+  | { kind: "full" }
+  | { kind: "file"; path: string };
+
+function classifyOutputTarget(
+  ctx: InterpreterContext,
+  target: string,
+): OutputTarget {
+  const path = ctx.fs.resolvePath(ctx.state.cwd, target);
+  switch (path) {
+    case DEV_NULL:
+      return { kind: "null" };
+    case "/dev/full":
+      return { kind: "full" };
+    case "/dev/stdout":
+      return { kind: "stream", fd: 1 };
+    case "/dev/stderr":
+      return { kind: "stream", fd: 2 };
+    default:
+      return { kind: "file", path };
+  }
+}
+
 /**
  * Determine the encoding to use for file I/O.
  * If all character codes are <= 127 (ASCII), use binary encoding (byte data).
@@ -215,26 +240,24 @@ async function openOutputEntry(
   isClobber: boolean,
   handleWriteError = true,
 ): Promise<{ entry?: FdEntry; error?: ExecResult }> {
-  const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-  if (filePath === DEV_NULL) {
+  const dest = classifyOutputTarget(ctx, target);
+  if (dest.kind === "null") {
     return { entry: { kind: "output", path: DEV_NULL, append } };
   }
+  if (dest.kind === "stream") {
+    return { entry: { kind: "dup-out", sourceFd: dest.fd } };
+  }
+  if (dest.kind === "full") {
+    return {
+      error: makeResult("", `bash: ${target}: No space left on device\n`, 1),
+    };
+  }
+  const filePath = dest.path;
   const error = await checkOutputRedirectTarget(ctx, filePath, target, {
     checkNoclobber: !append,
     isClobber,
   });
   if (error) return { error: makeResult("", error, 1) };
-  if (target === "/dev/full") {
-    return {
-      error: makeResult("", "bash: /dev/full: No space left on device\n", 1),
-    };
-  }
-  if (target === "/dev/stdout") {
-    return { entry: { kind: "dup-out", sourceFd: 1 } };
-  }
-  if (target === "/dev/stderr") {
-    return { entry: { kind: "dup-out", sourceFd: 2 } };
-  }
   try {
     if (append) await ctx.fs.appendFile(filePath, "", "binary");
     else await ctx.fs.writeFile(filePath, "", "binary");
@@ -1232,30 +1255,17 @@ export async function applyRedirections(
     switch (redir.operator) {
       case ">":
       case ">|":
-      case ">>": {
-        const fd = redir.fd ?? 1;
+      case ">>":
+      case "&>":
+      case "&>>": {
+        const both = redir.operator === "&>" || redir.operator === "&>>";
+        const fd = both ? 1 : (redir.fd ?? 1);
         if (fd !== 1 && fd !== 2) {
           break;
         }
-        const isAppend = redir.operator === ">>";
-        // Opening /dev/stdout or /dev/stderr duplicates the CURRENT target
-        // of fd 1 / fd 2, like `N>&1` / `N>&2`: `> /dev/stderr` re-points
-        // fd 1 to wherever fd 2 points right now, and the self-referential
-        // forms (`> /dev/stdout`, `2> /dev/stderr`) are no-ops — after
-        // `> a > /dev/stdout` content still goes to `a`.
-        if (target === "/dev/stdout") {
-          if (fd === 2) {
-            fd2Sink = fd1Sink;
-          }
-          break;
-        }
-        if (target === "/dev/stderr") {
-          if (fd === 1) {
-            fd1Sink = fd2Sink;
-          }
-          break;
-        }
-        if (target === "/dev/full") {
+        const isAppend = redir.operator === ">>" || redir.operator === "&>>";
+        const dest = classifyOutputTarget(ctx, target);
+        if (dest.kind === "full") {
           // /dev/full always returns ENOSPC when written to. The diagnostic
           // stays on live stderr and the fd's sink is left unchanged.
           stderr += `bash: echo: write error: No space left on device\n`;
@@ -1265,15 +1275,26 @@ export async function applyRedirections(
           }
           break;
         }
-        const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-        const sink: RedirectSink =
-          filePath === DEV_NULL
-            ? { kind: "discard" }
-            : { kind: "file", path: filePath, append: isAppend };
+        // Opening /dev/stdout or /dev/stderr duplicates the CURRENT target
+        // of fd 1 / fd 2, like `N>&1` / `N>&2`: `> /dev/stderr` re-points
+        // fd 1 to wherever fd 2 points right now, and the self-referential
+        // forms (`> /dev/stdout`, `2> /dev/stderr`) are no-ops — after
+        // `> a > /dev/stdout` content still goes to `a`.
+        let sink: RedirectSink;
+        if (dest.kind === "stream") {
+          sink = dest.fd === 1 ? fd1Sink : fd2Sink;
+        } else if (dest.kind === "null") {
+          sink = { kind: "discard" };
+        } else {
+          sink = { kind: "file", path: dest.path, append: isAppend };
+        }
         if (fd === 1) {
           fd1Sink = sink;
         } else {
           fd2Sink = sink;
+        }
+        if (both) {
+          fd2Sink = fd1Sink;
         }
         break;
       }
@@ -1297,21 +1318,6 @@ export async function applyRedirections(
         } else if (fd === 2) {
           fd2Sink = sourceSink;
         }
-        break;
-      }
-
-      case "&>":
-      case "&>>": {
-        const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
-        fd1Sink =
-          filePath === DEV_NULL
-            ? { kind: "discard" }
-            : {
-                kind: "file",
-                path: filePath,
-                append: redir.operator === "&>>",
-              };
-        fd2Sink = fd1Sink;
         break;
       }
     }

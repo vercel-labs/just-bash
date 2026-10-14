@@ -1,0 +1,58 @@
+{
+  "00628ca1c54a9847": {
+    "command": "{ { echo out; echo err >&2; } &> /dev/stderr; } 2> e; echo rc=$?; cat e",
+    "files": {},
+    "stdout": "rc=0\nout\nerr\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2b55474b83fc7279": {
+    "command": "{ echo out; echo err >&2; } 2>/dev/null &> /dev/stderr; echo after",
+    "files": {},
+    "stdout": "after\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "34aa53715aca9e94": {
+    "command": "{ echo out; echo err >&2; } > f &> /dev/stdout; echo rc=$?; cat f",
+    "files": {},
+    "stdout": "rc=0\nout\nerr\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "44fe0ace5f51cdbd": {
+    "command": "cat /nope &>> /dev/stdout | tr a-z A-Z",
+    "files": {},
+    "stdout": "CAT: /NOPE: NO SUCH FILE OR DIRECTORY\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "767aa902fa7d3f0a": {
+    "command": "{ echo x > /dev/./stderr; } 2> e; cat e",
+    "files": {},
+    "stdout": "x\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "808f4f75fbc4cafd": {
+    "command": "{ echo out; echo err >&2; } &> /dev/stdout | tr a-z A-Z",
+    "files": {},
+    "stdout": "OUT\nERR\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a8781727be341c58": {
+    "command": "{ echo g &>> /dev/stderr; } 2> e; cat e",
+    "files": {},
+    "stdout": "g\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b243a7de8403d83a": {
+    "command": "{ echo out; echo err >&2; } &> reg; cat reg",
+    "files": {},
+    "stdout": "out\nerr\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
