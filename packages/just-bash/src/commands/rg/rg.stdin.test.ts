@@ -28,7 +28,12 @@ describe("rg searches stdin when no paths are given", () => {
     });
   });
 
-  for (const wrapper of ["command", "exec"]) {
+  for (const wrapper of [
+    "command",
+    "exec",
+    "builtin command",
+    "builtin exec",
+  ]) {
     it(`searches empty piped stdin through \`${wrapper}\``, async () => {
       const env = new Bash({ files: { "/decoy.txt": "target line\n" } });
       const result = await env.exec(`printf "" | ${wrapper} rg "target"`);

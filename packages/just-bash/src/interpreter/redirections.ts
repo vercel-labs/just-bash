@@ -929,15 +929,7 @@ async function prepareRedirectionsWithState(
         persistStandard(effectiveFd, source.entry, sink);
       }
       if (redir.operator === "<&" && effectiveFd === 0) {
-<<<<<<< HEAD
         if (
-=======
-        if (source.kind === "standard") {
-          stdin = source.fd === 0 ? inheritedStdin : "";
-          stdinSourceFd = -1;
-          stdinReplaced = source.fd !== 0;
-        } else if (
->>>>>>> b5834f1b (fix(rg): keep fd-0 ownership and forward empty stdin through wrappers)
           source.entry.kind === "input" ||
           source.entry.kind === "readwrite"
         ) {

@@ -602,7 +602,13 @@ export async function dispatchBuiltin(
     );
   }
   if (commandName === "builtin") {
-    return handleBuiltinBuiltin(dispatchCtx, args, stdin, stdinRedirected);
+    return handleBuiltinBuiltin(
+      dispatchCtx,
+      args,
+      stdin,
+      stdinRedirected,
+      stdinProvided,
+    );
   }
   if (commandName === "shopt") {
     return handleShopt(ctx, args);
@@ -739,6 +745,7 @@ async function handleBuiltinBuiltin(
   stdin: string,
   /** Forwarded to the wrapped builtin: it runs on this command's fd 0. */
   stdinRedirected = false,
+  stdinProvided = false,
 ): Promise<ExecResult> {
   const { runCommand } = dispatchCtx;
 
@@ -762,7 +769,17 @@ async function handleBuiltinBuiltin(
   }
   const [, ...rest] = cmdArgs;
   // Run as builtin (recursive call, skip function lookup)
-  return runCommand(cmd, rest, [], stdin, true, false, -1, stdinRedirected);
+  return runCommand(
+    cmd,
+    rest,
+    [],
+    stdin,
+    true,
+    false,
+    -1,
+    stdinRedirected,
+    stdinProvided,
+  );
 }
 
 /**
