@@ -73,7 +73,8 @@ export function setVariable(
       if (newNF < ctx.NF) {
         ctx.fields = ctx.fields.slice(0, newNF);
         rebuildLine(ctx);
-      } else if (newNF > ctx.NF) {
+      } else if (!(newNF <= ctx.NF)) {
+        // Also taken when either side is NaN, so NaN is rejected
         ensureFieldCount(ctx, newNF);
         rebuildLine(ctx);
       }
