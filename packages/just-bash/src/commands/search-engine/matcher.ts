@@ -406,7 +406,6 @@ export function searchContent(
   // Slow path: context lines needed
   const outputLines: string[] = [];
   let matchCount = 0;
-  const printedLines = new Set<number>();
   let lastPrintedLine = -1;
 
   // First pass: find all matching lines (respecting maxCount)
@@ -448,26 +447,24 @@ export function searchContent(
       pushOutput(outputLines, contextSeparator);
     }
 
-    // Before context
-    for (let i = contextStart; i < lineNum; i++) {
+    // Print each line once and classify it independently of the context range.
+    // A later match can overlap earlier context, or lie in trailing context
+    // after maxCount. It still gets a match prefix, but does not extend that
+    // final context window past the limit.
+    // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/searcher/src/searcher/core.rs#L334-L373
+    const contextEnd = Math.min(lastIdx - 1, lineNum + afterContext);
+    for (
+      let i = Math.max(contextStart, lastPrintedLine + 1);
+      i <= contextEnd;
+      i++
+    ) {
       chargeWork();
-      if (!printedLines.has(i)) {
-        printedLines.add(i);
-        lastPrintedLine = i;
-        let outputLine = lines[i];
-        if (showLineNumbers) outputLine = `${i + 1}-${outputLine}`;
-        if (filename) outputLine = `${filename}-${outputLine}`;
-        pushOutput(outputLines, outputLine);
-      }
-    }
+      lastPrintedLine = i;
+      const line = lines[i];
+      regex.lastIndex = 0;
+      const isMatch = regex.test(line) !== invertMatch;
 
-    // The matching line
-    if (!printedLines.has(lineNum)) {
-      printedLines.add(lineNum);
-      lastPrintedLine = lineNum;
-      const line = lines[lineNum];
-
-      if (onlyMatching) {
+      if (isMatch && onlyMatching) {
         regex.lastIndex = 0;
         for (
           let match = regex.exec(line);
@@ -480,29 +477,16 @@ export function searchContent(
             kResetGroup !== undefined ? (match[kResetGroup] ?? "") : match[0];
           const matchText = replace !== null ? replace : rawMatch;
           let prefix = filename ? `${filename}:` : "";
-          if (showLineNumbers) prefix += `${lineNum + 1}:`;
+          if (showLineNumbers) prefix += `${i + 1}:`;
           if (showColumn) prefix += `${match.index + 1}:`;
           pushOutput(outputLines, prefix + matchText);
           if (match[0].length === 0) regex.lastIndex++;
         }
       } else {
         let outputLine = line;
-        if (showLineNumbers) outputLine = `${lineNum + 1}:${outputLine}`;
-        if (filename) outputLine = `${filename}:${outputLine}`;
-        pushOutput(outputLines, outputLine);
-      }
-    }
-
-    // After context
-    const maxAfter = Math.min(lastIdx - 1, lineNum + afterContext);
-    for (let i = lineNum + 1; i <= maxAfter; i++) {
-      chargeWork();
-      if (!printedLines.has(i)) {
-        printedLines.add(i);
-        lastPrintedLine = i;
-        let outputLine = lines[i];
-        if (showLineNumbers) outputLine = `${i + 1}-${outputLine}`;
-        if (filename) outputLine = `${filename}-${outputLine}`;
+        const separator = isMatch ? ":" : "-";
+        if (showLineNumbers) outputLine = `${i + 1}${separator}${outputLine}`;
+        if (filename) outputLine = `${filename}${separator}${outputLine}`;
         pushOutput(outputLines, outputLine);
       }
     }

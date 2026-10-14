@@ -3,7 +3,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
-import { unknownOption } from "../help.js";
+import { unknownOption as commandUnknownOption } from "../help.js";
 import { createDefaultOptions, type RgOptions } from "./rg-options.js";
 
 export interface ParseResult {
@@ -19,6 +19,11 @@ export interface ParseError {
 }
 
 export type ParseArgsResult = ParseResult | ParseError;
+
+function unknownOption(option: string): ExecResult {
+  // https://github.com/BurntSushi/ripgrep/blob/15.2.0/tests/regression.rs#L800-L803
+  return { ...commandUnknownOption("rg", option), exitCode: 2 };
+}
 
 /**
  * Parse a filesize string (e.g., "10K", "5M", "1G")
@@ -50,7 +55,7 @@ function validateFilesize(value: string): ExecResult | null {
     return {
       stdout: "",
       stderr: `rg: invalid --max-filesize value: ${value}\n`,
-      exitCode: 1,
+      exitCode: 2,
     };
   }
   return null;
@@ -63,21 +68,10 @@ function validateNonnegativeInteger(
   if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) {
     return {
       stdout: "",
-      stderr: `rg: invalid --${option} value: ${value}\n`,
-      exitCode: 1,
+      stderr: `rg: invalid ${option.startsWith("-") ? option : `--${option}`} value: ${value}\n`,
+      exitCode: 2,
     };
   }
-  return null;
-}
-
-/**
- * Validate a file type name
- * Note: We don't strictly validate type names because --type-add can define custom types.
- * If a type doesn't exist (and isn't defined via --type-add), the search will simply
- * return no matches.
- */
-function validateType(_typeName: string): ExecResult | null {
-  // Allow all type names - if they don't exist, the search returns no results
   return null;
 }
 
@@ -108,18 +102,36 @@ const VALUE_OPTS: ValueOptDef[] = [
     long: "type",
     target: "types",
     multi: true,
-    validate: validateType,
   },
   {
     short: "T",
     long: "type-not",
     target: "typesNot",
     multi: true,
-    validate: validateType,
   },
   { long: "type-add", target: "typeAdd", multi: true },
   { long: "type-clear", target: "typeClear", multi: true },
-  { short: "m", long: "max-count", target: "maxCount", parse: parseInt },
+  {
+    short: "m",
+    long: "max-count",
+    target: "maxCount",
+    parse: Number,
+    validate: (value) => validateNonnegativeInteger("max-count", value),
+  },
+  // This non-TTY implementation accepts color choices but emits plain text.
+  // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/core/flags/defs.rs#L760-L772
+  {
+    long: "color",
+    ignored: true,
+    validate: (value) =>
+      ["never", "auto", "always", "ansi"].includes(value)
+        ? null
+        : {
+            stdout: "",
+            stderr: `rg: invalid --color value: ${value}\n`,
+            exitCode: 2,
+          },
+  },
   { short: "e", long: "regexp", target: "patterns", multi: true },
   { short: "f", long: "file", target: "patternFiles", multi: true },
   { short: "r", long: "replace", target: "replace" },
@@ -153,6 +165,18 @@ const VALUE_OPTS: ValueOptDef[] = [
 type BoolFlagHandler = (options: RgOptions) => void;
 
 const BOOL_FLAGS = new Map<string, BoolFlagHandler>([
+  [
+    "--help",
+    (o) => {
+      o.help = true;
+    },
+  ],
+  [
+    "--type-list",
+    (o) => {
+      o.typeList = true;
+    },
+  ],
   // Case sensitivity
   [
     "i",
@@ -649,15 +673,15 @@ function parseSort(
 function parseContextFlag(
   args: string[],
   i: number,
-): { flag: "A" | "B" | "C"; value: number; newIndex: number } | null {
+): { flag: "A" | "B" | "C"; value: string; newIndex: number } | null {
   const arg = args[i];
 
   // -A2, -B3, -C1 form
-  const attached = arg.match(/^-([ABC])(\d+)$/);
+  const attached = arg.match(/^-([ABC])(.+)$/);
   if (attached) {
     return {
       flag: attached[1] as "A" | "B" | "C",
-      value: parseInt(attached[2], 10),
+      value: attached[2],
       newIndex: i,
     };
   }
@@ -666,20 +690,12 @@ function parseContextFlag(
   if ((arg === "-A" || arg === "-B" || arg === "-C") && i + 1 < args.length) {
     return {
       flag: arg[1] as "A" | "B" | "C",
-      value: parseInt(args[i + 1], 10),
+      value: args[i + 1],
       newIndex: i + 1,
     };
   }
 
   return null;
-}
-
-/**
- * Parse max-count with attached number (-m2)
- */
-function parseMaxCountAttached(arg: string): number | null {
-  const match = arg.match(/^-m(\d+)$/);
-  return match ? parseInt(match[1], 10) : null;
 }
 
 /**
@@ -695,26 +711,28 @@ export function parseArgs(args: string[]): ParseArgsResult {
   let explicitB = -1;
   let explicitC = -1;
   let explicitLineNumbers = false;
+  let endOfOptions = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
 
-    if (arg.startsWith("-") && arg !== "-") {
+    if (!endOfOptions && arg === "--") {
+      endOfOptions = true;
+      continue;
+    }
+
+    if (!endOfOptions && arg.startsWith("-") && arg !== "-") {
       // Try context flags first (-A, -B, -C)
       const contextResult = parseContextFlag(args, i);
       if (contextResult) {
-        const { flag, value, newIndex } = contextResult;
+        const { flag, value: rawValue, newIndex } = contextResult;
+        const error = validateNonnegativeInteger(`-${flag}`, rawValue);
+        if (error) return { success: false, error };
+        const value = Number(rawValue);
         if (flag === "A") explicitA = Math.max(explicitA, value);
         else if (flag === "B") explicitB = Math.max(explicitB, value);
         else explicitC = value; // -C overwrites, doesn't max
         i = newIndex;
-        continue;
-      }
-
-      // Try max-count with attached number (-m2)
-      const maxCountNum = parseMaxCountAttached(arg);
-      if (maxCountNum !== null) {
-        options.maxCount = maxCountNum;
         continue;
       }
 
@@ -762,7 +780,7 @@ export function parseArgs(args: string[]): ParseArgsResult {
               stdout: "",
               stderr:
                 "rg: PCRE2 is not supported. Use standard regex syntax instead.\n",
-              exitCode: 1,
+              exitCode: 2,
             },
           };
         }
@@ -773,7 +791,7 @@ export function parseArgs(args: string[]): ParseArgsResult {
           if (valueDef) {
             // Value option in combined flags - consume next argument
             if (i + 1 >= args.length) {
-              return { success: false, error: unknownOption("rg", `-${flag}`) };
+              return { success: false, error: unknownOption(`-${flag}`) };
             }
             const error = applyValueOpt(options, valueDef, args[i + 1]);
             if (error) {
@@ -794,10 +812,10 @@ export function parseArgs(args: string[]): ParseArgsResult {
 
         // Unknown flag
         if (flag.startsWith("--")) {
-          return { success: false, error: unknownOption("rg", flag) };
+          return { success: false, error: unknownOption(flag) };
         }
         if (flag.length === 1) {
-          return { success: false, error: unknownOption("rg", `-${flag}`) };
+          return { success: false, error: unknownOption(`-${flag}`) };
         }
       }
       // If we consumed the next arg (for a value option in combined flags),

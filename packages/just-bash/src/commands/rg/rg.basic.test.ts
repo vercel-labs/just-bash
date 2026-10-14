@@ -242,14 +242,12 @@ describe("rg error handling", () => {
   it("should error on unknown option", async () => {
     const bash = new Bash();
     const result = await bash.exec("rg --unknown-option pattern");
-    expect(result.exitCode).toBe(1);
+    expect(result.exitCode).toBe(2);
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("rg: unrecognized option '--unknown-option'\n");
   });
 
-  it("should return no matches for unknown type", async () => {
-    // Unknown types don't produce an error - they just match no files
-    // This allows --type-add to define custom types
+  it("should error for an unknown type after resolving custom types", async () => {
     const bash = new Bash({
       cwd: "/home/user",
       files: {
@@ -257,8 +255,8 @@ describe("rg error handling", () => {
       },
     });
     const result = await bash.exec("rg -t unknowntype hello");
-    expect(result.exitCode).toBe(1); // No matches
+    expect(result.exitCode).toBe(2);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe("");
+    expect(result.stderr).toBe("rg: unrecognized file type: unknowntype\n");
   });
 });

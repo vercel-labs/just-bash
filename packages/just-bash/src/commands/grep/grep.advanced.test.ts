@@ -158,11 +158,12 @@ describe("grep advanced", () => {
     it("should handle overlapping context ranges", async () => {
       const env = new Bash({
         files: {
-          "/test.txt": "a\nmatch1\nb\nmatch2\nc\n",
+          "/test.txt": "a\nmatch1\nmatch2\nc\n",
         },
       });
-      const result = await env.exec("grep -C1 match /test.txt");
-      expect(result.stdout).toBe("a\nmatch1\nb\nmatch2\nc\n");
+      const result = await env.exec("grep -n -C1 match /test.txt");
+      expect(result.stdout).toBe("1-a\n2:match1\n3:match2\n4-c\n");
+      expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
     });
   });

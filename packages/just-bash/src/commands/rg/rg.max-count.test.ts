@@ -318,7 +318,7 @@ describe("rg -m with context lines", () => {
 });
 
 describe("rg -m edge cases", () => {
-  it("should handle -m0 as unlimited", async () => {
+  it("should return no matches for an explicit -m0", async () => {
     const bash = new Bash({
       cwd: "/home/user",
       files: {
@@ -326,8 +326,9 @@ describe("rg -m edge cases", () => {
       },
     });
     const result = await bash.exec("rg -m0 a");
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:a\nfile.txt:2:a\nfile.txt:3:a\n");
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("");
   });
 
   it("should handle large -m value", async () => {

@@ -1,0 +1,1067 @@
+{
+  "02288c471a3f48d5": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --glob '*.ts' -C 1 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n1-before\n2:Permission Permission\n3-permission\n4:Permission\n5-after\n--\n7-gap\n8:Permission\n9-after\n\n./b.ts\n1:Permission\n2-after\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "057f4de270a2ebe4": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --glob '*.ts' --max-count 2 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "0af4ddf06dbc6029": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --max-count 2 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n./c.py\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "0f22fa3202d9983e": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --glob '!b.ts' -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission\nafter\ngap\ngap\nbefore\nPermission\nafter\n",
+      "b.ts": "before\nPermission\nPermission\nafter\n",
+      "c.py": "Permission\n",
+      "ignored.ts": "Permission\n",
+      ".ignore": "ignored.ts\n",
+      "-file.ts": "-Permission\n--help\n--type-list\n",
+      ".hidden.ts": "Permission\n",
+      "nested/a.ts": "Permission\n"
+    },
+    "stdout": "./-file.ts\n1:-Permission\n\n./a.ts\n2:Permission\n7:Permission\n\n./c.py\n1:Permission\n\n./nested/a.ts\n1:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "14189527b2c590f6": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -- -Permission -file.ts",
+    "files": {
+      "a.ts": "before\nPermission\nafter\ngap\ngap\nbefore\nPermission\nafter\n",
+      "b.ts": "before\nPermission\nPermission\nafter\n",
+      "c.py": "Permission\n",
+      "ignored.ts": "Permission\n",
+      ".ignore": "ignored.ts\n",
+      "-file.ts": "-Permission\n--help\n--type-list\n",
+      ".hidden.ts": "Permission\n",
+      "nested/a.ts": "Permission\n"
+    },
+    "stdout": "1:-Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "169f974bf602dff2": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -C 1 -- Permission a.ts",
+    "files": {
+      "a.ts": "before\nPermission\nafter\ngap\ngap\nbefore\nPermission\nafter\n",
+      "b.ts": "before\nPermission\nPermission\nafter\n",
+      "c.py": "Permission\n",
+      "ignored.ts": "Permission\n",
+      ".ignore": "ignored.ts\n",
+      "-file.ts": "-Permission\n--help\n--type-list\n",
+      ".hidden.ts": "Permission\n",
+      "nested/a.ts": "Permission\n"
+    },
+    "stdout": "1-before\n2:Permission\n3-after\n--\n6-before\n7:Permission\n8-after\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1874b158e3b4d37b": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -- Permission a.ts",
+    "files": {
+      "a.ts": "before\nPermission\nafter\ngap\ngap\nbefore\nPermission\nafter\n",
+      "b.ts": "before\nPermission\nPermission\nafter\n",
+      "c.py": "Permission\n",
+      "ignored.ts": "Permission\n",
+      ".ignore": "ignored.ts\n",
+      "-file.ts": "-Permission\n--help\n--type-list\n",
+      ".hidden.ts": "Permission\n",
+      "nested/a.ts": "Permission\n"
+    },
+    "stdout": "2:Permission\n7:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1bbaf8e5bbad3e22": {
+    "command": "RIPGREP_CONFIG_PATH= rg --line-number --heading --color never -- permission .",
+    "files": {
+      "a.ts": "permission\n"
+    },
+    "stdout": "./a.ts\n1:permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1d209b78b9091309": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --max-count 2 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n./c.py\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "21d00f7c8df0a9e8": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -C 1 --max-count 2 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n./c.py\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "252c94ab21a944f7": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n./c.py\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2b9fd9b3e1858fbb": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --glob '*.ts' -C 1 --max-count 2 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n1-before\n2:Permission Permission\n3-permission\n4:Permission\n5-after\n\n./b.ts\n1:Permission\n2-after\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2f11f72ebc0def48": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts -C 1 --max-count 2 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "32b8174bd7f87d93": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --glob '*.ts' --max-count 2 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3318276eb3aabb9a": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --glob '*.ts' -C 1 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "34d9f2531933c512": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --glob 'nested/*.ts' -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission\nafter\ngap\ngap\nbefore\nPermission\nafter\n",
+      "b.ts": "before\nPermission\nPermission\nafter\n",
+      "c.py": "Permission\n",
+      "ignored.ts": "Permission\n",
+      ".ignore": "ignored.ts\n",
+      "-file.ts": "-Permission\n--help\n--type-list\n",
+      ".hidden.ts": "Permission\n",
+      "nested/a.ts": "Permission\n"
+    },
+    "stdout": "./nested/a.ts\n1:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "403e0fed7660a603": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --glob '*.ts' --max-count 2 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "41f7aa882b4f8fe8": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --max-count 2 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n2:Permission Permission\n4:Permission\n\n./b.ts\n1:Permission\n\n./c.py\n2:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "53cc1dc6b600c485": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --glob '*.ts' -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n2:Permission Permission\n3:permission\n4:Permission\n8:Permission\n\n./b.ts\n1:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "54357bc301117ea7": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -C 1 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n1-before\n2:Permission Permission\n3-permission\n4:Permission\n5-after\n--\n7-gap\n8:Permission\n9-after\n\n./b.ts\n1:Permission\n2-after\n\n./c.py\n1-permission\n2:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "55d3f5fcd67a1a75": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --glob '*.ts' --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "561bcf82ecc1fd14": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --glob '*.ts' -C 1 --max-count 2 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n1-before\n2:Permission Permission\n3:permission\n4:Permission\n\n./b.ts\n1:Permission\n2-after\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5821e755381d3f9e": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i -C 1 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n1-before\n2:Permission Permission\n3:permission\n4:Permission\n5-after\n--\n7-gap\n8:Permission\n9-after\n\n./b.ts\n1:Permission\n2-after\n\n./c.py\n1:permission\n2:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "599018d9844dd4aa": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --max-count 2 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5b260e27af208d98": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --max-count 2 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5bf67d9f10770ab0": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --glob '*.ts' --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5c030ac1fc14112a": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts -C 1 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5f5e867f7f7899f8": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --max-count 2 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n2:Permission Permission\n3:permission\n\n./b.ts\n1:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "60427b9549e2eaf6": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --glob '*.ts' -C 1 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6112a21c69c6a399": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --max-count 2 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n2:Permission Permission\n3:permission\n\n./b.ts\n1:Permission\n\n./c.py\n1:permission\n2:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "63f786d337d2fca9": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --type ts --glob '*.py' -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission\nafter\ngap\ngap\nbefore\nPermission\nafter\n",
+      "b.ts": "before\nPermission\nPermission\nafter\n",
+      "c.py": "Permission\n",
+      "ignored.ts": "Permission\n",
+      ".ignore": "ignored.ts\n",
+      "-file.ts": "-Permission\n--help\n--type-list\n",
+      ".hidden.ts": "Permission\n",
+      "nested/a.ts": "Permission\n"
+    },
+    "stdout": "./c.py\n1:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6620fd569696c4d8": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --glob '*.py' -- Permission a.ts",
+    "files": {
+      "a.ts": "before\nPermission\nafter\ngap\ngap\nbefore\nPermission\nafter\n",
+      "b.ts": "before\nPermission\nPermission\nafter\n",
+      "c.py": "Permission\n",
+      "ignored.ts": "Permission\n",
+      ".ignore": "ignored.ts\n",
+      "-file.ts": "-Permission\n--help\n--type-list\n",
+      ".hidden.ts": "Permission\n",
+      "nested/a.ts": "Permission\n"
+    },
+    "stdout": "2:Permission\n7:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6977e91dfd9583eb": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --glob '*.ts' -C 1 --max-count 2 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6dc755a79a90f33c": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -- Permission a.ts missing",
+    "files": {
+      "a.ts": "before\nPermission\nafter\ngap\ngap\nbefore\nPermission\nafter\n",
+      "b.ts": "before\nPermission\nPermission\nafter\n",
+      "c.py": "Permission\n",
+      "ignored.ts": "Permission\n",
+      ".ignore": "ignored.ts\n",
+      "-file.ts": "-Permission\n--help\n--type-list\n",
+      ".hidden.ts": "Permission\n",
+      "nested/a.ts": "Permission\n"
+    },
+    "stdout": "a.ts\n2:Permission\n7:Permission\n",
+    "stderr": "rg: missing: IO error for operation on missing: No such file or directory (os error 2)\n",
+    "exitCode": 2
+  },
+  "70d772912c12a867": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "771406a12b757524": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -- --help -file.ts",
+    "files": {
+      "a.ts": "before\nPermission\nafter\ngap\ngap\nbefore\nPermission\nafter\n",
+      "b.ts": "before\nPermission\nPermission\nafter\n",
+      "c.py": "Permission\n",
+      "ignored.ts": "Permission\n",
+      ".ignore": "ignored.ts\n",
+      "-file.ts": "-Permission\n--help\n--type-list\n",
+      ".hidden.ts": "Permission\n",
+      "nested/a.ts": "Permission\n"
+    },
+    "stdout": "2:--help\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7746fdff1137a6e1": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --glob '*.ts' -C 1 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n1-before\n2:Permission Permission\n3:permission\n4:Permission\n5-after\n--\n7-gap\n8:Permission\n9-after\n\n./b.ts\n1:Permission\n2-after\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "77a6e3ce693d437a": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --glob '*.ts' -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission\nafter\ngap\ngap\nbefore\nPermission\nafter\n",
+      "b.ts": "before\nPermission\nPermission\nafter\n",
+      "c.py": "Permission\n",
+      "ignored.ts": "Permission\n",
+      ".ignore": "ignored.ts\n",
+      "-file.ts": "-Permission\n--help\n--type-list\n",
+      ".hidden.ts": "Permission\n",
+      "nested/a.ts": "Permission\n"
+    },
+    "stdout": "./-file.ts\n1:-Permission\n\n./.hidden.ts\n1:Permission\n\n./a.ts\n2:Permission\n7:Permission\n\n./b.ts\n2:Permission\n3:Permission\n\n./ignored.ts\n1:Permission\n\n./nested/a.ts\n1:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "77b1cc74bdfb3143": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7b937b99582753c3": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --glob '*.ts' --max-count 2 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7c38485bb8119752": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts -C 1 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7db44dd6729f992e": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n./c.py\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7f72590ce40c9b31": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --glob a.ts -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission\nafter\ngap\ngap\nbefore\nPermission\nafter\n",
+      "b.ts": "before\nPermission\nPermission\nafter\n",
+      "c.py": "Permission\n",
+      "ignored.ts": "Permission\n",
+      ".ignore": "ignored.ts\n",
+      "-file.ts": "-Permission\n--help\n--type-list\n",
+      ".hidden.ts": "Permission\n",
+      "nested/a.ts": "Permission\n"
+    },
+    "stdout": "./a.ts\n2:Permission\n7:Permission\n\n./nested/a.ts\n1:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7ffecbac2b993626": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --glob '*.ts' -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n2:Permission Permission\n4:Permission\n8:Permission\n\n./b.ts\n1:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "86fefecfa20826fe": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --glob '*.ts' -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n2:Permission Permission\n3:permission\n4:Permission\n8:Permission\n\n./b.ts\n1:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "953944c547055d49": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -C 1 --max-count 1 -- Permission b.ts",
+    "files": {
+      "a.ts": "before\nPermission\nafter\ngap\ngap\nbefore\nPermission\nafter\n",
+      "b.ts": "before\nPermission\nPermission\nafter\n",
+      "c.py": "Permission\n",
+      "ignored.ts": "Permission\n",
+      ".ignore": "ignored.ts\n",
+      "-file.ts": "-Permission\n--help\n--type-list\n",
+      ".hidden.ts": "Permission\n",
+      "nested/a.ts": "Permission\n"
+    },
+    "stdout": "1-before\n2:Permission\n3:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "95b9549ef1ad9e73": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --glob '*.ts' -C 1 --max-count 2 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "99be04278b74de04": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --glob '*.ts' -C 1 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n1-before\n2:Permission Permission\n3-permission\n4:Permission\n5-after\n--\n7-gap\n8:Permission\n9-after\n\n./b.ts\n1:Permission\n2-after\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a11c70c4ed273ba5": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -C 1 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n./c.py\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a3fbe45a98a630ce": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i -C 1 --max-count 2 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n1-before\n2:Permission Permission\n3:permission\n4:Permission\n\n./b.ts\n1:Permission\n2-after\n\n./c.py\n1:permission\n2:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "aa512fa849c702fa": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --glob '*.ts' -C 1 --max-count 2 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n1-before\n2:Permission Permission\n3:permission\n4:Permission\n\n./b.ts\n1:Permission\n2-after\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "aa9445a18b8e5bdb": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n2:Permission Permission\n4:Permission\n8:Permission\n\n./b.ts\n1:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ae5d3cffbc10e24f": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --max-count 2 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n2:Permission Permission\n4:Permission\n\n./b.ts\n1:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "af0bd9734f361287": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --glob '*.ts' -C 1 --max-count 2 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n1-before\n2:Permission Permission\n3-permission\n4:Permission\n5-after\n\n./b.ts\n1:Permission\n2-after\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b0770c0900724c7e": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts -C 1 --max-count 2 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b422544e3ac9c722": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --glob '*.ts' -C 1 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n1-before\n2:Permission Permission\n3:permission\n4:Permission\n5-after\n--\n7-gap\n8:Permission\n9-after\n\n./b.ts\n1:Permission\n2-after\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b448496483e15704": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -- --type-list -file.ts",
+    "files": {
+      "a.ts": "before\nPermission\nafter\ngap\ngap\nbefore\nPermission\nafter\n",
+      "b.ts": "before\nPermission\nPermission\nafter\n",
+      "c.py": "Permission\n",
+      "ignored.ts": "Permission\n",
+      ".ignore": "ignored.ts\n",
+      "-file.ts": "-Permission\n--help\n--type-list\n",
+      ".hidden.ts": "Permission\n",
+      "nested/a.ts": "Permission\n"
+    },
+    "stdout": "3:--type-list\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b5decc9556667bd7": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts -C 1 --max-count 2 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n1-before\n2:Permission Permission\n3-permission\n4:Permission\n5-after\n\n./b.ts\n1:Permission\n2-after\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b75a0580c280559c": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --glob '*.ts' --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bad9d402e7c4d435": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n2:Permission Permission\n3:permission\n4:Permission\n8:Permission\n\n./b.ts\n1:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bd0881c960fe7dc8": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts -C 1 --max-count 2 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n1-before\n2:Permission Permission\n3:permission\n4:Permission\n\n./b.ts\n1:Permission\n2-after\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bf8c44d2427c3df4": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -C 1 --max-count 2 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n1-before\n2:Permission Permission\n3-permission\n4:Permission\n5-after\n\n./b.ts\n1:Permission\n2-after\n\n./c.py\n1-permission\n2:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bfb505a86377d854": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --glob '*.ts' -C 1 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c069fd2e4f734f6a": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --glob '*.ts' --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "caf8243ad1a58c44": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i -C 1 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n./c.py\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ccb907d51edc52c2": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n2:Permission Permission\n3:permission\n4:Permission\n8:Permission\n\n./b.ts\n1:Permission\n\n./c.py\n1:permission\n2:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d107ef24308e95f5": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --glob '*.ts' -C 1 --max-count 2 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d18e28a126d93677": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --glob '*.ts' --max-count 2 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n2:Permission Permission\n4:Permission\n\n./b.ts\n1:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d2ccd2ca4073d26c": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts -C 1 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n1-before\n2:Permission Permission\n3:permission\n4:Permission\n5-after\n--\n7-gap\n8:Permission\n9-after\n\n./b.ts\n1:Permission\n2-after\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d4ce879e9846b083": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never  -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n2:Permission Permission\n4:Permission\n8:Permission\n\n./b.ts\n1:Permission\n\n./c.py\n2:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d642d8e7852b08ad": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --type py -- Permission a.ts",
+    "files": {
+      "a.ts": "before\nPermission\nafter\ngap\ngap\nbefore\nPermission\nafter\n",
+      "b.ts": "before\nPermission\nPermission\nafter\n",
+      "c.py": "Permission\n",
+      "ignored.ts": "Permission\n",
+      ".ignore": "ignored.ts\n",
+      "-file.ts": "-Permission\n--help\n--type-list\n",
+      ".hidden.ts": "Permission\n",
+      "nested/a.ts": "Permission\n"
+    },
+    "stdout": "2:Permission\n7:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d76354d05eade326": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --glob '*.ts' -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n2:Permission Permission\n4:Permission\n8:Permission\n\n./b.ts\n1:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d92923471bf0fbb4": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --max-count 0 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission\nafter\ngap\ngap\nbefore\nPermission\nafter\n",
+      "b.ts": "before\nPermission\nPermission\nafter\n",
+      "c.py": "Permission\n",
+      "ignored.ts": "Permission\n",
+      ".ignore": "ignored.ts\n",
+      "-file.ts": "-Permission\n--help\n--type-list\n",
+      ".hidden.ts": "Permission\n",
+      "nested/a.ts": "Permission\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "dcb91c20b73d0d2a": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts --glob '*.ts' --max-count 2 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n2:Permission Permission\n4:Permission\n\n./b.ts\n1:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e0ba63062282ae91": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --type ts -C 1 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n1-before\n2:Permission Permission\n3-permission\n4:Permission\n5-after\n--\n7-gap\n8:Permission\n9-after\n\n./b.ts\n1:Permission\n2-after\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e12c852b30608237": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never --glob '.hidden.ts' -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission\nafter\ngap\ngap\nbefore\nPermission\nafter\n",
+      "b.ts": "before\nPermission\nPermission\nafter\n",
+      "c.py": "Permission\n",
+      "ignored.ts": "Permission\n",
+      ".ignore": "ignored.ts\n",
+      "-file.ts": "-Permission\n--help\n--type-list\n",
+      ".hidden.ts": "Permission\n",
+      "nested/a.ts": "Permission\n"
+    },
+    "stdout": "./.hidden.ts\n1:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e38d0a907cb1f02d": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --glob '*.ts' -C 1 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e50ceacfccd95707": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -C 1 -- Permission b.ts",
+    "files": {
+      "a.ts": "before\nPermission\nafter\ngap\ngap\nbefore\nPermission\nafter\n",
+      "b.ts": "before\nPermission\nPermission\nafter\n",
+      "c.py": "Permission\n",
+      "ignored.ts": "Permission\n",
+      ".ignore": "ignored.ts\n",
+      "-file.ts": "-Permission\n--help\n--type-list\n",
+      ".hidden.ts": "Permission\n",
+      "nested/a.ts": "Permission\n"
+    },
+    "stdout": "1-before\n2:Permission\n3:Permission\n4-after\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ef76e6e1fe95e0d8": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --type ts --glob '*.ts' --max-count 2 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n2:Permission Permission\n3:permission\n\n./b.ts\n1:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f1caa1e8845cc650": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i --glob '*.ts' --max-count 2 -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n2:Permission Permission\n3:permission\n\n./b.ts\n1:Permission\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f340e2afc33b008a": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color=never -- Missing .",
+    "files": {
+      "a.ts": "before\nPermission\nafter\ngap\ngap\nbefore\nPermission\nafter\n",
+      "b.ts": "before\nPermission\nPermission\nafter\n",
+      "c.py": "Permission\n",
+      "ignored.ts": "Permission\n",
+      ".ignore": "ignored.ts\n",
+      "-file.ts": "-Permission\n--help\n--type-list\n",
+      ".hidden.ts": "Permission\n",
+      "nested/a.ts": "Permission\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "f4ded01ff33b12a9": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never --glob '*.ts' -C 1 --max-count 2 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f61d04cf358fcae8": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path --line-number --heading --color never -i -C 1 --max-count 2 --files-with-matches -- Permission .",
+    "files": {
+      "a.ts": "before\nPermission Permission\npermission\nPermission\nafter\ngap\ngap\nPermission\nafter\n",
+      "b.ts": "Permission\nafter\n",
+      "c.py": "permission\nPermission\n",
+      "empty.ts": "nothing\n"
+    },
+    "stdout": "./a.ts\n./b.ts\n./c.py\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

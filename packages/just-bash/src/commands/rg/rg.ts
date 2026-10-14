@@ -14,7 +14,7 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
-import { hasHelpFlag, showHelp } from "../help.js";
+import { showHelp } from "../help.js";
 import { formatTypeList } from "./file-types.js";
 import { parseArgs } from "./rg-parser.js";
 import { executeSearch } from "./rg-search.js";
@@ -52,7 +52,8 @@ EXAMPLES:
     "    --files-without-match print file names without matches",
     "    --files             list files that would be searched",
     "-o, --only-matching     print only matching parts",
-    "-m, --max-count NUM     stop after NUM matches per file",
+    "-m, --max-count NUM     limit matching lines per file (0: no matches)",
+    "    --color WHEN        never, auto, always, ansi (plain text output only)",
     "-q, --quiet             suppress output, exit 0 on match",
     "    --stats             print search statistics",
     "-n, --line-number       print line numbers (default: on)",
@@ -79,7 +80,8 @@ EXAMPLES:
     "    --no-ignore         don't respect .gitignore/.ignore files",
     "-d, --max-depth NUM     maximum search depth",
     "    --sort TYPE         sort files (path, none)",
-    "    --heading           show file path above matches",
+    "    --heading           group matches by file; no heading for one explicit file",
+    "    --                  end options; remaining arguments are pattern and paths",
     "    --passthru          print all lines (non-matches use - separator)",
     "    --include-zero      include files with 0 matches in count output",
     "    --type-list         list all available file types",
@@ -94,21 +96,21 @@ export const rgCommand: RuntimeCommand = {
     args: string[],
     ctx: RuntimeCommandContext,
   ): Promise<ExecResult> {
-    if (hasHelpFlag(args)) {
+    const parseResult = parseArgs(args);
+    if (!parseResult.success) {
+      return parseResult.error;
+    }
+
+    if (parseResult.options.help) {
       return showHelp(rgHelp);
     }
 
-    if (args.includes("--type-list")) {
+    if (parseResult.options.typeList) {
       return {
         stdout: formatTypeList(),
         stderr: "",
         exitCode: 0,
       };
-    }
-
-    const parseResult = parseArgs(args);
-    if (!parseResult.success) {
-      return parseResult.error;
     }
 
     return executeSearch({
