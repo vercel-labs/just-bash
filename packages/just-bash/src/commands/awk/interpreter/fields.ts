@@ -28,11 +28,12 @@ function splitFields(ctx: AwkRuntimeContext, line: string): string[] {
 
 /**
  * Grow the fields array to at least `count` entries, padding with "".
- * Rejects growth beyond maxArrayElements (or a NaN count) before allocating.
+ * Rejects growth beyond maxArrayElements (or a non-finite count, even when
+ * the limit is Infinity) before allocating.
  */
 export function ensureFieldCount(ctx: AwkRuntimeContext, count: number): void {
   if (count <= ctx.fields.length) return;
-  if (!(count <= ctx.maxArrayElements)) {
+  if (!Number.isFinite(count) || count > ctx.maxArrayElements) {
     throw new ExecutionLimitError(
       `field count limit exceeded (${ctx.maxArrayElements})`,
       "array_elements",

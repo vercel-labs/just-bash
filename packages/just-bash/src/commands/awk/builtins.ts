@@ -132,7 +132,7 @@ function getTargetValue(targetName: string, ctx: AwkRuntimeContext): string {
     return ctx.line;
   }
   if (targetName.startsWith("$")) {
-    const idx = parseInt(targetName.slice(1), 10) - 1;
+    const idx = Number(targetName.slice(1)) - 1;
     return ctx.fields[idx] || "";
   }
   return toAwkString(ctx.vars[targetName] ?? "");
@@ -154,7 +154,7 @@ function applyTargetValue(
         : ctx.fieldSep.split(newValue);
     ctx.NF = ctx.fields.length;
   } else if (targetName.startsWith("$")) {
-    const idx = parseInt(targetName.slice(1), 10) - 1;
+    const idx = Number(targetName.slice(1)) - 1;
     ensureFieldCount(ctx, idx + 1);
     ctx.fields[idx] = newValue;
     ctx.NF = ctx.fields.length;

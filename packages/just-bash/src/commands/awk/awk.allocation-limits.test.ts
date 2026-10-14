@@ -156,4 +156,24 @@ describe("AWK prospective allocation limits", () => {
     expect(result.stderr).toBe("awk: record size limit exceeded (64 bytes)\n");
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
+
+  it("rejects an infinite NF even when arrays are unlimited", async () => {
+    const bash = new Bash({
+      executionLimits: { maxArrayElements: Number.POSITIVE_INFINITY },
+    });
+    const result = await bash.exec(`awk 'BEGIN { NF = 1e400 }'`);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("awk: field count limit exceeded (Infinity)\n");
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+  });
+
+  it("does not wrap huge sub/gsub field targets onto $1", async () => {
+    const bash = new Bash({ executionLimits: { maxArrayElements: 10 } });
+    const result = await bash.exec(
+      `echo a b | awk '{ sub(/a/, "x", $(1e21)) }'`,
+    );
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("awk: field count limit exceeded (10)\n");
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+  });
 });
