@@ -83,6 +83,29 @@ describe("an input redirection on another descriptor leaves stdin alone", () => 
 });
 
 describe("an empty fd-0 redirection means EOF for external commands", () => {
+  it("does not interpret input content as device metadata", async () => {
+    const bash = new Bash({ files: { "/data.txt": "__device_null__" } });
+    const result = await bash.exec("exec 3< /data.txt; cat <&3");
+    expect(result.stdout).toBe("__device_null__");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
+
+  for (const command of [
+    "cat < /dev/null",
+    "command cat < /dev/null",
+    "builtin command cat < /dev/null",
+    "cat 3< /dev/null <&3",
+    "cat < /dev/null < /empty.txt",
+  ]) {
+    it(`does not replace device EOF with enclosing stdin: ${command}`, async () => {
+      const result = await makeBash().exec(`{ ${command}; } < /outer.txt`);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+  }
+
   it("`cat < empty` inside a redirected group prints nothing", async () => {
     const result = await makeBash().exec("{ cat < /empty.txt; } < /outer.txt");
     expect(result.stdout).toBe("");

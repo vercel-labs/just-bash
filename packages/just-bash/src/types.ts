@@ -194,6 +194,8 @@ export interface RuntimeCommandContext {
    * @internal
    */
   stdinProvided?: boolean;
+  /** Whether fd 0 is a character device rather than searchable input. @internal */
+  stdinIsDevice?: boolean;
   /**
    * Execution limits configuration.
    * Fully resolved by Bash before a command is invoked.

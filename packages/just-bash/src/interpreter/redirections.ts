@@ -151,6 +151,7 @@ export type PreparedRedirections = {
   stdin: string | undefined;
   stdinSourceFd: number;
   stdinReplaced: boolean;
+  stdinIsDevice: boolean;
   error: ExecResult | null;
   errorCause?: ExitError | ExecutionLimitError;
 };
@@ -294,7 +295,7 @@ async function readInputEntry(
             content,
           },
         }
-      : { entry: { kind: "input", content } };
+      : { entry: { kind: "input", content, device: filePath === DEV_NULL } };
   } catch {
     if (!readwrite) {
       return {
@@ -399,19 +400,23 @@ async function prepareRedirectionsWithState(
   let stdin: string | undefined;
   let stdinSourceFd = -1;
   let stdinReplaced = false;
+  let stdinIsDevice = false;
   const initialStdin = standardRoutes.get(0);
   if (initialStdin?.kind === "input") {
     stdin = initialStdin.content;
     stdinSourceFd = 0;
+    stdinIsDevice = initialStdin.device === true;
   } else if (initialStdin?.kind === "readwrite") {
     stdin = initialStdin.content.slice(initialStdin.position);
     stdinSourceFd = 0;
+    stdinIsDevice = initialStdin.path === DEV_NULL;
   }
   const base = (): PreparedRedirections => ({
     outputRoutes,
     stdin,
     stdinSourceFd,
     stdinReplaced,
+    stdinIsDevice,
     error: null,
   });
   const fail = async (
@@ -542,6 +547,7 @@ async function prepareRedirectionsWithState(
         stdinSourceFd = -1;
         persistStandard(effectiveFd, { kind: "input", content: stdin });
         stdinReplaced = true;
+        stdinIsDevice = false;
       } else {
         const entry: FdEntry = { kind: "input", content };
         if (transaction.policy === "persistent") {
@@ -851,6 +857,7 @@ async function prepareRedirectionsWithState(
           stdin = "";
           stdinSourceFd = -1;
           stdinReplaced = true;
+          stdinIsDevice = false;
         }
         if (effectiveFd !== null && effectiveFd < FIRST_USER_FD) {
           standardRoutes.set(effectiveFd, { kind: "closed" });
@@ -955,6 +962,10 @@ async function prepareRedirectionsWithState(
           stdin = readable.content;
           stdinSourceFd = isFdOpen(ctx, parsed.sourceFd) ? parsed.sourceFd : -1;
           stdinReplaced = true;
+          stdinIsDevice =
+            source.entry.kind === "input"
+              ? source.entry.device === true
+              : source.entry.path === DEV_NULL;
         } else {
           // Every other source reads as the inherited stdin, such as a saved
           // copy (`exec 3<&0; cmd <&3`) or a restore (`cmd < file 0<&3`), so
@@ -962,6 +973,7 @@ async function prepareRedirectionsWithState(
           stdin = inheritedStdin;
           stdinSourceFd = -1;
           stdinReplaced = false;
+          stdinIsDevice = false;
         }
       }
       if (parsed.move) {
@@ -1017,6 +1029,7 @@ async function prepareRedirectionsWithState(
         stdin = content;
         stdinSourceFd = -1;
         stdinReplaced = true;
+        stdinIsDevice = false;
       }
     } else if (redir.operator === "<") {
       const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
@@ -1025,12 +1038,14 @@ async function prepareRedirectionsWithState(
           filePath === DEV_NULL
             ? ""
             : ((await readBytesFrom(ctx.fs, filePath)) as unknown as string);
-        persistStandard(effectiveFd, { kind: "input", content });
+        const device = filePath === DEV_NULL;
+        persistStandard(effectiveFd, { kind: "input", content, device });
         // Only fd 0 is stdin: `2< file` opens fd 2 and leaves stdin alone.
         if (effectiveFd === 0) {
           stdin = content;
           stdinSourceFd = -1;
           stdinReplaced = true;
+          stdinIsDevice = device;
         }
       } catch {
         return fail(
@@ -1047,6 +1062,7 @@ async function prepareRedirectionsWithState(
         stdin = entry.content;
         stdinSourceFd = -1;
         stdinReplaced = true;
+        stdinIsDevice = entry.path === DEV_NULL;
       }
     }
   }

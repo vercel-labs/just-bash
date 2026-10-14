@@ -28,6 +28,39 @@ describe("rg searches stdin when no paths are given", () => {
     });
   });
 
+  for (const command of [
+    "rg target < /dev/null",
+    "command rg target < /dev/null",
+    "exec rg target < /dev/null",
+    "builtin command rg target < /dev/null",
+    "rg target 3< /dev/null <&3",
+    "exec 3< /dev/null; rg target <&3",
+    "printf '' | rg target < /dev/null",
+  ]) {
+    it(`searches cwd for character-device stdin: ${command}`, async () => {
+      const env = new Bash({ files: { "/decoy.txt": "target line\n" } });
+      const result = await env.exec(command);
+      expect(result).toMatchObject({
+        stdout: "decoy.txt:1:target line\n",
+        stderr: "",
+        exitCode: 0,
+      });
+    });
+  }
+
+  it("keeps the documented empty persistent stdin limitation", async () => {
+    const env = new Bash({
+      files: { "/empty.txt": "", "/decoy.txt": "target line\n" },
+    });
+    // Generalizing inherited descriptor ownership is outside this patch.
+    const result = await env.exec("(exec < /empty.txt; rg target)");
+    expect(result).toMatchObject({
+      stdout: "decoy.txt:1:target line\n",
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
   for (const wrapper of [
     "command",
     "exec",

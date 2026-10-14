@@ -972,6 +972,7 @@ export class Interpreter {
         stdinSourceFd,
         stdinRedirected,
         directStdinProvided,
+        preparedRedirections.stdinIsDevice,
       );
     } catch (error) {
       // For break/continue, we still need to apply redirections before propagating
@@ -1098,11 +1099,12 @@ export class Interpreter {
     stdinSourceFd = -1,
     stdinRedirected = false,
     stdinProvided = false,
+    stdinIsDevice = false,
   ): Promise<ExecResult> {
     const dispatchCtx: BuiltinDispatchContext = {
       ctx: this.ctx,
-      runCommand: (name, a, qa, s, sf, udp, ssf, sr, sp) =>
-        this.runCommand(name, a, qa, s, sf, udp, ssf, sr, sp),
+      runCommand: (name, a, qa, s, sf, udp, ssf, sr, sp, sd) =>
+        this.runCommand(name, a, qa, s, sf, udp, ssf, sr, sp, sd),
       buildExportedEnv: () => this.buildExportedEnv(),
       executeUserScript: (path, a, s) => this.executeUserScript(path, a, s),
     };
@@ -1119,6 +1121,7 @@ export class Interpreter {
       stdinSourceFd,
       stdinRedirected,
       stdinProvided,
+      stdinIsDevice,
     );
 
     if (builtinResult !== null)
@@ -1134,6 +1137,7 @@ export class Interpreter {
       stdin,
       useDefaultPath,
       stdinProvided,
+      stdinIsDevice,
     );
     return { ...externalResult, internalProducerCommand: commandName };
   }

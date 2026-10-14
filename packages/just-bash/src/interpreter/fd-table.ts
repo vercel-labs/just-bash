@@ -31,12 +31,13 @@ const FILE_APPEND_PREFIX = "__file_append__:";
 const RW_PREFIX = "__rw__:";
 const DUP_OUT_PREFIX = "__dupout__:";
 const DUP_IN_PREFIX = "__dupin__:";
+const NULL_DEVICE = "__device_null__";
 
 /** Lowest descriptor a script may open by number. 0/1/2 are the std streams. */
 export const FIRST_USER_FD = 3;
 
 export type FdEntry =
-  | { kind: "input"; content: string }
+  | { kind: "input"; content: string; device?: boolean }
   | { kind: "output"; path: string; append: boolean }
   | { kind: "readwrite"; path: string; position: number; content: string }
   | { kind: "dup-out"; sourceFd: number }
@@ -91,6 +92,9 @@ function parseDupSource(raw: string, prefix: string): number | null {
  * {@link getFdEntry}, which consults `inputFds` first and never guesses.
  */
 export function decodeFdEntry(raw: string): FdEntry {
+  if (raw === NULL_DEVICE) {
+    return { kind: "input", content: "", device: true };
+  }
   if (raw.startsWith(FILE_PREFIX)) {
     return {
       kind: "output",
@@ -124,7 +128,7 @@ export function decodeFdEntry(raw: string): FdEntry {
 export function encodeFdEntry(entry: FdEntry): string {
   switch (entry.kind) {
     case "input":
-      return entry.content;
+      return entry.device ? NULL_DEVICE : entry.content;
     case "output":
       return `${entry.append ? FILE_APPEND_PREFIX : FILE_PREFIX}${entry.path}`;
     case "readwrite":
@@ -258,7 +262,12 @@ export function setFdEntry(
   fd: number,
   entry: FdEntry,
 ): void {
-  setRawFd(ctx, fd, encodeFdEntry(entry), entry.kind === "input");
+  setRawFd(
+    ctx,
+    fd,
+    encodeFdEntry(entry),
+    entry.kind === "input" && !entry.device,
+  );
 }
 
 export function closeFd(ctx: InterpreterContext, fd: number): void {
@@ -346,14 +355,14 @@ export function advanceFd(
   if (entry === undefined) return;
   let advanced: FdEntry;
   if (entry.kind === "input") {
-    advanced = { kind: "input", content: entry.content.slice(count) };
+    advanced = { ...entry, content: entry.content.slice(count) };
   } else if (entry.kind === "readwrite") {
     advanced = { ...entry, position: entry.position + count };
   } else {
     return;
   }
   const raw = encodeFdEntry(advanced);
-  const isInput = advanced.kind === "input";
+  const isInput = advanced.kind === "input" && !advanced.device;
   // The offset lives in the open file description, not the descriptor, so
   // every alias moves with it. writeRawFd, not setRawFd: this is a read, and
   // a read must not break the aliasing it is moving.
