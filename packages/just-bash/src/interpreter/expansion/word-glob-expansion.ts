@@ -67,6 +67,7 @@ import {
   handleUnquotedVarNamePrefix,
 } from "./unquoted-expansion.js";
 import { getArrayElements } from "./variable.js";
+import { isPartSplittable } from "./word-split.js";
 
 /**
  * Dependencies injected to avoid circular imports
@@ -891,6 +892,21 @@ async function expandGlobPattern(
 }
 
 /**
+ * Whether a glob word left unmatched is field-split. Only an unquoted
+ * expansion's result is, and a bracket pattern spanning unquoted whitespace,
+ * which lexes as one word (`a[1 + 2]=`) where bash reads three. Quoted and
+ * escaped text and literals stay whole: `"$dir"/*` with a space in `$dir`
+ * is one word whether or not it matches.
+ */
+function splitsWhenUnmatched(wordParts: WordPart[]): boolean {
+  return wordParts.some(
+    (part) =>
+      isPartSplittable(part) ||
+      (part.type === "Glob" && /[ \t\n]/.test(part.pattern)),
+  );
+}
+
+/**
  * Handle final glob expansion after word expansion
  */
 async function handleFinalGlobExpansion(
@@ -919,17 +935,18 @@ async function handleFinalGlobExpansion(
       }
     }
 
-    const unescapedValue = unescapeGlobPattern(value);
-    if (!isIfsEmpty(ctx.state.env)) {
+    // Unmatched, the word stands as written minus its quoting
+    const unmatched = unescapeGlobPattern(globPattern);
+    if (splitsWhenUnmatched(wordParts) && !isIfsEmpty(ctx.state.env)) {
       const ifsChars = getIfs(ctx.state.env);
       const splitValues = splitByIfsForExpansion(
-        unescapedValue,
+        unmatched,
         ifsChars,
         ctx.limits.maxArrayElements,
       );
       return { values: splitValues, quoted: false };
     }
-    return { values: [unescapedValue], quoted: false };
+    return { values: [unmatched], quoted: false };
   }
 
   if (
@@ -953,7 +970,7 @@ async function handleFinalGlobExpansion(
 
   if (hasGlobParts && !hasQuoted) {
     const unescapedValue = unescapeGlobPattern(value);
-    if (!isIfsEmpty(ctx.state.env)) {
+    if (splitsWhenUnmatched(wordParts) && !isIfsEmpty(ctx.state.env)) {
       const ifsChars = getIfs(ctx.state.env);
       const splitValues = splitByIfsForExpansion(
         unescapedValue,
