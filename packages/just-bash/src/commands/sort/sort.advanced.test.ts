@@ -2,6 +2,15 @@ import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
 describe("sort -h (human numeric)", () => {
+  it("reads suffixes followed by digits, including lowercase k", async () => {
+    const env = new Bash({
+      files: { "/sizes": "1K2\n2\n1k2\n1e3\n1e+3\n1e-3\n" },
+    });
+    const result = await env.exec("sort -sh /sizes");
+    expect(result.stdout).toBe("1e3\n1e+3\n1e-3\n2\n1K2\n1k2\n");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
   it("should sort human readable sizes", async () => {
     const env = new Bash({
       files: { "/test.txt": "1K\n2M\n500\n1G\n100K\n" },
@@ -11,13 +20,28 @@ describe("sort -h (human numeric)", () => {
     expect(result.exitCode).toBe(0);
   });
 
-  it("should handle mixed case suffixes", async () => {
+  it("should honor only k and uppercase suffixes, matching GNU sort", async () => {
+    // GNU sort reads lowercase m, g, t, p and e as plain text, so 3g is 3.
     const env = new Bash({
       files: { "/test.txt": "1k\n2M\n3g\n" },
     });
     const result = await env.exec("sort -h /test.txt");
-    expect(result.stdout).toBe("1k\n2M\n3g\n");
+    expect(result.stdout).toBe("3g\n1k\n2M\n");
     expect(result.exitCode).toBe(0);
+  });
+
+  it("should not multiply a number by a lowercase letter that starts text", async () => {
+    // Expected order taken from GNU coreutils 9.12 on the same input.
+    const env = new Bash({
+      files: {
+        "/test.txt":
+          "2gb-archive.tar\n100kb-note.txt\n5m ago\n30s ago\n1mfoo\n2K\n3t\n4p\n6e\n",
+      },
+    });
+    const result = await env.exec("sort -h /test.txt");
+    expect(result.stdout).toBe(
+      "1mfoo\n2gb-archive.tar\n3t\n4p\n5m ago\n6e\n30s ago\n2K\n100kb-note.txt\n",
+    );
   });
 
   it("should sort with decimal values", async () => {
@@ -36,6 +60,60 @@ describe("sort -h (human numeric)", () => {
     const result = await env.exec("sort -hr /test.txt");
     expect(result.stdout).toBe("1G\n1M\n1K\n");
     expect(result.exitCode).toBe(0);
+  });
+
+  it("should sort du output by the size that leads each line", async () => {
+    const env = new Bash({
+      files: {
+        "/du.txt": "872M\t./a\n912K\t./b\n935M\t./c\n1.5G\t./d\n4.0K\t./e\n",
+      },
+    });
+    const result = await env.exec("sort -h /du.txt");
+    expect(result.stdout).toBe(
+      "4.0K\t./e\n912K\t./b\n872M\t./a\n935M\t./c\n1.5G\t./d\n",
+    );
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("should put the largest du entry first with -rh", async () => {
+    const env = new Bash({
+      files: { "/du.txt": "872M\t./a\n1.5G\t./d\n912K\t./b\n" },
+    });
+    const result = await env.exec("sort -rh /du.txt | head -1");
+    expect(result.stdout).toBe("1.5G\t./d\n");
+  });
+
+  it("should not read the next word as a suffix, matching GNU sort", async () => {
+    // Expected order taken from GNU coreutils 9.4 on the same input.
+    const env = new Bash({
+      files: {
+        "/test.txt":
+          "10 mangoes\n20K\n2 apple\n1e3\n 12 main.ts\n5\n 3 util.ts\n",
+      },
+    });
+    const result = await env.exec("sort -h /test.txt");
+    expect(result.stdout).toBe(
+      "1e3\n2 apple\n 3 util.ts\n5\n10 mangoes\n 12 main.ts\n20K\n",
+    );
+  });
+
+  it("should read a size followed by other text in a keyed field", async () => {
+    const env = new Bash({
+      files: { "/test.txt": "a 10MiB used\nb 2KiB used\nc 1GiB used\n" },
+    });
+    const result = await env.exec("sort -k2 -h /test.txt");
+    expect(result.stdout).toBe("b 2KiB used\na 10MiB used\nc 1GiB used\n");
+  });
+
+  // Expected orders from GNU coreutils 9.12 `sort -h` on the same input.
+  it.each([
+    ["+2M foo\n3K bar\n1K\n", "", "+2M foo\n1K\n3K bar\n"],
+    ["+5\n3\n-2K\n1K\n", "", "-2K\n+5\n3\n1K\n"],
+    ["2M\n3K\n1G\n", "-f", "3K\n2M\n1G\n"],
+  ])("should sort %j with -h %s as GNU does", async (input, flags, expected) => {
+    const env = new Bash({ files: { "/test.txt": input } });
+    const result = await env.exec(`sort -h ${flags} /test.txt`);
+    expect(result.stdout).toBe(expected);
   });
 });
 
