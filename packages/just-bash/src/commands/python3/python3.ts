@@ -10,6 +10,9 @@
  * This command is Node.js only (uses worker_threads).
  */
 
+// @banned-pattern-ignore: worker bootstrap gate — locates this command's own worker file
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
@@ -160,6 +163,8 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
 type QueuedExecution = {
   /** Unforgeable ownership marker for this queue slot. */
   executionId: symbol;
+  /** Resolved before the bridge is armed, so a missing worker fails fast. */
+  workerPath: string;
   input: WorkerInput;
   settle: (result: WorkerOutput) => void;
   requireDefenseContext?: boolean;
@@ -194,7 +199,50 @@ export function _resetExecutionQueue(): void {
   executionQueues = new WeakMap();
 }
 
-const workerPath = fileURLToPath(new URL("./worker.js", import.meta.url));
+/**
+ * `import.meta` is an empty object in the CJS bundle (esbuild, `--format=cjs`),
+ * so the module directory has to come from `__dirname` there.
+ */
+function moduleDirectory(): string {
+  if (typeof __dirname !== "undefined") {
+    return __dirname;
+  }
+  return dirname(fileURLToPath(import.meta.url));
+}
+
+/**
+ * Find the python3 worker.js file path.
+ *
+ * Locations checked, in order:
+ *   1. `<currentDir>/worker.js`        — source tree, ESM bundle and CLI chunks
+ *   2. `<currentDir>/chunks/worker.js` — CJS bundle, a single `index.cjs` with
+ *                                        the worker one level down
+ *
+ * Exposed via `_internals.findWorkerPath` so tests can pass a synthetic dir.
+ */
+function findWorkerPath(currentDir: string = moduleDirectory()): string {
+  const candidates = [
+    join(currentDir, "worker.js"),
+    join(currentDir, "chunks", "worker.js"),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error(
+    "python3 worker not found. Run 'pnpm build' to compile the worker.",
+  );
+}
+
+/** @internal Exposed for tests only. */
+export const _internals: {
+  findWorkerPath(currentDir?: string): string;
+} = {
+  findWorkerPath,
+};
 
 function normalizeWorkerMessage(
   msg: unknown,
@@ -297,7 +345,7 @@ function processNextExecution(queueState: QueueState): void {
   try {
     worker = DefenseInDepthBox.runTrusted(
       // @banned-pattern-ignore: constructor is immediately owned by next.controller lifecycle
-      () => new Worker(workerPath, { workerData: next.input }),
+      () => new Worker(next.workerPath, { workerData: next.input }),
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -478,6 +526,19 @@ async function executePython(
   scriptPath?: string,
   scriptArgs: string[] = [],
 ): Promise<ExecResult> {
+  // Before the shared buffer, the bridge and the controller exist: a failure here
+  // must be reported as it stands, not wait for the bridge's own deadline.
+  let workerPath: string;
+  try {
+    workerPath = _internals.findWorkerPath();
+  } catch (error) {
+    return {
+      stdout: "",
+      stderr: `python3: ${sanitizeHostErrorMessage(getErrorMessage(error))}\n`,
+      exitCode: 1,
+    };
+  }
+
   const sharedBuffer = createSharedBuffer();
   const bridgeHandler = new BridgeHandler(
     sharedBuffer,
@@ -529,6 +590,7 @@ async function executePython(
     let settled = false;
     const queueEntry: QueuedExecution = {
       executionId: Symbol("python3 execution"),
+      workerPath,
       input: workerInput,
       settle: (result) => {
         if (settled) return;
