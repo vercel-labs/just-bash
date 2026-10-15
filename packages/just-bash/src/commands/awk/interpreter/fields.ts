@@ -6,7 +6,11 @@
 
 import { utf8ByteLength } from "../../../encoding.js";
 import { ExecutionLimitError } from "../../../interpreter/errors.js";
-import { ConstantRegex, createUserRegex } from "../../../regex/index.js";
+import {
+  ConstantRegex,
+  createUserRegex,
+  type RegexLike,
+} from "../../../regex/index.js";
 import type { AwkRuntimeContext } from "./context.js";
 import { toAwkString } from "./type-coercion.js";
 import type { AwkValue } from "./types.js";
@@ -140,17 +144,35 @@ export function setCurrentLine(ctx: AwkRuntimeContext, line: string): void {
 }
 
 /**
+ * Compile FS for splitFields. The regex result cap sits one past the field
+ * limit so an oversized record fails instead of being silently truncated.
+ */
+export function compileFieldSeparator(
+  fs: string,
+  maxFields: number,
+): RegexLike {
+  if (fs === " ") {
+    return new ConstantRegex(/\s+/);
+  }
+  const limits = {
+    maxResults: Math.min(maxFields + 1, Number.MAX_SAFE_INTEGER),
+  };
+  const literal = fs.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Any other single character separates fields literally, as in POSIX awk
+  if (fs.length === 1) {
+    return createUserRegex(literal, "", limits);
+  }
+  try {
+    return createUserRegex(fs, "", limits);
+  } catch {
+    return createUserRegex(literal, "", limits);
+  }
+}
+
+/**
  * Update field separator and recompile regex.
  */
 export function setFieldSeparator(ctx: AwkRuntimeContext, fs: string): void {
   ctx.FS = fs;
-  if (fs === " ") {
-    ctx.fieldSep = new ConstantRegex(/\s+/);
-  } else {
-    try {
-      ctx.fieldSep = createUserRegex(fs);
-    } catch {
-      ctx.fieldSep = createUserRegex(fs.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-    }
-  }
+  ctx.fieldSep = compileFieldSeparator(fs, ctx.maxArrayElements);
 }

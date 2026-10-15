@@ -136,6 +136,10 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "Parser cannot handle $TEMP0 interpolation within awk program string",
   ],
   [
+    "T.split:T.split (record assignment 1)",
+    "Parser extracts empty expected output for multi-line echo before awk",
+  ],
+  [
     "T.split:T.split (record assignment 2)",
     "Parser extracts empty expected output for multi-line echo before awk",
   ],

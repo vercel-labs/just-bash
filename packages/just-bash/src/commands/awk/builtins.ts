@@ -221,27 +221,33 @@ async function awkSplit(
   }
   const arrayName = arrayExpr.name;
 
+  const previousCount = Object.keys(ctx.arrays[arrayName] ?? {}).length;
+  const available =
+    ctx.maxArrayElements - ctx.arrayElementCount + previousCount;
+  // Produce one part past the limit so an oversized split fails rather than
+  // being truncated. String.prototype.split treats its limit as a uint32, and
+  // regex separators carry their own result cap.
+  const limit = available < 0xfffffffe ? available + 1 : undefined;
+  const regexLimits = {
+    maxResults: Math.min(available + 1, Number.MAX_SAFE_INTEGER),
+  };
+
   let sep: string | UserRegex = ctx.FS;
   if (args.length >= 3) {
     const sepExpr = args[2];
     // Check if the separator is a regex literal
     if (sepExpr.type === "regex") {
-      sep = createUserRegex(sepExpr.pattern);
+      sep = createUserRegex(sepExpr.pattern, "", regexLimits);
     } else {
       const sepVal = toAwkString(await evaluator.evalExpr(sepExpr));
-      sep = sepVal === " " ? createUserRegex("\\s+") : sepVal;
+      sep = sepVal === " " ? createUserRegex("\\s+", "", regexLimits) : sepVal;
     }
   } else if (ctx.FS === " ") {
-    sep = createUserRegex("\\s+");
+    sep = createUserRegex("\\s+", "", regexLimits);
   }
 
-  const previousCount = Object.keys(ctx.arrays[arrayName] ?? {}).length;
-  const available =
-    ctx.maxArrayElements - ctx.arrayElementCount + previousCount;
   const parts =
-    typeof sep === "string"
-      ? str.split(sep, available + 1)
-      : sep.split(str, available + 1);
+    typeof sep === "string" ? str.split(sep, limit) : sep.split(str, limit);
   if (parts.length > available) {
     throw new ExecutionLimitError(
       `array element limit exceeded (${ctx.maxArrayElements})`,

@@ -159,6 +159,22 @@ describe("UserRegex", () => {
       const regex = new UserRegex(",");
       expect(regex.split("a,,b")).toEqual(["a", "", "b"]);
     });
+
+    it.each([
+      ["", "abc"],
+      ["", ""],
+      ["x*", "axbxxc"],
+      [",", ""],
+      [",", "a,b,"],
+      ["b*", "abbc"],
+    ])("matches String.prototype.split for /%s/ on %j", (pattern, input) => {
+      const regex = new UserRegex(pattern);
+      expect(regex.split(input)).toEqual(input.split(new RegExp(pattern)));
+    });
+
+    it("keeps surrogate pairs together on empty matches", () => {
+      expect(new UserRegex("").split("a😀b")).toEqual(["a", "😀", "b"]);
+    });
   });
 
   describe("search()", () => {

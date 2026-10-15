@@ -275,6 +275,27 @@ describe("awk field handling", () => {
       expect(result.stdout).toBe("3 []\n");
       expect(result.exitCode).toBe(0);
     });
+
+    it.each([
+      ["-F'|'", "a|b|c"],
+      ["-F.", "a.b.c"],
+    ])("should treat single-character %s literally", async (flag, input) => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo '${input}' | awk ${flag} '{ print NF, $2 }'`,
+      );
+      expect(result.stdout).toBe("3 b\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should split into characters with empty FS", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo a😀b | awk 'BEGIN { FS = "" } { print NF, $2 }'`,
+      );
+      expect(result.stdout).toBe("3 😀\n");
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("field assignment with arithmetic", () => {

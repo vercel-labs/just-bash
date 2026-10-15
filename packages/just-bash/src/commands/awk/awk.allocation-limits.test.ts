@@ -59,6 +59,17 @@ describe("AWK prospective allocation limits", () => {
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 
+  it("splits normally when arrays are unlimited", async () => {
+    const bash = new Bash({
+      executionLimits: { maxArrayElements: Number.POSITIVE_INFINITY },
+    });
+    const result = await bash.exec(
+      `awk 'BEGIN { print split("a,b", values, ",") }'`,
+    );
+    expect(result.stdout).toBe("2\n");
+    expect(result.exitCode).toBe(0);
+  });
+
   it("charges input records against the AWK work limit", async () => {
     const bash = new Bash({ executionLimits: { maxAwkIterations: 2 } });
     const result = await bash.exec("awk '{ print }'", {
