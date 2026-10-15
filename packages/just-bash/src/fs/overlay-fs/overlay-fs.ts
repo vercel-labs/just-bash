@@ -14,6 +14,7 @@
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { type ByteString, unsafeBytesFromLatin1 } from "../../encoding.js";
+import { assertDestinationParentDirectory } from "../destination-parent.js";
 import {
   type FileContent,
   fromBuffer,
@@ -1215,6 +1216,7 @@ export class OverlayFs implements IFileSystem {
 
     if (srcStat.isFile) {
       const content = await this.readFileBuffer(srcNorm);
+      await assertDestinationParentDirectory(this, dest);
       await this.writeFile(destNorm, content);
     } else if (srcStat.isDirectory) {
       if (!options?.recursive) {
@@ -1223,6 +1225,7 @@ export class OverlayFs implements IFileSystem {
       if (isSameOrDescendantPath(srcNorm, destNorm)) {
         throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
       }
+      await assertDestinationParentDirectory(this, dest);
       await this.mkdir(destNorm, { recursive: true });
       const children = await this.readdir(srcNorm);
       for (const child of children) {

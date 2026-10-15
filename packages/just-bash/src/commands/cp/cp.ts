@@ -1,3 +1,7 @@
+import {
+  assertDestinationParentDirectory,
+  DestinationParentError,
+} from "../../fs/destination-parent.js";
 import { isSameOrDescendantPath } from "../../fs/path-utils.js";
 import {
   compareCanonicalContainment,
@@ -101,15 +105,22 @@ export const cpCommand: RuntimeCommand = {
     }
 
     for (const src of sources) {
+      let sourceIsDirectory = false;
+      let targetDisplayPath = dest;
       try {
         const srcPath = ctx.fs.resolvePath(ctx.cwd, src);
         const srcStat = await ctx.fs.stat(srcPath);
+        sourceIsDirectory = srcStat.isDirectory;
 
         let targetPath = destPath;
         if (destIsDir) {
           const basename = src.split("/").pop() || src;
           targetPath =
             destPath === "/" ? `/${basename}` : `${destPath}/${basename}`;
+          targetDisplayPath =
+            dest === "/"
+              ? `/${basename}`
+              : `${dest}${dest.endsWith("/") ? "" : "/"}${basename}`;
         }
 
         if (srcStat.isDirectory && !recursive) {
@@ -138,6 +149,12 @@ export const cpCommand: RuntimeCommand = {
             continue;
           }
         }
+
+        await assertDestinationParentDirectory(
+          ctx.fs,
+          targetDisplayPath,
+          ctx.cwd,
+        );
 
         // A no-clobber skip performs no destructive operation and therefore
         // does not require proving the identity of the existing target.
@@ -196,11 +213,22 @@ export const cpCommand: RuntimeCommand = {
         ) {
           throw error;
         }
-        const message = getErrorMessage(error);
-        if (message.includes("ENOENT") || message.includes("no such file")) {
-          stderr += `cp: cannot stat '${src}': No such file or directory\n`;
+        if (error instanceof DestinationParentError) {
+          const destinationKind = sourceIsDirectory
+            ? "directory"
+            : "regular file";
+          const description =
+            error.code === "ENOENT"
+              ? "No such file or directory"
+              : "Not a directory";
+          stderr += `cp: cannot create ${destinationKind} '${targetDisplayPath}': ${description}\n`;
         } else {
-          stderr += `cp: cannot copy '${src}': ${message}\n`;
+          const message = getErrorMessage(error);
+          if (message.includes("ENOENT") || message.includes("no such file")) {
+            stderr += `cp: cannot stat '${src}': No such file or directory\n`;
+          } else {
+            stderr += `cp: cannot copy '${src}': ${message}\n`;
+          }
         }
         exitCode = 1;
       }

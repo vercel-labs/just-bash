@@ -1,5 +1,6 @@
 import { type ByteString, readBytesFrom } from "../../encoding.js";
 import { ExclusiveCreateUnsupportedError } from "../create-exclusive.js";
+import { assertDestinationParentDirectory } from "../destination-parent.js";
 import { InMemoryFs } from "../in-memory-fs/in-memory-fs.js";
 import type {
   BufferEncoding,
@@ -222,6 +223,18 @@ export class MountableFs implements IFileSystem {
     }
 
     return children;
+  }
+
+  private async materializeSyntheticDestinationParent(
+    destinationPath: string,
+    destinationRoute: { fs: IFileSystem; relativePath: string },
+  ): Promise<void> {
+    const destinationParentPath = dirname(destinationPath);
+    if (this.getChildMountPoints(destinationParentPath).length === 0) return;
+
+    await destinationRoute.fs.mkdir(dirname(destinationRoute.relativePath), {
+      recursive: true,
+    });
   }
 
   // ==================== IFileSystem Implementation ====================
@@ -521,11 +534,18 @@ export class MountableFs implements IFileSystem {
 
   async cp(src: string, dest: string, options?: CpOptions): Promise<void> {
     const srcStat = await this.stat(src);
-    if (srcStat.isDirectory && isSameOrDescendantPath(src, dest)) {
-      throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
+    if (srcStat.isDirectory) {
+      if (!options?.recursive) {
+        throw new Error(`EISDIR: is a directory, cp '${src}'`);
+      }
+      if (isSameOrDescendantPath(src, dest)) {
+        throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
+      }
     }
+    await assertDestinationParentDirectory(this, dest);
     const srcRoute = this.routePath(src);
     const destRoute = this.routePath(dest);
+    await this.materializeSyntheticDestinationParent(dest, destRoute);
 
     // If same filesystem, delegate directly
     if (srcRoute.fs === destRoute.fs) {
@@ -552,8 +572,10 @@ export class MountableFs implements IFileSystem {
       throw new Error(`EBUSY: mount point, cannot move '${src}'`);
     }
 
+    await assertDestinationParentDirectory(this, dest);
     const srcRoute = this.routePath(src);
     const destRoute = this.routePath(dest);
+    await this.materializeSyntheticDestinationParent(dest, destRoute);
 
     // If same filesystem, delegate directly
     if (srcRoute.fs === destRoute.fs) {
@@ -690,7 +712,7 @@ export class MountableFs implements IFileSystem {
       await this.chmod(dest, srcStat.mode);
     } else if (srcStat.isDirectory) {
       if (!options?.recursive) {
-        throw new Error(`cp: ${src} is a directory (not copied)`);
+        throw new Error(`EISDIR: is a directory, cp '${src}'`);
       }
       await this.mkdir(dest, { recursive: true });
       const children = await this.readdir(src);
