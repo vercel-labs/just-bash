@@ -5,7 +5,7 @@
  * with optional gzip, bzip2, and xz compression.
  */
 
-import { latin1FromBytes } from "../../encoding.js";
+import { latin1FromBytes, uint8ArrayFromLatin1 } from "../../encoding.js";
 import { createUserRegex } from "../../regex/index.js";
 import type {
   ExecResult,
@@ -732,9 +732,7 @@ async function extractTarArchive(
     }
   } else {
     // Read from stdin - convert binary string directly to bytes without UTF-8 re-encoding
-    archiveData = Uint8Array.from(latin1FromBytes(ctx.stdin), (c) =>
-      c.charCodeAt(0),
-    );
+    archiveData = uint8ArrayFromLatin1(latin1FromBytes(ctx.stdin));
   }
 
   // Parse archive - auto-detect compression or use flags
@@ -987,9 +985,7 @@ async function listTarArchive(
     }
   } else {
     // Read from stdin - convert binary string directly to bytes without UTF-8 re-encoding
-    archiveData = Uint8Array.from(latin1FromBytes(ctx.stdin), (c) =>
-      c.charCodeAt(0),
-    );
+    archiveData = uint8ArrayFromLatin1(latin1FromBytes(ctx.stdin));
   }
 
   // Parse archive - auto-detect compression or use flags

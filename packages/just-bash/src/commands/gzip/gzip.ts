@@ -6,7 +6,7 @@
 
 import { constants, gunzipSync, gzipSync } from "node:zlib";
 import { BoundedStringBuilder } from "../../bounded-builder.js";
-import { latin1FromBytes } from "../../encoding.js";
+import { latin1FromBytes, uint8ArrayFromLatin1 } from "../../encoding.js";
 import type { ResourceLease } from "../../execution-scope.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { traverseFileTree } from "../../fs/traversal.js";
@@ -418,7 +418,7 @@ async function readReservedOperand(
   );
   try {
     return {
-      data: Uint8Array.from(stdinBytes, (char) => char.charCodeAt(0)),
+      data: uint8ArrayFromLatin1(stdinBytes),
       lease,
     };
   } catch (error) {
@@ -457,7 +457,7 @@ async function processFile(
     );
     let codecLease: ResourceLease | undefined;
     try {
-      inputData = Uint8Array.from(stdinBytes, (c) => c.charCodeAt(0));
+      inputData = uint8ArrayFromLatin1(stdinBytes);
       if (decompress) {
         if (!isGzip(inputData)) {
           if (!flags.quiet) {
