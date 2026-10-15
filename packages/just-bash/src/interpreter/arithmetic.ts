@@ -454,6 +454,7 @@ async function evaluateArithmeticInternal(
       if (ctx.execFn) {
         const result = await ctx.execFn(expr.command, {
           signal: ctx.state.signal,
+          subshell: true,
         });
         // Command substitution stderr should go to the shell's stderr at expansion time
         if (result.stderr) {
@@ -963,6 +964,7 @@ async function evalConcatPartToStringAsync(
       if (ctx.execFn) {
         const result = await ctx.execFn(expr.command, {
           signal: ctx.state.signal,
+          subshell: true,
         });
         return result.stdout.trim();
       }
