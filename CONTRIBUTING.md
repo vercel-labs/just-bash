@@ -116,6 +116,8 @@ Add a test whenever new code stores user-controlled keys. Exercise `constructor`
 
 Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/). Whether a change ships is a separate decision; see [Releases](#releases).
 
+If an AI coding agent writes any of your contribution's prose, including commit messages, PR descriptions, changesets, documentation, and issues, it must use the [`technical-writer` skill](./.agents/skills/technical-writer/SKILL.md).
+
 ## Repo maintenance
 
 Repository maintenance covers dependencies, CI, tooling, and internal work that does not change how just-bash behaves for users. Maintainers triage it through the issue labels below.

@@ -14,6 +14,10 @@ These are the parts of that guide that matter most while working quickly:
 - While iterating, run `pnpm test:unit` or a single test file rather than the full suite (see Setting up).
 - Tests run from source. Run `pnpm build` before exercising the compiled output under `dist/`.
 
+## Writing
+
+Always use the `technical-writer` skill ([`.agents/skills/technical-writer/SKILL.md`](./.agents/skills/technical-writer/SKILL.md)) when you write or edit prose for this repository, including documentation, `CONTRIBUTING.md`, commit messages, PR titles and descriptions, changesets, and issues.
+
 ## Code map
 
 ```
