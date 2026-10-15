@@ -12,11 +12,10 @@ import { toAwkString } from "./type-coercion.js";
 import type { AwkValue } from "./types.js";
 
 /**
- * Split a line into fields based on the field separator.
- * Stops one field past maxArrayElements so oversized records are rejected
- * without materializing every field.
+ * Split a line into fields based on the field separator, stopping one field
+ * past maxArrayElements so oversized records fail without being fully split.
  */
-export function splitFields(ctx: AwkRuntimeContext, line: string): string[] {
+function splitFields(ctx: AwkRuntimeContext, line: string): string[] {
   // Empty line always has 0 fields in AWK
   if (line === "") {
     return [];
@@ -34,29 +33,21 @@ export function splitFields(ctx: AwkRuntimeContext, line: string): string[] {
           .filter(Boolean)
       : ctx.fieldSep.split(line, limit);
   if (fields.length > max) {
-    throw new ExecutionLimitError(
-      `field count limit exceeded (${max})`,
-      "array_elements",
-    );
+    throw fieldCountError(ctx);
   }
   return fields;
 }
 
 /**
- * Grow the fields array to at least `count` entries, padding with "".
- * Rejects growth beyond maxArrayElements (or a non-finite count, even when
- * the limit is Infinity) before allocating.
+ * Pad the fields array with "" up to `count`, validating before allocating.
  */
 export function ensureFieldCount(ctx: AwkRuntimeContext, count: number): void {
-  if (Number.isFinite(count) && count <= ctx.fields.length) return;
   if (!Number.isFinite(count) || count > ctx.maxArrayElements) {
-    throw new ExecutionLimitError(
-      `field count limit exceeded (${ctx.maxArrayElements})`,
-      "array_elements",
-    );
+    throw fieldCountError(ctx);
   }
-  // The padded record needs at least count - 1 separators, so reject growth
-  // that could never be rebuilt before allocating the padding
+  if (count <= ctx.fields.length) return;
+  // The rebuilt record needs count - 1 separators, so fail before padding a
+  // record that can never fit the size limit
   if (
     ctx.maxOutputSize > 0 &&
     (count - 1) * utf8ByteLength(ctx.OFS) > ctx.maxOutputSize
@@ -66,6 +57,13 @@ export function ensureFieldCount(ctx: AwkRuntimeContext, count: number): void {
   while (ctx.fields.length < count) {
     ctx.fields.push("");
   }
+}
+
+function fieldCountError(ctx: AwkRuntimeContext): ExecutionLimitError {
+  return new ExecutionLimitError(
+    `field count limit exceeded (${ctx.maxArrayElements})`,
+    "array_elements",
+  );
 }
 
 function recordSizeError(ctx: AwkRuntimeContext): ExecutionLimitError {
@@ -120,12 +118,11 @@ export function setField(
     ctx.line = toAwkString(value);
     ctx.fields = splitFields(ctx, ctx.line);
     ctx.NF = ctx.fields.length;
-  } else if (index > 0) {
-    // Extend fields array if needed
+  } else if (!(index < 0)) {
+    // Positive, or NaN, which ensureFieldCount rejects
     ensureFieldCount(ctx, index);
     ctx.fields[index - 1] = toAwkString(value);
     ctx.NF = ctx.fields.length;
-    // Rebuild $0 from fields
     rebuildLine(ctx);
   }
 }

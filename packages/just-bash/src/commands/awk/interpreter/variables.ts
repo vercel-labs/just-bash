@@ -70,16 +70,14 @@ export function setVariable(
       return;
     case "NF": {
       const newNF = Math.floor(toNumber(value));
-      if (!Number.isFinite(newNF)) {
-        // Rejects NaN and both infinities before touching fields
-        ensureFieldCount(ctx, newNF);
-      } else if (newNF < 0) {
+      if (newNF < 0) {
         throw new Error("NF set to negative value");
-      } else if (newNF < ctx.NF) {
+      }
+      if (newNF < ctx.NF) {
         ctx.fields = ctx.fields.slice(0, newNF);
         rebuildLine(ctx);
-      } else if (!(newNF <= ctx.NF)) {
-        // Also taken when the current NF is NaN
+      } else if (newNF !== ctx.NF) {
+        // Also reached for NaN, which ensureFieldCount rejects
         ensureFieldCount(ctx, newNF);
         rebuildLine(ctx);
       }

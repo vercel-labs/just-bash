@@ -11,11 +11,7 @@ import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { createUserRegex, type UserRegex } from "../../regex/index.js";
 import type { AwkExpr } from "./ast.js";
 import type { AwkRuntimeContext } from "./interpreter/context.js";
-import {
-  ensureFieldCount,
-  rebuildLine,
-  splitFields,
-} from "./interpreter/fields.js";
+import { getField, setField } from "./interpreter/fields.js";
 import type { AwkValue } from "./interpreter/types.js";
 
 /**
@@ -107,61 +103,46 @@ async function extractPatternArg(
   return pattern;
 }
 
+type SubTarget =
+  | { kind: "field"; index: number }
+  | { kind: "variable"; name: string };
+
 /**
- * Resolve a target variable name from a sub/gsub third argument.
- * Returns the variable name (e.g., "myvar", "$0", "$1").
+ * Resolve the sub/gsub third argument; it defaults to $0.
  */
-async function resolveTargetName(
+async function resolveTarget(
   targetExpr: AwkExpr | undefined,
   evaluator: AwkEvaluator,
-): Promise<string> {
-  if (!targetExpr) return "$0";
-  if (targetExpr.type === "variable") {
-    return targetExpr.name;
+): Promise<SubTarget> {
+  if (targetExpr?.type === "variable") {
+    return { kind: "variable", name: targetExpr.name };
   }
-  if (targetExpr.type === "field") {
-    const idx = Math.floor(
+  if (targetExpr?.type === "field") {
+    const index = Math.floor(
       toNumber(await evaluator.evalExpr(targetExpr.index)),
     );
-    return `$${idx}`;
+    return { kind: "field", index };
   }
-  return "$0";
+  return { kind: "field", index: 0 };
 }
 
-/**
- * Get the current value of a target variable.
- */
-function getTargetValue(targetName: string, ctx: AwkRuntimeContext): string {
-  if (targetName === "$0") {
-    return ctx.line;
-  }
-  if (targetName.startsWith("$")) {
-    const idx = Number(targetName.slice(1)) - 1;
-    return ctx.fields[idx] || "";
-  }
-  return toAwkString(ctx.vars[targetName] ?? "");
+function getTargetValue(target: SubTarget, ctx: AwkRuntimeContext): string {
+  return toAwkString(
+    target.kind === "field"
+      ? getField(ctx, target.index)
+      : (ctx.vars[target.name] ?? ""),
+  );
 }
 
-/**
- * Apply a new value to a target variable, updating $0 and fields as needed.
- */
 function applyTargetValue(
-  targetName: string,
+  target: SubTarget,
   newValue: string,
   ctx: AwkRuntimeContext,
 ): void {
-  if (targetName === "$0") {
-    ctx.line = newValue;
-    ctx.fields = splitFields(ctx, newValue);
-    ctx.NF = ctx.fields.length;
-  } else if (targetName.startsWith("$")) {
-    const idx = Number(targetName.slice(1)) - 1;
-    ensureFieldCount(ctx, idx + 1);
-    ctx.fields[idx] = newValue;
-    ctx.NF = ctx.fields.length;
-    rebuildLine(ctx);
+  if (target.kind === "field") {
+    setField(ctx, target.index, newValue);
   } else {
-    ctx.vars[targetName] = newValue;
+    ctx.vars[target.name] = newValue;
   }
 }
 
@@ -268,8 +249,8 @@ async function awkSub(
 
   const pattern = await extractPatternArg(args[0], evaluator);
   const replacement = toAwkString(await evaluator.evalExpr(args[1]));
-  const targetName = await resolveTargetName(args[2], evaluator);
-  const target = getTargetValue(targetName, ctx);
+  const subTarget = await resolveTarget(args[2], evaluator);
+  const target = getTargetValue(subTarget, ctx);
 
   try {
     const regex = createUserRegex(pattern, "g");
@@ -281,7 +262,7 @@ async function awkSub(
         createSubReplacement(replacement, match[0], awkStringLimit(ctx)),
       awkStringLimit(ctx),
     );
-    applyTargetValue(targetName, replaced.value, ctx);
+    applyTargetValue(subTarget, replaced.value, ctx);
     return replaced.replacements;
   } catch (error) {
     rethrowFatalExecutionError(error);
@@ -298,8 +279,8 @@ async function awkGsub(
 
   const pattern = await extractPatternArg(args[0], evaluator);
   const replacement = toAwkString(await evaluator.evalExpr(args[1]));
-  const targetName = await resolveTargetName(args[2], evaluator);
-  const target = getTargetValue(targetName, ctx);
+  const subTarget = await resolveTarget(args[2], evaluator);
+  const target = getTargetValue(subTarget, ctx);
 
   try {
     const regex = createUserRegex(pattern, "g");
@@ -311,7 +292,7 @@ async function awkGsub(
         createSubReplacement(replacement, match[0], awkStringLimit(ctx)),
       awkStringLimit(ctx),
     );
-    applyTargetValue(targetName, replaced.value, ctx);
+    applyTargetValue(subTarget, replaced.value, ctx);
     return replaced.replacements;
   } catch (error) {
     rethrowFatalExecutionError(error);
