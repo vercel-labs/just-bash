@@ -4,7 +4,7 @@
  * Handles PATH-based command resolution and lookup for external commands.
  */
 
-import type { IFileSystem } from "../fs/interface.js";
+import type { FsStat, IFileSystem } from "../fs/interface.js";
 import type { Command, CommandRegistry } from "../types.js";
 import type { InterpreterState } from "./types.js";
 
@@ -23,11 +23,120 @@ export interface CommandResolutionContext {
 export type ResolveCommandResult =
   | { cmd: Command; path: string }
   | { script: true; path: string }
-  | { error: "not_found" | "permission_denied"; path?: string }
+  | {
+      error: "not_found" | "permission_denied";
+      path?: string;
+      /** The path as bash reports it: formed from the PATH entry, or as typed */
+      displayPath?: string;
+    }
   | null;
+
+/**
+ * A file that a PATH search found for a name.
+ */
+export interface PathMatch {
+  /** Absolute path of the file */
+  path: string;
+  /** Path formed from the PATH entry, as bash reports it */
+  displayPath: string;
+  /** Registered command whose stub the file is */
+  cmd?: Command;
+  /** Whether the file can run: an executable or a registered command's stub */
+  executable: boolean;
+}
 
 function isTrustedCommandStub(path: string, commandName: string): boolean {
   return path === `/bin/${commandName}` || path === `/usr/bin/${commandName}`;
+}
+
+/**
+ * Content of the file that stands for a registered command in /bin and
+ * /usr/bin, so that PATH lookups find it.
+ */
+export function commandStubContent(commandName: string): string {
+  return `#!/bin/bash\n# Built-in command: ${commandName}\n`;
+}
+
+/**
+ * Whether a file is the stub of a command that this shell does not register,
+ * such as one another Bash instance wrote to a shared filesystem. Such a stub
+ * stands for a command that is not provided here, so lookups treat it as
+ * absent rather than as a script or a file without execute permission.
+ */
+async function isUnregisteredCommandStub(
+  ctx: CommandResolutionContext,
+  path: string,
+  commandName: string,
+  stat: FsStat,
+): Promise<boolean> {
+  if (
+    ctx.commands.has(commandName) ||
+    !isTrustedCommandStub(path, commandName) ||
+    !stat.isFile
+  ) {
+    return false;
+  }
+  const stub = commandStubContent(commandName);
+  if (stat.size !== stub.length) {
+    return false;
+  }
+  try {
+    return (await ctx.fs.readFile(path)) === stub;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Search PATH for a name the way bash does: the first executable file wins,
+ * a registered command's stub counts as executable, and when no file can run,
+ * the first one found without execute permission is returned so that running
+ * it fails with "Permission denied". Directories and stubs of commands this
+ * shell does not register are skipped.
+ */
+export async function searchPath(
+  ctx: CommandResolutionContext,
+  commandName: string,
+  pathOverride?: string,
+): Promise<PathMatch | null> {
+  const pathEnv = pathOverride ?? ctx.state.env.get("PATH") ?? "/usr/bin:/bin";
+  const cmd = ctx.commands.get(commandName);
+  let denied: PathMatch | null = null;
+
+  for (const dir of pathEnv.split(":")) {
+    if (!dir) continue;
+    // Resolve relative PATH directories against cwd
+    const resolvedDir = dir.startsWith("/")
+      ? dir
+      : ctx.fs.resolvePath(ctx.state.cwd, dir);
+    const path = `${resolvedDir}/${commandName}`;
+    const displayPath = `${dir}/${commandName}`;
+    let stat: FsStat;
+    try {
+      if (!(await ctx.fs.exists(path))) continue;
+      stat = await ctx.fs.stat(path);
+    } catch {
+      continue;
+    }
+    if (stat.isDirectory) continue;
+
+    // Registered commands in system directories work without execute bits
+    // (they're our internal implementations with stub files)
+    if (cmd && isTrustedCommandStub(path, commandName)) {
+      return { path, displayPath, cmd, executable: true };
+    }
+    if (await isUnregisteredCommandStub(ctx, path, commandName, stat)) {
+      continue;
+    }
+    // Any other executable is a user script, even when it shares a
+    // registered command's name
+    if ((stat.mode & 0o111) !== 0) {
+      return { path, displayPath, executable: true };
+    }
+    denied ??= { path, displayPath, executable: false };
+  }
+
+  return denied;
 }
 
 /**
@@ -63,6 +172,10 @@ export async function resolveCommand(
       if (cmd && isTrustedCommandStub(resolvedPath, cmdName)) {
         return { cmd, path: resolvedPath };
       }
+      // A stub of a command this shell lacks is no command at all
+      if (await isUnregisteredCommandStub(ctx, resolvedPath, cmdName, stat)) {
+        return { error: "not_found", path: resolvedPath };
+      }
       const isExecutable = (stat.mode & 0o111) !== 0;
       if (!isExecutable) {
         // File exists but is not executable - permission denied
@@ -88,7 +201,15 @@ export async function resolveCommand(
           if (cmd && isTrustedCommandStub(cachedPath, commandName)) {
             return { cmd, path: cachedPath };
           }
-          if ((stat.mode & 0o111) !== 0) {
+          if (
+            (stat.mode & 0o111) !== 0 &&
+            !(await isUnregisteredCommandStub(
+              ctx,
+              cachedPath,
+              commandName,
+              stat,
+            ))
+          ) {
             return { script: true, path: cachedPath };
           }
         }
@@ -100,51 +221,12 @@ export async function resolveCommand(
   }
 
   // Search PATH directories (use override if provided, for command -p)
-  const pathEnv = pathOverride ?? ctx.state.env.get("PATH") ?? "/usr/bin:/bin";
-  const pathDirs = pathEnv.split(":");
-
-  for (const dir of pathDirs) {
-    if (!dir) continue;
-    // Resolve relative PATH directories against cwd
-    const resolvedDir = dir.startsWith("/")
-      ? dir
-      : ctx.fs.resolvePath(ctx.state.cwd, dir);
-    const fullPath = `${resolvedDir}/${commandName}`;
-    if (await ctx.fs.exists(fullPath)) {
-      // File exists - check if it's a directory
-      try {
-        const stat = await ctx.fs.stat(fullPath);
-        if (stat.isDirectory) {
-          continue; // Skip directories
-        }
-        const isExecutable = (stat.mode & 0o111) !== 0;
-        // Check for registered command handler
-        const cmd = ctx.commands.get(commandName);
-
-        // Determine if this is a system directory where command stubs live
-        const isSystemDir = isTrustedCommandStub(fullPath, commandName);
-
-        if (cmd && isSystemDir) {
-          // Registered commands in system directories work without execute bits
-          // (they're our internal implementations with stub files)
-          return { cmd, path: fullPath };
-        }
-
-        // For non-system directories (or non-registered commands), require executable
-        if (isExecutable) {
-          if (cmd && !isSystemDir) {
-            // User script shadows a registered command - treat as script
-            return { script: true, path: fullPath };
-          }
-          if (!cmd) {
-            // No registered handler - treat as user script
-            return { script: true, path: fullPath };
-          }
-        }
-      } catch {
-        // If stat fails, continue searching
-      }
-    }
+  const match = await searchPath(ctx, commandName, pathOverride);
+  if (match?.cmd) {
+    return { cmd: match.cmd, path: match.path };
+  }
+  if (match?.executable) {
+    return { script: true, path: match.path };
   }
 
   // Fallback: check registry directly only if /usr/bin doesn't exist
@@ -158,6 +240,15 @@ export async function resolveCommand(
     }
   }
 
+  // Like bash, a name found only without execute permission is reported as
+  // permission denied instead of not found.
+  if (match) {
+    return {
+      error: "permission_denied",
+      path: match.path,
+      displayPath: match.displayPath,
+    };
+  }
   return null;
 }
 
@@ -216,7 +307,11 @@ export async function findCommandInPath(
       // Check if it's a directory - skip directories
       try {
         const stat = await ctx.fs.stat(fullPath);
-        if (stat.isDirectory || (stat.mode & 0o111) === 0) {
+        if (
+          stat.isDirectory ||
+          (stat.mode & 0o111) === 0 ||
+          (await isUnregisteredCommandStub(ctx, fullPath, commandName, stat))
+        ) {
           continue;
         }
       } catch {
