@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../Bash.js";
 import { InMemoryFs } from "../fs/in-memory-fs/in-memory-fs.js";
-import type { FsStat } from "../fs/interface.js";
+import type { FsStat, RealpathOptions } from "../fs/interface.js";
 
 class IdentitylessFs extends InMemoryFs {
   override async stat(path: string): Promise<FsStat> {
@@ -16,7 +16,7 @@ class IdentitylessFs extends InMemoryFs {
 }
 
 class NoRealpathFs extends InMemoryFs {
-  override async realpath(_path: string): Promise<string> {
+  override async realpath(_input: string | RealpathOptions): Promise<string> {
     throw new Error("ENOTSUP: realpath unavailable");
   }
 }

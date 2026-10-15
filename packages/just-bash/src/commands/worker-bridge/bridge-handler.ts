@@ -362,9 +362,12 @@ export class BridgeHandler {
   }
 
   private async handleRealpath(): Promise<void> {
-    const path = this.resolvePath(this.protocol.getPath());
     try {
-      const realpath = await this.fs.realpath(path);
+      const realpath = await this.fs.realpath({
+        cwd: this.cwd,
+        path: this.protocol.getPath(),
+        mode: "strict",
+      });
       this.protocol.setResultFromString(realpath);
       this.protocol.setStatus(Status.SUCCESS);
     } catch (e) {

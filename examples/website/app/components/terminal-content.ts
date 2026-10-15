@@ -85,7 +85,7 @@ Custom commands receive a \`CommandContext\` with \`fs\`, \`cwd\`, \`env\`, \`st
 
 ### File Operations
 
-\`cat\`, \`cp\`, \`file\`, \`ln\`, \`ls\`, \`mkdir\`, \`mv\`, \`readlink\`, \`rm\`, \`rmdir\`, \`split\`, \`stat\`, \`touch\`, \`tree\`
+\`cat\`, \`cp\`, \`file\`, \`ln\`, \`ls\`, \`mkdir\`, \`mv\`, \`readlink\`, \`realpath\`, \`rm\`, \`rmdir\`, \`split\`, \`stat\`, \`touch\`, \`tree\`
 
 ### Text Processing
 
@@ -933,7 +933,7 @@ const result = await bash.exec("cat input.txt | grep pattern");
 
 **Data processing**: \`jq\` (JSON), \`js-exec\` (JavaScript/TypeScript via QuickJS), \`python3\`/\`python\` (Python via WASM/CPython), \`sqlite3\` (SQLite), \`xan\` (CSV), \`yq\` (YAML/XML/TOML/CSV)
 
-**File operations**: \`basename\`, \`chmod\`, \`cp\`, \`dirname\`, \`du\`, \`file\`, \`find\`, \`ln\`, \`ls\`, \`mkdir\`, \`mv\`, \`od\`, \`pwd\`, \`readlink\`, \`rm\`, \`rmdir\`, \`split\`, \`stat\`, \`touch\`, \`tree\`
+**File operations**: \`basename\`, \`chmod\`, \`cp\`, \`dirname\`, \`du\`, \`file\`, \`find\`, \`ln\`, \`ls\`, \`mkdir\`, \`mv\`, \`od\`, \`pwd\`, \`readlink\`, \`realpath\`, \`rm\`, \`rmdir\`, \`split\`, \`stat\`, \`touch\`, \`tree\`
 
 **Utilities**: \`alias\`, \`base64\`, \`bash\`, \`clear\`, \`curl\`, \`date\`, \`diff\`, \`echo\`, \`env\`, \`expr\`, \`false\`, \`gzip\`, \`gunzip\`, \`help\`, \`history\`, \`hostname\`, \`html-to-markdown\`, \`md5sum\`, \`printenv\`, \`printf\`, \`seq\`, \`sh\`, \`sha1sum\`, \`sha256sum\`, \`sleep\`, \`tar\`, \`tee\`, \`time\`, \`timeout\`, \`true\`, \`unalias\`, \`which\`, \`whoami\`, \`zcat\`
 
