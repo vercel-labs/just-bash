@@ -88,4 +88,31 @@ describe("ls groups multiple operands", () => {
     expect(result.stdout).toBe("dir1\ndir2\nf1.txt\n");
     expect(result.exitCode).toBe(0);
   });
+
+  describe("-d with glob-expanded operands", () => {
+    async function runGlob(command: string) {
+      return await new Bash({
+        files: {
+          "/t/a/x.txt": "1",
+          "/t/b/y.txt": "2",
+          "/t/c/z.txt": "3",
+          "/t/f.txt": "4",
+        },
+      }).exec(command);
+    }
+
+    it("prints mixed directories and files without blank lines", async () => {
+      const result = await runGlob("ls -d /t/*");
+      expect(result.stdout).toBe("/t/a\n/t/b\n/t/c\n/t/f.txt\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("counts each path once when piped to wc -l", async () => {
+      const result = await runGlob("ls -d /t/* | wc -l");
+      expect(result.stdout).toBe("4\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+  });
 });
