@@ -1,5 +1,58 @@
 # just-bash
 
+## 3.6.1
+
+### Patch Changes
+
+- [#590](https://github.com/vercel-labs/just-bash/pull/590) [`8386d25`](https://github.com/vercel-labs/just-bash/commit/8386d253f257ca8c2696075e44d0caedc44270aa) Thanks [@privatenumber](https://github.com/privatenumber)! - Bound `awk` field arrays by `maxArrayElements`. Assigning to `NF`, to `$N`, or to a field through `sub`/`gsub` now fails with `field count limit exceeded` before allocating, instead of padding the record with millions of empty fields. Splitting a record into fields (input records, `$0` assignment, `sub`/`gsub` on `$0`) stops at the same limit, so a record with more fields than `maxArrayElements` now fails with that error. Rebuilding `$0` checks the joined size against the string limit first, and a negative `NF` is rejected as in gawk.
+
+- [#562](https://github.com/vercel-labs/just-bash/pull/562) [`3ebd1c2`](https://github.com/vercel-labs/just-bash/commit/3ebd1c291462bc6bad3c6df7ebfe563d8799bfd9) Thanks [@Hazzng](https://github.com/Hazzng)! - Treat `/dev/null` redirects as a discard/EOF device without requiring filesystem device nodes. Output redirects discard data, input redirects return EOF, and read-write redirects support both behaviors. This works on filesystems that cannot initialize `/dev`, preserves command exit statuses, and prevents append redirects from growing a backing file.
+
+  This change covers redirect operators only. Commands that access `/dev/null` by path, such as `cat`, `cp`, and `test -e`, still depend on filesystem entries. `/dev/stdout` and `/dev/stderr` retain their existing behavior; stream-device identity and offset handling are separate work.
+
+- [#584](https://github.com/vercel-labs/just-bash/pull/584) [`8fc1930`](https://github.com/vercel-labs/just-bash/commit/8fc1930c50c198c4b6ea9d29c29ae1864ae38de3) Thanks [@privatenumber](https://github.com/privatenumber)! - Support `rg --color` and `--`, and align heading layout, context match prefixes, glob precedence, explicit-file selection, zero match limits, and error exit codes with ripgrep. Preserve the documented smart-case default and plain text output for all color choices.
+
+  Correct overlapping-context match prefixes in `grep`, `egrep`, and `fgrep`, while retaining context prefixes for trailing lines after their `-m` limit. Apply ripgrep's combined `--glob`/`--iglob` precedence, validate types in `rg --files` mode and malformed `--iglob` values, and accept attached values in combined short flags and leading `+` in nonnegative numeric values.
+
+  Honor per-file `-m` limits in line-based count mode for `rg`, `grep`, `egrep`, and `fgrep`, including `rg --count-matches`, which counts every occurrence on the selected matching lines.
+
+- [#552](https://github.com/vercel-labs/just-bash/pull/552) [`7c39159`](https://github.com/vercel-labs/just-bash/commit/7c391598ec1efc4ffcc12388546fbef8f76a7b4e) Thanks [@FredAmartey](https://github.com/FredAmartey)! - Evaluate the index of `X[expr]` in `jq` against the input, as jq does, so `.foo[.bar]` and `$m[.]` look up the right key. The index is read before the base and several keys come out in jq's order. `path()` and `del` follow the same rule, and `xan` can index with a column, as in `split(names, '|')[idx]`. Filters that leaned on the old reading change too: `.items[length-1]` now reads `length` from the input, so use `.items[-1]` for the last item.
+
+- [#439](https://github.com/vercel-labs/just-bash/pull/439) [`58d1ecf`](https://github.com/vercel-labs/just-bash/commit/58d1ecf31b768ea9834e151b166cf4cea32046ba) Thanks [@trieloff](https://github.com/trieloff)! - bash/sh: start nested shells from the exported environment only
+
+  `Bash.exec(…, { env, replaceEnv: true })` set its variables for commands run directly, but a nested `sh -c` or `bash -c` never saw them, and still saw the constructor's env instead:
+
+  ```js
+  const bash = new Bash({ env: { SECRET: "leak" } });
+  await bash.exec("sh", {
+    args: ["-c", "echo [$MARKER]; printenv SECRET"],
+    env: { MARKER: "YES" },
+    replaceEnv: true,
+  }); // was "[]\nleak\n", now "[YES]\n"
+  ```
+
+  Nested `sh` and `bash` now inherit only exported variables. Per-exec environment values reach them, `export -n` takes effect, and exports made in one `exec()` no longer affect later calls. Wrappers such as `env`, `time`, and `timeout` use the active caller's variables and exports, preserving script exports without restoring constructor variables during replacement execution.
+
+  Startup resets `IFS` and `OPTIND` while retaining inherited export attributes. `cd -` uses the current `OLDPWD`: an unset value reports an error, and an empty value succeeds without changing directory.
+
+- [#592](https://github.com/vercel-labs/just-bash/pull/592) [`ad9039a`](https://github.com/vercel-labs/just-bash/commit/ad9039a850d71ddd67d7786550b9f32ed8f12dc0) Thanks [@privatenumber](https://github.com/privatenumber)! - Each `exec()` now gets its own copy of `shopt` settings, readonly attributes, and hashed command paths, so changes made by one `exec()` no longer carry over to later calls on the same `Bash` instance. Nested executions (for example through `time` or a custom command's `ctx.exec`) still inherit the calling script's settings.
+
+- [#580](https://github.com/vercel-labs/just-bash/pull/580) [`f0baa00`](https://github.com/vercel-labs/just-bash/commit/f0baa001a3dfb69e1daed52c612400153a1ea2d8) Thanks [@privatenumber](https://github.com/privatenumber)! - Preserve prepared output destinations when commands change directories and apply output, read-write (`<>`), and input-only redirects in source order. Combined redirects to `/dev/stdout` and `/dev/stderr` use the selected stream, input redirects on stdout or stderr leave stdin unchanged, and duplicated read-write destinations retain both stdout and stderr output.
+
+- [#521](https://github.com/vercel-labs/just-bash/pull/521) [`864dfe5`](https://github.com/vercel-labs/just-bash/commit/864dfe5d4b9cf0447c4eb2002193f2ab2008bd0e) Thanks [@Hazzng](https://github.com/Hazzng)! - Fix `js-exec` Buffer encoding defaults, UTF-8 reads, typed-array inputs, character-boundary writes, and range validation. Reduce temporary allocations in byte conversion, `tr`, and `sed` while preserving execution limits.
+
+- [#561](https://github.com/vercel-labs/just-bash/pull/561) [`6df20ce`](https://github.com/vercel-labs/just-bash/commit/6df20cebf56bf9bcc2d63b425f26a7446b13a67d) Thanks [@Hazzng](https://github.com/Hazzng)! - Report a missing or non-directory parent of an output redirect target the way bash does
+
+  On a filesystem whose `writeFile` throws `ENOENT` for a missing parent directory, `echo x > /missing/f` rejected the whole `bash.exec()` call. Inside a loop, the loop stopped after its first iteration and the script still exited 0. The command now fails alone with `bash: /missing/f: No such file or directory` (or `Not a directory`), `$?` is 1, and the script continues. Numeric-fd redirects such as `exec 3> /missing/f` print the same message in place of `cannot open redirect target`. Other filesystem errors, such as `EROFS`, behave as before.
+
+- [#401](https://github.com/vercel-labs/just-bash/pull/401) [`9ab0e0d`](https://github.com/vercel-labs/just-bash/commit/9ab0e0d34c1d24978cd40ae890a91ccb223cc606) Thanks [@atesgoral](https://github.com/atesgoral)! - rg: search an empty piped or redirected stdin instead of the current directory
+
+  `printf '' | rg target` treated the empty pipe as absent stdin and recursively searched the current directory. Real ripgrep searches the empty input and exits 1 with no matches. A pipeline stage or an fd-0 redirection (`< empty-file`, an empty here-doc) now counts as stdin even when empty, including through `command rg` and `exec rg`.
+
+  This applies to every external command: inside a group with its own stdin, `{ cat < empty-file; } < other` now reads EOF instead of falling back to `other`.
+
+  `rg` searches the current directory for character-device stdin (`</dev/null`, `</dev/zero`, `</dev/random`, `</dev/urandom`) or closed stdin (`<&-`), as real ripgrep does. Custom commands continue to receive device descriptor content as an empty string in `fileDescriptors`.
+
 ## 3.6.0
 
 ### Minor Changes
