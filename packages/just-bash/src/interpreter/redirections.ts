@@ -234,6 +234,31 @@ const PATH_ERROR_REASONS = new Map([
   ["ENOTDIR", "Not a directory"],
 ]);
 
+/**
+ * Opening a redirect target creates the file, never the directory it would
+ * be in, so bash fails `echo x > missing/f`. The filesystems' writeFile
+ * makes missing directories, so where the embedder asks for bash's behavior
+ * the directory is checked first. Any other failure to stat it is left for
+ * the open to report.
+ */
+async function missingDirectoryError(
+  ctx: InterpreterContext,
+  filePath: string,
+  target: string,
+): Promise<ExecResult | null> {
+  const directory = filePath.slice(0, filePath.lastIndexOf("/")) || "/";
+  let reason: string | undefined;
+  try {
+    if (!(await ctx.fs.stat(directory)).isDirectory) {
+      reason = PATH_ERROR_REASONS.get("ENOTDIR");
+    }
+  } catch (error) {
+    const code = getErrorCode(error);
+    reason = code ? PATH_ERROR_REASONS.get(code) : undefined;
+  }
+  return reason ? makeResult("", `bash: ${target}: ${reason}\n`, 1) : null;
+}
+
 async function openOutputEntry(
   ctx: InterpreterContext,
   target: string,
@@ -262,6 +287,10 @@ async function openOutputEntry(
   }
   if (target === "/dev/stderr") {
     return { entry: { kind: "dup-out", sourceFd: 2 } };
+  }
+  if (ctx.redirectCreatesDirectories === false) {
+    const missing = await missingDirectoryError(ctx, filePath, target);
+    if (missing) return { error: missing };
   }
   try {
     if (append) await ctx.fs.appendFile(filePath, "", "binary");

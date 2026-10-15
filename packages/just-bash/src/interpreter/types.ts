@@ -523,4 +523,9 @@ export interface InterpreterContext {
     argsJson: string,
     abortSignal: AbortSignal,
   ) => Promise<string>;
+  /**
+   * Whether a redirect into a directory that does not exist makes it, as the
+   * filesystems' writeFile does, rather than failing as bash does.
+   */
+  redirectCreatesDirectories?: boolean;
 }
