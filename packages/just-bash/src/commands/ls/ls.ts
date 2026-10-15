@@ -1,6 +1,7 @@
 import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { utf8ByteLength } from "../../encoding.js";
 import type { FsStat } from "../../fs/interface.js";
+import { dirname } from "../../fs/path-utils.js";
 import { FileTraversalBudget } from "../../fs/traversal.js";
 import {
   ExecutionAbortedError,
@@ -13,6 +14,7 @@ import type {
 } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { DEFAULT_BATCH_SIZE } from "../../utils/constants.js";
+import { formatMode } from "../format-mode.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 function appendLsOutput(
@@ -134,6 +136,51 @@ function classifySuffix(stat: FsStat): string {
   return "";
 }
 
+/**
+ * Stat the synthetic `.` and `..` of a long listing.
+ *
+ * `fullPath` is the operand as spelled, and an operand can be reached through a
+ * symlink — `ls -la link/` and `cd link; ls -la` both name the link while
+ * listing the directory behind it. `.` must describe that directory, so it is
+ * read with `stat`, which follows. `..` is the parent of the same directory,
+ * which is `dirname` of the resolved path, not of the spelled operand.
+ *
+ * An entry whose stat fails is left out of the map so the caller can fall back
+ * to its assumed directory mode.
+ */
+async function specialEntryStats(
+  ctx: RuntimeCommandContext,
+  fullPath: string,
+): Promise<Map<string, FsStat>> {
+  const stats = new Map<string, FsStat>();
+  try {
+    stats.set(".", await ctx.fs.stat(fullPath));
+    const resolved = await ctx.fs.realpath(fullPath);
+    stats.set("..", await ctx.fs.stat(dirname(resolved)));
+  } catch {
+    // An unresolvable listing keeps the assumed directory mode.
+  }
+  return stats;
+}
+
+/**
+ * `ls -l` follows a symlink's name with ` -> target`, where the target is the
+ * stored link value, not the resolved path. Reads through the filesystem's own
+ * `readlink`, so a link whose target no longer resolves still prints.
+ */
+async function symlinkArrow(
+  ctx: RuntimeCommandContext,
+  fullPath: string,
+  stat: FsStat,
+): Promise<string> {
+  if (!stat.isSymbolicLink) return "";
+  try {
+    return ` -> ${await ctx.fs.readlink(fullPath)}`;
+  } catch {
+    return "";
+  }
+}
+
 const lsHelp = {
   name: "ls",
   summary: "list directory contents",
@@ -235,12 +282,13 @@ export const lsCommand: RuntimeCommand = {
         traversalBudget.visit(0);
         const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
         try {
-          const stat = await ctx.fs.stat(fullPath);
+          // lstat, not stat: -d describes the operand itself, so a symlink
+          // reads as `l` with its own mode and target rather than as whatever
+          // it points at.
+          const stat = await ctx.fs.lstat(fullPath);
+          const suffix = classifyFiles ? classifySuffix(stat) : "";
           if (longFormat) {
-            const mode = stat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
-            const suffix = classifyFiles
-              ? classifySuffix(await ctx.fs.lstat(fullPath))
-              : "";
+            const arrow = await symlinkArrow(ctx, fullPath, stat);
             const size = stat.size ?? 0;
             const sizeStr = humanReadable
               ? formatHumanSize(size).padStart(5)
@@ -250,12 +298,9 @@ export const lsCommand: RuntimeCommand = {
             stdout = appendLsOutput(
               ctx,
               stdout,
-              `${mode} 1 user user ${sizeStr} ${dateStr} ${path}${suffix}\n`,
+              `${formatMode(stat.mode, stat.isDirectory, stat.isSymbolicLink)} 1 user user ${sizeStr} ${dateStr} ${path}${arrow}${suffix}\n`,
             );
           } else {
-            const suffix = classifyFiles
-              ? classifySuffix(await ctx.fs.lstat(fullPath))
-              : "";
             stdout = appendLsOutput(ctx, stdout, `${path}${suffix}\n`);
           }
         } catch {
@@ -485,19 +530,21 @@ async function listPath(
     const stat = await ctx.fs.stat(fullPath);
 
     if (!stat.isDirectory) {
-      // It's a file, just show it
-      const fileSuffix = classifyFiles
-        ? classifySuffix(await ctx.fs.lstat(fullPath))
-        : "";
+      // It's a file, just show it. A symlink operand is described by lstat:
+      // without -L, `ls` reports the link itself rather than its target.
+      const entryStat =
+        longFormat || classifyFiles ? await ctx.fs.lstat(fullPath) : stat;
+      const fileSuffix = classifyFiles ? classifySuffix(entryStat) : "";
       if (longFormat) {
-        const size = stat.size ?? 0;
+        const arrow = await symlinkArrow(ctx, fullPath, entryStat);
+        const size = entryStat.size ?? 0;
         const sizeStr = humanReadable
           ? formatHumanSize(size).padStart(5)
           : String(size).padStart(5);
-        const mtime = stat.mtime ?? new Date(0);
+        const mtime = entryStat.mtime ?? new Date(0);
         const dateStr = formatDate(mtime);
         return {
-          stdout: `-rw-r--r-- 1 user user ${sizeStr} ${dateStr} ${path}${fileSuffix}\n`,
+          stdout: `${formatMode(entryStat.mode, entryStat.isDirectory, entryStat.isSymbolicLink)} 1 user user ${sizeStr} ${dateStr} ${path}${arrow}${fileSuffix}\n`,
           stderr: "",
           exitCode: 0,
         };
@@ -572,12 +619,27 @@ async function listPath(
       const specialEntries = entries.filter((e) => e === "." || e === "..");
       const regularEntries = entries.filter((e) => e !== "." && e !== "..");
 
-      // Add special entries first
+      // Add special entries first. `.` is the directory being listed and `..`
+      // is its parent, so both carry a real mode rather than an assumed one.
+      // `stat`, not `lstat`: the operand may be reached through a symlink, and
+      // `.` is by definition the directory rather than the link that names it.
+      // Size and mtime stay literal here: `ls` has always reported `0` and the
+      // epoch for these two synthetic entries, and no real directory reports a
+      // meaningful size of its own.
+      const specialStats = await specialEntryStats(ctx, fullPath);
       for (const entry of specialEntries) {
+        const specialStat = specialStats.get(entry);
+        const mode = specialStat
+          ? formatMode(
+              specialStat.mode,
+              specialStat.isDirectory,
+              specialStat.isSymbolicLink,
+            )
+          : "drwxr-xr-x";
         stdout = appendLsOutput(
           ctx,
           stdout,
-          `drwxr-xr-x 1 user user     0 Jan  1 00:00 ${entry}\n`,
+          `${mode} 1 user user     0 Jan  1 00:00 ${entry}\n`,
         );
       }
 
@@ -594,11 +656,11 @@ async function listPath(
             const entryPath =
               fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`;
             try {
-              const entryStat = await ctx.fs.stat(entryPath);
-              const mode = entryStat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
-              const suffix = classifyFiles
-                ? classifySuffix(await ctx.fs.lstat(entryPath))
-                : "";
+              // lstat, not stat: without -L or -H a listing describes the
+              // symlink itself, so its mode, size and target are the link's.
+              const entryStat = await ctx.fs.lstat(entryPath);
+              const arrow = await symlinkArrow(ctx, entryPath, entryStat);
+              const suffix = classifyFiles ? classifySuffix(entryStat) : "";
               const size = entryStat.size ?? 0;
               const sizeStr = humanReadable
                 ? formatHumanSize(size).padStart(5)
@@ -607,7 +669,7 @@ async function listPath(
               const dateStr = formatDate(mtime);
               return {
                 name: entry,
-                line: `${mode} 1 user user ${sizeStr} ${dateStr} ${entry}${suffix}\n`,
+                line: `${formatMode(entryStat.mode, entryStat.isDirectory, entryStat.isSymbolicLink)} 1 user user ${sizeStr} ${dateStr} ${entry}${arrow}${suffix}\n`,
               };
             } catch {
               return {
