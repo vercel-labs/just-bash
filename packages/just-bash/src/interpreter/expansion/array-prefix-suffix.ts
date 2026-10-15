@@ -51,11 +51,13 @@ export type ExpandWordPartsAsyncFn = (
  * Handle "${arr[@]:-${default[@]}}" and "${arr[@]:+${alt[@]}}".
  * Also handles "${var:-${default[@]}}" where var is a scalar variable.
  * Assignment defaults preserve existing array elements when no assignment is needed.
- * When the default value contains an array expansion, each element should become a separate word.
+ * When the default value contains an array expansion, each element should become a separate word,
+ * with any text before the array joined to the first and text after it joined to the last.
  */
 export async function handleArrayDefaultValue(
   ctx: InterpreterContext,
   wordParts: WordPart[],
+  expandPart: ExpandPartFn,
 ): Promise<ArrayExpansionResult> {
   if (wordParts.length !== 1 || wordParts[0].type !== "DoubleQuoted") {
     return null;
@@ -158,48 +160,16 @@ export async function handleArrayDefaultValue(
     return null;
   }
 
-  // We should use the alternate/default value
+  // Text before the array in the default/alternative word joins its first
+  // element and text after it joins the last, as in "pre${arr[@]}post".
+  // A word without an array expansion falls through to normal expansion.
   if (shouldUseAlternate && op.word) {
-    // Check if the default/alternative word contains an array expansion
-    const opWordParts = op.word.parts;
-    let defaultArrayName: string | null = null;
-    let defaultIsStar = false;
-
-    for (const part of opWordParts) {
-      if (part.type === "ParameterExpansion" && !part.operation) {
-        const defaultMatch = part.parameter.match(
-          /^([a-zA-Z_][a-zA-Z0-9_]*)\[([@*])\]$/,
-        );
-        if (defaultMatch) {
-          defaultArrayName = defaultMatch[1];
-          defaultIsStar = defaultMatch[2] === "*";
-          break;
-        }
-      }
-    }
-
-    if (defaultArrayName) {
-      // The default word is an array expansion - return its elements
-      const defaultElements = getArrayElements(ctx, defaultArrayName);
-      if (defaultElements.length > 0) {
-        const values = defaultElements.map(([, v]) => v);
-        if (defaultIsStar || outerIsStar) {
-          // Join with IFS for [*] subscript
-          const ifsSep = getIfsSeparator(ctx.state.env);
-          return { values: [values.join(ifsSep)], quoted: true };
-        }
-        // [@] - each element as a separate word
-        return { values, quoted: true };
-      }
-      // Default array is empty - check for scalar
-      const scalarValue = ctx.state.env.get(defaultArrayName);
-      if (scalarValue !== undefined) {
-        return { values: [scalarValue], quoted: true };
-      }
-      // Default is unset
-      return { values: [], quoted: true };
-    }
-    // Default word doesn't contain an array expansion - fall through to normal expansion
+    return handleArrayWithPrefixSuffix(
+      ctx,
+      [{ type: "DoubleQuoted", parts: op.word.parts }],
+      true,
+      expandPart,
+    );
   }
 
   return null;
