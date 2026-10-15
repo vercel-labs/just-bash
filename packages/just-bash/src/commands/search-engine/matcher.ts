@@ -3,6 +3,10 @@
  */
 
 import {
+  type CommandExecutionBudget,
+  DEADLINE_CHECK_STRIDE,
+} from "../../execution-scope.js";
+import {
   ExecutionAbortedError,
   ExecutionLimitError,
 } from "../../interpreter/errors.js";
@@ -95,6 +99,8 @@ export interface SearchOptions {
   maxMatches?: number;
   /** Cooperative cancellation signal checked during long scans. */
   signal?: AbortSignal;
+  /** Shared accounting; supplies the wall-clock deadline during long scans. */
+  budget?: CommandExecutionBudget;
 }
 
 export interface SearchResult {
@@ -145,6 +151,7 @@ export function searchContent(
     maxWork,
     maxMatches,
     signal,
+    budget,
   } = options;
 
   // Multiline mode: search entire content as one string
@@ -168,12 +175,18 @@ export function searchContent(
       maxWork,
       maxMatches,
       signal,
+      budget,
     });
   }
 
   let work = 0;
+  let sinceDeadlineCheck = 0;
   const chargeWork = (amount = 1): void => {
     if (signal?.aborted) throw new ExecutionAbortedError();
+    if (++sinceDeadlineCheck >= DEADLINE_CHECK_STRIDE) {
+      sinceDeadlineCheck = 0;
+      budget?.throwIfAborted("search");
+    }
     work += amount;
     if (maxWork !== undefined && work > maxWork) {
       throw new ExecutionLimitError(
@@ -537,6 +550,7 @@ function searchContentMultiline(
     maxWork?: number;
     maxMatches?: number;
     signal?: AbortSignal;
+    budget?: CommandExecutionBudget;
   },
 ): SearchResult {
   const {
@@ -558,11 +572,17 @@ function searchContentMultiline(
     maxWork,
     maxMatches,
     signal,
+    budget,
   } = options;
 
   let work = 0;
+  let sinceDeadlineCheck = 0;
   const chargeWork = (amount = 1): void => {
     if (signal?.aborted) throw new ExecutionAbortedError();
+    if (++sinceDeadlineCheck >= DEADLINE_CHECK_STRIDE) {
+      sinceDeadlineCheck = 0;
+      budget?.throwIfAborted("search");
+    }
     work += amount;
     if (maxWork !== undefined && work > maxWork) {
       throw new ExecutionLimitError(

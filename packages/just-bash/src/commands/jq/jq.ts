@@ -489,7 +489,8 @@ export const jqCommand: RuntimeCommand = {
         positionalArgs,
         coverage: ctx.coverage,
         requireDefenseContext: ctx.requireDefenseContext,
-        budget: { operations: 0, callDepth: 0 },
+        budget: { operations: 0, callDepth: 0, deadlineCheckAt: 0 },
+        executionScope: ctx.executionScope,
       };
       const appendValues = (target: QueryValue[], next: QueryValue[]): void => {
         if (next.length > ctx.limits.maxQueryElements - target.length) {

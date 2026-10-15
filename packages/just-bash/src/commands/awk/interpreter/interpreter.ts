@@ -4,6 +4,7 @@
  * Main interpreter class that orchestrates AWK program execution.
  */
 
+import { DEADLINE_CHECK_STRIDE } from "../../../execution-scope.js";
 import { ExecutionLimitError } from "../../../interpreter/errors.js";
 import {
   assertDefenseContext as assertDefenseContextInvariant,
@@ -83,6 +84,9 @@ export class AwkInterpreter {
     this.assertDefenseContext("line execution entry");
     if (!this.program || this.ctx.shouldExit) return;
 
+    if (this.ctx.recordsProcessed % DEADLINE_CHECK_STRIDE === 0) {
+      this.ctx.executionScope?.throwIfAborted("awk");
+    }
     this.ctx.recordsProcessed++;
     if (this.ctx.recordsProcessed > this.ctx.maxIterations) {
       throw new ExecutionLimitError(
