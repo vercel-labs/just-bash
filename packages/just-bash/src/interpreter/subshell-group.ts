@@ -146,7 +146,9 @@ async function executeSubshellBody(
         error.stderr,
         error.internalOutputAccounting.stderr,
       );
-      return output.build(0);
+      return output.build(0, {
+        internalStdoutProducers: error.internalStdoutProducers,
+      });
     }
     // BreakError/ContinueError should NOT propagate out of subshell
     // They only affect loops within the subshell
@@ -161,7 +163,9 @@ async function executeSubshellBody(
         error.stderr,
         error.internalOutputAccounting.stderr,
       );
-      return output.build(0);
+      return output.build(0, {
+        internalStdoutProducers: error.internalStdoutProducers,
+      });
     }
     // ExitError in subshell should NOT propagate - just return the exit code
     // (subshells are like separate processes)
@@ -176,7 +180,9 @@ async function executeSubshellBody(
         error.stderr,
         error.internalOutputAccounting.stderr,
       );
-      return output.build(error.exitCode);
+      return output.build(error.exitCode, {
+        internalStdoutProducers: error.internalStdoutProducers,
+      });
     }
     // ReturnError in subshell (e.g., f() ( return 42; )) should also just exit
     // with the given code, since subshells are like separate processes
@@ -191,7 +197,9 @@ async function executeSubshellBody(
         error.stderr,
         error.internalOutputAccounting.stderr,
       );
-      return output.build(error.exitCode);
+      return output.build(error.exitCode, {
+        internalStdoutProducers: error.internalStdoutProducers,
+      });
     }
     if (error instanceof ErrexitError) {
       // Apply output redirections before propagating
@@ -205,7 +213,9 @@ async function executeSubshellBody(
         error.stderr,
         error.internalOutputAccounting.stderr,
       );
-      return output.build(error.exitCode);
+      return output.build(error.exitCode, {
+        internalStdoutProducers: error.internalStdoutProducers,
+      });
     }
     // Apply output redirections before returning
     output.append("stderr", `${getErrorMessage(error)}\n`);
@@ -302,7 +312,7 @@ async function executeGroupBody(
       error instanceof ErrexitError ||
       error instanceof ExitError
     ) {
-      error.prependOutput(output.stdout, output.stderr);
+      output.prependTo(error);
       throw error;
     }
     output.append("stderr", `${getErrorMessage(error)}\n`);

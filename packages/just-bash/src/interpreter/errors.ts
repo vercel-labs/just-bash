@@ -12,6 +12,7 @@
  * as they propagate through the execution stack.
  */
 import { utf8ByteLength } from "../encoding.js";
+import type { ExecResult } from "../types.js";
 
 /**
  * Base class for all control flow errors.
@@ -19,6 +20,7 @@ import { utf8ByteLength } from "../encoding.js";
  */
 export abstract class ControlFlowError extends Error {
   internalOutputAccounting = { stdout: 0, stderr: 0 };
+  internalStdoutProducers?: ExecResult["internalStdoutProducers"];
   constructor(
     message: string,
     public stdout: string = "",
