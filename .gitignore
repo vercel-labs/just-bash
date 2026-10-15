@@ -16,6 +16,7 @@ todo/
 .pnpm-store
 .docs-test-tmp/
 fuzz-*.log
+fuzz-*.jsonl
 .claude/settings.local.json
 .deepsec/
 plans/

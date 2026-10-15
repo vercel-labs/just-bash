@@ -84,6 +84,20 @@ RECORD_FIXTURES=force pnpm test:comparison  # re-record everything, overwriting 
 
 Commit the generated fixture file together with the test. If you adjust a fixture for Linux behavior, mark it `"locked": true` so later re-recordings leave it alone.
 
+#### Crash diagnostics
+
+Failed Unit Tests jobs upload a `test-diagnostics-node-<version>-attempt-<attempt>` artifact, retained for seven days. For local runs, set `TEST_DIAGNOSTICS_DIR` to a diagnostics directory; without it, fuzz suites write unique JSONL logs beside their configured local log paths.
+
+Each fuzz log starts with metadata containing the suite seed, configuration, Node version, and worker PID. A `start` record contains the exact script, property label, and memory measurements. Match its `caseId` to an `end` record in the same file for the result, duration, and final memory measurements. A start without an end is an execution attempt with no completion record, not proof that the input caused the crash. Parent `vitest-*.jsonl` files record module/test events and unhandled errors. Unfinished items are "started without a reported completion"; reporter events can arrive late, so a missing test-start event does not mean the test did not execute.
+
+Replay a property with its recorded seed and test name:
+
+```sh
+FUZZ_SEED=<seed> pnpm --filter just-bash test:unit src/security/fuzzing/__tests__/fuzz-malformed.test.ts -t '<test name>'
+```
+
+The exact recorded script is more durable than a seed across fast-check or generator changes. The worker's timer cannot interrupt synchronous work, and before/after memory measurements are observations, not a hard memory boundary. These records improve diagnosis; they do not contain crashes or fix memory exhaustion.
+
 ### Security requirements
 
 just-bash executes untrusted scripts, so the sandbox boundaries are part of the contribution contract. [`THREAT_MODEL.md`](./THREAT_MODEL.md) covers the attack surface, the trust boundaries, and the residual risks that are accepted rather than fixed.

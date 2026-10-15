@@ -7,7 +7,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   test: {
     globals: true,
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "test-support/**/*.test.ts"],
+    reporters: process.env.TEST_DIAGNOSTICS_DIR
+      ? ["default", resolve(__dirname, "test-support/crash-reporter.ts")]
+      : ["default"],
     exclude: [
       "**/node_modules/**",
       "**/dist/**",
