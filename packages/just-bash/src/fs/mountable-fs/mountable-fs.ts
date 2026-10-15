@@ -1,10 +1,12 @@
 import { type ByteString, readBytesFrom } from "../../encoding.js";
+import { DEFAULT_BATCH_SIZE } from "../../utils/constants.js";
 import { ExclusiveCreateUnsupportedError } from "../create-exclusive.js";
 import { InMemoryFs } from "../in-memory-fs/in-memory-fs.js";
 import type {
   BufferEncoding,
   CpOptions,
   CreateExclusiveOptions,
+  DirentEntry,
   FileContent,
   FsStat,
   IFileSystem,
@@ -499,6 +501,106 @@ export class MountableFs implements IFileSystem {
     }
 
     return Array.from(entries).sort();
+  }
+
+  /**
+   * Read directory contents with type information, so a walk does not stat
+   * every entry. The owning filesystem answers with its own types where it
+   * has them, and mount points are directories of their own.
+   */
+  async readdirWithFileTypes(path: string): Promise<DirentEntry[]> {
+    const normalized = normalizePath(path);
+    const entries = new Map<string, DirentEntry>();
+    let readdirError: Error | null = null;
+
+    // Get entries from the owning filesystem
+    const { fs, relativePath } = this.routePath(path);
+    try {
+      if (fs.readdirWithFileTypes) {
+        for (const entry of await fs.readdirWithFileTypes(relativePath)) {
+          entries.set(entry.name, entry);
+        }
+      } else {
+        for (const name of await fs.readdir(relativePath)) {
+          entries.set(name, {
+            name,
+            isFile: false,
+            isDirectory: false,
+            isSymbolicLink: false,
+          });
+        }
+      }
+      await this.resolveUntypedEntries(fs, relativePath, entries);
+    } catch (err) {
+      // Path might not exist in base FS if only mount points are there
+      const code = (err as { code?: string }).code;
+      const message = (err as { message?: string }).message || "";
+
+      if (code !== "ENOENT" && !message.includes("ENOENT")) {
+        throw err;
+      }
+      // Save error to throw later if no mount points provide entries
+      readdirError = err as Error;
+    }
+
+    // Add mount points that are immediate children
+    for (const child of this.getChildMountPoints(normalized)) {
+      entries.set(child, {
+        name: child,
+        isFile: false,
+        isDirectory: true,
+        isSymbolicLink: false,
+      });
+    }
+
+    // If no entries found and we had an error, throw the original error
+    if (entries.size === 0 && readdirError && !this.mounts.has(normalized)) {
+      throw readdirError;
+    }
+
+    return Array.from(entries.values()).sort((left, right) =>
+      left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
+    );
+  }
+
+  /**
+   * Fills in the entries whose type the listing did not give: every entry of
+   * a filesystem that implements no `readdirWithFileTypes`, and the ones a
+   * host answered `DT_UNKNOWN` for, which Node reports as all three
+   * predicates false (NFS and FUSE do this). Without it `find`, `ls -R`,
+   * `du` and `tree` read a real directory as something not to descend into.
+   *
+   * Asked in batches, as the callers that did this for themselves do, so a
+   * filesystem answering over a network is not asked one entry at a time. An
+   * entry that cannot be answered for is left out of the listing, as those
+   * callers also leave it out; one that answers as none of the three (a
+   * FIFO, a socket) keeps that answer rather than being asked again.
+   */
+  private async resolveUntypedEntries(
+    fs: IFileSystem,
+    dir: string,
+    entries: Map<string, DirentEntry>,
+  ): Promise<void> {
+    const untyped = Array.from(entries.values()).filter(
+      (entry) => !entry.isFile && !entry.isDirectory && !entry.isSymbolicLink,
+    );
+    for (let at = 0; at < untyped.length; at += DEFAULT_BATCH_SIZE) {
+      await Promise.all(
+        untyped.slice(at, at + DEFAULT_BATCH_SIZE).map(async ({ name }) => {
+          try {
+            const stat = await fs.lstat(joinPath(dir, name));
+            entries.set(name, {
+              name,
+              isFile: stat.isFile,
+              isDirectory: stat.isDirectory,
+              isSymbolicLink: stat.isSymbolicLink,
+            });
+          } catch {
+            entries.delete(name);
+          }
+        }),
+      );
+    }
   }
 
   async rm(path: string, options?: RmOptions): Promise<void> {
