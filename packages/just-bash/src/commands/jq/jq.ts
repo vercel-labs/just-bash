@@ -626,12 +626,12 @@ export const jqCommand: RuntimeCommand = {
         throw e;
       }
       if (e instanceof ExecutionLimitError) {
-        const message = sanitizeErrorMessage(e.message);
-        return {
-          stdout: "",
-          stderr: `jq: ${message}\n`,
-          exitCode: ExecutionLimitError.EXIT_CODE,
-        };
+        throw new ExecutionLimitError(
+          e.message,
+          e.limitType,
+          "",
+          `jq: ${sanitizeErrorMessage(e.message)}\n`,
+        );
       }
       const msg = sanitizeErrorMessage((e as Error).message);
       if (msg.includes("Unknown function")) {

@@ -524,12 +524,12 @@ export const sedCommand: RuntimeCommand = {
             throw e;
           }
           if (e instanceof ExecutionLimitError) {
-            const message = sanitizeErrorMessage(e.message);
-            return {
-              stdout: "",
-              stderr: `sed: ${message}\n`,
-              exitCode: ExecutionLimitError.EXIT_CODE,
-            };
+            throw new ExecutionLimitError(
+              e.message,
+              e.limitType,
+              "",
+              `sed: ${sanitizeErrorMessage(e.message)}\n`,
+            );
           }
           return {
             stdout: "",
@@ -569,12 +569,12 @@ export const sedCommand: RuntimeCommand = {
           throw e;
         }
         if (e instanceof ExecutionLimitError) {
-          const message = sanitizeErrorMessage(e.message);
-          return {
-            stdout: "",
-            stderr: `sed: ${message}\n`,
-            exitCode: ExecutionLimitError.EXIT_CODE,
-          };
+          throw new ExecutionLimitError(
+            e.message,
+            e.limitType,
+            "",
+            `sed: ${sanitizeErrorMessage(e.message)}\n`,
+          );
         }
         throw e;
       }
@@ -604,12 +604,12 @@ export const sedCommand: RuntimeCommand = {
             throw e;
           }
           if (e instanceof ExecutionLimitError) {
-            const message = sanitizeErrorMessage(e.message);
-            return {
-              stdout: "",
-              stderr: `sed: ${message}\n`,
-              exitCode: ExecutionLimitError.EXIT_CODE,
-            };
+            throw new ExecutionLimitError(
+              e.message,
+              e.limitType,
+              "",
+              `sed: ${sanitizeErrorMessage(e.message)}\n`,
+            );
           }
           return {
             stdout: "",
@@ -651,12 +651,12 @@ export const sedCommand: RuntimeCommand = {
         throw e;
       }
       if (e instanceof ExecutionLimitError) {
-        const message = sanitizeErrorMessage(e.message);
-        return {
-          stdout: "",
-          stderr: `sed: ${message}\n`,
-          exitCode: ExecutionLimitError.EXIT_CODE,
-        };
+        throw new ExecutionLimitError(
+          e.message,
+          e.limitType,
+          "",
+          `sed: ${sanitizeErrorMessage(e.message)}\n`,
+        );
       }
       throw e;
     }

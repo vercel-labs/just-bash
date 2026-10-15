@@ -338,14 +338,20 @@ export const awkCommand2: RuntimeCommand = {
       if (e instanceof SecurityViolationError) {
         throw e;
       }
+      if (e instanceof ExecutionLimitError) {
+        throw new ExecutionLimitError(
+          e.message,
+          e.limitType,
+          interp.getOutput(),
+          `awk: ${e.message}\n`,
+        );
+      }
       // Handle errors during execution
       const msg = e instanceof Error ? e.message : String(e);
-      const exitCode =
-        e instanceof ExecutionLimitError ? ExecutionLimitError.EXIT_CODE : 2;
       return {
         stdout: interp.getOutput(),
         stderr: `awk: ${msg}\n`,
-        exitCode,
+        exitCode: 2,
       };
     }
   },
