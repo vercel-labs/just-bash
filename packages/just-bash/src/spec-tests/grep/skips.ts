@@ -106,23 +106,9 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "busybox-grep.tests:grep - infile (specify stdin and file)",
     "runner rewrites `input` to /tmp/input, so the file-name prefix differs",
   ],
-  [
-    "busybox-grep.tests:grep -s nofile - (stdin and nonexisting file, match)",
-    "-s option not implemented",
-  ],
 
   // Tests that create external files (>empty, mkdir)
   ["busybox-grep.tests:grep two files", "creates external empty file"],
-
-  // -s option (suppress errors)
-  [
-    "busybox-grep.tests:grep -s nofile (nonexisting file, no match)",
-    "-s option not implemented",
-  ],
-
-  // NUL byte handling with -a option
-  ["busybox-grep.tests:grep handles NUL in files", "-a option / NUL handling"],
-  ["busybox-grep.tests:grep handles NUL on stdin", "-a option / NUL handling"],
 
   // -L option (print files without matches)
   //

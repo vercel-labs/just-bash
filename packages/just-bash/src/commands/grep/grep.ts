@@ -132,6 +132,19 @@ function combinePatterns(
   return { pattern: patterns.map((p) => `(?:${p})`).join("|"), mode };
 }
 
+const valueOptions = new Map([
+  ["--regexp", "e"],
+  ["--file", "f"],
+  ["--max-count", "m"],
+  ["--after-context", "A"],
+  ["--before-context", "B"],
+  ["--context", "C"],
+  ["--include", "include"],
+  ["--exclude", "exclude"],
+  ["--exclude-dir", "exclude-dir"],
+  ["--binary-files", "binary-files"],
+]);
+
 const grepHelp = {
   name: "grep",
   summary: "print lines that match patterns",
@@ -153,6 +166,14 @@ const grepHelp = {
     "-L, --files-without-match print names of files with no matches",
     "-m NUM, --max-count=NUM  stop after NUM matches",
     "-n, --line-number        print line number with output lines",
+    "-H, --with-filename      print the file name with output lines",
+    "-s, --no-messages        suppress file error messages",
+    "-I                      skip binary files",
+    "-a, --text              process binary files as text",
+    "-Z, --null              terminate file names with a NUL byte",
+    "    --binary-files=TYPE  binary, text, or without-match",
+    "    --color[=WHEN]       accept color selection; output is plain text",
+    "    --line-buffered      accepted; output is returned as a string",
     "-h, --no-filename        suppress the file name prefix on output",
     "-o, --only-matching      show only nonempty parts of lines that match",
     "-q, --quiet, --silent    suppress all normal output",
@@ -190,6 +211,10 @@ export const grepCommand: RuntimeCommand = {
     let fixedStrings = false;
     let onlyMatching = false;
     let noFilename = false;
+    let withFilename = false;
+    let noMessages = false;
+    let nullFilename = false;
+    let binaryMode: "binary" | "text" | "without-match" = "binary";
     let quietMode = false;
     let maxCount = 0; // 0 means unlimited
     let beforeContext = 0;
@@ -217,103 +242,76 @@ export const grepCommand: RuntimeCommand = {
       }
 
       if (parseOptions && arg.startsWith("-") && arg !== "-") {
-        if (arg === "-e" && i + 1 < args.length) {
-          patterns.push(args[++i]);
-          continue;
-        }
-
-        // Handle --file=FILE (can be specified multiple times)
-        if (arg.startsWith("--file=")) {
-          patternFiles.push(arg.slice("--file=".length));
-          continue;
-        }
-
-        // Handle --include=pattern (can be specified multiple times)
-        if (arg.startsWith("--include=")) {
-          includePatterns.push(arg.slice("--include=".length));
-          continue;
-        }
-
-        // Handle --exclude=pattern (can be specified multiple times)
-        if (arg.startsWith("--exclude=")) {
-          excludePatterns.push(arg.slice("--exclude=".length));
-          continue;
-        }
-
-        // Handle --exclude-dir=pattern (can be specified multiple times)
-        if (arg.startsWith("--exclude-dir=")) {
-          excludeDirPatterns.push(arg.slice("--exclude-dir=".length));
-          continue;
-        }
-
-        // Handle --max-count=N
-        if (arg.startsWith("--max-count=")) {
-          maxCount = parseInt(arg.slice("--max-count=".length), 10);
-          continue;
-        }
-
-        // Handle -m N or -mN
-        const maxCountMatch = arg.match(/^-m(\d+)$/);
-        if (maxCountMatch) {
-          maxCount = parseInt(maxCountMatch[1], 10);
-          continue;
-        }
-        if (arg === "-m" && i + 1 < args.length) {
-          maxCount = parseInt(args[++i], 10);
-          continue;
-        }
-
-        // Handle -A, -B, -C with numbers
-        const contextMatch = arg.match(/^-([ABC])(\d+)$/);
-        if (contextMatch) {
-          const num = parseInt(contextMatch[2], 10);
-          if (contextMatch[1] === "A") afterContext = num;
-          else if (contextMatch[1] === "B") beforeContext = num;
-          else if (contextMatch[1] === "C") {
-            beforeContext = num;
-            afterContext = num;
-          }
-          continue;
-        }
-
-        // Handle -A n, -B n, -C n
-        if (
-          (arg === "-A" || arg === "-B" || arg === "-C") &&
-          i + 1 < args.length
-        ) {
-          const num = parseInt(args[++i], 10);
-          if (arg === "-A") afterContext = num;
-          else if (arg === "-B") beforeContext = num;
-          else {
-            beforeContext = num;
-            afterContext = num;
-          }
-          continue;
-        }
-
-        const flags = arg.startsWith("--") ? [arg] : arg.slice(1).split("");
+        const equals = arg.indexOf("=");
+        const option = equals >= 0 ? arg.slice(0, equals) : arg;
+        const flags = arg.startsWith("--") ? [option] : arg.slice(1).split("");
 
         for (let f = 0; f < flags.length; f++) {
           const flag = flags[f];
-          if (flag === "f" || flag === "--file") {
-            // `-fFILE` and `-vxfFILE` attach the value to the same argument;
-            // `-f FILE`, `-vxf FILE` and `--file FILE` take the next one.
-            const attached = flag === "f" ? flags.slice(f + 1).join("") : "";
-            if (attached.length > 0) {
-              patternFiles.push(attached);
-            } else if (i + 1 < args.length) {
-              patternFiles.push(args[++i]);
-            } else {
+          const valueOption =
+            valueOptions.get(flag) ??
+            ("efmABC".includes(flag) && flag.length === 1 ? flag : undefined);
+          if (valueOption) {
+            let value = flag.startsWith("--")
+              ? equals >= 0
+                ? arg.slice(equals + 1)
+                : undefined
+              : flags.slice(f + 1).join("") || undefined;
+            if (value === undefined) value = args[++i];
+            if (value === undefined) {
               return {
                 stdout: "",
-                stderr:
-                  flag === "f"
-                    ? "grep: option requires an argument -- 'f'\n"
-                    : "grep: option '--file' requires an argument\n",
+                stderr: flag.startsWith("--")
+                  ? `grep: option '${flag}' requires an argument\n`
+                  : `grep: option requires an argument -- '${flag}'\n`,
                 exitCode: 2,
               };
             }
+            if (valueOption === "e") patterns.push(value);
+            else if (valueOption === "f") patternFiles.push(value);
+            else if (valueOption === "include") includePatterns.push(value);
+            else if (valueOption === "exclude") excludePatterns.push(value);
+            else if (valueOption === "exclude-dir")
+              excludeDirPatterns.push(value);
+            else if (valueOption === "binary-files") {
+              if (
+                value !== "binary" &&
+                value !== "text" &&
+                value !== "without-match"
+              )
+                return {
+                  stdout: "",
+                  stderr: `grep: unknown binary-files type: ${value}\n`,
+                  exitCode: 2,
+                };
+              binaryMode = value;
+            } else {
+              const number = Number(value);
+              if (
+                (valueOption !== "m" || value !== "-1") &&
+                (!/^\+?\d+$/.test(value) || !Number.isSafeInteger(number))
+              ) {
+                return {
+                  stdout: "",
+                  stderr: `grep: invalid ${valueOption === "m" ? "max count" : "context length"} argument: ${value}\n`,
+                  exitCode: 2,
+                };
+              }
+              if (valueOption === "m") maxCount = number === -1 ? 0 : number;
+              if (valueOption === "A" || valueOption === "C")
+                afterContext = number;
+              if (valueOption === "B" || valueOption === "C")
+                beforeContext = number;
+            }
             break;
+          }
+          if (
+            equals >= 0 &&
+            flag.startsWith("--") &&
+            flag !== "--color" &&
+            flag !== "--colour"
+          ) {
+            return { ...unknownOption("grep", arg), exitCode: 2 };
           }
           if (flag === "i" || flag === "--ignore-case") ignoreCase = true;
           else if (flag === "n" || flag === "--line-number")
@@ -336,13 +334,45 @@ export const grepCommand: RuntimeCommand = {
             fixedStrings = true;
           else if (flag === "o" || flag === "--only-matching")
             onlyMatching = true;
-          else if (flag === "h" || flag === "--no-filename") noFilename = true;
-          else if (flag === "q" || flag === "--quiet" || flag === "--silent")
+          else if (flag === "h" || flag === "--no-filename") {
+            noFilename = true;
+            withFilename = false;
+          } else if (flag === "H" || flag === "--with-filename") {
+            withFilename = true;
+            noFilename = false;
+          } else if (flag === "s" || flag === "--no-messages")
+            noMessages = true;
+          else if (flag === "I") binaryMode = "without-match";
+          else if (flag === "a" || flag === "--text") binaryMode = "text";
+          else if (flag === "Z" || flag === "--null") nullFilename = true;
+          else if (flag === "--line-buffered") {
+            /* Output is returned as a string. */
+          } else if (flag === "--color" || flag === "--colour") {
+            if (
+              equals >= 0 &&
+              ![
+                "always",
+                "yes",
+                "force",
+                "auto",
+                "tty",
+                "if-tty",
+                "never",
+                "no",
+                "none",
+              ].includes(arg.slice(equals + 1).toLowerCase())
+            )
+              return {
+                stdout: "",
+                stderr: `grep: invalid argument '${arg.slice(equals + 1)}' for '${flag}'\n`,
+                exitCode: 2,
+              };
+          } else if (flag === "q" || flag === "--quiet" || flag === "--silent")
             quietMode = true;
           else if (flag.startsWith("--")) {
-            return unknownOption("grep", flag);
+            return { ...unknownOption("grep", flag), exitCode: 2 };
           } else if (flag.length === 1) {
-            return unknownOption("grep", `-${flag}`);
+            return { ...unknownOption("grep", `-${flag}`), exitCode: 2 };
           }
         }
       } else {
@@ -496,12 +526,15 @@ export const grepCommand: RuntimeCommand = {
     // stdin. grep runs regex over text — decode bytes to UTF-8 so multibyte
     // codepoints match `.` / character classes correctly.
     if (files.length === 0 && ctx.stdin !== undefined) {
-      const input = stdinUsedForPatterns ? "" : decodeBytesToUtf8(ctx.stdin);
+      let input = stdinUsedForPatterns ? "" : decodeBytesToUtf8(ctx.stdin);
+      const binary = input.includes("\0");
+      if (binary && binaryMode === "without-match") input = "";
       const result = searchContent(input, regex, {
         invertMatch,
         showLineNumbers,
         countOnly,
-        filename: "",
+        filename: withFilename ? STDIN_FILENAME : "",
+        filenameSeparator: nullFilename ? "\0" : undefined,
         onlyMatching,
         beforeContext,
         afterContext,
@@ -518,8 +551,14 @@ export const grepCommand: RuntimeCommand = {
       }
       // grep emits text; the pipeline handles encoding.
       return {
-        stdout: result.output,
-        stderr: "",
+        stdout:
+          binary && binaryMode === "binary" && result.matched && !countOnly
+            ? ""
+            : result.output,
+        stderr:
+          binary && binaryMode === "binary" && result.matched && !countOnly
+            ? `grep: ${STDIN_FILENAME}: binary file matches\n`
+            : "",
         exitCode: result.matched ? 0 : 1,
       };
     }
@@ -634,7 +673,10 @@ export const grepCommand: RuntimeCommand = {
 
     // Determine if we should show filename (after glob expansion)
     const showFilename =
-      (filesToSearch.length > 1 || (recursive && hasFileTarget)) && !noFilename;
+      (withFilename ||
+        filesToSearch.length > 1 ||
+        (recursive && hasFileTarget)) &&
+      !noFilename;
 
     // Process files in parallel batches for better performance
     const BATCH_SIZE = 50;
@@ -701,6 +743,9 @@ export const grepCommand: RuntimeCommand = {
               content = await ctx.fs.readFile(filePath);
             }
 
+            const binary = content.includes("\0");
+            if (binary && binaryMode === "without-match") content = "";
+
             // File-level preFilter: skip searchContent entirely when no needle exists in file.
             // Avoids content.split("\n") and all per-line work for the common zero-match case.
             if (preFilter && !invertMatch) {
@@ -709,7 +754,9 @@ export const grepCommand: RuntimeCommand = {
                 : content;
               if (!preFilter.needles.some((n) => haystack.includes(n))) {
                 if (countOnly) {
-                  const countStr = showFilename ? `${file}:0` : "0";
+                  const countStr = showFilename
+                    ? `${file}${nullFilename ? "\0" : ":"}0`
+                    : "0";
                   return {
                     file,
                     result: {
@@ -731,6 +778,7 @@ export const grepCommand: RuntimeCommand = {
               showLineNumbers,
               countOnly,
               filename: showFilename ? file : "",
+              filenameSeparator: nullFilename ? "\0" : undefined,
               onlyMatching,
               beforeContext,
               afterContext,
@@ -743,6 +791,22 @@ export const grepCommand: RuntimeCommand = {
               signal: ctx.signal,
             });
 
+            if (
+              binary &&
+              binaryMode === "binary" &&
+              result.matched &&
+              !countOnly &&
+              !filesWithMatches &&
+              !filesWithoutMatch &&
+              !quietMode
+            ) {
+              result.output = "";
+              return {
+                file,
+                result,
+                binaryMessage: `grep: ${file}: binary file matches\n`,
+              };
+            }
             return { file, result };
           } catch (error) {
             rethrowFatalExecutionError(error);
@@ -756,15 +820,14 @@ export const grepCommand: RuntimeCommand = {
         if (res === null) continue;
 
         if ("error" in res && res.error) {
-          stderr += res.error;
-          if (!res.error.includes("Is a directory")) {
-            anyError = true;
-          }
+          if (!noMessages) stderr += res.error;
+          anyError = true;
           continue;
         }
 
         if (!("file" in res) || !res.result) continue;
 
+        if ("binaryMessage" in res) stderr += res.binaryMessage;
         const { file, result } = res;
         if (result.matched) {
           anyMatch = true;
@@ -773,14 +836,14 @@ export const grepCommand: RuntimeCommand = {
             return { stdout: "", stderr: "", exitCode: 0 };
           }
           if (filesWithMatches) {
-            stdout += `${file}\n`;
+            stdout += `${file}${nullFilename ? "\0" : "\n"}`;
           } else if (!filesWithoutMatch) {
             stdout += result.output;
           }
         } else {
           // No match in this file
           if (filesWithoutMatch) {
-            stdout += `${file}\n`;
+            stdout += `${file}${nullFilename ? "\0" : "\n"}`;
           } else if (countOnly && !filesWithMatches) {
             stdout += result.output;
           }
