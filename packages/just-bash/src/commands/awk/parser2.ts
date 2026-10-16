@@ -1011,23 +1011,8 @@ export class AwkParser {
       return { type: "unary", operator: op, operand };
     }
 
-    // Power with non-postfix base
-    return this.parseFieldIndexPower();
-  }
-
-  /**
-   * Parse power expression for field index (no postfix on base)
-   */
-  private parseFieldIndexPower(): AwkExpr {
-    let left = this.parseFieldIndexPrimary();
-
-    if (this.check(TokenType.CARET)) {
-      this.advance();
-      const right = this.withDepth(() => this.parseFieldIndexPower());
-      left = { type: "binary", operator: "^", left, right };
-    }
-
-    return left;
+    // Field selection binds tighter than exponentiation.
+    return this.parseFieldIndexPrimary();
   }
 
   /**
@@ -1108,6 +1093,7 @@ export class AwkParser {
         this.expect(TokenType.RBRACKET);
         return { type: "array_access", array: name, key };
       }
+      if (name === "length") return { type: "call", name, args: [] };
       return { type: "variable", name };
     }
 
@@ -1245,6 +1231,7 @@ export class AwkParser {
       }
 
       // Simple variable
+      if (name === "length") return { type: "call", name, args: [] };
       return { type: "variable", name };
     }
 
