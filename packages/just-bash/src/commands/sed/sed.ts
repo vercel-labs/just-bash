@@ -35,7 +35,7 @@ const sedHelp = {
     "-n, --quiet, --silent  suppress automatic printing of pattern space",
     "-e script              add the script to commands to be executed",
     "-f script-file         read script from file",
-    "-i, --in-place         edit files in place",
+    "-i[SUFFIX], --in-place[=SUFFIX]  edit in place; optionally keep a backup",
     "-E, -r, --regexp-extended  use extended regular expressions",
     "    --help             display this help and exit",
   ],
@@ -361,6 +361,7 @@ export const sedCommand: RuntimeCommand = {
     const scriptFiles: string[] = [];
     let silent = false;
     let inPlace = false;
+    let backupSuffix = "";
     let extendedRegex = false;
     const files: string[] = [];
 
@@ -371,8 +372,10 @@ export const sedCommand: RuntimeCommand = {
         silent = true;
       } else if (arg === "-i" || arg === "--in-place") {
         inPlace = true;
-      } else if (arg.startsWith("-i")) {
+        backupSuffix = "";
+      } else if (arg.startsWith("-i") || arg.startsWith("--in-place=")) {
         inPlace = true;
+        backupSuffix = arg.startsWith("-i") ? arg.slice(2) : arg.slice(11);
       } else if (arg === "-E" || arg === "-r" || arg === "--regexp-extended") {
         extendedRegex = true;
       } else if (arg === "-e") {
@@ -389,7 +392,9 @@ export const sedCommand: RuntimeCommand = {
         // "-" is stdin marker, treat as a file
         files.push(arg);
       } else if (arg.startsWith("-") && arg.length > 1) {
-        for (const c of arg.slice(1)) {
+        const inPlaceIndex = arg.indexOf("i");
+        const flags = inPlaceIndex < 0 ? arg : arg.slice(0, inPlaceIndex + 1);
+        for (const c of flags.slice(1)) {
           if (
             c !== "n" &&
             c !== "e" &&
@@ -401,15 +406,22 @@ export const sedCommand: RuntimeCommand = {
             return unknownOption("sed", `-${c}`);
           }
         }
-        if (arg.includes("n")) silent = true;
-        if (arg.includes("i")) inPlace = true;
-        if (arg.includes("E") || arg.includes("r")) extendedRegex = true;
-        if (arg.includes("e") && !arg.includes("n") && !arg.includes("i")) {
+        if (flags.includes("n")) silent = true;
+        if (inPlaceIndex >= 0) {
+          inPlace = true;
+          backupSuffix = arg.slice(inPlaceIndex + 1);
+        }
+        if (flags.includes("E") || flags.includes("r")) extendedRegex = true;
+        if (
+          flags.includes("e") &&
+          !flags.includes("n") &&
+          !flags.includes("i")
+        ) {
           if (i + 1 < args.length) {
             scripts.push(args[++i]);
           }
         }
-        if (arg.includes("f") && !arg.includes("e")) {
+        if (flags.includes("f") && !flags.includes("e")) {
           if (i + 1 < args.length) {
             scriptFiles.push(args[++i]);
           }
@@ -515,6 +527,25 @@ export const sedCommand: RuntimeCommand = {
               stderr: `${result.errorMessage}\n`,
               exitCode: result.exitCode ?? 1,
             };
+          }
+          if (backupSuffix) {
+            const backup = backupSuffix.includes("*")
+              ? backupSuffix.replaceAll("*", file)
+              : file + backupSuffix;
+            const backupPath = ctx.fs.resolvePath(ctx.cwd, backup);
+            if (backupPath !== filePath) {
+              const source = await withDefenseContext("backup source", () =>
+                ctx.fs.realpath(filePath),
+              );
+              if (backupPath !== source) {
+                await withDefenseContext("remove previous backup", () =>
+                  ctx.fs.rm(backupPath, { force: true }),
+                );
+                await withDefenseContext("in-place backup", () =>
+                  ctx.fs.cp(source, backupPath),
+                );
+              }
+            }
           }
           await withDefenseContext("in-place output write", () =>
             ctx.fs.writeFile(filePath, result.output),

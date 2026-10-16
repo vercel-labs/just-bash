@@ -414,28 +414,42 @@ function processReplacement(
 ): string {
   let result = "";
   let i = 0;
+  let caseMode = "";
+  const append = (text: string) => {
+    result +=
+      caseMode === "U"
+        ? text.toUpperCase()
+        : caseMode === "L"
+          ? text.toLowerCase()
+          : text;
+  };
 
   while (i < replacement.length) {
     if (replacement[i] === "\\") {
       if (i + 1 < replacement.length) {
         const next = replacement[i + 1];
+        if (next === "U" || next === "L" || next === "E") {
+          caseMode = next === "E" ? "" : next;
+          i += 2;
+          continue;
+        }
         if (next === "&") {
-          result += "&";
+          append("&");
           i += 2;
           continue;
         }
         if (next === "n") {
-          result += "\n";
+          append("\n");
           i += 2;
           continue;
         }
         if (next === "t") {
-          result += "\t";
+          append("\t");
           i += 2;
           continue;
         }
         if (next === "r") {
-          result += "\r";
+          append("\r");
           i += 2;
           continue;
         }
@@ -443,29 +457,29 @@ function processReplacement(
         // \0 is the entire match (same as &)
         const digit = parseInt(next, 10);
         if (digit === 0) {
-          result += match;
+          append(match);
           i += 2;
           continue;
         }
         if (digit >= 1 && digit <= 9) {
-          result += groups[digit - 1] || "";
+          append(groups[digit - 1] || "");
           i += 2;
           continue;
         }
         // Other escaped characters
-        result += next;
+        append(next);
         i += 2;
         continue;
       }
     }
 
     if (replacement[i] === "&") {
-      result += match;
+      append(match);
       i++;
       continue;
     }
 
-    result += replacement[i];
+    append(replacement[i]);
     i++;
   }
 
