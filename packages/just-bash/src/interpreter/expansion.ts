@@ -389,7 +389,10 @@ async function expandBracesInPartsAsync(
             item.startStr,
             item.endStr,
             {
-              maxResults: ctx.limits.maxBraceExpansionResults,
+              maxResults: Math.min(
+                MAX_BRACE_OPERATIONS,
+                ctx.limits.maxBraceExpansionResults,
+              ),
               maxStringBytes: ctx.limits.maxStringLength,
             },
           );
@@ -924,7 +927,10 @@ async function expandPart(
             item.startStr,
             item.endStr,
             {
-              maxResults: ctx.limits.maxBraceExpansionResults,
+              maxResults: Math.min(
+                MAX_BRACE_OPERATIONS,
+                ctx.limits.maxBraceExpansionResults,
+              ),
               maxStringBytes: ctx.limits.maxStringLength,
             },
           );

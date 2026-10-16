@@ -218,13 +218,12 @@ describe("Parser Protection", () => {
     });
 
     it("should limit range expansion during execution", async () => {
-      const env = new Bash();
-      const result = await env.exec("echo {1..100000}");
-
-      // Range expansion should be limited
-      expect(result.exitCode).toBe(0);
-      // Output should be truncated or limited
-      expect(result.stdout.length).toBeLessThan(1_000_000);
+      const result = await new Bash().exec("echo {1..100001}");
+      expect(result.exitCode).toBe(126);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "bash: brace expansion result limit exceeded (100000)\n",
+      );
     });
   });
 });

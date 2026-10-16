@@ -287,13 +287,13 @@ describe("Execution Protection", () => {
   });
 
   describe("brace expansion protection", () => {
-    it("should protect against massive brace expansion", async () => {
-      const env = new Bash();
-      // {1..10000} would generate 10000 items
-      const result = await env.exec("echo {1..100000}");
-
-      // Should either truncate or error, not hang
-      expect(result.exitCode).toBe(0); // Brace expansion truncates, doesn't error
+    it("should reject massive brace expansion instead of truncating it", async () => {
+      const result = await new Bash().exec("echo {1..100001}");
+      expect(result.exitCode).toBe(126);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "bash: brace expansion result limit exceeded (100000)\n",
+      );
     });
 
     it("should protect against nested brace expansion explosion", async () => {
@@ -320,11 +320,12 @@ describe("Execution Protection", () => {
     });
 
     it("should protect against range with huge step count", async () => {
-      const env = new Bash();
-      const result = await env.exec("echo {1..1000000..1}");
-
-      // Should be limited, not hang
-      expect(result.exitCode).toBe(0);
+      const result = await new Bash().exec("echo {1..1000000..1}");
+      expect(result.exitCode).toBe(126);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "bash: brace expansion result limit exceeded (100000)\n",
+      );
     });
 
     it("should protect against character range explosion", async () => {
