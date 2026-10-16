@@ -117,8 +117,9 @@ describe("just-bash CLI", () => {
         "--root",
         tempDir,
       ]);
-      expect(result.exitCode).not.toBe(0);
-      expect(result.stderr).toContain("EROFS");
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("bash: newfile.txt: Read-only file system\n");
     });
 
     it("should block mkdir by default", () => {

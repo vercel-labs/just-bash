@@ -718,13 +718,13 @@ describe("OverlayFs", () => {
       expect(readResult.stdout).toBe("hello");
       expect(readResult.exitCode).toBe(0);
 
-      // Write should fail with EROFS (error is thrown during redirection)
-      try {
-        await env.exec("echo test > /new.txt");
-        expect.fail("Expected EROFS error to be thrown");
-      } catch (e) {
-        expect(String(e)).toContain("EROFS");
-      }
+      const writeResult = await env.exec("echo test > /new.txt");
+      expect(writeResult).toMatchObject({
+        stdout: "",
+        stderr: "bash: /new.txt: Read-only file system\n",
+        exitCode: 1,
+      });
+      expect(await overlay.exists("/new.txt")).toBe(false);
     });
   });
 

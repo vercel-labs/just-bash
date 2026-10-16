@@ -38,9 +38,13 @@ class NoParentCreationFs extends InMemoryFs {
 }
 
 class CodeOnlyErrorFs extends InMemoryFs {
+  constructor(private readonly code = "ENOENT") {
+    super();
+  }
+
   override async writeFile(): Promise<void> {
     throw Object.assign(new Error("no such file or directory"), {
-      code: "ENOENT",
+      code: this.code,
     });
   }
 }
@@ -49,6 +53,39 @@ const bashWithoutParentCreation = () =>
   new Bash({ fs: new NoParentCreationFs({ "/file": "" }) });
 
 describe("redirection open errors", () => {
+  it("keeps running when the content write exceeds filesystem capacity", async () => {
+    const fs = new InMemoryFs(undefined, { maxTotalBytes: 1_024 });
+    const bash = new Bash({ fs });
+    for (const redirect of [">", ">>"]) {
+      expect(
+        await bash.exec(`printf '%2000s' x ${redirect} /out || echo handled`),
+      ).toMatchObject({
+        stdout: "handled\n",
+        stderr: "bash: /out: No space left on device\n",
+        exitCode: 0,
+      });
+      expect(await fs.readFile("/out")).toBe("");
+    }
+  });
+
+  it.each([
+    ["EROFS", "Read-only file system"],
+    ["EACCES", "Permission denied"],
+    ["EFBIG", "File too large"],
+  ])("fails only the command for %s", async (code, reason) => {
+    const bash = new Bash({ fs: new CodeOnlyErrorFs(code) });
+    const result = await bash.exec(
+      'echo before; echo x > /ro/f; echo "after rc=$?"; ' +
+        "echo x > /ro/f || echo handled; " +
+        'for i in 1 2; do echo $i > /ro/f; echo "loop $i"; done; echo end',
+    );
+    expect(result.stdout).toBe(
+      "before\nafter rc=1\nhandled\nloop 1\nloop 2\nend\n",
+    );
+    expect(result.stderr).toBe(`bash: /ro/f: ${reason}\n`.repeat(4));
+    expect(result.exitCode).toBe(0);
+  });
+
   it.each([
     "echo x > /missing/f",
     "echo x >| /missing/f",
