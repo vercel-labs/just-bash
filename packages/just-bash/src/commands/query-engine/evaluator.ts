@@ -25,6 +25,7 @@ import {
   evalStringBuiltin,
   evalTypeBuiltin,
 } from "./builtins/index.js";
+import { validateBoundedPath } from "./builtins/path-builtins.js";
 import type { AstNode, DestructurePattern } from "./parser.js";
 import { deletePath, setPath } from "./path-operations.js";
 import {
@@ -63,7 +64,7 @@ class BreakError extends Error {
 }
 
 // Custom error that preserves the original jq value
-class JqError extends Error {
+export class JqError extends Error {
   constructor(public readonly value: QueryValue) {
     super(typeof value === "string" ? value : JSON.stringify(value));
     this.name = "JqError";
@@ -126,6 +127,8 @@ export interface EvalContext {
   namedArgs?: Map<string, QueryValue>;
   /** Positional arguments (in order) exposed via $ARGS.positional */
   positionalArgs?: QueryValue[];
+  /** Remaining command input, shared across evaluations and inputs calls. */
+  inputValues?: Iterator<QueryValue>;
   requireDefenseContext?: boolean;
   defenseContextChecked?: boolean;
   /** Original document root for parent/root navigation */
@@ -235,6 +238,7 @@ function createContext(options?: EvaluateOptions): EvalContext {
     env: options?.env,
     namedArgs: options?.namedArgs,
     positionalArgs: options?.positionalArgs,
+    inputValues: options?.inputValues,
     coverage: options?.coverage,
     requireDefenseContext: options?.requireDefenseContext,
     defenseContextChecked: false,
@@ -255,6 +259,7 @@ function withVar(
     env: ctx.env,
     namedArgs: ctx.namedArgs,
     positionalArgs: ctx.positionalArgs,
+    inputValues: ctx.inputValues,
     requireDefenseContext: ctx.requireDefenseContext,
     defenseContextChecked: ctx.defenseContextChecked,
     root: ctx.root,
@@ -462,6 +467,8 @@ export interface EvaluateOptions {
   namedArgs?: Map<string, QueryValue>;
   /** Positional arguments (in order) exposed via $ARGS.positional */
   positionalArgs?: QueryValue[];
+  /** Remaining command input, shared across evaluations and inputs calls. */
+  inputValues?: Iterator<QueryValue>;
   coverage?: FeatureCoverageWriter;
   requireDefenseContext?: boolean;
   /** Reuse across multiple input documents to enforce one command budget. */
@@ -1140,6 +1147,29 @@ function applyUpdate(
     transform: (current: QueryValue) => QueryValue,
   ): QueryValue {
     switch (path.type) {
+      case "Call": {
+        if (path.name !== "getpath" || path.args.length !== 1) {
+          throw new JqError(`Unsupported update path: ${path.name}`);
+        }
+        for (const keys of evaluate(root, path.args[0], ctx)) {
+          const target = validateBoundedPath(keys, ctx);
+          const current = evaluate(
+            val,
+            {
+              type: "Call",
+              name: "getpath",
+              args: [{ type: "Literal", value: target }],
+            },
+            ctx,
+          )[0];
+          val = setPath(val, target, transform(current));
+        }
+        return val;
+      }
+
+      case "Paren":
+        return updateRecursive(val, path.expr, transform);
+
       case "Identity":
         return transform(val);
 
@@ -1307,8 +1337,9 @@ function applyUpdate(
       }
 
       case "Pipe": {
-        const leftResult = updateRecursive(val, path.left, (x) => x);
-        return updateRecursive(leftResult, path.right, transform);
+        return updateRecursive(val, path.left, (nested) =>
+          updateRecursive(nested, path.right, transform),
+        );
       }
 
       default:
@@ -1574,8 +1605,11 @@ function applyDel(
         return setAt(val, leftPath, modified);
       }
 
+      case "Call":
+        if (path.name === "empty" && path.args.length === 0) return val;
+        throw new JqError("Unsupported path expression in del");
       default:
-        return val;
+        throw new JqError("Unsupported path expression in del");
     }
   }
 
@@ -1931,6 +1965,7 @@ function evalBuiltin(
           "indices/1",
           "infinite/0",
           "inside/1",
+          "inputs/0",
           "isempty/1",
           "isnan/0",
           "isnormal/0",
@@ -2051,6 +2086,18 @@ function evalBuiltin(
 
     case "debug":
       return [value];
+
+    case "inputs": {
+      const results: QueryValue[] = [];
+      while (ctx.inputValues) {
+        const next = ctx.inputValues.next();
+        if (next.done) break;
+        chargeQueryWork(ctx);
+        assertQueryResultCapacity(ctx, results.length);
+        results.push(next.value);
+      }
+      return results;
+    }
 
     case "input_line_number":
       return [1];
