@@ -56,7 +56,7 @@ EXAMPLES:
     "    --color WHEN        never, auto, always, ansi (plain text output only)",
     "-q, --quiet             suppress output, exit 0 on match",
     "    --stats             print search statistics",
-    "-n, --line-number       print line numbers (default: on)",
+    "-n, --line-number       print line numbers",
     "-N, --no-line-number    do not print line numbers",
     "-I, --no-filename       suppress the prefixing of file names",
     "-0, --null              use NUL as filename separator",

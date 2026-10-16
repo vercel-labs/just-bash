@@ -286,7 +286,7 @@ describe("rg feature: issue #109 - max depth", () => {
     });
     const result = await bash.exec("rg --max-depth 2 far");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("one/pass:1:far\n");
+    expect(result.stdout).toBe("one/pass:far\n");
   });
 
   it("should accept -d as alias for --max-depth", async () => {
@@ -299,7 +299,7 @@ describe("rg feature: issue #109 - max depth", () => {
     });
     const result = await bash.exec("rg -d 2 far");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("one/pass:1:far\n");
+    expect(result.stdout).toBe("one/pass:far\n");
   });
 
   it("should search only current directory with -d 1", async () => {
@@ -312,7 +312,7 @@ describe("rg feature: issue #109 - max depth", () => {
     });
     const result = await bash.exec("rg -d 1 match");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("top.txt:1:match\n");
+    expect(result.stdout).toBe("top.txt:match\n");
   });
 
   it("should search deeper with higher -d value", async () => {
@@ -324,7 +324,7 @@ describe("rg feature: issue #109 - max depth", () => {
     });
     const result = await bash.exec("rg -d 4 found");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("a/b/c/deep.txt:1:found\n");
+    expect(result.stdout).toBe("a/b/c/deep.txt:found\n");
   });
 
   it("should combine -d with type filter", async () => {
@@ -338,7 +338,7 @@ describe("rg feature: issue #109 - max depth", () => {
     });
     const result = await bash.exec("rg -d 1 -t js test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("top.js:1:test\n");
+    expect(result.stdout).toBe("top.js:test\n");
   });
 });
 
@@ -376,7 +376,7 @@ describe("rg feature: issue #159 - max count", () => {
     });
     const result = await bash.exec("rg -m1 test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("foo:1:test\n");
+    expect(result.stdout).toBe("foo:test\n");
   });
 
   it("should treat -m0 as no matches", async () => {
@@ -478,7 +478,7 @@ describe("rg feature: multiple patterns", () => {
     });
     const result = await bash.exec("rg -e foo -e bar");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file:1:foo\nfile:2:bar\n");
+    expect(result.stdout).toBe("file:foo\nfile:bar\n");
   });
 });
 
@@ -494,7 +494,7 @@ describe("rg feature: gitignore handling", () => {
     });
     const result = await bash.exec("rg test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("visible.txt:1:test\n");
+    expect(result.stdout).toBe("visible.txt:test\n");
   });
 
   it("should ignore .gitignore with --no-ignore", async () => {
@@ -508,7 +508,7 @@ describe("rg feature: gitignore handling", () => {
     });
     const result = await bash.exec("rg --no-ignore --sort path test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("ignored.txt:1:test\nvisible.txt:1:test\n");
+    expect(result.stdout).toBe("ignored.txt:test\nvisible.txt:test\n");
   });
 });
 
@@ -523,7 +523,7 @@ describe("rg feature: hidden files", () => {
     });
     const result = await bash.exec("rg test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("visible:1:test\n");
+    expect(result.stdout).toBe("visible:test\n");
   });
 
   it("should include hidden files with --hidden", async () => {
@@ -536,7 +536,7 @@ describe("rg feature: hidden files", () => {
     });
     const result = await bash.exec("rg --hidden --sort path test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe(".hidden:1:test\nvisible:1:test\n");
+    expect(result.stdout).toBe(".hidden:test\nvisible:test\n");
   });
 });
 
@@ -552,7 +552,7 @@ describe("rg feature: type filtering", () => {
     });
     const result = await bash.exec("rg -t js test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("code.js:1:test\n");
+    expect(result.stdout).toBe("code.js:test\n");
   });
 
   it("should exclude type with -T", async () => {
@@ -565,7 +565,7 @@ describe("rg feature: type filtering", () => {
     });
     const result = await bash.exec("rg -T js test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("code.py:1:test\n");
+    expect(result.stdout).toBe("code.py:test\n");
   });
 
   it("should accept markdown as type alias", async () => {
@@ -578,7 +578,7 @@ describe("rg feature: type filtering", () => {
     });
     const result = await bash.exec("rg -t markdown test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("README.md:1:test\n");
+    expect(result.stdout).toBe("README.md:test\n");
   });
 
   it("should match .markdown extension with -t markdown", async () => {
@@ -591,7 +591,7 @@ describe("rg feature: type filtering", () => {
     });
     const result = await bash.exec("rg -t markdown content");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("doc.markdown:1:content\n");
+    expect(result.stdout).toBe("doc.markdown:content\n");
   });
 
   it("should match .mdown extension with -t markdown", async () => {
@@ -604,7 +604,7 @@ describe("rg feature: type filtering", () => {
     });
     const result = await bash.exec("rg -t markdown info");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("notes.mdown:1:info\n");
+    expect(result.stdout).toBe("notes.mdown:info\n");
   });
 
   it("should match both md and markdown types equivalently", async () => {
@@ -630,7 +630,7 @@ describe("rg feature: type filtering", () => {
     });
     const result = await bash.exec("rg -T markdown test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("code.py:1:test\n");
+    expect(result.stdout).toBe("code.py:test\n");
   });
 });
 
@@ -645,7 +645,7 @@ describe("rg feature: glob filtering", () => {
     });
     const result = await bash.exec("rg -g '*.txt' test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:test\n");
+    expect(result.stdout).toBe("file.txt:test\n");
   });
 
   it("should negate glob with -g !", async () => {
@@ -658,7 +658,7 @@ describe("rg feature: glob filtering", () => {
     });
     const result = await bash.exec("rg -g '!*.log' test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:test\n");
+    expect(result.stdout).toBe("file.txt:test\n");
   });
 });
 
@@ -672,7 +672,7 @@ describe("rg feature: word and line matching", () => {
     });
     const result = await bash.exec("rg -w foo");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file:1:foo foobar barfoo\n");
+    expect(result.stdout).toBe("file:foo foobar barfoo\n");
   });
 
   it("should not match partial words with -w", async () => {
@@ -695,7 +695,7 @@ describe("rg feature: word and line matching", () => {
     });
     const result = await bash.exec("rg -x foo");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file:1:foo\n");
+    expect(result.stdout).toBe("file:foo\n");
   });
 });
 
@@ -709,7 +709,7 @@ describe("rg feature: inverted match", () => {
     });
     const result = await bash.exec("rg -v foo");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file:2:bar\nfile:3:baz\n");
+    expect(result.stdout).toBe("file:bar\nfile:baz\n");
   });
 });
 
@@ -723,7 +723,7 @@ describe("rg feature: fixed strings", () => {
     });
     const result = await bash.exec("rg -F 'foo.*bar'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file:1:foo.*bar\n");
+    expect(result.stdout).toBe("file:foo.*bar\n");
   });
 });
 
@@ -827,7 +827,7 @@ describe("rg feature: combined flags", () => {
     });
     const result = await bash.exec("rg -iw foo");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file:1:FOO foobar\n");
+    expect(result.stdout).toBe("file:FOO foobar\n");
   });
 
   it("should combine -c and -i", async () => {
@@ -911,7 +911,7 @@ describe("rg feature: --stats", () => {
     const result = await bash.exec("rg --stats test");
     expect(result.exitCode).toBe(0);
     // Results should appear before stats
-    expect(result.stdout).toMatch(/file:1:test[\s\S]*1 matches/);
+    expect(result.stdout).toMatch(/file:test[\s\S]*1 matches/);
   });
 
   it("should show bytes searched in stats", async () => {
@@ -1033,7 +1033,7 @@ describe("rg feature: f68_no_ignore_vcs", () => {
     // Without --no-ignore-vcs, ignored.txt should be excluded
     const result1 = await bash.exec("rg Sherlock");
     expect(result1.exitCode).toBe(0);
-    expect(result1.stdout).toBe("visible.txt:1:Sherlock\n");
+    expect(result1.stdout).toBe("visible.txt:Sherlock\n");
 
     // With --no-ignore-vcs, .gitignore is skipped, so ignored.txt is searched
     const result2 = await bash.exec("rg --no-ignore-vcs Sherlock");

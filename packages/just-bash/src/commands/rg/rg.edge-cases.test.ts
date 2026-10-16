@@ -37,7 +37,7 @@ describe("rg empty and whitespace", () => {
     });
     const result = await bash.exec("rg '^$'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:2:\n");
+    expect(result.stdout).toBe("file.txt:\n");
     expect(result.stderr).toBe("");
   });
 
@@ -50,7 +50,7 @@ describe("rg empty and whitespace", () => {
     });
     const result = await bash.exec("rg 'hello   '");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:hello   \n");
+    expect(result.stdout).toBe("file.txt:hello   \n");
     expect(result.stderr).toBe("");
   });
 
@@ -63,7 +63,7 @@ describe("rg empty and whitespace", () => {
     });
     const result = await bash.exec("rg '^ +$'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:   \nfile.txt:2:   \n");
+    expect(result.stdout).toBe("file.txt:   \nfile.txt:   \n");
     expect(result.stderr).toBe("");
   });
 });
@@ -80,7 +80,7 @@ describe("rg special characters", () => {
     });
     const result = await bash.exec("rg -F 'a.b'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:a.b.c\n");
+    expect(result.stdout).toBe("file.txt:a.b.c\n");
     expect(result.stderr).toBe("");
   });
 
@@ -93,7 +93,7 @@ describe("rg special characters", () => {
     });
     const result = await bash.exec("rg -F '[0]'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:array[0]\n");
+    expect(result.stdout).toBe("file.txt:array[0]\n");
     expect(result.stderr).toBe("");
   });
 
@@ -106,7 +106,7 @@ describe("rg special characters", () => {
     });
     const result = await bash.exec("rg -F '()'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:func()\n");
+    expect(result.stdout).toBe("file.txt:func()\n");
     expect(result.stderr).toBe("");
   });
 
@@ -119,7 +119,7 @@ describe("rg special characters", () => {
     });
     const result = await bash.exec("rg -F 'a*b'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:a*b\n");
+    expect(result.stdout).toBe("file.txt:a*b\n");
     expect(result.stderr).toBe("");
   });
 
@@ -133,7 +133,7 @@ describe("rg special characters", () => {
     // Search for "path\" which appears at start of backslash path
     const result = await bash.exec("rg -F 'path\\'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:path\\to\\file\n");
+    expect(result.stdout).toBe("file.txt:path\\to\\file\n");
     expect(result.stderr).toBe("");
   });
 });
@@ -161,7 +161,7 @@ describe("rg line boundaries", () => {
     });
     const result = await bash.exec("rg 'hello$'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:hello\n");
+    expect(result.stdout).toBe("file.txt:hello\n");
     expect(result.stderr).toBe("");
   });
 
@@ -174,7 +174,7 @@ describe("rg line boundaries", () => {
     });
     const result = await bash.exec("rg '^hello'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:2:hello\n");
+    expect(result.stdout).toBe("file.txt:hello\n");
     expect(result.stderr).toBe("");
   });
 });
@@ -189,7 +189,7 @@ describe("rg unicode", () => {
     });
     const result = await bash.exec("rg 世界");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:hello 世界\n");
+    expect(result.stdout).toBe("file.txt:hello 世界\n");
     expect(result.stderr).toBe("");
   });
 
@@ -202,7 +202,7 @@ describe("rg unicode", () => {
     });
     const result = await bash.exec("rg 🎉");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:hello 🎉\n");
+    expect(result.stdout).toBe("file.txt:hello 🎉\n");
     expect(result.stderr).toBe("");
   });
 
@@ -215,7 +215,7 @@ describe("rg unicode", () => {
     });
     const result = await bash.exec("rg -i café");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:CAFÉ\nfile.txt:2:café\n");
+    expect(result.stdout).toBe("file.txt:CAFÉ\nfile.txt:café\n");
     expect(result.stderr).toBe("");
   });
 });
@@ -232,7 +232,7 @@ describe("rg multiple files ordering", () => {
     });
     const result = await bash.exec("rg hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("a.txt:1:hello\nm.txt:1:hello\nz.txt:1:hello\n");
+    expect(result.stdout).toBe("a.txt:hello\nm.txt:hello\nz.txt:hello\n");
     expect(result.stderr).toBe("");
   });
 
@@ -246,7 +246,7 @@ describe("rg multiple files ordering", () => {
     });
     const result = await bash.exec("rg hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("a/file.txt:1:hello\nz/file.txt:1:hello\n");
+    expect(result.stdout).toBe("a/file.txt:hello\nz/file.txt:hello\n");
     expect(result.stderr).toBe("");
   });
 });
@@ -309,7 +309,7 @@ describe("rg word boundaries", () => {
     });
     const result = await bash.exec("rg -w hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:hello world\n");
+    expect(result.stdout).toBe("file.txt:hello world\n");
     expect(result.stderr).toBe("");
   });
 
@@ -322,7 +322,7 @@ describe("rg word boundaries", () => {
     });
     const result = await bash.exec("rg -w world");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:hello world\n");
+    expect(result.stdout).toBe("file.txt:hello world\n");
     expect(result.stderr).toBe("");
   });
 
@@ -335,7 +335,7 @@ describe("rg word boundaries", () => {
     });
     const result = await bash.exec("rg -w hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:2:hello world\n");
+    expect(result.stdout).toBe("file.txt:hello world\n");
     expect(result.stderr).toBe("");
   });
 
@@ -348,9 +348,7 @@ describe("rg word boundaries", () => {
     });
     const result = await bash.exec("rg -w hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe(
-      "file.txt:1:hello, world\nfile.txt:2:hello.world\n",
-    );
+    expect(result.stdout).toBe("file.txt:hello, world\nfile.txt:hello.world\n");
     expect(result.stderr).toBe("");
   });
 });
@@ -368,7 +366,7 @@ describe("rg inverted context", () => {
     const result = await bash.exec("rg -v -C1 c");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      "file.txt:1:a\nfile.txt:2:b\nfile.txt-3-c\nfile.txt:4:d\nfile.txt:5:e\n",
+      "file.txt:a\nfile.txt:b\nfile.txt-c\nfile.txt:d\nfile.txt:e\n",
     );
     expect(result.stderr).toBe("");
   });
@@ -386,7 +384,7 @@ describe("rg gitignore edge cases", () => {
     });
     const result = await bash.exec("rg hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("app.ts:1:hello\n");
+    expect(result.stdout).toBe("app.ts:hello\n");
     expect(result.stderr).toBe("");
   });
 
@@ -402,7 +400,7 @@ describe("rg gitignore edge cases", () => {
     });
     const result = await bash.exec("rg hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("app.ts:1:hello\n");
+    expect(result.stdout).toBe("app.ts:hello\n");
     expect(result.stderr).toBe("");
   });
 
@@ -420,7 +418,7 @@ describe("rg glob edge cases", () => {
     });
     const result = await bash.exec("rg -g 'src/*.ts' hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("src/app.ts:1:hello\n");
+    expect(result.stdout).toBe("src/app.ts:hello\n");
     expect(result.stderr).toBe("");
   });
 
@@ -435,7 +433,7 @@ describe("rg glob edge cases", () => {
     });
     const result = await bash.exec("rg -g '*.ts' -g '*.js' hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("a.ts:1:hello\nb.js:1:hello\n");
+    expect(result.stdout).toBe("a.ts:hello\nb.js:hello\n");
     expect(result.stderr).toBe("");
   });
 });

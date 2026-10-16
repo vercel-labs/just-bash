@@ -17,7 +17,7 @@ describe("rg -L (follow symlinks)", () => {
     });
     const result = await bash.exec("rg -L hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:hello world\n");
+    expect(result.stdout).toBe("file.txt:hello world\n");
   });
 
   it("should accept --follow flag without error", async () => {
@@ -29,7 +29,7 @@ describe("rg -L (follow symlinks)", () => {
     });
     const result = await bash.exec("rg --follow hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:hello world\n");
+    expect(result.stdout).toBe("file.txt:hello world\n");
   });
 
   it("should skip symlinks by default in directory search", async () => {
@@ -43,7 +43,7 @@ describe("rg -L (follow symlinks)", () => {
 
     const result = await bash.exec("rg hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("real.txt:1:hello\n");
+    expect(result.stdout).toBe("real.txt:hello\n");
   });
 
   it("should follow symlinks with -L in directory search", async () => {
@@ -57,7 +57,7 @@ describe("rg -L (follow symlinks)", () => {
 
     const result = await bash.exec("rg -L --sort path hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("link.txt:1:hello\nreal.txt:1:hello\n");
+    expect(result.stdout).toBe("link.txt:hello\nreal.txt:hello\n");
   });
 
   it("should follow symlinks to directories with -L", async () => {
@@ -72,13 +72,13 @@ describe("rg -L (follow symlinks)", () => {
     // Without -L, should only find file in real directory
     let result = await bash.exec("rg hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("subdir/file.txt:1:hello\n");
+    expect(result.stdout).toBe("subdir/file.txt:hello\n");
 
     // With -L, should find file through both paths
     result = await bash.exec("rg -L --sort path hello");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      "linkdir/file.txt:1:hello\nsubdir/file.txt:1:hello\n",
+      "linkdir/file.txt:hello\nsubdir/file.txt:hello\n",
     );
   });
 });
@@ -95,11 +95,11 @@ describe("rg -u (unrestricted)", () => {
     });
     // Without -u, ignored.txt should not be searched
     let result = await bash.exec("rg hello");
-    expect(result.stdout).toBe("visible.txt:1:hello\n");
+    expect(result.stdout).toBe("visible.txt:hello\n");
 
     // With -u, ignored.txt should be searched
     result = await bash.exec("rg -u --sort path hello");
-    expect(result.stdout).toBe("ignored.txt:1:hello\nvisible.txt:1:hello\n");
+    expect(result.stdout).toBe("ignored.txt:hello\nvisible.txt:hello\n");
   });
 
   it("should search hidden files with -uu", async () => {
@@ -112,11 +112,11 @@ describe("rg -u (unrestricted)", () => {
     });
     // Without -uu, .hidden should not be searched
     let result = await bash.exec("rg hello");
-    expect(result.stdout).toBe("visible.txt:1:hello\n");
+    expect(result.stdout).toBe("visible.txt:hello\n");
 
     // With -uu (--no-ignore --hidden), .hidden should be searched
     result = await bash.exec("rg -uu --sort path hello");
-    expect(result.stdout).toBe(".hidden:1:hello\nvisible.txt:1:hello\n");
+    expect(result.stdout).toBe(".hidden:hello\nvisible.txt:hello\n");
   });
 
   it("-u should be equivalent to --no-ignore", async () => {
@@ -161,6 +161,6 @@ describe("rg -a (text/binary)", () => {
     // With -a, binary should be searched
     result = await bash.exec("rg -a hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("binary.bin:1:hello\x00world\n");
+    expect(result.stdout).toBe("binary.bin:hello\u0000world\n");
   });
 });

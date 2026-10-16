@@ -16,7 +16,7 @@ describe("rg -m/--max-count basic functionality", () => {
     });
     const result = await bash.exec("rg -m1 foo");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:foo\n");
+    expect(result.stdout).toBe("file.txt:foo\n");
   });
 
   it("should stop after 2 matches with -m2", async () => {
@@ -28,7 +28,7 @@ describe("rg -m/--max-count basic functionality", () => {
     });
     const result = await bash.exec("rg -m2 foo");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:foo\nfile.txt:3:foo\n");
+    expect(result.stdout).toBe("file.txt:foo\nfile.txt:foo\n");
   });
 
   it("should stop after 3 matches with -m 3", async () => {
@@ -40,9 +40,7 @@ describe("rg -m/--max-count basic functionality", () => {
     });
     const result = await bash.exec("rg -m 3 test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe(
-      "file.txt:1:test\nfile.txt:2:test\nfile.txt:3:test\n",
-    );
+    expect(result.stdout).toBe("file.txt:test\nfile.txt:test\nfile.txt:test\n");
   });
 
   it("should work with --max-count=N syntax", async () => {
@@ -54,7 +52,7 @@ describe("rg -m/--max-count basic functionality", () => {
     });
     const result = await bash.exec("rg --max-count=2 abc");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:abc\nfile.txt:2:abc\n");
+    expect(result.stdout).toBe("file.txt:abc\nfile.txt:abc\n");
   });
 
   it("should work with --max-count N syntax", async () => {
@@ -66,7 +64,7 @@ describe("rg -m/--max-count basic functionality", () => {
     });
     const result = await bash.exec("rg --max-count 1 xyz");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:xyz\n");
+    expect(result.stdout).toBe("file.txt:xyz\n");
   });
 
   it("should show all matches when count exceeds matches", async () => {
@@ -78,7 +76,7 @@ describe("rg -m/--max-count basic functionality", () => {
     });
     const result = await bash.exec("rg -m100 foo");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:foo\n");
+    expect(result.stdout).toBe("file.txt:foo\n");
   });
 
   it("should return exit code 1 when no matches", async () => {
@@ -106,7 +104,7 @@ describe("rg -m with multiple files", () => {
     const result = await bash.exec("rg -m1 match");
     expect(result.exitCode).toBe(0);
     // Each file should have only 1 match
-    expect(result.stdout).toBe("a.txt:1:match\nb.txt:1:match\n");
+    expect(result.stdout).toBe("a.txt:match\nb.txt:match\n");
   });
 
   it("should limit to 2 matches per file across multiple files", async () => {
@@ -120,7 +118,7 @@ describe("rg -m with multiple files", () => {
     const result = await bash.exec("rg -m2 foo");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      "file1.txt:1:foo\nfile1.txt:2:foo\nfile2.txt:1:foo\nfile2.txt:2:foo\n",
+      "file1.txt:foo\nfile1.txt:foo\nfile2.txt:foo\nfile2.txt:foo\n",
     );
   });
 
@@ -135,7 +133,7 @@ describe("rg -m with multiple files", () => {
     const result = await bash.exec("rg -m3 x");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      "few.txt:1:x\nmany.txt:1:x\nmany.txt:2:x\nmany.txt:3:x\n",
+      "few.txt:x\nmany.txt:x\nmany.txt:x\nmany.txt:x\n",
     );
   });
 });
@@ -192,7 +190,7 @@ describe("rg -m with other flags", () => {
     const result = await bash.exec("rg -m2 -v foo");
     expect(result.exitCode).toBe(0);
     // Lines NOT matching "foo", limited to 2
-    expect(result.stdout).toBe("file.txt:2:bar\nfile.txt:4:baz\n");
+    expect(result.stdout).toBe("file.txt:bar\nfile.txt:baz\n");
   });
 
   it("should work with -i (case insensitive)", async () => {
@@ -204,7 +202,7 @@ describe("rg -m with other flags", () => {
     });
     const result = await bash.exec("rg -m2 -i foo");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:Foo\nfile.txt:2:FOO\n");
+    expect(result.stdout).toBe("file.txt:Foo\nfile.txt:FOO\n");
   });
 
   it("should work with -w (word match)", async () => {
@@ -216,7 +214,7 @@ describe("rg -m with other flags", () => {
     });
     const result = await bash.exec("rg -m2 -w foo");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:foo bar\nfile.txt:3:bar foo\n");
+    expect(result.stdout).toBe("file.txt:foo bar\nfile.txt:bar foo\n");
   });
 
   it("should work with -o (only matching)", async () => {
@@ -340,7 +338,7 @@ describe("rg -m edge cases", () => {
     });
     const result = await bash.exec("rg -m999999 test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:test\nfile.txt:2:test\n");
+    expect(result.stdout).toBe("file.txt:test\nfile.txt:test\n");
   });
 
   it("should work with empty file", async () => {
@@ -365,7 +363,7 @@ describe("rg -m edge cases", () => {
     });
     const result = await bash.exec("rg -m1 -t js const");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("code.js:1:const x = 1;\n");
+    expect(result.stdout).toBe("code.js:const x = 1;\n");
   });
 
   it("should work with glob filter", async () => {
@@ -378,7 +376,7 @@ describe("rg -m edge cases", () => {
     });
     const result = await bash.exec("rg -m1 -g '*.log' error");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("test.log:1:error\n");
+    expect(result.stdout).toBe("test.log:error\n");
   });
 });
 
@@ -392,7 +390,7 @@ describe("rg -m with regex patterns", () => {
     });
     const result = await bash.exec("rg -m2 'cat|dog'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:cat\nfile.txt:2:dog\n");
+    expect(result.stdout).toBe("file.txt:cat\nfile.txt:dog\n");
   });
 
   it("should limit matches with anchors", async () => {
@@ -404,6 +402,6 @@ describe("rg -m with regex patterns", () => {
     });
     const result = await bash.exec("rg -m1 '^start'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:start line\n");
+    expect(result.stdout).toBe("file.txt:start line\n");
   });
 });
