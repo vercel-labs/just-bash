@@ -1,4 +1,8 @@
-import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
+import {
+  decodeBytesToUtf8,
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+} from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
@@ -35,7 +39,8 @@ const trHelp = {
   [:graph:]   all printable characters except space
   [:cntrl:]   all control characters
   [:xdigit:]  all hexadecimal digits
-  \\n, \\t, \\r  escape sequences`,
+  \\NNN       character with octal value NNN (1 to 3 digits)
+  \\\\, \\a, \\b, \\f, \\n, \\r, \\t, \\v  escape sequences`,
 };
 
 // POSIX character class definitions (Map prevents prototype pollution)
@@ -68,11 +73,81 @@ const POSIX_CLASSES = new Map<string, string>([
   ["[:xdigit:]", "0123456789ABCDEFabcdef"],
 ]);
 
+// Backslash escapes in a SET (Map prevents prototype pollution)
+const ESCAPES = new Map<string, string>([
+  ["a", "\x07"],
+  ["b", "\b"],
+  ["f", "\f"],
+  ["n", "\n"],
+  ["r", "\r"],
+  ["t", "\t"],
+  ["v", "\v"],
+]);
+
+const isOctalDigit = (ch: string | undefined): boolean =>
+  ch !== undefined && ch >= "0" && ch <= "7";
+
+/**
+ * Read one character of a SET starting at `i`, decoding a backslash escape.
+ * `\NNN` is one to three octal digits; like GNU tr, a third digit is only
+ * taken when the value still fits in a byte, so `\400` is `\40` then `0`.
+ * Any other escaped character stands for itself, and a trailing backslash
+ * is a literal backslash.
+ */
+function readSetChar(
+  set: string,
+  i: number,
+  warn?: (message: string) => void,
+): { char: string; next: number } {
+  if (set[i] !== "\\" || i + 1 >= set.length) {
+    return { char: set[i], next: i + 1 };
+  }
+  const next = set[i + 1];
+  if (isOctalDigit(next)) {
+    let value = 0;
+    let j = i + 1;
+    while (j < i + 4 && isOctalDigit(set[j])) {
+      const candidate = value * 8 + (set.charCodeAt(j) - 48);
+      if (candidate > 0o377) {
+        warn?.(
+          `tr: warning: the ambiguous octal escape ${set.slice(i, j + 1)} is being\n\tinterpreted as the 2-byte sequence \\${value.toString(8).padStart(3, "0")}, ${set[j]}\n`,
+        );
+        break;
+      }
+      value = candidate;
+      j++;
+    }
+    return { char: String.fromCharCode(value), next: j };
+  }
+  return { char: ESCAPES.get(next) ?? next, next: i + 2 };
+}
+
+/** Whether a SET contains an octal byte escape. */
+function hasOctalEscape(set: string): boolean {
+  for (let i = 0; i < set.length; ) {
+    const { next } = readSetChar(set, i);
+    if (set[i] === "\\" && isOctalDigit(set[i + 1])) {
+      return true;
+    }
+    i = next;
+  }
+  return false;
+}
+
+/** GNU tr renders non-printable bytes in range errors as three-digit octal. */
+function formatRangeEndpoint(char: string): string {
+  const code = char.charCodeAt(0);
+  return code < 0x20 || (code >= 0x7f && code <= 0xff)
+    ? `\\${code.toString(8).padStart(3, "0")}`
+    : char;
+}
+
 function expandRange(
   set: string,
   maxLength: number,
   maxIterations: number,
   budget: { iterations: number },
+  warn: (message: string) => void,
 ): string {
   let result = "";
   let i = 0;
@@ -111,27 +186,19 @@ function expandRange(
       if (found) continue;
     }
 
-    // Handle escape sequences
-    if (set[i] === "\\" && i + 1 < set.length) {
-      const next = set[i + 1];
-      if (next === "n") {
-        append("\n");
-      } else if (next === "t") {
-        append("\t");
-      } else if (next === "r") {
-        append("\r");
-      } else {
-        append(next);
-      }
-      i += 2;
-      continue;
-    }
+    const first = readSetChar(set, i, warn);
 
-    // Handle character ranges like a-z
-    if (i + 2 < set.length && set[i + 1] === "-") {
-      const start = set.charCodeAt(i);
-      const end = set.charCodeAt(i + 2);
-      const rangeLength = end >= start ? end - start + 1 : 0;
+    // Handle character ranges like a-z; either endpoint may be an escape
+    if (set[first.next] === "-" && first.next + 1 < set.length) {
+      const last = readSetChar(set, first.next + 1, warn);
+      const start = first.char.charCodeAt(0);
+      const end = last.char.charCodeAt(0);
+      if (end < start) {
+        throw new Error(
+          `tr: range-endpoints of '${formatRangeEndpoint(first.char)}-${formatRangeEndpoint(last.char)}' are in reverse collating sequence order`,
+        );
+      }
+      const rangeLength = end - start + 1;
       useIterations(rangeLength);
       if (rangeLength > maxLength - result.length) {
         throw new ExecutionLimitError(
@@ -142,12 +209,12 @@ function expandRange(
       for (let code = start; code <= end; code++) {
         result += String.fromCharCode(code);
       }
-      i += 3;
+      i = last.next;
       continue;
     }
 
-    append(set[i]);
-    i++;
+    append(first.char);
+    i = first.next;
   }
 
   return result;
@@ -188,10 +255,22 @@ export const trCommand: RuntimeCommand = {
       };
     }
 
-    if (!deleteMode && !squeezeMode && sets.length < 2) {
+    if (
+      ((!deleteMode && !squeezeMode) || (deleteMode && squeezeMode)) &&
+      sets.length < 2
+    ) {
       return {
         stdout: "",
         stderr: "tr: missing operand after SET1\n",
+        exitCode: 1,
+      };
+    }
+
+    const maxOperands = deleteMode && !squeezeMode ? 1 : 2;
+    if (sets.length > maxOperands) {
+      return {
+        stdout: "",
+        stderr: `tr: extra operand '${sanitizeErrorMessage(sets[maxOperands])}'\n`,
         exitCode: 1,
       };
     }
@@ -208,21 +287,53 @@ export const trCommand: RuntimeCommand = {
       ctx.limits.maxOutputSize,
       ctx.limits.maxStringLength,
     );
+    // GNU tr works on bytes. This tr decodes its input so that a SET like 'é'
+    // matches the character, but an octal escape names a single
+    // byte. A SET with one switches tr to bytes: the input is not decoded, and
+    // the SETs' own characters become their UTF-8 bytes, as in GNU tr.
+    const inputBytes = latin1FromBytes(ctx.stdin);
+    if (inputBytes.length > maxStringLength) {
+      throw new ExecutionLimitError(
+        `tr: input size limit exceeded (${maxStringLength} bytes)`,
+        "string_length",
+      );
+    }
+    const hasByteEscape = sets.some(hasOctalEscape);
+    const decodedInput = decodeBytesToUtf8(ctx.stdin);
+    // The decoder falls back to the raw Latin-1 view for invalid UTF-8. Keep
+    // that fallback byte-shaped on output instead of re-encoding it.
+    const byteMode =
+      hasByteEscape ||
+      (decodedInput === inputBytes && /[^\x00-\x7f]/.test(inputBytes));
+    const setBytes = (set: string): string =>
+      byteMode ? latin1FromBytes(encodeUtf8ToBytes(set)) : set;
+    let stderr = "";
+    const warn = (message: string): void => {
+      if (message.length > maxOutputSize - stderr.length) {
+        throw new ExecutionLimitError(
+          `tr: warning output limit exceeded (${maxOutputSize} bytes)`,
+          "output_size",
+        );
+      }
+      stderr += message;
+    };
     try {
       const expansionBudget = { iterations: 0 };
       set1Raw = expandRange(
-        sets[0],
+        setBytes(sets[0]),
         maxStringLength,
         maxIterations,
         expansionBudget,
+        warn,
       );
       set2 =
         sets.length > 1
           ? expandRange(
-              sets[1],
+              setBytes(sets[1]),
               maxStringLength,
               maxIterations,
               expansionBudget,
+              warn,
             )
           : "";
     } catch (e) {
@@ -230,20 +341,14 @@ export const trCommand: RuntimeCommand = {
       const message = sanitizeErrorMessage((e as Error).message);
       return {
         stdout: "",
-        stderr: `${message}\n`,
+        stderr: `${stderr}${message}\n`,
         exitCode: 1,
       };
     }
-    // Translation operates on codepoints — set1 / set2 args are real Unicode
-    // strings, so we must decode bytes to UTF-8 first, otherwise multibyte
-    // chars don't match the SET they were spelled with.
-    if (latin1FromBytes(ctx.stdin).length > maxStringLength) {
-      throw new ExecutionLimitError(
-        `tr: input size limit exceeded (${maxStringLength} bytes)`,
-        "string_length",
-      );
-    }
-    const content = decodeBytesToUtf8(ctx.stdin);
+    // Outside byte mode, translation operates on codepoints — set1 / set2 args
+    // are real Unicode strings, so we must decode bytes to UTF-8 first,
+    // otherwise multibyte chars don't match the SET they were spelled with.
+    const content = byteMode ? inputBytes : decodedInput;
     if (set1Raw.length > maxArrayElements || set2.length > maxArrayElements) {
       throw new ExecutionLimitError(
         `tr: array element limit exceeded (${maxArrayElements})`,
@@ -267,7 +372,8 @@ export const trCommand: RuntimeCommand = {
       // Every append is empty or one codepoint, so account for its UTF-8
       // width directly. Lone surrogate code units still cost three bytes.
       let bytes = 0;
-      if (value.length === 2) bytes = 4;
+      if (byteMode) bytes = value.length;
+      else if (value.length === 2) bytes = 4;
       else if (value.length === 1) {
         const code = value.charCodeAt(0);
         bytes = code <= 0x7f ? 1 : code <= 0x7ff ? 2 : 3;
@@ -283,6 +389,7 @@ export const trCommand: RuntimeCommand = {
     };
 
     if (deleteMode) {
+      let prev = "";
       // Delete characters in set1 (or complement of set1)
       // Advance by codepoint without allocating a string-iterator result per
       // character. Use the same traversal in the squeeze/translation loops.
@@ -290,9 +397,12 @@ export const trCommand: RuntimeCommand = {
         const code = content.codePointAt(i) as number;
         const char = code > 0xffff ? content.slice(i, i + 2) : content[i];
         i += char.length;
-        if (!isInSet1(char)) {
-          appendOutput(char);
-        }
+        if (isInSet1(char)) continue;
+        // Deletion can bring two SET2 characters together. Only retained
+        // characters advance the squeeze state.
+        if (squeezeMode && set2Chars.has(char) && char === prev) continue;
+        appendOutput(char);
+        prev = char;
       }
     } else if (squeezeMode && sets.length === 1) {
       // Squeeze consecutive characters in set1
@@ -349,11 +459,13 @@ export const trCommand: RuntimeCommand = {
       }
     }
 
-    // tr emits text; the pipeline handles encoding.
+    // In byte mode stdout is already bytes; otherwise tr emits text and the
+    // pipeline handles encoding.
     return {
       stdout: output.finish(),
-      stderr: "",
+      stderr,
       exitCode: 0,
+      ...(byteMode && { stdoutKind: "bytes" as const }),
     };
   },
 };
