@@ -175,6 +175,28 @@ describe("redirections with binary data", () => {
   });
 
   describe("UTF-8 text through redirections", () => {
+    it.each([
+      "/dev/null",
+      "/errors.txt",
+    ])("preserves non-ASCII stdout when stderr is redirected to %s", async (target) => {
+      const env = new Bash({ files: { "/present.txt": "שלום\n" } });
+
+      const result = await env.exec(
+        `cat /present.txt /missing.txt 2>${target}`,
+      );
+
+      expect(result).toMatchObject({
+        stdout: "שלום\n",
+        stderr: "",
+        exitCode: 1,
+      });
+      if (target === "/errors.txt") {
+        expect(await env.fs.readFile(target)).toBe(
+          "cat: /missing.txt: No such file or directory\n",
+        );
+      }
+    });
+
     it("should preserve Latin-1 range characters (Ü Ö Ä) via readFileBuffer", async () => {
       const env = new Bash({});
 
