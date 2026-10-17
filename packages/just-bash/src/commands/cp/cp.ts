@@ -9,7 +9,10 @@ import {
   ExecutionAbortedError,
   ExecutionLimitError,
 } from "../../interpreter/errors.js";
-import { getErrorMessage } from "../../interpreter/helpers/errors.js";
+import {
+  getErrorCode,
+  getErrorMessage,
+} from "../../interpreter/helpers/errors.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -24,6 +27,8 @@ const cpHelp = {
   usage: "cp [OPTION]... SOURCE... DEST",
   options: [
     "-r, -R, --recursive  copy directories recursively",
+    "-f, --force          if an existing destination file cannot be opened,",
+    "                     remove it and try again (ignored with -n)",
     "-n, --no-clobber     do not overwrite an existing file",
     "-p, --preserve       preserve file attributes",
     "-v, --verbose        explain what is being done",
@@ -31,9 +36,34 @@ const cpHelp = {
   ],
 };
 
+const PERMISSION_DENIED_CODES = new Set(["EACCES", "EPERM"]);
+
+function isPermissionDenied(error: unknown): boolean {
+  const code = getErrorCode(error);
+  return code !== undefined && PERMISSION_DENIED_CODES.has(code);
+}
+
+/**
+ * Whether a failed copy is one that `cp -f` answers by replacing the
+ * destination. GNU cp does so after any failure to open the destination
+ * except ENOENT. The filesystem reports such a failure with a bare errno,
+ * `CODE: cp 'path'` (see `sanitizeFsError`), while its own refusals, such as
+ * a sandbox or identity check, give a reason after the code and are not
+ * retried.
+ */
+function isRetriableCopyError(error: unknown): boolean {
+  const code = getErrorCode(error);
+  return (
+    code !== undefined &&
+    code !== "ENOENT" &&
+    /^E[A-Z]+: cp '/.test(getErrorMessage(error))
+  );
+}
+
 const argDefs = {
   recursive: { short: "r", long: "recursive", type: "boolean" as const },
   recursiveUpper: { short: "R", type: "boolean" as const },
+  force: { short: "f", long: "force", type: "boolean" as const },
   noClobber: { short: "n", long: "no-clobber", type: "boolean" as const },
   preserve: { short: "p", long: "preserve", type: "boolean" as const },
   verbose: { short: "v", long: "verbose", type: "boolean" as const },
@@ -56,6 +86,9 @@ export const cpCommand: RuntimeCommand = {
     const recursive =
       parsed.result.flags.recursive || parsed.result.flags.recursiveUpper;
     const noClobber = parsed.result.flags.noClobber;
+    // With -n an existing destination is never touched, so -f has nothing to
+    // do; the no-clobber check below runs first and wins in either order.
+    const force = parsed.result.flags.force && !noClobber;
     const preserve = parsed.result.flags.preserve;
     const verbose = parsed.result.flags.verbose;
     const paths = parsed.result.positional;
@@ -178,7 +211,46 @@ export const cpCommand: RuntimeCommand = {
           );
         }
 
-        await ctx.fs.cp(srcPath, targetPath, { recursive });
+        let removedTarget = false;
+        try {
+          await ctx.fs.cp(srcPath, targetPath, { recursive });
+        } catch (error) {
+          if (
+            !force ||
+            srcStat.isDirectory ||
+            !isRetriableCopyError(error) ||
+            !(await isReplaceableFile(ctx, targetPath))
+          ) {
+            throw error;
+          }
+          // GNU cp opens the source before it gives up on the destination, so
+          // a source that cannot be read must leave the destination in place.
+          // The filesystem API has no access() check, so read the source. A
+          // read limit such as maxFileReadSize does not apply to fs.cp, so
+          // only that failure is ignored.
+          try {
+            await ctx.fs.readFileBuffer(srcPath);
+          } catch (readError) {
+            if (isPermissionDenied(readError)) {
+              stderr += `cp: cannot open '${src}' for reading: Permission denied\n`;
+              exitCode = 1;
+              continue;
+            }
+            if (getErrorCode(readError) !== "EFBIG") throw readError;
+          }
+          try {
+            await ctx.fs.rm(targetPath);
+          } catch (rmError) {
+            const reason = isPermissionDenied(rmError)
+              ? "Permission denied"
+              : getErrorMessage(rmError);
+            stderr += `cp: cannot remove '${targetPath}': ${reason}\n`;
+            exitCode = 1;
+            continue;
+          }
+          removedTarget = true;
+          await ctx.fs.cp(srcPath, targetPath, { recursive });
+        }
 
         // Note: preserve flag is accepted but timestamps are not actually preserved
         // in the virtual filesystem (the fs.cp doesn't support preserving metadata)
@@ -188,6 +260,7 @@ export const cpCommand: RuntimeCommand = {
 
         if (verbose) {
           stdout += `'${src}' -> '${targetPath}'\n`;
+          if (removedTarget) stdout += `removed '${targetPath}'\n`;
         }
       } catch (error) {
         if (
@@ -210,6 +283,23 @@ export const cpCommand: RuntimeCommand = {
   },
 };
 
+/**
+ * Whether `cp -f` may remove the destination: it must be an existing regular
+ * file or symlink, inspected without following it. Special files such as
+ * FIFOs are refused by the filesystem itself, and GNU cp never removes them.
+ */
+async function isReplaceableFile(
+  ctx: RuntimeCommandContext,
+  path: string,
+): Promise<boolean> {
+  try {
+    const stat = await ctx.fs.lstat(path);
+    return stat.isFile || stat.isSymbolicLink;
+  } catch {
+    return false;
+  }
+}
+
 import type { CommandFuzzInfo } from "../fuzz-flags-types.js";
 
 export const flagsForFuzzing: CommandFuzzInfo = {
@@ -217,6 +307,7 @@ export const flagsForFuzzing: CommandFuzzInfo = {
   flags: [
     { flag: "-r", type: "boolean" },
     { flag: "-R", type: "boolean" },
+    { flag: "-f", type: "boolean" },
     { flag: "-n", type: "boolean" },
     { flag: "-p", type: "boolean" },
     { flag: "-v", type: "boolean" },

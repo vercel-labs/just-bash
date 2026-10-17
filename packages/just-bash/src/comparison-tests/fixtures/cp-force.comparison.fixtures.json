@@ -1,0 +1,85 @@
+{
+  "2e3ff350d34d3cc9": {
+    "command": "cp -fn src.txt dst.txt; echo $?; cat dst.txt",
+    "files": {
+      "src.txt": "new\n",
+      "dst.txt": "old\n"
+    },
+    "stdout": "0\nold\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "4b977a9057d4db95": {
+    "command": "chmod 444 dst.txt; cp -f src.txt dst.txt; echo $?; cat dst.txt",
+    "files": {
+      "src.txt": "new\n",
+      "dst.txt": "old\n"
+    },
+    "stdout": "0\nnew\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "55c2acc012b915c0": {
+    "command": "cp --force src.txt dst.txt; echo $?; cat dst.txt",
+    "files": {
+      "src.txt": "new\n",
+      "dst.txt": "old\n"
+    },
+    "stdout": "0\nnew\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "5ab9c5ae8c829967": {
+    "command": "cp -rf src dst; echo $?; cat dst/src/a.txt",
+    "files": {
+      "src/a.txt": "new\n",
+      "dst/src/a.txt": "old\n"
+    },
+    "stdout": "0\nnew\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7830e9ccb0092845": {
+    "command": "cp -nf src.txt dst.txt; echo $?; cat dst.txt",
+    "files": {
+      "src.txt": "new\n",
+      "dst.txt": "old\n"
+    },
+    "stdout": "0\nold\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "c0e5d1bfe36c9b6c": {
+    "command": "cp -f src.txt dst.txt; echo $?; cat dst.txt",
+    "files": {
+      "src.txt": "new\n",
+      "dst.txt": "old\n"
+    },
+    "stdout": "0\nnew\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d14450946cc8ec89": {
+    "command": "cp -fR src dst; echo $?; cat dst/src/a.txt",
+    "files": {
+      "src/a.txt": "new\n",
+      "dst/src/a.txt": "old\n"
+    },
+    "stdout": "0\nnew\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "dd64946ce06b3e8a": {
+    "command": "cp -pf src.txt dst.txt; echo $?; cat dst.txt",
+    "files": {
+      "src.txt": "new\n",
+      "dst.txt": "old\n"
+    },
+    "stdout": "0\nnew\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
