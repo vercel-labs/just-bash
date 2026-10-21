@@ -215,7 +215,7 @@ export function computeAgg(
       );
     }
     const value = evaluateRow(row);
-    if (value !== null && value !== undefined) {
+    if (value !== null && value !== undefined && value !== "") {
       if (values.length >= maxArrayElements) {
         throw new ExecutionLimitError(
           `xan: aggregation value limit exceeded (${maxArrayElements})`,

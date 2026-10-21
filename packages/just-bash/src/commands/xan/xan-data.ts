@@ -8,6 +8,7 @@ import { decodeBytesToUtf8, utf8ByteLength } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { ExecResult, RuntimeCommandContext } from "../../types.js";
+import { showHelp, unknownOption } from "../help.js";
 import { formatJsonValue } from "../query-engine/json-output.js";
 import { sanitizeParsedData } from "../query-engine/safe-object.js";
 import type { QueryValue } from "../query-engine/value-operations.js";
@@ -518,9 +519,28 @@ async function cmdToJson(
   args: string[],
   ctx: RuntimeCommandContext,
 ): Promise<ExecResult> {
-  const fileArgs = args.filter((a) => !a.startsWith("-"));
+  const fileArgs: string[] = [];
+  let stringColumns = "";
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--help") {
+      return showHelp({
+        name: "xan to json",
+        summary: "Convert CSV to JSON",
+        usage: "xan to json [OPTIONS] [FILE]",
+        options: ["--strings COLUMNS  preserve selected columns as strings"],
+      });
+    }
+    if (arg === "--strings" && i + 1 < args.length) stringColumns = args[++i];
+    else if (arg.startsWith("-") && arg !== "-")
+      return unknownOption("xan to json", arg);
+    else fileArgs.push(arg);
+  }
 
-  const { data, error } = await readCsvInput(fileArgs, ctx);
+  const { data, error } = await readCsvInput(fileArgs, ctx, {
+    inferTypes: true,
+    stringColumns,
+  });
   if (error) return error;
 
   const budget = new DerivedCsvBudget(ctx, "xan to json");

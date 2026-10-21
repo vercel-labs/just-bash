@@ -35,22 +35,25 @@ function makePipeFunc(funcName: string, args: AstNode[]): AstNode {
 // @banned-pattern-ignore: prototype nulled below; self-referential type prevents Object.assign pattern
 const FUNCTION_MAP: Record<string, string | ((args: AstNode[]) => AstNode)> = {
   // Arithmetic
-  add: (args) => makeBinaryOp("+", args[0], args[1]),
-  sub: (args) => makeBinaryOp("-", args[0], args[1]),
-  mul: (args) => makeBinaryOp("*", args[0], args[1]),
-  div: (args) => makeBinaryOp("/", args[0], args[1]),
-  mod: (args) => makeBinaryOp("%", args[0], args[1]),
-  idiv: (args) => makeCall("floor", [makeBinaryOp("/", args[0], args[1])]),
-  pow: (args) => makePipeFunc("pow", args),
-  neg: (args) => ({ type: "UnaryOp", op: "-", operand: args[0] }),
+  add: (args) => makeBinaryOp("+", makeNumber(args[0]), makeNumber(args[1])),
+  sub: (args) => makeBinaryOp("-", makeNumber(args[0]), makeNumber(args[1])),
+  mul: (args) => makeBinaryOp("*", makeNumber(args[0]), makeNumber(args[1])),
+  div: (args) => makeBinaryOp("/", makeNumber(args[0]), makeNumber(args[1])),
+  mod: (args) => makeBinaryOp("%", makeNumber(args[0]), makeNumber(args[1])),
+  idiv: (args) =>
+    makeCall("floor", [
+      makeBinaryOp("/", makeNumber(args[0]), makeNumber(args[1])),
+    ]),
+  pow: (args) => makePipeFunc("pow", args.map(makeNumber)),
+  neg: (args) => ({ type: "UnaryOp", op: "-", operand: makeNumber(args[0]) }),
 
   // Comparison
-  "==": (args) => makeBinaryOp("==", args[0], args[1]),
-  "!=": (args) => makeBinaryOp("!=", args[0], args[1]),
-  "<": (args) => makeBinaryOp("<", args[0], args[1]),
-  "<=": (args) => makeBinaryOp("<=", args[0], args[1]),
-  ">": (args) => makeBinaryOp(">", args[0], args[1]),
-  ">=": (args) => makeBinaryOp(">=", args[0], args[1]),
+  "==": (args) => makeBinaryOp("==", makeNumber(args[0]), makeNumber(args[1])),
+  "!=": (args) => makeBinaryOp("!=", makeNumber(args[0]), makeNumber(args[1])),
+  "<": (args) => makeBinaryOp("<", makeNumber(args[0]), makeNumber(args[1])),
+  "<=": (args) => makeBinaryOp("<=", makeNumber(args[0]), makeNumber(args[1])),
+  ">": (args) => makeBinaryOp(">", makeNumber(args[0]), makeNumber(args[1])),
+  ">=": (args) => makeBinaryOp(">=", makeNumber(args[0]), makeNumber(args[1])),
 
   // String comparison (case-sensitive string compare) - convert to strings first using pipe
   eq: (args) =>
@@ -104,33 +107,34 @@ const FUNCTION_MAP: Record<string, string | ((args: AstNode[]) => AstNode)> = {
   contains: (args) => makePipeFunc("contains", args),
   replace: (args) => makePipeFunc("gsub", args),
   substr: (args) => {
+    const start = makeNumber(args[1]);
     if (args.length === 2) {
-      return { type: "Slice", base: args[0], start: args[1] };
+      return { type: "Slice", base: args[0], start };
     }
     return {
       type: "Slice",
       base: args[0],
-      start: args[1],
-      end: makeBinaryOp("+", args[1], args[2]),
+      start,
+      end: makeBinaryOp("+", start, makeNumber(args[2])),
     };
   },
 
   // Math functions - use pipe syntax for single-arg functions
-  abs: (args) => makePipeFunc("fabs", args),
-  floor: (args) => makePipeFunc("floor", args),
-  ceil: (args) => makePipeFunc("ceil", args),
-  round: (args) => makePipeFunc("round", args),
-  sqrt: (args) => makePipeFunc("sqrt", args),
-  log: (args) => makePipeFunc("log", args),
-  log10: (args) => makePipeFunc("log10", args),
-  log2: (args) => makePipeFunc("log2", args),
-  exp: (args) => makePipeFunc("exp", args),
-  sin: (args) => makePipeFunc("sin", args),
-  cos: (args) => makePipeFunc("cos", args),
-  tan: (args) => makePipeFunc("tan", args),
-  asin: (args) => makePipeFunc("asin", args),
-  acos: (args) => makePipeFunc("acos", args),
-  atan: (args) => makePipeFunc("atan", args),
+  abs: (args) => makePipeFunc("fabs", args.map(makeNumber)),
+  floor: (args) => makePipeFunc("floor", args.map(makeNumber)),
+  ceil: (args) => makePipeFunc("ceil", args.map(makeNumber)),
+  round: (args) => makePipeFunc("round", args.map(makeNumber)),
+  sqrt: (args) => makePipeFunc("sqrt", args.map(makeNumber)),
+  log: (args) => makePipeFunc("log", args.map(makeNumber)),
+  log10: (args) => makePipeFunc("log10", args.map(makeNumber)),
+  log2: (args) => makePipeFunc("log2", args.map(makeNumber)),
+  exp: (args) => makePipeFunc("exp", args.map(makeNumber)),
+  sin: (args) => makePipeFunc("sin", args.map(makeNumber)),
+  cos: (args) => makePipeFunc("cos", args.map(makeNumber)),
+  tan: (args) => makePipeFunc("tan", args.map(makeNumber)),
+  asin: (args) => makePipeFunc("asin", args.map(makeNumber)),
+  acos: (args) => makePipeFunc("acos", args.map(makeNumber)),
+  atan: (args) => makePipeFunc("atan", args.map(makeNumber)),
   min: (args) => makePipeFunc("min", args),
   max: (args) => makePipeFunc("max", args),
 
@@ -147,7 +151,18 @@ const FUNCTION_MAP: Record<string, string | ((args: AstNode[]) => AstNode)> = {
     if (args.length === 1) {
       return { type: "Index", index: args[0] };
     }
-    return { type: "Index", index: args[1], base: args[0] };
+    return {
+      type: "Index",
+      base: args[0],
+      index: makeCond(
+        makeBinaryOp("==", makePipeFunc("type", [args[0]]), {
+          type: "Literal",
+          value: "array",
+        }),
+        makeNumber(args[1]),
+        args[1],
+      ),
+    };
   },
   slice: (args) => {
     if (args.length === 1) {
@@ -262,6 +277,10 @@ const FUNCTION_MAP: Record<string, string | ((args: AstNode[]) => AstNode)> = {
 };
 // @banned-pattern-ignore: defense-in-depth null-prototype for static lookup table
 Object.setPrototypeOf(FUNCTION_MAP, null);
+
+function makeNumber(node: AstNode): AstNode {
+  return makePipeFunc("tonumber", [node]);
+}
 
 function makeBinaryOp(
   op:
