@@ -211,6 +211,37 @@ describe("diff", () => {
       expect(result.exitCode).toBe(2);
     });
 
+    it("should error with extra operand instead of comparing the first two", async () => {
+      const env = new Bash({
+        files: {
+          "/a.txt": "same\n",
+          "/b.txt": "same\n",
+          "/c.txt": "different\n",
+        },
+      });
+      const result = await env.exec("diff /a.txt /b.txt /c.txt");
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "diff: extra operand '/c.txt'\ndiff: Try 'diff --help' for more information.\n",
+      );
+      expect(result.exitCode).toBe(2);
+    });
+
+    it("should error when a glob expands to more than two operands", async () => {
+      const env = new Bash({
+        files: {
+          "/doc@1.md": "total: 100\n",
+          "/doc@2.md": "total: 100\n",
+          "/doc@3.md": "total: 150\n",
+          "/doc.md": "total: 150\n",
+        },
+      });
+      const result = await env.exec("diff /doc@*.md /doc.md");
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("diff: extra operand '/doc@3.md'");
+      expect(result.exitCode).toBe(2);
+    });
+
     it("should error on unknown option", async () => {
       const env = new Bash();
       const result = await env.exec("diff --unknown /a.txt /b.txt");
