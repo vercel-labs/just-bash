@@ -1073,7 +1073,9 @@ async function prepareRedirectionsWithState(
       const entry = opened.entry as FdEntry;
       persistStandard(effectiveFd, entry);
       if (effectiveFd === 0 && entry.kind === "readwrite") {
-        stdin = entry.content;
+        // Stdin carries bytes, like the `<` branch above. The read-write
+        // entry keeps decoded text for its own positions and writes.
+        stdin = latin1FromBytes(encodeUtf8ToBytes(entry.content));
         stdinSourceFd = -1;
         stdinReplaced = true;
         stdinUnavailable = entry.device === true;
