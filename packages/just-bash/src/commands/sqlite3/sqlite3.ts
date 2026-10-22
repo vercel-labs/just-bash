@@ -350,6 +350,17 @@ async function getSqliteVersion(): Promise<string> {
 }
 
 /**
+ * `import.meta` is an empty object in the CJS bundle (esbuild, `--format=cjs`),
+ * so the module directory has to come from `__dirname` there.
+ */
+function moduleDirectory(): string {
+  if (typeof __dirname !== "undefined") {
+    return __dirname;
+  }
+  return dirname(fileURLToPath(import.meta.url));
+}
+
+/**
  * Find the sqlite3 worker.js file path.
  *
  * The worker is shipped via two routes by `build:worker`:
@@ -366,17 +377,17 @@ async function getSqliteVersion(): Promise<string> {
  *
  * Locations checked, in order:
  *   1. `<currentDir>/sqlite3-worker.js`                       — bundled (chunks dirs)
- *   2. `<currentDir>/../../commands/sqlite3/worker.js`        — bundled (chunks dir → tarball commands tree)
- *   3. `<currentDir>/worker.js`                               — non-bundled dist; only when currentDir is `commands/sqlite3`
- *   4. `<currentDir>/../../../dist/commands/sqlite3/worker.js` — tests from TS source
+ *   2. `<currentDir>/chunks/sqlite3-worker.js`                — CJS bundle (`dist/bundle/index.cjs`, worker one level down)
+ *   3. `<currentDir>/../../commands/sqlite3/worker.js`        — bundled (chunks dir → tarball commands tree)
+ *   4. `<currentDir>/worker.js`                               — non-bundled dist; only when currentDir is `commands/sqlite3`
+ *   5. `<currentDir>/../../../dist/commands/sqlite3/worker.js` — tests from TS source
  *
  * Exposed via `_internals.findWorkerPath` so tests can pass a synthetic dir.
  */
-function findWorkerPath(
-  currentDir: string = dirname(fileURLToPath(import.meta.url)),
-): string {
+function findWorkerPath(currentDir: string = moduleDirectory()): string {
   const candidates = [
     join(currentDir, "sqlite3-worker.js"),
+    join(currentDir, "chunks", "sqlite3-worker.js"),
     join(currentDir, "../../commands/sqlite3/worker.js"),
   ];
 
