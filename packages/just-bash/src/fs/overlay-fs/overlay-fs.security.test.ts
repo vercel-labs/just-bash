@@ -232,18 +232,19 @@ describe("OverlayFs Security - Path Traversal Prevention", () => {
       expect(fs.existsSync(path.join(outsideDir, "outside.txt"))).toBe(false);
     });
 
-    it("should not share content between hardlink and original (copy semantics)", async () => {
-      // SECURITY: Our hardlinks copy content, not share it
-      // This is secure because modifying one doesn't affect the other
-      await overlay.writeFile("/original.txt", "original content");
+    it("should share overlay hard-link content without changing the backing file", async () => {
+      fs.writeFileSync(path.join(tempDir, "original.txt"), "original content");
       await overlay.link("/original.txt", "/hardlink.txt");
 
       // Modify the original
       await overlay.writeFile("/original.txt", "modified content");
 
-      // The hardlink should still have the original content (copy semantics)
+      // Both virtual names share the memory entry while the host stays unchanged.
       const hardlinkContent = await overlay.readFile("/hardlink.txt");
-      expect(hardlinkContent).toBe("original content");
+      expect(hardlinkContent).toBe("modified content");
+      expect(fs.readFileSync(path.join(tempDir, "original.txt"), "utf8")).toBe(
+        "original content",
+      );
     });
 
     it("should not allow hard linking directories", async () => {
