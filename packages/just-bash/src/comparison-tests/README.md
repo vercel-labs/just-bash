@@ -142,6 +142,11 @@ Currently locked fixtures:
 - `rg-grep-tool.comparison.test.ts` - All fixtures use the version-pinned ripgrep 15.2.0 oracle, which CI does not install
 - `ls -R` - Uses Linux-style output with ".:" header
 - `cat -n` with multiple files - Uses continuous line numbering (Linux behavior)
+- Arithmetic syntax errors in `arithmetic-command-substitution-isolation` - Holds
+  the Linux `stderr`. bash words this message differently per version ("syntax
+  error" vs "arithmetic syntax error") and numbers the line differently, so
+  re-recording on macOS would otherwise drift. Only `stdout` and the exit code
+  are compared, so the recorded `stderr` is documentation.
 
 ## API Reference
 
