@@ -12,15 +12,21 @@ import {
   clearArray,
   cloneArray,
   getArray,
+  getArrayElement,
   getArrayIndices,
+  hasArray,
   setArrayElement,
   setArrayKind,
+  unquoteKey,
 } from "../helpers/array.js";
 import { markNameref } from "../helpers/nameref.js";
 import { checkReadonlyError } from "../helpers/readonly.js";
 import { failure, result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
-import { parseArrayElements } from "./declare-array-parsing.js";
+import {
+  parseArrayElements,
+  parseAssocArrayContent,
+} from "./declare-array-parsing.js";
 import { markLocalVarDepth, pushLocalVarStack } from "./variable-assignment.js";
 
 export async function handleLocal(
@@ -53,6 +59,7 @@ export async function handleLocal(
   let exitCode = 0;
   let declareNameref = false;
   let declareArray = false;
+  let declareAssoc = false;
   let _printMode = false;
 
   // Parse flags
@@ -62,6 +69,8 @@ export async function handleLocal(
       declareNameref = true;
     } else if (arg === "-a") {
       declareArray = true;
+    } else if (arg === "-A") {
+      declareAssoc = true;
     } else if (arg === "-p") {
       _printMode = true;
     } else if (arg.startsWith("-") && !arg.includes("=")) {
@@ -69,6 +78,7 @@ export async function handleLocal(
       for (const flag of arg.slice(1)) {
         if (flag === "n") declareNameref = true;
         else if (flag === "a") declareArray = true;
+        else if (flag === "A") declareAssoc = true;
         else if (flag === "p") _printMode = true;
         // Other flags are ignored for now
       }
@@ -76,6 +86,25 @@ export async function handleLocal(
       processedArgs.push(arg);
     }
   }
+
+  // local -A: make NAME an associative array of the current scope. A name
+  // that is already an associative local keeps its elements; one that is
+  // already an indexed local cannot be converted. Returns false on error.
+  const makeLocalAssoc = (name: string): boolean => {
+    if (currentArrayScope?.has(name) && hasArray(ctx, name)) {
+      if (ctx.state.associativeArrays?.has(name)) return true;
+      stderr += `bash: local: ${name}: cannot convert indexed to associative array\n`;
+      exitCode = 1;
+      return false;
+    }
+    saveArray(name);
+    clearArray(ctx, name);
+    ctx.state.env.delete(name);
+    ctx.state.associativeArrays ??= new Set();
+    ctx.state.associativeArrays.add(name);
+    setArrayKind(ctx, name, "associative");
+    return true;
+  };
 
   // Handle local (with or without -p): print local variables in current scope when no args
   // Note: bash outputs local without "declare --" prefix, just "name=value"
@@ -112,6 +141,28 @@ export async function handleLocal(
 
       checkReadonlyError(ctx, name, "bash");
 
+      if (declareAssoc) {
+        // Parse and enforce limits before changing the existing local cell.
+        const entries = parseAssocArrayContent(content, arrayParseLimits);
+        ctx.executionScope.consumeWork(
+          entries.length,
+          "local array assignment",
+        );
+        assertArrayKeysFit(
+          ctx,
+          name,
+          entries.map(([key]) => key),
+          true,
+        );
+        if (!makeLocalAssoc(name)) continue;
+        clearArray(ctx, name);
+        for (const [key, entryValue] of entries) {
+          setArrayElement(ctx, name, key, entryValue, "associative");
+        }
+        markLocalVarDepth(ctx, name);
+        continue;
+      }
+
       // Parse and enforce limits before changing the existing local cell.
       const elements = parseArrayElements(content, arrayParseLimits);
       ctx.executionScope.consumeWork(elements.length, "local array assignment");
@@ -147,6 +198,22 @@ export async function handleLocal(
 
       // Check if variable is readonly
       checkReadonlyError(ctx, name, "bash");
+
+      if (declareAssoc) {
+        const entries = parseAssocArrayContent(content, arrayParseLimits);
+        ctx.executionScope.consumeWork(entries.length, "local array append");
+        if (!makeLocalAssoc(name)) continue;
+        assertArrayKeysFit(
+          ctx,
+          name,
+          entries.map(([key]) => key),
+        );
+        for (const [key, entryValue] of entries) {
+          setArrayElement(ctx, name, key, entryValue, "associative");
+        }
+        markLocalVarDepth(ctx, name);
+        continue;
+      }
 
       // Save previous value for scope restoration
       saveArray(name);
@@ -203,6 +270,25 @@ export async function handleLocal(
       // Check if variable is readonly
       checkReadonlyError(ctx, name, "bash");
 
+      if (declareAssoc) {
+        // An associative array takes a scalar value as element "0".
+        if (!makeLocalAssoc(name)) continue;
+        setArrayElement(
+          ctx,
+          name,
+          "0",
+          boundedJoin(
+            [getArrayElement(ctx, name, "0") ?? "", appendValue],
+            "",
+            ctx.limits.maxStringLength,
+            "local append",
+          ),
+          "associative",
+        );
+        markLocalVarDepth(ctx, name);
+        continue;
+      }
+
       // Save previous value for scope restoration
       if (!currentScope.has(name)) {
         currentScope.set(name, ctx.state.env.get(name));
@@ -241,6 +327,19 @@ export async function handleLocal(
 
       // Check if variable is readonly
       checkReadonlyError(ctx, name, "bash");
+
+      if (declareAssoc) {
+        if (!makeLocalAssoc(name)) continue;
+        setArrayElement(
+          ctx,
+          name,
+          unquoteKey(indexExpr),
+          indexValue,
+          "associative",
+        );
+        markLocalVarDepth(ctx, name);
+        continue;
+      }
 
       // Save previous array values for scope restoration
       saveArray(name);
@@ -282,6 +381,17 @@ export async function handleLocal(
     if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
       stderr += `bash: local: \`${arg}': not a valid identifier\n`;
       exitCode = 1;
+      continue;
+    }
+
+    if (declareAssoc) {
+      checkReadonlyError(ctx, name, "bash");
+      if (!makeLocalAssoc(name)) continue;
+      // An associative array takes a scalar value as element "0".
+      if (value !== undefined) {
+        setArrayElement(ctx, name, "0", value, "associative");
+      }
+      markLocalVarDepth(ctx, name);
       continue;
     }
 
