@@ -5,7 +5,14 @@
  * including parallel batch reading for performance.
  */
 
-import { type ByteString, EMPTY_BYTES, readBytesFrom } from "../encoding.js";
+import {
+  type ByteString,
+  EMPTY_BYTES,
+  latin1FromBytes,
+  readBytesFrom,
+} from "../encoding.js";
+import type { ResourceLease } from "../execution-scope.js";
+import { rethrowFatalExecutionError } from "../fatal-execution-error.js";
 import { ExecutionLimitError } from "../interpreter/errors.js";
 import type { ExecResult, RuntimeCommandContext } from "../types.js";
 import { DEFAULT_BATCH_SIZE } from "./constants.js";
@@ -19,6 +26,8 @@ export interface ReadFilesOptions {
   stopOnError?: boolean;
   /** Number of files to read in parallel (default: 100). Set to 1 for sequential. */
   batchSize?: number;
+  /** Opt into file input accounting; caller releases these after consuming files. */
+  inputLeases?: ResourceLease[];
 }
 
 export interface FileContent {
@@ -47,6 +56,10 @@ export function accountFileInput(
   bytes: number,
   site: string,
 ): void {
+  if (ctx.executionScope) {
+    ctx.executionScope.consumeInput(bytes, site);
+    return;
+  }
   if (
     !Number.isSafeInteger(bytes) ||
     bytes < 0 ||
@@ -57,7 +70,6 @@ export function accountFileInput(
       "string_length",
     );
   }
-  ctx.executionScope?.consumeInput(bytes, site);
 }
 
 /**
@@ -85,6 +97,7 @@ export async function readFiles(
     allowStdinMarker = true,
     stopOnError = false,
     batchSize = DEFAULT_BATCH_SIZE,
+    inputLeases,
   } = options;
 
   // No files - read from stdin
@@ -103,7 +116,7 @@ export async function readFiles(
   // Process files in parallel batches for better performance
   for (let i = 0; i < files.length; i += batchSize) {
     const batch = files.slice(i, i + batchSize);
-    const batchResults = await Promise.all(
+    const batchResults = await Promise.allSettled(
       batch.map(async (file) => {
         if (allowStdinMarker && file === "-") {
           return {
@@ -114,13 +127,35 @@ export async function readFiles(
         }
         try {
           const filePath = ctx.fs.resolvePath(ctx.cwd, file);
+          const stat = inputLeases ? await ctx.fs.stat(filePath) : undefined;
+          const size = stat?.isFile ? stat.size : 0;
+          if (inputLeases && ctx.executionScope) {
+            // Reserve both the byte buffer and its decoded text until consumed.
+            inputLeases.push(
+              ctx.executionScope.reserveBytes("file input", size * 2, cmdName),
+            );
+          }
           // Use binary encoding to preserve all bytes (including non-UTF-8).
           // This is important for piping binary data through commands like cat.
           // Text-processing commands must explicitly call `decodeBytesToUtf8`
           // on the content before regex / parsing.
           const content = await readBytesFrom(ctx.fs, filePath);
+          if (inputLeases) {
+            const bytes = latin1FromBytes(content).length;
+            accountFileInput(ctx, bytes, cmdName);
+            if (bytes > size && ctx.executionScope) {
+              inputLeases.push(
+                ctx.executionScope.reserveBytes(
+                  "file input",
+                  (bytes - size) * 2,
+                  cmdName,
+                ),
+              );
+            }
+          }
           return { filename: file, content, error: null as string | null };
-        } catch {
+        } catch (error) {
+          rethrowFatalExecutionError(error);
           return {
             filename: file,
             content: EMPTY_BYTES,
@@ -130,8 +165,14 @@ export async function readFiles(
       }),
     );
 
-    // Process results in order
+    // Settle every read before the caller can release its reservations.
     for (const r of batchResults) {
+      if (r.status === "rejected") throw r.reason;
+    }
+    // Process results in order
+    for (const settled of batchResults) {
+      if (settled.status === "rejected") continue;
+      const r = settled.value;
       if (r.error) {
         stderr += r.error;
         exitCode = 1;

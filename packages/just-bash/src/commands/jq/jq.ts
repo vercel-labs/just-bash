@@ -5,6 +5,8 @@
  */
 
 import { decodeBytesToUtf8 } from "../../encoding.js";
+import type { ResourceLease } from "../../execution-scope.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import {
@@ -405,68 +407,73 @@ export const jqCommand: RuntimeCommand = {
       }
     }
 
-    // Read files bound via --rawfile/--slurpfile through the shared file
-    // reader so they get the same security posture as normal input files.
-    if (fileBindings.length > 0) {
-      const result = await withDefenseContext("arg file read", () =>
-        readFiles(
-          ctx,
-          fileBindings.map((b) => b.file),
-          { cmdName: "jq", stopOnError: true },
-        ),
-      );
-      if (result.exitCode !== 0) {
-        return { stdout: "", stderr: result.stderr, exitCode: 2 };
-      }
-      for (let b = 0; b < fileBindings.length; b++) {
-        const { name, mode } = fileBindings[b];
-        const text = decodeBytesToUtf8(result.files[b].content);
-        if (mode === "raw") {
-          namedArgs.set(name, text);
-        } else {
-          const trimmed = text.trim();
-          try {
-            namedArgs.set(
-              name,
-              trimmed ? parseJsonStream(trimmed, jsonLimits) : [],
-            );
-          } catch {
-            return jqArgError("invalid JSON text passed to --slurpfile");
+    const inputLeases: ResourceLease[] = [];
+    try {
+      // Read files bound via --rawfile/--slurpfile through the shared file
+      // reader so they get the same security posture as normal input files.
+      if (fileBindings.length > 0) {
+        const result = await withDefenseContext("arg file read", () =>
+          readFiles(
+            ctx,
+            fileBindings.map((b) => b.file),
+            { cmdName: "jq", stopOnError: true, inputLeases },
+          ),
+        );
+        if (result.exitCode !== 0) {
+          return { stdout: "", stderr: result.stderr, exitCode: 2 };
+        }
+        for (let b = 0; b < fileBindings.length; b++) {
+          const { name, mode } = fileBindings[b];
+          const text = decodeBytesToUtf8(result.files[b].content);
+          if (mode === "raw") {
+            namedArgs.set(name, text);
+          } else {
+            const trimmed = text.trim();
+            try {
+              namedArgs.set(
+                name,
+                trimmed ? parseJsonStream(trimmed, jsonLimits) : [],
+              );
+            } catch {
+              return jqArgError("invalid JSON text passed to --slurpfile");
+            }
           }
         }
       }
-    }
 
-    // Build list of inputs: stdin or files. jq parses JSON, so the input
-    // bytes are decoded to UTF-8 before parsing — without this, multi-byte
-    // sequences inside string values get re-encoded twice and emit mojibake.
-    let inputs: { source: string; content: string }[] = [];
-    if (nullInput) {
-      // No input
-    } else if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
-      inputs.push({ source: "stdin", content: decodeBytesToUtf8(ctx.stdin) });
-    } else {
-      // Read all files in parallel using shared utility
-      const result = await withDefenseContext("file read", () =>
-        readFiles(ctx, files, {
-          cmdName: "jq",
-          stopOnError: true,
-        }),
-      );
-      if (result.exitCode !== 0) {
-        return {
-          stdout: "",
-          stderr: result.stderr,
-          exitCode: 2, // jq uses exit code 2 for file errors
-        };
+      // Build list of inputs: stdin or files. jq parses JSON, so the input
+      // bytes are decoded to UTF-8 before parsing — without this, multi-byte
+      // sequences inside string values get re-encoded twice and emit mojibake.
+      let inputs: { source: string; content: string }[] = [];
+      if (nullInput) {
+        // No input
+      } else if (
+        files.length === 0 ||
+        (files.length === 1 && files[0] === "-")
+      ) {
+        inputs.push({ source: "stdin", content: decodeBytesToUtf8(ctx.stdin) });
+      } else {
+        // Read all files in parallel using shared utility
+        const result = await withDefenseContext("file read", () =>
+          readFiles(ctx, files, {
+            cmdName: "jq",
+            stopOnError: true,
+            inputLeases,
+          }),
+        );
+        if (result.exitCode !== 0) {
+          return {
+            stdout: "",
+            stderr: result.stderr,
+            exitCode: 2, // jq uses exit code 2 for file errors
+          };
+        }
+        inputs = result.files.map((f) => ({
+          source: f.filename || "stdin",
+          content: decodeBytesToUtf8(f.content),
+        }));
       }
-      inputs = result.files.map((f) => ({
-        source: f.filename || "stdin",
-        content: decodeBytesToUtf8(f.content),
-      }));
-    }
 
-    try {
       const ast = parse(filter, {
         maxDepth: ctx.limits.maxQueryDepth,
         maxTokens: ctx.limits.maxQueryTokens,
@@ -633,6 +640,7 @@ export const jqCommand: RuntimeCommand = {
           exitCode: ExecutionLimitError.EXIT_CODE,
         };
       }
+      rethrowFatalExecutionError(e);
       const msg = sanitizeErrorMessage((e as Error).message);
       if (msg.includes("Unknown function")) {
         return {
@@ -646,6 +654,8 @@ export const jqCommand: RuntimeCommand = {
         stderr: `jq: parse error: ${msg}\n`,
         exitCode: 5,
       };
+    } finally {
+      for (const lease of inputLeases) lease.release();
     }
   },
 };
