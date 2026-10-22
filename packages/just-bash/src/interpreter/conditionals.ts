@@ -658,7 +658,7 @@ function patternToRegexStr(pattern: string, extglob: boolean): string {
     } else if (char === "?") {
       regex += ".";
     } else if (char === "[") {
-      const closeIdx = pattern.indexOf("]", i + 1);
+      const closeIdx = findPatternCharClassEnd(pattern, i);
       if (closeIdx !== -1) {
         regex += pattern.slice(i, closeIdx + 1);
         i = closeIdx;
@@ -672,6 +672,60 @@ function patternToRegexStr(pattern: string, extglob: boolean): string {
     }
   }
   return regex;
+}
+
+/**
+ * Find the closing bracket for a shell pattern character class.
+ *
+ * A bracket expression such as `[[:alpha:]]` contains an inner `:]` that
+ * closes the POSIX class, not the surrounding shell character class. A plain
+ * `indexOf("]")` therefore turns a malformed outer class like `[[:alpha:]`
+ * into the invalid regular expression `[[:alpha:]`. Bash instead treats the
+ * unmatched outer `[` literally and continues parsing the remaining pattern.
+ */
+function findPatternCharClassEnd(pattern: string, start: number): number {
+  let i = start + 1;
+
+  if (i < pattern.length && (pattern[i] === "!" || pattern[i] === "^")) {
+    i++;
+  }
+
+  // A closing bracket in the first position is part of the class.
+  if (i < pattern.length && pattern[i] === "]") {
+    i++;
+  }
+
+  while (i < pattern.length) {
+    if (pattern[i] === "\\" && i + 1 < pattern.length) {
+      i += 2;
+      continue;
+    }
+
+    // POSIX character classes, collating symbols, and equivalence classes are
+    // nested bracket constructs whose closing bracket is not the outer one.
+    if (
+      pattern[i] === "[" &&
+      i + 1 < pattern.length &&
+      (pattern[i + 1] === ":" ||
+        pattern[i + 1] === "." ||
+        pattern[i + 1] === "=")
+    ) {
+      const marker = pattern[i + 1];
+      const nestedEnd = pattern.indexOf(`${marker}]`, i + 2);
+      if (nestedEnd !== -1) {
+        i = nestedEnd + 2;
+        continue;
+      }
+    }
+
+    if (pattern[i] === "]") {
+      return i;
+    }
+
+    i++;
+  }
+
+  return -1;
 }
 
 /**
