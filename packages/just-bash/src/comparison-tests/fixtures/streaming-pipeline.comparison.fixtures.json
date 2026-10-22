@@ -1,0 +1,79 @@
+{
+  "0ae472ef95be7500": {
+    "command": "set -o pipefail; seq 100 | head -n 1; echo $?:${PIPESTATUS[*]}",
+    "files": {},
+    "stdout": "1\n0:0 0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1874914ffc0190f9": {
+    "command": "seq -w 8 12 | cat",
+    "files": {},
+    "stdout": "08\n09\n10\n11\n12\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "302e8a06c58af55b": {
+    "command": "seq 3 | cat; echo ${PIPESTATUS[*]}",
+    "files": {},
+    "stdout": "1\n2\n3\n0 0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "30ad2771d7650cc8": {
+    "command": "set -o pipefail; seq 2 | head -n 1; echo $?:${PIPESTATUS[*]}",
+    "files": {},
+    "stdout": "1\n0:0 0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "55173581621c33bf": {
+    "command": "seq 5 | sort -r | head -n 2",
+    "files": {},
+    "stdout": "5\n4\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5bf8f0a7ffb39617": {
+    "command": "! seq 3 | cat",
+    "files": {},
+    "stdout": "1\n2\n3\n",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "8d3686159d9faec7": {
+    "command": "seq 5 | cat | head -n 2",
+    "files": {},
+    "stdout": "1\n2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8f397d548f6f1cdb": {
+    "command": "seq 5 | head -c 3",
+    "files": {},
+    "stdout": "1\n2",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b11370253028ee1b": {
+    "command": "set -euo pipefail; seq 5 | head -n 2; echo survived",
+    "files": {},
+    "stdout": "1\n2\nsurvived\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b556af570c2fc7c6": {
+    "command": "printf 'héllo\\nworld\\n' | cat | head -n 1",
+    "files": {},
+    "stdout": "héllo\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cd18d2a247c38ec2": {
+    "command": "set -o pipefail; seq 5 | head -n 2; echo $?:${PIPESTATUS[*]}",
+    "files": {},
+    "stdout": "1\n2\n0:0 0\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
