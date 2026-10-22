@@ -79,9 +79,7 @@ describe("yq execution limits", () => {
     });
     const rejected = await over.exec(`yq -n -r '"é"'`);
     expect(rejected.stdout).toBe("");
-    expect(rejected.stderr).toBe(
-      "bash: pipeline: total output size exceeded (>2 bytes), increase executionLimits.maxOutputSize\n",
-    );
+    expect(rejected.stderr).toBe("yq: output size limit exceeded (1 bytes)\n");
     expect(rejected.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 });
