@@ -1,5 +1,6 @@
 import { type ByteString, readBytesFrom } from "../../encoding.js";
 import { ExclusiveCreateUnsupportedError } from "../create-exclusive.js";
+import { resolveDestinationPath } from "../destination-parent.js";
 import { InMemoryFs } from "../in-memory-fs/in-memory-fs.js";
 import type {
   BufferEncoding,
@@ -222,6 +223,18 @@ export class MountableFs implements IFileSystem {
     }
 
     return children;
+  }
+
+  private async materializeSyntheticDestinationParent(
+    destinationPath: string,
+    destinationRoute: { fs: IFileSystem; relativePath: string },
+  ): Promise<void> {
+    const destinationParentPath = dirname(destinationPath);
+    if (this.getChildMountPoints(destinationParentPath).length === 0) return;
+
+    await destinationRoute.fs.mkdir(dirname(destinationRoute.relativePath), {
+      recursive: true,
+    });
   }
 
   // ==================== IFileSystem Implementation ====================
@@ -521,11 +534,29 @@ export class MountableFs implements IFileSystem {
 
   async cp(src: string, dest: string, options?: CpOptions): Promise<void> {
     const srcStat = await this.stat(src);
-    if (srcStat.isDirectory && isSameOrDescendantPath(src, dest)) {
+    if (srcStat.isDirectory) {
+      if (!options?.recursive) {
+        throw new Error(`EISDIR: is a directory, cp '${src}'`);
+      }
+      if (isSameOrDescendantPath(src, dest)) {
+        throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
+      }
+    }
+    const resolvedDestination = await resolveDestinationPath(this, dest, {
+      allowMissingDirectory: srcStat.isDirectory,
+    });
+    if (
+      srcStat.isDirectory &&
+      isSameOrDescendantPath(src, resolvedDestination)
+    ) {
       throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
     }
     const srcRoute = this.routePath(src);
-    const destRoute = this.routePath(dest);
+    const destRoute = this.routePath(resolvedDestination);
+    await this.materializeSyntheticDestinationParent(
+      resolvedDestination,
+      destRoute,
+    );
 
     // If same filesystem, delegate directly
     if (srcRoute.fs === destRoute.fs) {
@@ -537,7 +568,7 @@ export class MountableFs implements IFileSystem {
     }
 
     // Cross-mount copy
-    return this.crossMountCopy(src, dest, options);
+    return this.crossMountCopy(src, resolvedDestination, options);
   }
 
   async mv(src: string, dest: string): Promise<void> {
@@ -552,8 +583,21 @@ export class MountableFs implements IFileSystem {
       throw new Error(`EBUSY: mount point, cannot move '${src}'`);
     }
 
+    const resolvedDestination = await resolveDestinationPath(this, dest, {
+      allowMissingDirectory: srcStat.isDirectory,
+    });
+    if (
+      srcStat.isDirectory &&
+      isSameOrDescendantPath(src, resolvedDestination)
+    ) {
+      throw new Error(`EINVAL: cannot move '${src}' into itself, '${dest}'`);
+    }
     const srcRoute = this.routePath(src);
-    const destRoute = this.routePath(dest);
+    const destRoute = this.routePath(resolvedDestination);
+    await this.materializeSyntheticDestinationParent(
+      resolvedDestination,
+      destRoute,
+    );
 
     // If same filesystem, delegate directly
     if (srcRoute.fs === destRoute.fs) {
@@ -561,7 +605,7 @@ export class MountableFs implements IFileSystem {
     }
 
     // Cross-mount move: copy then delete
-    await this.cp(src, dest, { recursive: true });
+    await this.cp(src, resolvedDestination, { recursive: true });
     await this.rm(src, { recursive: true });
   }
 
@@ -690,7 +734,7 @@ export class MountableFs implements IFileSystem {
       await this.chmod(dest, srcStat.mode);
     } else if (srcStat.isDirectory) {
       if (!options?.recursive) {
-        throw new Error(`cp: ${src} is a directory (not copied)`);
+        throw new Error(`EISDIR: is a directory, cp '${src}'`);
       }
       await this.mkdir(dest, { recursive: true });
       const children = await this.readdir(src);
