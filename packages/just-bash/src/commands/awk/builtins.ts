@@ -825,7 +825,10 @@ export function formatPrintf(
             if (flags.includes("-")) {
               str = str.padEnd(w);
             } else {
-              str = str.padStart(w);
+              const sign = str.startsWith("-") ? "-" : "";
+              str = flags.includes("0")
+                ? sign + str.slice(sign.length).padStart(w - sign.length, "0")
+                : str.padStart(w);
             }
           }
           append(str);
@@ -851,7 +854,10 @@ export function formatPrintf(
             if (flags.includes("-")) {
               str = str.padEnd(w);
             } else {
-              str = str.padStart(w);
+              const sign = str.startsWith("-") ? "-" : "";
+              str = flags.includes("0")
+                ? sign + str.slice(sign.length).padStart(w - sign.length, "0")
+                : str.padStart(w);
             }
           }
           append(str);
@@ -893,7 +899,10 @@ export function formatPrintf(
             if (flags.includes("-")) {
               str = str.padEnd(w);
             } else {
-              str = str.padStart(w);
+              const sign = str.startsWith("-") ? "-" : "";
+              str = flags.includes("0")
+                ? sign + str.slice(sign.length).padStart(w - sign.length, "0")
+                : str.padStart(w);
             }
           }
           append(str);
