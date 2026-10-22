@@ -10,6 +10,7 @@ import { combineAbortSignals } from "../abort-signals.js";
 import { DefenseInDepthBox } from "../security/defense-in-depth-box.js";
 import { _clearTimeout, _setTimeout } from "../timers.js";
 import {
+  findMatchingEntry,
   isPrivateIp,
   isUrlAllowed,
   matchesAllowListEntry,
@@ -322,17 +323,31 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
   }
 
   /**
+   * Returns the methods a URL may use. A matching allow-list entry with its
+   * own `methods` overrides the global list for that prefix, so it can widen
+   * the policy as well as narrow it. An empty array denies every method. The
+   * selected entry never inherits methods from another matching entry.
+   */
+  function getEffectiveMethods(url: string): HttpMethod[] {
+    const entry = findMatchingEntry(url, entries);
+    if (entry && typeof entry === "object" && entry.methods) {
+      return entry.methods;
+    }
+    return allowedMethods as HttpMethod[];
+  }
+
+  /**
    * Checks if an HTTP method is allowed by the configuration.
    * @throws MethodNotAllowedError if the method is not allowed
    */
-  function checkMethodAllowed(method: string): void {
+  function checkMethodAllowed(method: string, effective: HttpMethod[]): void {
     if (config.dangerouslyAllowFullInternetAccess) {
       return;
     }
 
     const upperMethod = method.toUpperCase();
-    if (!allowedMethods.includes(upperMethod as HttpMethod)) {
-      throw new MethodNotAllowedError(upperMethod, allowedMethods);
+    if (!effective.includes(upperMethod as HttpMethod)) {
+      throw new MethodNotAllowedError(upperMethod, effective);
     }
   }
 
@@ -427,7 +442,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
       // Keep preflight inside finally so rejected requests clean up.
       checkPathAllowed(url);
       checkPrivateLiteral(url);
-      checkMethodAllowed(method);
+      checkMethodAllowed(method, getEffectiveMethods(url));
 
       // Loaded at init and cached; `null` in the browser build.
       const gfModule = guardedFetchPromise ? await guardedFetchPromise : null;
@@ -576,9 +591,11 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
           if (rewriteToGet) {
             currentMethod = "GET";
             currentBody = undefined;
-            // A rewritten method is a new request under the same policy.
-            checkMethodAllowed(currentMethod);
           }
+
+          // The hop is a new request, so the method it will send must satisfy
+          // the target's own policy, including any per-entry `methods`.
+          checkMethodAllowed(currentMethod, getEffectiveMethods(redirectUrl));
 
           // Do not forward user credentials across origins.
           if (new URL(redirectUrl).origin !== new URL(currentUrl).origin) {

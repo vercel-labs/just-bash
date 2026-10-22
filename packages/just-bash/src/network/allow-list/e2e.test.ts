@@ -480,6 +480,108 @@ function runAllowListTests(name: string, createAdapter: AdapterFactory) {
       });
     });
 
+    describe("per-URL methods", () => {
+      it("restricts methods on a per-URL basis", async () => {
+        const env = await createAdapter({
+          network: {
+            allowedUrlPrefixes: [
+              { url: "https://api.example.com", methods: ["GET"] },
+            ],
+            allowedMethods: ["GET", "POST"],
+          },
+        });
+
+        const r1 = await env.exec("curl https://api.example.com/data");
+        expect(r1.exitCode).toBe(0);
+        expect(r1.stdout).toBe(MOCK_SUCCESS_BODY);
+        expect(r1.stderr).toBe("");
+
+        const r2 = await env.exec("curl -X POST https://api.example.com/data");
+        expect(r2.exitCode).toBe(3);
+        expect(r2.stdout).toBe("");
+        expect(r2.stderr).toBe(
+          "curl: (3) HTTP method 'POST' not allowed. Allowed methods: GET\n",
+        );
+      });
+
+      it("falls back to global allowedMethods when entry has no methods", async () => {
+        const env = await createAdapter({
+          network: {
+            allowedUrlPrefixes: [
+              "https://api.example.com",
+              { url: "https://cdn.example.com", methods: ["GET"] },
+            ],
+            allowedMethods: ["GET", "POST"],
+          },
+        });
+
+        // Plain string entry uses global methods — POST allowed
+        const r1 = await env.exec("curl -X POST https://api.example.com/data");
+        expect(r1.exitCode).toBe(0);
+        expect(r1.stdout).toBe(MOCK_SUCCESS_BODY);
+        expect(r1.stderr).toBe("");
+
+        // Object entry with per-URL methods — POST blocked
+        const r2 = await env.exec(
+          "curl -X POST https://cdn.example.com/file.txt",
+        );
+        expect(r2.exitCode).toBe(3);
+        expect(r2.stdout).toBe("");
+        expect(r2.stderr).toBe(
+          "curl: (3) HTTP method 'POST' not allowed. Allowed methods: GET\n",
+        );
+      });
+
+      it("per-URL methods work with GET default", async () => {
+        const env = await createAdapter({
+          network: {
+            allowedUrlPrefixes: [
+              { url: "https://api.example.com", methods: ["GET", "POST"] },
+            ],
+          },
+        });
+
+        // POST allowed by per-URL methods even though global default is GET, HEAD
+        const r1 = await env.exec("curl -X POST https://api.example.com/data");
+        expect(r1.exitCode).toBe(0);
+        expect(r1.stdout).toBe(MOCK_SUCCESS_BODY);
+        expect(r1.stderr).toBe("");
+      });
+
+      it("blocks redirect when target has stricter per-URL methods", async () => {
+        const env = await createAdapter({
+          network: {
+            allowedUrlPrefixes: [
+              {
+                url: "https://api.example.com/redirect-307-to-allowed",
+                methods: ["GET", "POST"],
+              },
+              { url: "https://api.example.com/data", methods: ["GET"] },
+            ],
+          },
+        });
+
+        // GET survives the 307 and both entries allow it.
+        const r1 = await env.exec(
+          "curl https://api.example.com/redirect-307-to-allowed",
+        );
+        expect(r1.exitCode).toBe(0);
+        expect(r1.stdout).toBe(MOCK_SUCCESS_BODY);
+        expect(r1.stderr).toBe("");
+
+        // POST is allowed on the source but not on the target. A 307 preserves
+        // the method, so the hop is checked as POST rather than rewritten GET.
+        const r2 = await env.exec(
+          "curl -X POST https://api.example.com/redirect-307-to-allowed",
+        );
+        expect(r2.exitCode).toBe(3);
+        expect(r2.stdout).toBe("");
+        expect(r2.stderr).toBe(
+          "curl: (3) HTTP method 'POST' not allowed. Allowed methods: GET\n",
+        );
+      });
+    });
+
     describe("curl with file output", () => {
       it("writes to file only for allowed URLs", async () => {
         const env = await createAdapter({
