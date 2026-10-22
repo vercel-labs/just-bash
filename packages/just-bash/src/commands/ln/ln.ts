@@ -85,6 +85,16 @@ export const lnCommand: RuntimeCommand = {
     // Check if link already exists
     if (await ctx.fs.exists(linkPath)) {
       if (force) {
+        // A non-recursive rm removes an empty directory, and GNU ln never
+        // replaces a directory, so refuse before removing anything.
+        const existing = await ctx.fs.lstat(linkPath).catch(() => null);
+        if (existing?.isDirectory) {
+          return {
+            stdout: "",
+            stderr: `ln: ${linkName}: cannot overwrite directory\n`,
+            exitCode: 1,
+          };
+        }
         try {
           await ctx.fs.rm(linkPath, { force: true });
         } catch {
