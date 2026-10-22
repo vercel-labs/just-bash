@@ -1,6 +1,11 @@
-import { latin1FromBytes, readBytesFrom } from "../../encoding.js";
+import {
+  type ByteString,
+  latin1FromBytes,
+  readBytesFrom,
+} from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { readCommandStdin } from "../../streams/command-stdio.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -61,6 +66,7 @@ interface CatOptions {
 
 export const catCommand: RuntimeCommand = {
   name: "cat",
+  streaming: true,
 
   async execute(
     args: string[],
@@ -110,13 +116,28 @@ export const catCommand: RuntimeCommand = {
       numberAll ||
       numberNonblank;
 
+    let stdin: ByteString | undefined;
     let stream = "";
     for (const file of inputs) {
+      if (ctx.stdio && !transform && file === "-") {
+        for (;;) {
+          const chunk = await ctx.stdio.read();
+          if (chunk === null) break;
+          await ctx.stdio.write(chunk);
+        }
+        continue;
+      }
+      let content: ByteString;
       try {
-        const content =
-          file === "-"
-            ? ctx.stdin
-            : await readBytesFrom(ctx.fs, ctx.fs.resolvePath(ctx.cwd, file));
+        if (file === "-") {
+          stdin ??= await readCommandStdin(ctx);
+          content = stdin;
+        } else {
+          content = await readBytesFrom(
+            ctx.fs,
+            ctx.fs.resolvePath(ctx.cwd, file),
+          );
+        }
         const rawContent = latin1FromBytes(content);
         const contentLength = rawContent.length;
         const inputLimit = Math.min(
@@ -131,12 +152,14 @@ export const catCommand: RuntimeCommand = {
         }
         if (file !== "-") accountFileInput(ctx, contentLength, "cat");
         aggregateInputBytes += contentLength;
-        stream += rawContent;
+        if (!ctx.stdio || transform) stream += rawContent;
       } catch (error) {
         rethrowFatalExecutionError(error);
         stderr += `cat: ${file}: No such file or directory\n`;
         exitCode = 1;
+        continue;
       }
+      if (ctx.stdio && !transform) await ctx.stdio.write(content);
     }
 
     if (!transform) {

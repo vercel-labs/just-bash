@@ -13,6 +13,7 @@ type CommandLoader = () => Promise<RuntimeCommand>;
 
 interface LazyCommandDef<T extends string = string> {
   name: T;
+  streaming?: boolean;
   load: CommandLoader;
 }
 
@@ -129,6 +130,7 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   },
   {
     name: "cat",
+    streaming: true,
     load: async () => (await import("./cat/cat.js")).catCommand,
   },
   {
@@ -191,6 +193,7 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   // File viewing
   {
     name: "head",
+    streaming: true,
     load: async () => (await import("./head/head.js")).headCommand,
   },
   {
@@ -209,14 +212,17 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   // Text processing
   {
     name: "grep",
+    streaming: true,
     load: async () => (await import("./grep/grep.js")).grepCommand,
   },
   {
     name: "fgrep",
+    streaming: true,
     load: async () => (await import("./grep/grep.js")).fgrepCommand,
   },
   {
     name: "egrep",
+    streaming: true,
     load: async () => (await import("./grep/grep.js")).egrepCommand,
   },
   {
@@ -407,6 +413,7 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   },
   {
     name: "seq",
+    streaming: true,
     load: async () => (await import("./seq/seq.js")).seqCommand,
   },
   {
@@ -554,6 +561,7 @@ const cache = new Map<string, RuntimeCommand>();
 function createLazyCommand(def: LazyCommandDef): RuntimeCommand {
   return {
     name: def.name,
+    streaming: def.streaming,
     async execute(
       args: string[],
       ctx: RuntimeCommandContext,
