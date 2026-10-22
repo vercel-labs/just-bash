@@ -1,0 +1,65 @@
+{
+  "0f8f1c6e8be9347e": {
+    "command": "chmod 2755 m.sh; printf 'x\\n' > m.sh; test -g m.sh || echo no-setgid; test -x m.sh && echo executable",
+    "files": {
+      "m.sh": "#!/bin/bash\necho ran\n"
+    },
+    "stdout": "no-setgid\nexecutable\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7b2066dca674656b": {
+    "command": "chmod 755 m.sh; printf '#!/bin/bash\\necho ran\\n' > m.sh; test -x m.sh && echo kept; ./m.sh",
+    "files": {
+      "m.sh": "#!/bin/bash\necho ran\n"
+    },
+    "stdout": "kept\nran\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "84edc8dd392e1d12": {
+    "command": "chmod 4755 m.sh; printf 'x\\n' > m.sh; test -u m.sh || echo no-setuid; test -x m.sh && echo executable",
+    "files": {
+      "m.sh": "#!/bin/bash\necho ran\n"
+    },
+    "stdout": "no-setuid\nexecutable\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a55fad9f1e95c93a": {
+    "command": "chmod 2644 m.sh; printf 'x\\n' > m.sh; test -g m.sh && echo setgid-kept; test -r m.sh && echo readable",
+    "files": {
+      "m.sh": "#!/bin/bash\necho ran\n"
+    },
+    "stdout": "setgid-kept\nreadable\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b348eb28f110e088": {
+    "command": "chmod 700 m.sh; sed -i 's/ran/again/' m.sh; test -x m.sh && echo still-executable; ./m.sh",
+    "files": {
+      "m.sh": "#!/bin/bash\necho ran\n"
+    },
+    "stdout": "still-executable\nagain\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c7e7f3e08dda9da0": {
+    "command": "chmod 400 m.sh; sed -i 's/ran/ro/' m.sh; test -x m.sh || echo not-executable; cat m.sh",
+    "files": {
+      "m.sh": "#!/bin/bash\necho ran\n"
+    },
+    "stdout": "not-executable\n#!/bin/bash\necho ro\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cc8c7900be81920d": {
+    "command": "chmod 4755 m.sh; sed -i 's/ran/ro/' m.sh; test -u m.sh || echo no-setuid; test -x m.sh && echo executable",
+    "files": {
+      "m.sh": "#!/bin/bash\necho ran\n"
+    },
+    "stdout": "no-setuid\nexecutable\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
