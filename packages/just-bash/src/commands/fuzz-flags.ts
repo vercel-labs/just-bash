@@ -19,6 +19,7 @@ import {
 import { flagsForFuzzing as cat } from "./cat/cat.js";
 import { flagsForFuzzing as chmod } from "./chmod/chmod.js";
 import { flagsForFuzzing as clear } from "./clear/clear.js";
+import { flagsForFuzzing as cmp } from "./cmp/cmp.js";
 import { flagsForFuzzing as column } from "./column/column.js";
 import { flagsForFuzzing as comm } from "./comm/comm.js";
 import { flagsForFuzzing as cp } from "./cp/cp.js";
@@ -150,6 +151,7 @@ const allFuzzInfo: CommandFuzzInfo[] = [
   awk,
   sort,
   uniq,
+  cmp,
   comm,
   cut,
   paste,
