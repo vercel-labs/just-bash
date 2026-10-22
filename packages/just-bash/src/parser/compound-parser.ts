@@ -311,6 +311,36 @@ export function parseCase(
   return AST.caseNode(word, items, redirections);
 }
 
+/**
+ * Whether the tokens at the current "(" look like the start of a case pattern,
+ * "(pattern|pattern) command", rather than a subshell. Inside the body of a
+ * case item such a "(" can only be a pattern when the ";;" before it is missing,
+ * which is a syntax error. A subshell cannot be followed by a word, so
+ * "( $cmd args )" and "( $cmd )" are still subshells.
+ */
+function looksLikeCasePatternInBody(p: Parser): boolean {
+  if (p.peek(1).type !== TokenType.WORD) {
+    return false;
+  }
+  let offset = 1;
+  for (;;) {
+    const type = p.peek(offset).type;
+    if (type !== TokenType.WORD && type !== TokenType.NAME) {
+      return false;
+    }
+    const next = p.peek(offset + 1).type;
+    if (next === TokenType.PIPE) {
+      offset += 2;
+      continue;
+    }
+    if (next !== TokenType.RPAREN) {
+      return false;
+    }
+    const after = p.peek(offset + 2).type;
+    return after === TokenType.WORD || after === TokenType.NAME;
+  }
+}
+
 function parseCaseItem(p: Parser): CaseItemNode | null {
   // Skip optional (
   if (p.check(TokenType.LPAREN)) {
@@ -359,7 +389,7 @@ function parseCaseItem(p: Parser): CaseItemNode | null {
       p.error(`syntax error near unexpected token \`)'`);
     }
     // Also check for optional ( before pattern
-    if (p.check(TokenType.LPAREN) && p.peek(1).type === TokenType.WORD) {
+    if (p.check(TokenType.LPAREN) && looksLikeCasePatternInBody(p)) {
       p.error(`syntax error near unexpected token \`${p.peek(1).value}'`);
     }
 
