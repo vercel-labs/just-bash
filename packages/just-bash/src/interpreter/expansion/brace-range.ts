@@ -8,16 +8,13 @@
 import { utf8ByteLength } from "../../commands/printf/escapes.js";
 import { BraceExpansionError, ExecutionLimitError } from "../errors.js";
 
-// Maximum iterations for range expansion to prevent infinite loops
-const MAX_SAFE_RANGE_ITERATIONS = 10000;
-
 export interface BraceRangeLimits {
   maxResults: number;
   maxStringBytes: number;
 }
 
 const DEFAULT_RANGE_LIMITS: BraceRangeLimits = {
-  maxResults: MAX_SAFE_RANGE_ITERATIONS,
+  maxResults: 10000,
   maxStringBytes: 10 * 1024 * 1024,
 };
 
@@ -26,9 +23,12 @@ function pushRangeValue(
   value: string,
   limits: BraceRangeLimits,
   aggregateBytes: { value: number },
-): boolean {
+): void {
   if (results.length >= limits.maxResults) {
-    return false;
+    throw new ExecutionLimitError(
+      `brace expansion result limit exceeded (${limits.maxResults})`,
+      "iterations",
+    );
   }
   const bytes = utf8ByteLength(value);
   if (bytes > limits.maxStringBytes - aggregateBytes.value) {
@@ -39,7 +39,6 @@ function pushRangeValue(
   }
   results.push(value);
   aggregateBytes.value += bytes;
-  return true;
 }
 
 /**
@@ -59,6 +58,9 @@ function safeExpandNumericRange(
   endStr?: string,
   limits: BraceRangeLimits = DEFAULT_RANGE_LIMITS,
 ): string[] | null {
+  // Integers outside the supported range can stop advancing when incremented.
+  if (![start, end, rawStep ?? 1].every(Number.isSafeInteger)) return null;
+
   // Step of 0 is treated as 1 in bash
   let step = rawStep ?? 1;
   if (step === 0) step = 1;
@@ -96,21 +98,13 @@ function safeExpandNumericRange(
 
   if (start <= end) {
     // Ascending range
-    for (
-      let i = start, count = 0;
-      i <= end && count < MAX_SAFE_RANGE_ITERATIONS;
-      i += absStep, count++
-    ) {
-      if (!pushRangeValue(results, formatNum(i), limits, aggregateBytes)) break;
+    for (let i = start; i <= end; i += absStep) {
+      pushRangeValue(results, formatNum(i), limits, aggregateBytes);
     }
   } else {
     // Descending range (start > end)
-    for (
-      let i = start, count = 0;
-      i >= end && count < MAX_SAFE_RANGE_ITERATIONS;
-      i -= absStep, count++
-    ) {
-      if (!pushRangeValue(results, formatNum(i), limits, aggregateBytes)) break;
+    for (let i = start; i >= end; i -= absStep) {
+      pushRangeValue(results, formatNum(i), limits, aggregateBytes);
     }
   }
 
@@ -162,29 +156,13 @@ function safeExpandCharRange(
 
   if (startCode <= endCode) {
     // Ascending range
-    for (
-      let i = startCode, count = 0;
-      i <= endCode && count < MAX_SAFE_RANGE_ITERATIONS;
-      i += absStep, count++
-    ) {
-      if (
-        !pushRangeValue(results, String.fromCharCode(i), limits, aggregateBytes)
-      ) {
-        break;
-      }
+    for (let i = startCode; i <= endCode; i += absStep) {
+      pushRangeValue(results, String.fromCharCode(i), limits, aggregateBytes);
     }
   } else {
     // Descending range
-    for (
-      let i = startCode, count = 0;
-      i >= endCode && count < MAX_SAFE_RANGE_ITERATIONS;
-      i -= absStep, count++
-    ) {
-      if (
-        !pushRangeValue(results, String.fromCharCode(i), limits, aggregateBytes)
-      ) {
-        break;
-      }
+    for (let i = startCode; i >= endCode; i -= absStep) {
+      pushRangeValue(results, String.fromCharCode(i), limits, aggregateBytes);
     }
   }
 
