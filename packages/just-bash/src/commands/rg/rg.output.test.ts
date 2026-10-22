@@ -96,7 +96,7 @@ describe("rg context lines", () => {
     });
     const result = await bash.exec("rg -A 1 hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:2:hello\nfile.txt-3-line3\n");
+    expect(result.stdout).toBe("file.txt:hello\nfile.txt-line3\n");
     expect(result.stderr).toBe("");
   });
 
@@ -109,7 +109,7 @@ describe("rg context lines", () => {
     });
     const result = await bash.exec("rg -B 1 hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt-2-line2\nfile.txt:3:hello\n");
+    expect(result.stdout).toBe("file.txt-line2\nfile.txt:hello\n");
     expect(result.stderr).toBe("");
   });
 
@@ -123,7 +123,7 @@ describe("rg context lines", () => {
     const result = await bash.exec("rg -C 1 hello");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      "file.txt-2-line2\nfile.txt:3:hello\nfile.txt-4-line4\n",
+      "file.txt-line2\nfile.txt:hello\nfile.txt-line4\n",
     );
     expect(result.stderr).toBe("");
   });
@@ -137,7 +137,7 @@ describe("rg context lines", () => {
     });
     const result = await bash.exec("rg -B 2 match");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:match\n");
+    expect(result.stdout).toBe("file.txt:match\n");
     expect(result.stderr).toBe("");
   });
 
@@ -150,7 +150,7 @@ describe("rg context lines", () => {
     });
     const result = await bash.exec("rg -A 2 match");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:3:match\n");
+    expect(result.stdout).toBe("file.txt:match\n");
     expect(result.stderr).toBe("");
   });
 
@@ -164,7 +164,7 @@ describe("rg context lines", () => {
     const result = await bash.exec("rg -C 1 match");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      "file.txt-1-a\nfile.txt:2:match1\nfile.txt-3-b\nfile.txt:4:match2\nfile.txt-5-c\n",
+      "file.txt-a\nfile.txt:match1\nfile.txt-b\nfile.txt:match2\nfile.txt-c\n",
     );
     expect(result.stderr).toBe("");
   });
@@ -178,9 +178,7 @@ describe("rg context lines", () => {
     });
     const result = await bash.exec("rg -A2 hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe(
-      "file.txt:2:hello\nfile.txt-3-b\nfile.txt-4-c\n",
-    );
+    expect(result.stdout).toBe("file.txt:hello\nfile.txt-b\nfile.txt-c\n");
     expect(result.stderr).toBe("");
   });
 });

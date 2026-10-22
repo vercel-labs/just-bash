@@ -47,7 +47,7 @@ describe("rg regression: r25 - rooted gitignore pattern", () => {
     });
     const result = await bash.exec("rg test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("src/llvm/foo:1:test\n");
+    expect(result.stdout).toBe("src/llvm/foo:test\n");
   });
 });
 
@@ -64,7 +64,7 @@ describe("rg regression: r30 - negation after double-star", () => {
     });
     const result = await bash.exec("rg test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("vendor/manifest:1:test\n");
+    expect(result.stdout).toBe("vendor/manifest:test\n");
   });
 });
 
@@ -146,7 +146,7 @@ describe("rg regression: r67 - negation of root", () => {
     });
     const result = await bash.exec("rg test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("dir/bar:1:test\n");
+    expect(result.stdout).toBe("dir/bar:test\n");
   });
 });
 
@@ -179,7 +179,7 @@ describe("rg regression: r90 - negation of hidden file", () => {
     });
     const result = await bash.exec("rg test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe(".foo:1:test\n");
+    expect(result.stdout).toBe(".foo:test\n");
   });
 });
 
@@ -194,7 +194,7 @@ describe("rg regression: r93 - IP address regex", () => {
     });
     const result = await bash.exec("rg '(\\d{1,3}\\.){3}\\d{1,3}'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("foo:1:192.168.1.1\n");
+    expect(result.stdout).toBe("foo:192.168.1.1\n");
   });
 });
 
@@ -331,7 +331,7 @@ describe("rg regression: r184 - dot star gitignore", () => {
     });
     const result = await bash.exec("rg test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("foo/bar/baz:1:test\n");
+    expect(result.stdout).toBe("foo/bar/baz:test\n");
   });
 });
 
@@ -346,7 +346,7 @@ describe("rg regression: r199 - smart case with word boundary", () => {
     });
     const result = await bash.exec("rg --smart-case '\\btest\\b'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("foo:1:tEsT\n");
+    expect(result.stdout).toBe("foo:tEsT\n");
   });
 });
 
@@ -361,7 +361,7 @@ describe("rg regression: r206 - glob with subdirectory", () => {
     });
     const result = await bash.exec("rg test -g '*.txt'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("foo/bar.txt:1:test\n");
+    expect(result.stdout).toBe("foo/bar.txt:test\n");
   });
 });
 
@@ -396,7 +396,7 @@ describe("rg regression: r251 - unicode case folding", () => {
     });
     const result = await bash.exec("rg -i привет");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("foo:1:привет\nfoo:2:Привет\nfoo:3:ПрИвЕт\n");
+    expect(result.stdout).toBe("foo:привет\nfoo:Привет\nfoo:ПрИвЕт\n");
   });
 });
 
@@ -444,7 +444,7 @@ describe("rg regression: r270 - pattern starting with dash", () => {
     });
     const result = await bash.exec("rg -e '-test'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("foo:1:-test\n");
+    expect(result.stdout).toBe("foo:-test\n");
   });
 });
 
@@ -496,7 +496,7 @@ describe("rg regression: r405 - negated glob with path", () => {
     });
     const result = await bash.exec("rg -g '!/foo/**' test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("bar/foo/file2.txt:1:test\n");
+    expect(result.stdout).toBe("bar/foo/file2.txt:test\n");
   });
 });
 
@@ -668,7 +668,7 @@ describe("rg regression: r807 - hidden with gitignore", () => {
     });
     const result = await bash.exec("rg --hidden test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe(".a/c/file:1:test\n");
+    expect(result.stdout).toBe(".a/c/file:test\n");
   });
 });
 
@@ -778,7 +778,7 @@ describe("rg regression: r1064 - capture group", () => {
     });
     const result = await bash.exec("rg 'a(.*c)'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("input:1:abc\n");
+    expect(result.stdout).toBe("input:abc\n");
   });
 });
 
@@ -872,7 +872,7 @@ describe("rg regression: r1163 - BOM handling", () => {
     });
     const result = await bash.exec("rg '^test123'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("bom.txt:1:test123\nbom.txt:2:test123\n");
+    expect(result.stdout).toBe("bom.txt:test123\nbom.txt:test123\n");
   });
 });
 
@@ -1108,7 +1108,7 @@ describe("rg regression: r1537 - semicolon comma pattern", () => {
     });
     const result = await bash.exec("rg ';(.*,){1}'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("foo:1:abc;de,fg\n");
+    expect(result.stdout).toBe("foo:abc;de,fg\n");
   });
 });
 
@@ -1456,7 +1456,7 @@ describe("rg regression: r3067 - gitignore foobar/debug", () => {
     });
     const result = await bash.exec("rg baz");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("foobar/some/debug/flag:1:baz\n");
+    expect(result.stdout).toBe("foobar/some/debug/flag:baz\n");
   });
 });
 
