@@ -4,6 +4,7 @@ import {
   ExecutionLimitError,
 } from "../interpreter/errors.js";
 import type { ExecutionLimits } from "../limits.js";
+import { DEFAULT_BATCH_SIZE } from "../utils/constants.js";
 import type { FsStat, IFileSystem } from "./interface.js";
 import {
   dirname,
@@ -317,11 +318,18 @@ export interface TraverseFileTreeOptions extends TraversalBudgetOptions {
   readonly root: string;
   readonly symlinks?: SymlinkTraversalPolicy;
   readonly includeLeave?: boolean;
+  /** Read-only visitors may batch metadata reads without changing visit order. */
+  readonly readAhead?: boolean;
   readonly budget?: FileTraversalBudget;
 }
 
 type StackItem =
-  | { readonly kind: "enter"; readonly path: string; readonly depth: number }
+  | {
+      readonly kind: "enter";
+      readonly path: string;
+      readonly depth: number;
+      metadata?: PromiseSettledResult<FsStat>;
+    }
   | {
       readonly kind: "leave";
       readonly path: string;
@@ -365,8 +373,31 @@ export async function traverseFileTree(
       continue;
     }
 
-    budget.visit(item.depth);
-    const lstat = await options.fs.lstat(item.path);
+    if (options.readAhead && !item.metadata) {
+      const batch = [item];
+      for (
+        let i = stack.length - 1;
+        i >= 0 && batch.length < DEFAULT_BATCH_SIZE;
+        i--
+      ) {
+        const next = stack[i];
+        if (next.kind !== "enter" || next.metadata) break;
+        batch.push(next);
+      }
+      for (const next of batch) budget.visit(next.depth);
+      // Settle every read before a failure or cancellation can leave this walk.
+      const results = await Promise.allSettled(
+        batch.map(async (next) => options.fs.lstat(next.path)),
+      );
+      for (let i = 0; i < batch.length; i++) batch[i].metadata = results[i];
+      budget.checkpoint(0);
+    }
+    if (!item.metadata) budget.visit(item.depth);
+    if (item.metadata?.status === "rejected") throw item.metadata.reason;
+    const lstat =
+      item.metadata?.status === "fulfilled"
+        ? item.metadata.value
+        : await options.fs.lstat(item.path);
     const isSymlink = lstat.isSymbolicLink;
     const stat =
       isSymlink && options.symlinks === "follow"
