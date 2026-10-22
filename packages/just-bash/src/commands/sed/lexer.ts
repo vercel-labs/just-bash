@@ -622,8 +622,8 @@ export class SedLexer {
               replacement += "\n";
               this.advance();
             } else {
-              // \\\\ = literal backslash
-              replacement += "\\";
+              // Preserve the escape for replacement processing.
+              replacement += "\\\\";
             }
           } else if (next === "\n") {
             // \<newline> in replacement: include the newline as literal
@@ -760,15 +760,8 @@ export class SedLexer {
       this.advance();
     }
 
-    // a\ syntax: consume backslash if followed by newline or blank. Blanks
-    // after it are part of the text (GNU). Otherwise it's an escape sequence
-    if (
-      this.peek() === "\\" &&
-      this.pos + 1 < this.input.length &&
-      (this.input[this.pos + 1] === "\n" ||
-        this.input[this.pos + 1] === " " ||
-        this.input[this.pos + 1] === "\t")
-    ) {
+    // The first backslash introduces the text, including the one-line form.
+    if (this.peek() === "\\") {
       this.advance();
       // Backslash followed by newline: text is on next line(s)
       if (this.peek() === "\n") {

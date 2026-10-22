@@ -15,6 +15,14 @@ const SKIP_FILES: Set<string> = new Set<string>([]);
  * Format: "fileName:testName" -> skipReason
  */
 const SKIP_TESTS: Map<string, string> = new Map<string, string>([
+  [
+    "busybox-sed.tests:sed a cmd understands \\\\n,\\\\t,\\\\r",
+    "GNU sed consumes the first backslash as the text introducer",
+  ],
+  [
+    "busybox-sed.tests:sed i cmd understands \\\\n,\\\\t,\\\\r",
+    "GNU sed consumes the first backslash as the text introducer",
+  ],
   // ============================================================
   // BusyBox tests
   // ============================================================
