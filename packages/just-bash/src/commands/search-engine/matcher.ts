@@ -58,6 +58,8 @@ export interface SearchOptions {
   countMatches?: boolean;
   /** Filename prefix for output (empty string for no prefix) */
   filename?: string;
+  /** Override the separator after file names (grep -Z). */
+  filenameSeparator?: string;
   /** Show only the matching parts of lines */
   onlyMatching?: boolean;
   /** Print NUM lines of leading context */
@@ -128,6 +130,7 @@ export function searchContent(
     countOnly = false,
     countMatches = false,
     filename = "",
+    filenameSeparator,
     onlyMatching = false,
     beforeContext = 0,
     afterContext = 0,
@@ -155,6 +158,7 @@ export function searchContent(
       countOnly,
       countMatches,
       filename,
+      filenameSeparator,
       onlyMatching,
       beforeContext,
       afterContext,
@@ -252,7 +256,7 @@ export function searchContent(
       if (matchCount > countBeforeLine) matchingLineCount++;
     }
     const countStr = filename
-      ? `${filename}:${matchCount}`
+      ? `${filename}${filenameSeparator ?? ":"}${matchCount}`
       : String(matchCount);
     return { output: `${countStr}\n`, matched: matchCount > 0, matchCount };
   }
@@ -300,7 +304,9 @@ export function searchContent(
               kResetGroup !== undefined ? (match[kResetGroup] ?? "") : match[0];
             const matchText =
               replace !== null ? applyReplacement(replace, match) : rawMatch;
-            let prefix = filename ? `${filename}:` : "";
+            let prefix = filename
+              ? `${filename}${filenameSeparator ?? ":"}`
+              : "";
             if (showByteOffset) prefix += `${byteOffset + match.index}:`;
             if (showLineNumbers) prefix += `${i + 1}:`;
             if (showColumn) prefix += `${match.index + 1}:`;
@@ -315,7 +321,9 @@ export function searchContent(
             match = regex.exec(line)
           ) {
             chargeWork();
-            let prefix = filename ? `${filename}:` : "";
+            let prefix = filename
+              ? `${filename}${filenameSeparator ?? ":"}`
+              : "";
             if (showByteOffset) prefix += `${byteOffset + match.index}:`;
             if (showLineNumbers) prefix += `${i + 1}:`;
             if (showColumn) prefix += `${match.index + 1}:`;
@@ -354,7 +362,7 @@ export function searchContent(
             });
           }
 
-          let prefix = filename ? `${filename}:` : "";
+          let prefix = filename ? `${filename}${filenameSeparator ?? ":"}` : "";
           if (showByteOffset)
             prefix += `${byteOffset + (firstMatch ? firstMatch.index : 0)}:`;
           if (showLineNumbers) prefix += `${i + 1}:`;
@@ -400,7 +408,7 @@ export function searchContent(
       // Separator: : for matches, - for non-matches
       const sep = isMatch ? ":" : "-";
 
-      let prefix = filename ? `${filename}${sep}` : "";
+      let prefix = filename ? `${filename}${filenameSeparator ?? sep}` : "";
       if (showLineNumbers) prefix += `${i + 1}${sep}`;
       pushOutput(outputLines, prefix + line);
     }
@@ -488,7 +496,7 @@ export function searchContent(
           const rawMatch =
             kResetGroup !== undefined ? (match[kResetGroup] ?? "") : match[0];
           const matchText = replace !== null ? replace : rawMatch;
-          let prefix = filename ? `${filename}:` : "";
+          let prefix = filename ? `${filename}${filenameSeparator ?? ":"}` : "";
           if (showLineNumbers) prefix += `${i + 1}:`;
           if (showColumn) prefix += `${match.index + 1}:`;
           pushOutput(outputLines, prefix + matchText);
@@ -498,7 +506,8 @@ export function searchContent(
         let outputLine = line;
         const separator = isMatch ? ":" : "-";
         if (showLineNumbers) outputLine = `${i + 1}${separator}${outputLine}`;
-        if (filename) outputLine = `${filename}${separator}${outputLine}`;
+        if (filename)
+          outputLine = `${filename}${filenameSeparator ?? separator}${outputLine}`;
         pushOutput(outputLines, outputLine);
       }
     }
@@ -524,6 +533,7 @@ function searchContentMultiline(
     countOnly: boolean;
     countMatches: boolean;
     filename: string;
+    filenameSeparator?: string;
     onlyMatching: boolean;
     beforeContext: number;
     afterContext: number;
@@ -545,6 +555,7 @@ function searchContentMultiline(
     countOnly,
     countMatches,
     filename,
+    filenameSeparator,
     onlyMatching,
     beforeContext,
     afterContext,
@@ -576,7 +587,9 @@ function searchContentMultiline(
   // Only safe when not inverting — an invert-match scan must check every line.
   if (preFilter && !invertMatch && !preFilterMatches(preFilter, content)) {
     if (countOnly || countMatches) {
-      const countStr = filename ? `${filename}:0` : "0";
+      const countStr = filename
+        ? `${filename}${filenameSeparator ?? ":"}0`
+        : "0";
       return { output: `${countStr}\n`, matched: false, matchCount: 0 };
     }
     return { output: "", matched: false, matchCount: 0 };
@@ -664,7 +677,7 @@ function searchContentMultiline(
         ? lastIdx - matchedLineCount
         : matchedLineCount;
     const countStr = filename
-      ? `${filename}:${matchCount}`
+      ? `${filename}${filenameSeparator ?? ":"}${matchCount}`
       : String(matchCount);
     return { output: `${countStr}\n`, matched: matchCount > 0, matchCount };
   }
@@ -728,7 +741,7 @@ function searchContentMultiline(
       if (!matchedLines.has(i)) {
         let line = lines[i];
         if (showLineNumbers) line = `${i + 1}:${line}`;
-        if (filename) line = `${filename}:${line}`;
+        if (filename) line = `${filename}${filenameSeparator ?? ":"}${line}`;
         outputLines.push(line);
       }
     }
@@ -768,7 +781,7 @@ function searchContentMultiline(
         lastPrintedLine = i;
         let line = lines[i];
         if (showLineNumbers) line = `${i + 1}-${line}`;
-        if (filename) line = `${filename}-${line}`;
+        if (filename) line = `${filename}${filenameSeparator ?? "-"}${line}`;
         outputLines.push(line);
       }
     }
@@ -777,7 +790,7 @@ function searchContentMultiline(
     if (onlyMatching) {
       // Output only the matched text
       const matchText = replace !== null ? replace : span.matchText;
-      let prefix = filename ? `${filename}:` : "";
+      let prefix = filename ? `${filename}${filenameSeparator ?? ":"}` : "";
       if (showByteOffset) prefix += `${span.byteOffset}:`;
       if (showLineNumbers) prefix += `${span.startLine + 1}:`;
       if (showColumn) prefix += `${span.column}:`;
@@ -801,7 +814,7 @@ function searchContentMultiline(
             regex.lastIndex = 0;
             line = regex.replace(line, replace);
           }
-          let prefix = filename ? `${filename}:` : "";
+          let prefix = filename ? `${filename}${filenameSeparator ?? ":"}` : "";
           if (showByteOffset && i === span.startLine)
             prefix += `${span.byteOffset}:`;
           if (showLineNumbers) prefix += `${i + 1}:`;
@@ -819,7 +832,7 @@ function searchContentMultiline(
         lastPrintedLine = i;
         let line = lines[i];
         if (showLineNumbers) line = `${i + 1}-${line}`;
-        if (filename) line = `${filename}-${line}`;
+        if (filename) line = `${filename}${filenameSeparator ?? "-"}${line}`;
         outputLines.push(line);
       }
     }
