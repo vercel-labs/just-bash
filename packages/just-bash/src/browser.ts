@@ -57,6 +57,7 @@ export {
   RedirectNotAllowedError,
   TooManyRedirectsError,
 } from "./network/index.js";
+export { isBashParseError } from "./parser/is-bash-parse-error.js";
 export type {
   BashExecResult,
   Command,
