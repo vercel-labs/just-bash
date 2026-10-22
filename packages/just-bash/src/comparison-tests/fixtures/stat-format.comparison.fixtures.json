@@ -1,0 +1,92 @@
+{
+  "21c8d87f478bc5d2": {
+    "command": "stat -c '%#a %#f [%#6a] [%-#8a] [%+5s] [% 5s] [%05s] [%-5n]' file.txt",
+    "files": {
+      "file.txt": "hello world"
+    },
+    "stdout": "0644 0x81a4 [  0644] [0644    ] [   11] [   11] [00011] [file.txt]\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "261ac1f4f95deac0": {
+    "command": "stat -c '%a %A %f %F' dir",
+    "files": {
+      "dir/file.txt": "hello"
+    },
+    "stdout": "755 drwxr-xr-x 41ed directory\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "3f80a7ac54252783": {
+    "command": "stat -c '[%.4s] [%10.4n] [%.2n] [%.F]' file.txt",
+    "files": {
+      "file.txt": "hello world"
+    },
+    "stdout": "[0011] [      file] [fi] []\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "677edb3d0ea90e66": {
+    "command": "stat -c '%a %A %f %F' file.txt",
+    "files": {
+      "file.txt": "hello world"
+    },
+    "stdout": "644 -rw-r--r-- 81a4 regular file\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "7dc0770658668bc8": {
+    "command": "stat -c 'pct=%% unknown=%q' file.txt",
+    "files": {
+      "file.txt": "hello world"
+    },
+    "stdout": "pct=% unknown=?\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "95d40abb10093e5d": {
+    "command": "stat -c 'trailing %' file.txt",
+    "files": {
+      "file.txt": "hello world"
+    },
+    "stdout": "trailing %\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "99a4f5c8091a2e87": {
+    "command": "stat -c 'a%5%b' file.txt",
+    "files": {
+      "file.txt": "hello world"
+    },
+    "stdout": "a",
+    "stderr": "stat: '%5%': invalid directive\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "e8e4c22a3cc233f0": {
+    "command": "stat -c '[%5s][%-5s]' file.txt",
+    "files": {
+      "file.txt": "hello world"
+    },
+    "stdout": "[   11][11   ]\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "f7d7b188bd421f71": {
+    "command": "stat -c '%s' file.txt",
+    "files": {
+      "file.txt": "hello world"
+    },
+    "stdout": "11\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}
