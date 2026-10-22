@@ -1374,7 +1374,9 @@ export async function applyRedirections(
     const priorTotal =
       (result.internalOutputAccounting?.stdout ?? 0) +
       (result.internalOutputAccounting?.stderr ?? 0);
-    const finalStdoutBytes = utf8ByteLength(finalResult.stdout);
+    const finalStdoutBytes = stdoutIsBytes
+      ? finalResult.stdout.length
+      : utf8ByteLength(finalResult.stdout);
     const finalStderrBytes = utf8ByteLength(finalResult.stderr);
     const inheritedStdout = Math.min(finalStdoutBytes, priorTotal);
     finalResult.internalOutputAccounting = {
