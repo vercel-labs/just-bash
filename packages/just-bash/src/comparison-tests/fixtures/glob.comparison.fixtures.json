@@ -1,4 +1,15 @@
 {
+  "00f37040a74a0dc4": {
+    "command": "echo */*/",
+    "files": {
+      "a/x/file.txt": "ax",
+      "a/y.txt": "ay",
+      "b/z/file.txt": "bz"
+    },
+    "stdout": "a/x/ b/z/\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "1aa828f0cab48e15": {
     "command": "echo */*/test.ts",
     "files": {
@@ -7,6 +18,26 @@
       "lib/c/test.ts": "test c"
     },
     "stdout": "lib/c/test.ts src/a/test.ts src/b/test.ts\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1cb15fa278632b5f": {
+    "command": "echo *//",
+    "files": {
+      "a/file.txt": "a",
+      "b.txt": "b"
+    },
+    "stdout": "a/\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2b49ebb4b64f9ced": {
+    "command": "GLOBIGNORE='a'; echo */",
+    "files": {
+      "a/file.txt": "a",
+      "b/file.txt": "b"
+    },
+    "stdout": "a/ b/\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -43,6 +74,16 @@
     "stderr": "",
     "exitCode": 0
   },
+  "6ff68a3c4e1e5da1": {
+    "command": "GLOBIGNORE='a/'; echo */",
+    "files": {
+      "a/file.txt": "a",
+      "b/file.txt": "b"
+    },
+    "stdout": "b/\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "71ed22308ca718e0": {
     "command": "echo */*/*/*.txt",
     "files": {
@@ -65,6 +106,38 @@
     "stderr": "",
     "exitCode": 0
   },
+  "839eac0fe76a93f6": {
+    "command": "echo */",
+    "files": {
+      "a/file.txt": "a",
+      "a.b/file.txt": "ab",
+      "a-b/file.txt": "a-b"
+    },
+    "stdout": "a-b/ a.b/ a/\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9b2859c8a6d17f9e": {
+    "command": "echo */",
+    "files": {
+      "one.txt": "one",
+      "two.txt": "two"
+    },
+    "stdout": "*/\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bd8fc0d24f98dfa0": {
+    "command": "echo */",
+    "files": {
+      "dir1/file.txt": "one",
+      "dir2/file.txt": "two",
+      "plain.txt": "plain"
+    },
+    "stdout": "dir1/ dir2/\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "bfa75a70c606b65d": {
     "command": "echo *.txt",
     "files": {
@@ -73,6 +146,17 @@
       "file3.json": "{}"
     },
     "stdout": "file1.txt file2.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c45b9fd19c35ff51": {
+    "command": "for d in */; do echo \"[$d]\"; done",
+    "files": {
+      "dir1/file.txt": "one",
+      "dir2/file.txt": "two",
+      "plain.txt": "plain"
+    },
+    "stdout": "[dir1/]\n[dir2/]\n",
     "stderr": "",
     "exitCode": 0
   },
