@@ -1,0 +1,65 @@
+{
+  "4baa5f592a2a0a15": {
+    "command": "printf 'a\\x9z\\n' | cat -vt",
+    "files": {},
+    "stdout": "a^Iz\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "67f9fde6d8b7cc9a": {
+    "command": "echo $'\\303\\251|\\342\\202\\254' | cat -v",
+    "files": {},
+    "stdout": "M-CM-)|M-bM-^BM-,\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "85ef1b460fe221e1": {
+    "command": "printf '\\303\\251' | wc -c | tr -d ' '",
+    "files": {},
+    "stdout": "2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "88c365bfd9e2e806": {
+    "command": "printf '%b|%b\\n' '\\0303\\0251' '\\303\\251' | cat -v",
+    "files": {},
+    "stdout": "M-CM-)|M-CM-)\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "96d02f9f973581e6": {
+    "command": "printf '\\045s|\\x25s|\\445s\\n' a b c",
+    "files": {},
+    "stdout": "%s|%s|%s\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b7c8af3734eb9de5": {
+    "command": "echo -e '\\0303\\0251|\\xc3\\xa9' | cat -v",
+    "files": {},
+    "stdout": "M-CM-)|M-CM-)\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c60ecb7ac8e4dc0e": {
+    "command": "echo $'\\x4g' | cat -v",
+    "files": {},
+    "stdout": "^Dg\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e835c07563fac6c5": {
+    "command": "printf '\\xc3\\251\\n' | cat -v",
+    "files": {},
+    "stdout": "M-CM-)\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e9ad50f8fcb7ca1e": {
+    "command": "printf '\\303\\251\\n' | cat -v",
+    "files": {},
+    "stdout": "M-CM-)\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
