@@ -527,6 +527,35 @@ await env.exec('sqlite3 data.db "SELECT * FROM users"');
 
 **Note:** SQLite is not available in browser environments. Queries run in a worker thread with a configurable timeout (30 seconds in the default `normal` profile and 5 seconds in the opt-in `hardened` profile) to prevent runaway queries from blocking execution.
 
+## Parsing without execution
+
+Import `just-bash/parser` to inspect shell syntax without loading the interpreter,
+commands, network adapters or Node.js initialization. It supports ESM and CommonJS
+and bundles for browsers without Node.js shims.
+
+```typescript
+import { parse, type ScriptNode } from "just-bash/parser";
+
+const script: ScriptNode = parse("echo hello | grep hello");
+```
+
+The subpath also exports the existing `ParseException`, `LexerError` and
+`ArithmeticError` classes, the `ParseError` and `LexerOptions` types, and the
+`CommandNode`, `SimpleCommandNode`, `StatementNode`, `PipelineNode`, `WordNode`
+and `WordPart` AST types. Invalid syntax can throw any of these error classes.
+
+Import `parse` and its error classes from the same entry and module format.
+The Node.js root entry, `just-bash`, also exports these classes for its own `parse`
+function. The bundles contain separate constructors, so `instanceof` checks do
+not work across entries or between ESM and CommonJS.
+
+Parsing does not execute the script. It rejects input longer than 1,000,000
+JavaScript UTF-16 code units before lexing and applies the parser's token, nesting
+and iteration limits. `LexerOptions.maxHeredocSize` controls the heredoc limit.
+Unlike `Bash`, raw `parse` does not apply the configurable UTF-8 `maxSourceBytes`
+check or execution limits. Apply any stricter application input-size policy before
+parsing untrusted source.
+
 ## AST Transform Plugins
 
 Parse bash scripts into an AST, transform them, and serialize back to bash. Good for instrumenting scripts (e.g., capturing per-command stdout/stderr) or extracting metadata before execution.

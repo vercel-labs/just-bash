@@ -135,7 +135,7 @@ export class Parser {
       // Check input size limit
       if (input.length > MAX_INPUT_SIZE) {
         throw new ParseException(
-          `Input too large: ${input.length} bytes exceeds limit of ${MAX_INPUT_SIZE}`,
+          `Input too large: ${input.length} UTF-16 code units exceed limit of ${MAX_INPUT_SIZE}`,
           1,
           1,
         );

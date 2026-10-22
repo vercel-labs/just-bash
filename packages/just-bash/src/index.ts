@@ -80,6 +80,7 @@ export {
   ReadWriteFs,
   type ReadWriteFsOptions,
 } from "./fs/read-write-fs/index.js";
+export { ArithmeticError } from "./interpreter/errors.js";
 export type {
   AllowedUrl,
   AllowedUrlEntry,
@@ -92,8 +93,8 @@ export {
   RedirectNotAllowedError,
   TooManyRedirectsError,
 } from "./network/index.js";
-// Parser
-export { parse } from "./parser/parser.js";
+export { LexerError } from "./parser/lexer.js";
+export { ParseException, parse } from "./parser/parser.js";
 export type {
   CommandFinished as SandboxCommandFinished,
   OutputMessage,
