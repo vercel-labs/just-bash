@@ -61,6 +61,8 @@ describeDefense("Defense context invariant", () => {
       mkdir: true,
       mv: true,
       readFile: true,
+      readMany: true,
+      searchCandidates: true,
       readFileBuffer: true,
       readFileBytes: true,
       readdir: true,

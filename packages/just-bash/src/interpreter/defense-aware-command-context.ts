@@ -198,6 +198,22 @@ function wrapFileSystem(
     );
   }
 
+  if (fs.readMany) {
+    wrappedFs.readMany = wrapFunction(
+      fs.readMany.bind(fs),
+      requireDefenseContext,
+      component,
+      "fs.readMany",
+    );
+  }
+  if (fs.searchCandidates) {
+    wrappedFs.searchCandidates = wrapFunction(
+      fs.searchCandidates.bind(fs),
+      requireDefenseContext,
+      component,
+      "fs.searchCandidates",
+    );
+  }
   return wrappedFs;
 }
 

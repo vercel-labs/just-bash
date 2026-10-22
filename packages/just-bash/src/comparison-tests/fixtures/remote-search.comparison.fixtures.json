@@ -1,0 +1,12 @@
+{
+  "723c3360c3e8edbf": {
+    "command": "grep -nE 'foo|bar' a.txt b.txt",
+    "files": {
+      "a.txt": "foo\nbar\n",
+      "b.txt": "other\n"
+    },
+    "stdout": "a.txt:1:foo\na.txt:2:bar\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
