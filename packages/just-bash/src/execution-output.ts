@@ -1,4 +1,8 @@
-import { utf8ByteLength } from "./encoding.js";
+import {
+  decodeBytesToUtf8,
+  unsafeBytesFromLatin1,
+  utf8ByteLength,
+} from "./encoding.js";
 import type { ExecutionScope } from "./execution-scope.js";
 import { ControlFlowError } from "./interpreter/errors.js";
 import type { ExecResult } from "./types.js";
@@ -18,6 +22,7 @@ export class ExecutionOutputAccumulator {
   constructor(
     private readonly scope: ExecutionScope,
     private readonly site: string,
+    private readonly stdoutKind: "text" | "bytes" = "text",
   ) {}
 
   append(
@@ -55,7 +60,12 @@ export class ExecutionOutputAccumulator {
     if (!(error instanceof ControlFlowError)) return;
     if (this.attachedErrors.has(error)) return;
     this.attachedErrors.add(error);
-    error.prependOutput(this.stdout, this.stderr);
+    error.prependOutput(
+      this.stdoutKind === "bytes"
+        ? decodeBytesToUtf8(unsafeBytesFromLatin1(this.stdout))
+        : this.stdout,
+      this.stderr,
+    );
   }
 
   appendResult(result: ExecResult, stdout: string = result.stdout): void {

@@ -1,0 +1,42 @@
+{
+  "04a3acbe57857258": {
+    "command": "jq -r .id a.json b.json | cat",
+    "files": {
+      "a.json": "{\"id\":\"café\"}\n{\"id\":2}\n",
+      "b.json": "{\"id\":3}\n"
+    },
+    "stdout": "café\n2\n3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "0effca35054bcab1": {
+    "command": "cat a.json b.json | jq -c . | cat",
+    "files": {
+      "a.json": "{\"id\":\"café\"}\n{\"id\":2}\n",
+      "b.json": "{\"id\":3}\n"
+    },
+    "stdout": "{\"id\":\"café\"}\n{\"id\":2}\n{\"id\":3}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "26237f69c09c2b81": {
+    "command": "jq -cs . a.json b.json | cat",
+    "files": {
+      "a.json": "{\"id\":\"café\"}\n{\"id\":2}\n",
+      "b.json": "{\"id\":3}\n"
+    },
+    "stdout": "[{\"id\":\"café\"},{\"id\":2},{\"id\":3}]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2860c97ec33c0310": {
+    "command": "jq -R . a.json b.json | cat",
+    "files": {
+      "a.json": "{\"id\":\"café\"}\n{\"id\":2}\n",
+      "b.json": "{\"id\":3}\n"
+    },
+    "stdout": "\"{\\\"id\\\":\\\"café\\\"}\"\n\"{\\\"id\\\":2}\"\n\"{\\\"id\\\":3}\"\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
