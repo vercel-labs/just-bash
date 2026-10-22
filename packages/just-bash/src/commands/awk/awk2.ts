@@ -8,7 +8,6 @@ import { decodeBytesToUtf8 } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { mapToRecord } from "../../helpers/env.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
-import { ConstantRegex, createUserRegex } from "../../regex/index.js";
 import {
   assertDefenseContext,
   awaitWithDefenseContext,
@@ -22,6 +21,7 @@ import type {
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import { utf8ByteLength } from "../printf/escapes.js";
 import type { AwkProgram } from "./ast.js";
+import { compileFieldSeparator } from "./interpreter/fields.js";
 import {
   type AwkFileSystem,
   AwkInterpreter,
@@ -58,9 +58,6 @@ export const awkCommand2: RuntimeCommand = {
       return showHelp(awkHelp);
     }
 
-    let fieldSep: import("../../regex/index.js").RegexLike = new ConstantRegex(
-      /\s+/,
-    );
     let fieldSepStr = " ";
     // Use null-prototype to prevent prototype pollution with user-controlled -v names
     const vars: Record<string, string | number> = Object.create(null);
@@ -71,11 +68,9 @@ export const awkCommand2: RuntimeCommand = {
       const arg = args[i];
       if (arg === "-F" && i + 1 < args.length) {
         fieldSepStr = processEscapes(args[++i]);
-        fieldSep = createFieldSepRegex(fieldSepStr);
         programIdx = i + 1;
       } else if (arg.startsWith("-F")) {
         fieldSepStr = processEscapes(arg.slice(2));
-        fieldSep = createFieldSepRegex(fieldSepStr);
         programIdx = i + 1;
       } else if (arg === "-v" && i + 1 < args.length) {
         const assignment = args[++i];
@@ -152,7 +147,7 @@ export const awkCommand2: RuntimeCommand = {
     // Create runtime context
     const execFn = ctx.exec;
     const runtimeCtx = createRuntimeContext({
-      fieldSep,
+      fieldSep: compileFieldSeparator(fieldSepStr),
       maxIterations: ctx.limits.maxAwkIterations,
       maxOutputSize: Math.min(
         ctx.limits.maxStringLength,
@@ -361,29 +356,6 @@ function processEscapes(str: string): string {
     .replace(/\\a/g, "\x07") // bell
     .replace(/\\v/g, "\v")
     .replace(/\\\\/g, "\\");
-}
-
-function createFieldSepRegex(
-  sep: string,
-): import("../../regex/index.js").UserRegex {
-  if (sep === " ") {
-    return createUserRegex("\\s+");
-  }
-
-  const regexMetachars = /[[\](){}.*+?^$|\\]/;
-  if (regexMetachars.test(sep)) {
-    try {
-      return createUserRegex(sep);
-    } catch {
-      return createUserRegex(escapeForRegex(sep));
-    }
-  }
-
-  return createUserRegex(escapeForRegex(sep));
-}
-
-function escapeForRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 import type { CommandFuzzInfo } from "../fuzz-flags-types.js";

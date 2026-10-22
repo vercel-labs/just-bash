@@ -59,6 +59,37 @@ describe("AWK prospective allocation limits", () => {
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 
+  it("does not count ignored empty separator matches as fields", async () => {
+    const bash = new Bash({ executionLimits: { maxArrayElements: 3 } });
+    const result = await bash.exec(
+      `printf 'bbbbbb\\n' | awk -F'a*' '{ print NF, split($0, parts, "a*") }'`,
+    );
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe("1 1\n");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("sizes split() after evaluating the separator", async () => {
+    const bash = new Bash({ executionLimits: { maxArrayElements: 3 } });
+    const result = await bash.exec(
+      `awk 'function fill() { other[1] = 1; other[2] = 1; return "," } BEGIN { split("a,b", values, fill()) }'`,
+    );
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("awk: array element limit exceeded (3)\n");
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+  });
+
+  it("splits normally when arrays are unlimited", async () => {
+    const bash = new Bash({
+      executionLimits: { maxArrayElements: Number.POSITIVE_INFINITY },
+    });
+    const result = await bash.exec(
+      `awk 'BEGIN { print split("a,b", values, ",") }'`,
+    );
+    expect(result.stdout).toBe("2\n");
+    expect(result.exitCode).toBe(0);
+  });
+
   it("charges input records against the AWK work limit", async () => {
     const bash = new Bash({ executionLimits: { maxAwkIterations: 2 } });
     const result = await bash.exec("awk '{ print }'", {
