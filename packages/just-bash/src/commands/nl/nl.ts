@@ -14,6 +14,7 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
+import { describeFsError } from "../../utils/fs-error.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 
 const nlHelp = {
@@ -342,12 +343,14 @@ export const nl: RuntimeCommand = {
       // Process each file
       for (const file of files) {
         const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-        const content = await ctx.fs.readFile(filePath);
-        if (content === null) {
+        let content: string;
+        try {
+          content = await ctx.fs.readFile(filePath);
+        } catch (error) {
           return {
             exitCode: 1,
             stdout: output,
-            stderr: `nl: ${file}: No such file or directory\n`,
+            stderr: `nl: ${file}: ${describeFsError(error)}\n`,
           };
         }
         const result = processContent(
