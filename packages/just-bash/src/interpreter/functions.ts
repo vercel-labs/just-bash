@@ -213,7 +213,10 @@ export async function callFunction(
     if (error instanceof ControlFlowError && prepared) {
       await routeControlFlowError(ctx, error, func.redirections, prepared);
       if (error instanceof ReturnError) {
-        return result(error.stdout, error.stderr, error.exitCode);
+        return {
+          ...result(error.stdout, error.stderr, error.exitCode),
+          internalStdoutProducers: error.internalStdoutProducers,
+        };
       }
     }
     throw error;
