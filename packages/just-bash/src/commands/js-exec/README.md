@@ -29,16 +29,18 @@ js-exec [OPTIONS] [-c CODE | FILE] [ARGS...]
 | `--version`, `-V` | Show version |
 | `--help` | Show help |
 
-File extensions select module mode; supported TypeScript syntax is transformed
-for every input form:
+File extensions select module mode, and so does `import`/`export` syntax in a
+`.js` file, `-c` code, or stdin, as in Node; supported TypeScript syntax is
+transformed for every input form:
 
 | Extension | Module mode | TypeScript |
 |-----------|-------------|------------|
-| `.js` | no | yes |
+| `.js` | when it uses `import`/`export` syntax | yes |
+| `.cjs` | no | yes |
 | `.mjs` | yes | yes |
 | `.ts` | yes | yes |
 | `.mts` | yes | yes |
-| `-c` (inline) | no (unless `-m` or top-level `await`) | yes |
+| `-c` (inline) | with `-m` or `import`/`export` syntax | yes |
 
 ## Node.js Compatibility
 
@@ -214,7 +216,7 @@ Both `require()` and ES module `import` work. The `node:` prefix is supported.
 const fs = require('node:fs');
 const { join } = require('node:path');
 
-// Static ES imports (requires -m flag, .mjs, .ts, or .mts)
+// Static ES imports (module mode: -m, .mjs, .ts, .mts, or this syntax itself)
 import fs from 'node:fs';
 import { execSync } from 'node:child_process';
 
