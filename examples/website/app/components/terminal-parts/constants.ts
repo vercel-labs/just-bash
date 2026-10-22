@@ -7,6 +7,7 @@ export const ASCII_ART = [
   "|__/",
 ];
 
+export const PROMPT = "▲ ";
 export const HISTORY_KEY = "just-bash-history";
 export const MAX_HISTORY = 100;
 export const MAX_TOOL_OUTPUT_LINES = 3;
