@@ -169,7 +169,7 @@ function stringFromBytes(bytes: Uint8Array): string {
 
 /**
  * Convert a `Uint8Array` to a `ByteString`. Each byte becomes one char.
- * The reverse is `Uint8Array.from(latin1FromBytes(b), (c) => c.charCodeAt(0))`.
+ * The reverse is `uint8ArrayFromLatin1(latin1FromBytes(b))`.
  */
 export function bytesFromUint8Array(
   buf: Uint8Array,
@@ -177,6 +177,20 @@ export function bytesFromUint8Array(
 ): ByteString {
   assertConversionSize(buf.byteLength, maxBytes, "byte-string conversion");
   return stringFromBytes(buf) as unknown as ByteString;
+}
+
+/**
+ * Convert a latin1 byte buffer (each char one byte) to a `Uint8Array`.
+ *
+ * Fills a preallocated array. `Uint8Array.from(s, (c) => c.charCodeAt(0))`
+ * first collects every char into a temporary JS array, which takes about 30
+ * times as long and, past a few hundred MB, ends the whole process with
+ * "FATAL ERROR: invalid array length" rather than throwing.
+ */
+export function uint8ArrayFromLatin1(s: string): Uint8Array {
+  const bytes = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
+  return bytes;
 }
 
 /**
