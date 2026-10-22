@@ -37,7 +37,6 @@ const config = createFuzzConfig({
   failureLogFile: "fuzz-dos-failures.log",
 });
 
-let lastTestedScript = "";
 let lastResult: FuzzResult | null = null;
 let lastFailureReason = "";
 
@@ -60,18 +59,13 @@ function hitExecutionLimit(result: FuzzResult): boolean {
   );
 }
 
-function trackScript(script: string): string {
-  lastTestedScript = script;
-  return script;
-}
-
 function trackResult(result: FuzzResult, failureReason: string): void {
   lastResult = result;
   lastFailureReason = failureReason;
 }
 
 function formatError(context: string): string {
-  // Keep error messages short - detailed info is in afterEach output
+  // Detailed failure evidence is in the runner's diagnostics.
   return `DOS check failed: ${context}`;
 }
 
@@ -80,37 +74,24 @@ describe("DOS Detection Fuzzing", () => {
   const oracle = new DOSOracle(config);
 
   // Helper to log failure immediately to file (append-only)
-  function logFailure(result: FuzzResult, reason: string): void {
-    runner.logFailure(result, reason);
+  async function logFailure(result: FuzzResult, reason: string): Promise<void> {
+    await runner.logFailure(result, reason);
   }
 
-  afterEach((context) => {
+  afterEach(async (context) => {
     if (context.task.result?.state === "fail") {
-      console.error("\n\n########## DOS FUZZ FAILURE ##########");
-      console.error(`Script: ${lastTestedScript || "(no script tracked)"}`);
-      console.error(`Reason: ${lastFailureReason || "(no reason tracked)"}`);
+      console.error(
+        `DOS fuzz failure: ${lastFailureReason.split("\n", 1)[0].slice(0, 160) || "see test failure"}. Records: ${runner.getDiagnosticsPath()}`,
+      );
       if (lastResult) {
-        console.error(
-          `Result: completed=${lastResult.completed}, timedOut=${lastResult.timedOut}, hitLimit=${lastResult.hitLimit}, exitCode=${lastResult.exitCode}`,
-        );
-        if (lastResult.stdout) {
-          console.error(`Stdout: ${lastResult.stdout.slice(0, 200)}`);
-        }
-        if (lastResult.stderr) {
-          console.error(`Stderr: ${lastResult.stderr.slice(0, 200)}`);
-        }
         // Only log REAL failures to file (skip false positives and execution limit hits)
         const isFalsePositive = lastFailureReason?.startsWith("PASSED:");
         const isLimitHit = hitExecutionLimit(lastResult);
         if (!isFalsePositive && !isLimitHit) {
-          logFailure(lastResult, lastFailureReason || "Unknown failure");
+          await logFailure(lastResult, lastFailureReason || "Unknown failure");
         }
-      } else {
-        console.error("Result: (no result tracked)");
       }
-      console.error("##########################################\n\n");
     }
-    lastTestedScript = "";
     lastResult = null;
     lastFailureReason = "";
   });
@@ -119,7 +100,7 @@ describe("DOS Detection Fuzzing", () => {
     describe("DOS Attacks", () => {
       for (const attack of DOS_ATTACKS) {
         it(`should handle gracefully: ${attack.name}`, async () => {
-          const result = await runner.run(attack.script);
+          const result = await runner.run(attack.script, attack.name);
           const oracleResult = oracle.check(result);
 
           if (oracleResult.dosDetected) {
@@ -147,7 +128,7 @@ describe("DOS Detection Fuzzing", () => {
     describe("Arithmetic Attacks", () => {
       for (const attack of ARITHMETIC_ATTACKS) {
         it(`should handle: ${attack.name}`, async () => {
-          const result = await runner.run(attack.script);
+          const result = await runner.run(attack.script, attack.name);
           expect(
             result.completed,
             formatError("Arithmetic attack did not complete"),
@@ -165,8 +146,7 @@ describe("DOS Detection Fuzzing", () => {
     it("should handle random bash scripts without hanging", async () => {
       await fc.assert(
         fc.asyncProperty(bashScript, (script) => {
-          trackScript(script);
-          return runner.run(script).then((result) => {
+          return runner.run(script, "bashScript").then(async (result) => {
             trackResult(result, ""); // Always track result
 
             const handled =
@@ -175,7 +155,7 @@ describe("DOS Detection Fuzzing", () => {
               const reason =
                 "Script not handled (neither completed, timed out, nor hit limit)";
               lastFailureReason = reason;
-              logFailure(result, reason);
+              await logFailure(result, reason);
               return false;
             }
             lastFailureReason = "PASSED: All DOS checks passed";
@@ -190,8 +170,7 @@ describe("DOS Detection Fuzzing", () => {
       await fc.assert(
         fc.asyncProperty(bashCompound, (cmd) => {
           const script = `${cmd} 2>&1 || true`;
-          trackScript(script);
-          return runner.run(script).then((result) => {
+          return runner.run(script, "bashCompound").then(async (result) => {
             trackResult(result, "");
 
             const handled =
@@ -199,7 +178,7 @@ describe("DOS Detection Fuzzing", () => {
             if (!handled) {
               const reason = "Compound command not handled";
               lastFailureReason = reason;
-              logFailure(result, reason);
+              await logFailure(result, reason);
               return false;
             }
             lastFailureReason = "PASSED: All DOS checks passed";
@@ -214,20 +193,19 @@ describe("DOS Detection Fuzzing", () => {
       await fc.assert(
         fc.asyncProperty(bashArithmetic, (expr) => {
           const script = `echo $((${expr})) 2>&1 || true`;
-          trackScript(script);
-          return runner.run(script).then((result) => {
+          return runner.run(script, "bashArithmetic").then(async (result) => {
             trackResult(result, "");
 
             if (!result.completed) {
               const reason = "Arithmetic expression did not complete";
               lastFailureReason = reason;
-              logFailure(result, reason);
+              await logFailure(result, reason);
               return false;
             }
             if (result.timedOut) {
               const reason = "Arithmetic expression timed out";
               lastFailureReason = reason;
-              logFailure(result, reason);
+              await logFailure(result, reason);
               return false;
             }
             lastFailureReason = "PASSED: All DOS checks passed";
@@ -242,8 +220,7 @@ describe("DOS Detection Fuzzing", () => {
       await fc.assert(
         fc.asyncProperty(supportedCommand, (cmd) => {
           const script = `${cmd} 2>&1 || true`;
-          trackScript(script);
-          return runner.run(script).then((result) => {
+          return runner.run(script, "supportedCommand").then(async (result) => {
             trackResult(result, "");
 
             const handled =
@@ -251,7 +228,7 @@ describe("DOS Detection Fuzzing", () => {
             if (!handled) {
               const reason = "Command not handled";
               lastFailureReason = reason;
-              logFailure(result, reason);
+              await logFailure(result, reason);
               return false;
             }
             lastFailureReason = "PASSED: All DOS checks passed";
@@ -266,15 +243,14 @@ describe("DOS Detection Fuzzing", () => {
       await fc.assert(
         fc.asyncProperty(commandPipeline, (pipeline) => {
           const script = `${pipeline} 2>&1 || true`;
-          trackScript(script);
-          return runner.run(script).then((result) => {
+          return runner.run(script, "commandPipeline").then(async (result) => {
             trackResult(result, "");
             const handled =
               result.completed || result.timedOut || hitExecutionLimit(result);
             if (!handled) {
               const reason = "Pipeline not handled";
               lastFailureReason = reason;
-              logFailure(result, reason);
+              await logFailure(result, reason);
               return false;
             }
             lastFailureReason = "PASSED: All DOS checks passed";
@@ -289,20 +265,23 @@ describe("DOS Detection Fuzzing", () => {
       await fc.assert(
         fc.asyncProperty(awkGrammarCommand, (cmd) => {
           const script = `${cmd} 2>&1 || true`;
-          trackScript(script);
-          return runner.run(script).then((result) => {
-            trackResult(result, "");
-            const handled =
-              result.completed || result.timedOut || hitExecutionLimit(result);
-            if (!handled) {
-              const reason = "AWK command not handled";
-              lastFailureReason = reason;
-              logFailure(result, reason);
-              return false;
-            }
-            lastFailureReason = "PASSED: All DOS checks passed";
-            return true;
-          });
+          return runner
+            .run(script, "awkGrammarCommand")
+            .then(async (result) => {
+              trackResult(result, "");
+              const handled =
+                result.completed ||
+                result.timedOut ||
+                hitExecutionLimit(result);
+              if (!handled) {
+                const reason = "AWK command not handled";
+                lastFailureReason = reason;
+                await logFailure(result, reason);
+                return false;
+              }
+              lastFailureReason = "PASSED: All DOS checks passed";
+              return true;
+            });
         }),
         createFcOptions(config),
       );
@@ -312,20 +291,23 @@ describe("DOS Detection Fuzzing", () => {
       await fc.assert(
         fc.asyncProperty(sedGrammarCommand, (cmd) => {
           const script = `${cmd} 2>&1 || true`;
-          trackScript(script);
-          return runner.run(script).then((result) => {
-            trackResult(result, "");
-            const handled =
-              result.completed || result.timedOut || hitExecutionLimit(result);
-            if (!handled) {
-              const reason = "SED command not handled";
-              lastFailureReason = reason;
-              logFailure(result, reason);
-              return false;
-            }
-            lastFailureReason = "PASSED: All DOS checks passed";
-            return true;
-          });
+          return runner
+            .run(script, "sedGrammarCommand")
+            .then(async (result) => {
+              trackResult(result, "");
+              const handled =
+                result.completed ||
+                result.timedOut ||
+                hitExecutionLimit(result);
+              if (!handled) {
+                const reason = "SED command not handled";
+                lastFailureReason = reason;
+                await logFailure(result, reason);
+                return false;
+              }
+              lastFailureReason = "PASSED: All DOS checks passed";
+              return true;
+            });
         }),
         createFcOptions(config),
       );
@@ -335,15 +317,14 @@ describe("DOS Detection Fuzzing", () => {
       await fc.assert(
         fc.asyncProperty(jqGrammarCommand, (cmd) => {
           const script = `${cmd} 2>&1 || true`;
-          trackScript(script);
-          return runner.run(script).then((result) => {
+          return runner.run(script, "jqGrammarCommand").then(async (result) => {
             trackResult(result, "");
             const handled =
               result.completed || result.timedOut || hitExecutionLimit(result);
             if (!handled) {
               const reason = "JQ command not handled";
               lastFailureReason = reason;
-              logFailure(result, reason);
+              await logFailure(result, reason);
               return false;
             }
             lastFailureReason = "PASSED: All DOS checks passed";
@@ -358,20 +339,23 @@ describe("DOS Detection Fuzzing", () => {
       await fc.assert(
         fc.asyncProperty(awkPollutionCommand, (cmd) => {
           const script = `${cmd} 2>&1 || true`;
-          trackScript(script);
-          return runner.run(script).then((result) => {
-            trackResult(result, "");
-            const handled =
-              result.completed || result.timedOut || hitExecutionLimit(result);
-            if (!handled) {
-              const reason = "AWK pollution command not handled";
-              lastFailureReason = reason;
-              logFailure(result, reason);
-              return false;
-            }
-            lastFailureReason = "PASSED: All DOS checks passed";
-            return true;
-          });
+          return runner
+            .run(script, "awkPollutionCommand")
+            .then(async (result) => {
+              trackResult(result, "");
+              const handled =
+                result.completed ||
+                result.timedOut ||
+                hitExecutionLimit(result);
+              if (!handled) {
+                const reason = "AWK pollution command not handled";
+                lastFailureReason = reason;
+                await logFailure(result, reason);
+                return false;
+              }
+              lastFailureReason = "PASSED: All DOS checks passed";
+              return true;
+            });
         }),
         createFcOptions(config),
       );
@@ -381,20 +365,23 @@ describe("DOS Detection Fuzzing", () => {
       await fc.assert(
         fc.asyncProperty(sedPollutionCommand, (cmd) => {
           const script = `${cmd} 2>&1 || true`;
-          trackScript(script);
-          return runner.run(script).then((result) => {
-            trackResult(result, "");
-            const handled =
-              result.completed || result.timedOut || hitExecutionLimit(result);
-            if (!handled) {
-              const reason = "SED pollution command not handled";
-              lastFailureReason = reason;
-              logFailure(result, reason);
-              return false;
-            }
-            lastFailureReason = "PASSED: All DOS checks passed";
-            return true;
-          });
+          return runner
+            .run(script, "sedPollutionCommand")
+            .then(async (result) => {
+              trackResult(result, "");
+              const handled =
+                result.completed ||
+                result.timedOut ||
+                hitExecutionLimit(result);
+              if (!handled) {
+                const reason = "SED pollution command not handled";
+                lastFailureReason = reason;
+                await logFailure(result, reason);
+                return false;
+              }
+              lastFailureReason = "PASSED: All DOS checks passed";
+              return true;
+            });
         }),
         createFcOptions(config),
       );
@@ -404,20 +391,23 @@ describe("DOS Detection Fuzzing", () => {
       await fc.assert(
         fc.asyncProperty(jqPollutionCommand, (cmd) => {
           const script = `${cmd} 2>&1 || true`;
-          trackScript(script);
-          return runner.run(script).then((result) => {
-            trackResult(result, "");
-            const handled =
-              result.completed || result.timedOut || hitExecutionLimit(result);
-            if (!handled) {
-              const reason = "JQ pollution command not handled";
-              lastFailureReason = reason;
-              logFailure(result, reason);
-              return false;
-            }
-            lastFailureReason = "PASSED: All DOS checks passed";
-            return true;
-          });
+          return runner
+            .run(script, "jqPollutionCommand")
+            .then(async (result) => {
+              trackResult(result, "");
+              const handled =
+                result.completed ||
+                result.timedOut ||
+                hitExecutionLimit(result);
+              if (!handled) {
+                const reason = "JQ pollution command not handled";
+                lastFailureReason = reason;
+                await logFailure(result, reason);
+                return false;
+              }
+              lastFailureReason = "PASSED: All DOS checks passed";
+              return true;
+            });
         }),
         createFcOptions(config),
       );
@@ -429,7 +419,7 @@ describe("DOS Detection Fuzzing", () => {
       for (const depth of [1, 5, 10, 15, 20]) {
         const nested = `${"$((1+".repeat(depth)}1${"))".repeat(depth)}`;
         const script = `echo ${nested}`;
-        const result = await runner.run(script);
+        const result = await runner.run(script, "deep-arithmetic-nesting");
 
         const handled =
           result.completed || result.timedOut || hitExecutionLimit(result);
@@ -446,7 +436,7 @@ describe("DOS Detection Fuzzing", () => {
         for (let i = 0; i < depth; i++) {
           cmd = `echo $(${cmd})`;
         }
-        const result = await runner.run(cmd);
+        const result = await runner.run(cmd, "nested-command-substitution");
 
         expect(
           result.completed || result.hitLimit || result.timedOut,
@@ -458,7 +448,7 @@ describe("DOS Detection Fuzzing", () => {
     it("should handle brace expansion", async () => {
       for (const size of [2, 5, 10, 15, 20]) {
         const script = `echo {1..${size}}{1..${size}} | wc -w`;
-        const result = await runner.run(script);
+        const result = await runner.run(script, "brace-expansion");
         const oracleResult = oracle.check(result);
 
         if (oracleResult.dosDetected) {
@@ -474,7 +464,7 @@ describe("DOS Detection Fuzzing", () => {
   describe("Oracle Validation", () => {
     it("should correctly identify graceful termination", async () => {
       const script = "while :; do :; done";
-      const result = await runner.run(script);
+      const result = await runner.run(script, "graceful-termination");
 
       expect(
         oracle.isGracefulTermination(result),
@@ -484,7 +474,7 @@ describe("DOS Detection Fuzzing", () => {
 
     it("should correctly identify acceptable time", async () => {
       const script = 'echo "hello"';
-      const result = await runner.run(script);
+      const result = await runner.run(script, "acceptable-time");
 
       expect(
         result.completed,
