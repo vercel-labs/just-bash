@@ -27,6 +27,18 @@ export type {
   LazyCommand,
 } from "./custom-commands.js";
 export { createCommandContext, defineCommand } from "./custom-commands.js";
+export type { ByteString, OutputKind } from "./encoding.js";
+export {
+  bytesOutput,
+  decodeBytesToUtf8,
+  EMPTY_BYTES,
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+  stdoutAsBytes,
+  stdoutKind,
+  textOutput,
+  unsafeBytesFromLatin1,
+} from "./encoding.js";
 export { InMemoryFs } from "./fs/in-memory-fs/index.js";
 export type {
   BufferEncoding,
@@ -57,6 +69,8 @@ export {
   RedirectNotAllowedError,
   TooManyRedirectsError,
 } from "./network/index.js";
+export type { CommandStdio } from "./streams/command-stdio.js";
+export { readCommandStdin } from "./streams/command-stdio.js";
 export type {
   BashExecResult,
   Command,

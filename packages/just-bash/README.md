@@ -79,6 +79,31 @@ in a terminable worker or process. Tests that invoke command objects directly
 can use `createCommandContext({ fs })` to get a fully resolved context without
 duplicating internal defaults.
 
+### Streaming pipelines
+
+A pipeline whose stages are all registered commands with static arguments,
+and where at least one stage opts into streaming, runs its stages concurrently
+through 64 KiB pipes with backpressure. A consumer that returns early (`head`)
+ends its producer: later writes fail with a broken pipe, reported as status 141
+in `PIPESTATUS` and under `pipefail`, matching bash. Plain `cat` and `head`
+stream standard input, and `seq` streams unless `-w` is used. Other registered
+commands can participate through a bounded buffering adapter. Pipelines with
+builtins, functions, `|&`, or `lastpipe` keep the buffered executor. Redirections
+also keep the buffered executor except for static stderr targets on a single stage (`2>`, `2>>`,
+and `2>|`). Pipelines that would exceed 64 active streaming stages across
+nested executions remain buffered. `Bash.exec()` still returns a complete result bounded by
+`maxOutputSize`.
+
+Custom commands opt in with `defineCommand(name, execute, { streaming: true })`
+(or `streaming: true` on a lazy command). Inside an eligible pipeline
+`ctx.stdio` is set: `read()` resolves the next chunk or `null` at EOF, and
+`write(chunk)` resolves once the pipe has room. Both must be awaited, and all
+I/O must finish before the command returns. Reading `ctx.stdin` while
+`ctx.stdio` is present throws; use `readCommandStdin(ctx)` when the command
+needs the whole input, which collects it under the shared live-byte budget.
+A streaming command must still handle `ctx.stdin` for standalone invocations
+and buffered pipelines.
+
 <details>
 <summary><h2>Supported Commands</h2></summary>
 

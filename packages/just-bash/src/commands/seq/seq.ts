@@ -3,7 +3,8 @@ import {
   checkedAdd,
   checkedMultiply,
 } from "../../bounded-builder.js";
-import { utf8ByteLength } from "../../encoding.js";
+import { encodeUtf8ToBytes, utf8ByteLength } from "../../encoding.js";
+import type { ResourceLease } from "../../execution-scope.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type {
   ExecResult,
@@ -25,6 +26,7 @@ import type {
  */
 export const seqCommand: RuntimeCommand = {
   name: "seq",
+  streaming: true,
 
   async execute(
     args: string[],
@@ -154,6 +156,65 @@ export const seqCommand: RuntimeCommand = {
       ctx.limits.maxOutputSize,
       ctx.limits.maxStringLength,
     );
+    if (ctx.stdio && !equalizeWidth) {
+      const stdio = ctx.stdio;
+      const chunkSize = Math.min(
+        4096,
+        ctx.limits.maxStringLength,
+        ctx.limits.maxLiveBytes,
+      );
+      let buffer = "";
+      let bufferBytes = 0;
+      let lease: ResourceLease | undefined;
+      const flush = async () => {
+        if (!buffer) return;
+        const chunk = encodeUtf8ToBytes(buffer);
+        buffer = "";
+        bufferBytes = 0;
+        lease?.release();
+        lease = undefined;
+        await stdio.write(chunk);
+      };
+      const append = async (value: string) => {
+        const bytes = utf8ByteLength(value);
+        if (bufferBytes > 0 && bytes > chunkSize - bufferBytes) await flush();
+        lease?.release();
+        lease = ctx.executionScope?.reserveBytes(
+          "seq output",
+          bufferBytes + bytes,
+          "seq",
+        );
+        buffer += value;
+        bufferBytes += bytes;
+        if (bufferBytes >= chunkSize) await flush();
+      };
+      let count = 0;
+      try {
+        for (
+          let n = first;
+          increment > 0 ? n <= last + 1e-10 : n >= last - 1e-10;
+          n += increment
+        ) {
+          if (count >= ctx.limits.maxLoopIterations) {
+            throw new ExecutionLimitError(
+              `seq: iteration limit exceeded (${ctx.limits.maxLoopIterations})`,
+              "iterations",
+            );
+          }
+          ctx.executionScope?.consumeWork(1, "seq");
+          const value =
+            precision > 0 ? n.toFixed(precision) : String(Math.round(n));
+          await append((count > 0 ? separator : "") + value);
+          count++;
+        }
+        if (count > 0) await append("\n");
+        await flush();
+        return { stdout: "", stderr: "", exitCode: 0 };
+      } finally {
+        lease?.release();
+      }
+    }
+
     const separatorBytes = utf8ByteLength(separator);
     let projectedOutputBytes = 0;
     let iterations = 0;
