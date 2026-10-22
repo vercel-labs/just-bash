@@ -128,6 +128,32 @@ describe("redirections with binary data", () => {
     });
   });
 
+  describe("stdout duplicated to stderr 1>&2", () => {
+    it("decodes UTF-8 stdout next to a non-Latin-1 diagnostic", async () => {
+      const env = new Bash({ files: { "/present.txt": "שלום\n" } });
+
+      const result = await env.exec("cat /present.txt /missing-ש.txt 1>&2");
+
+      expect(result).toMatchObject({
+        stdout: "",
+        stderr: "שלום\ncat: /missing-ש.txt: No such file or directory\n",
+        exitCode: 1,
+      });
+    });
+
+    it("decodes UTF-8 stdout next to later Latin-1 stderr", async () => {
+      const env = new Bash({ files: { "/present.txt": "שלום\n" } });
+
+      const result = await env.exec("cat /present.txt 1>&2; echo é >&2");
+
+      expect(result).toMatchObject({
+        stdout: "",
+        stderr: "שלום\né\n",
+        exitCode: 0,
+      });
+    });
+  });
+
   describe("gzip/gunzip through redirections", () => {
     it("should preserve binary data through gzip -c redirection", async () => {
       const env = new Bash({
