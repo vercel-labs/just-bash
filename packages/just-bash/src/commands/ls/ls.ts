@@ -13,6 +13,7 @@ import type {
 } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { DEFAULT_BATCH_SIZE } from "../../utils/constants.js";
+import { formatMode } from "../format-mode.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 function appendLsOutput(
@@ -237,7 +238,7 @@ export const lsCommand: RuntimeCommand = {
         try {
           const stat = await ctx.fs.stat(fullPath);
           if (longFormat) {
-            const mode = stat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
+            const mode = formatMode(stat.mode, stat.isDirectory);
             const suffix = classifyFiles
               ? classifySuffix(await ctx.fs.lstat(fullPath))
               : "";
@@ -497,7 +498,7 @@ async function listPath(
         const mtime = stat.mtime ?? new Date(0);
         const dateStr = formatDate(mtime);
         return {
-          stdout: `-rw-r--r-- 1 user user ${sizeStr} ${dateStr} ${path}${fileSuffix}\n`,
+          stdout: `${formatMode(stat.mode, false)} 1 user user ${sizeStr} ${dateStr} ${path}${fileSuffix}\n`,
           stderr: "",
           exitCode: 0,
         };
@@ -574,10 +575,32 @@ async function listPath(
 
       // Add special entries first
       for (const entry of specialEntries) {
+        const dirStat =
+          entry === "." || fullPath === "/"
+            ? stat
+            : await ctx.fs
+                .realpath(fullPath)
+                .then((real) =>
+                  ctx.fs.stat(real.slice(0, real.lastIndexOf("/")) || "/"),
+                )
+                .catch(() => undefined);
+        if (!dirStat) {
+          stdout = appendLsOutput(
+            ctx,
+            stdout,
+            `drwxr-xr-x 1 user user     0 Jan  1 00:00 ${entry}\n`,
+          );
+          continue;
+        }
+        const size = dirStat.size ?? 0;
+        const sizeStr = humanReadable
+          ? formatHumanSize(size).padStart(5)
+          : String(size).padStart(5);
+        const dateStr = formatDate(dirStat.mtime ?? new Date(0));
         stdout = appendLsOutput(
           ctx,
           stdout,
-          `drwxr-xr-x 1 user user     0 Jan  1 00:00 ${entry}\n`,
+          `${formatMode(dirStat.mode, dirStat.isDirectory)} 1 user user ${sizeStr} ${dateStr} ${entry}\n`,
         );
       }
 
@@ -595,7 +618,7 @@ async function listPath(
               fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`;
             try {
               const entryStat = await ctx.fs.stat(entryPath);
-              const mode = entryStat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
+              const mode = formatMode(entryStat.mode, entryStat.isDirectory);
               const suffix = classifyFiles
                 ? classifySuffix(await ctx.fs.lstat(entryPath))
                 : "";
