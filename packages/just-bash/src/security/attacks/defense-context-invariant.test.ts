@@ -91,6 +91,23 @@ describeDefense("Defense context invariant", () => {
     expect(missing).toEqual([]);
   });
 
+  it("forwards both realpath call forms through the defense wrapper", async () => {
+    vi.spyOn(DefenseInDepthBox, "isInSandboxedContext").mockReturnValue(true);
+    const fs = new InMemoryFs({ "/present": "content" });
+    const wrapped = createDefenseAwareCommandContext(
+      createCommandContext({ fs }),
+      "realpath",
+    ).fs;
+
+    await expect(wrapped.realpath("/present")).resolves.toBe("/present");
+    await expect(
+      wrapped.realpath({ cwd: "/", path: "missing" }),
+    ).rejects.toThrow("ENOENT");
+    await expect(
+      wrapped.realpath({ cwd: "/", path: "missing", mode: "all-but-last" }),
+    ).resolves.toBe("/missing");
+  });
+
   it("routes mktemp through the atomic exclusive create under defense", async () => {
     // Regression: createExclusive was absent from the wrapper's allowlist, so
     // mktemp silently used the non-atomic writeFile+chmod fallback whenever
