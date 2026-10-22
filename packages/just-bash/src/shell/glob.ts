@@ -10,6 +10,7 @@
 
 import type { IFileSystem } from "../fs/interface.js";
 import { ExecutionLimitError } from "../interpreter/errors.js";
+import { unescapeGlobPattern } from "../interpreter/expansion/glob-escape.js";
 import { createUserRegex, type RegexLike } from "../regex/index.js";
 import { DEFAULT_BATCH_SIZE } from "../utils/constants.js";
 import {
@@ -278,15 +279,27 @@ export class GlobExpander {
   }
 
   /**
-   * Check if a path segment contains glob characters
+   * Check if a path segment contains an unescaped glob character. A
+   * backslash-escaped one came from a quoted part of the word, so it is
+   * literal, as in bash: `"[x]"/*` lists `[x]`, not its parent.
    */
   private hasGlobChars(str: string): boolean {
-    if (str.includes("*") || str.includes("?") || /\[.*\]/.test(str)) {
-      return true;
-    }
-    // Check for extglob patterns: @(...), *(...), +(...), ?(...), !(...)
-    if (this.extglob && /[@*+?!]\(/.test(str)) {
-      return true;
+    for (let i = 0; i < str.length; i++) {
+      const c = str[i];
+      if (c === "\\") {
+        i++;
+      } else if (c === "*" || c === "?") {
+        return true;
+      } else if (c === "[" && str.indexOf("]", i + 1) !== -1) {
+        return true;
+      } else if (
+        // Extglob patterns: @(...), +(...), !(...); *(...) and ?(...) above
+        this.extglob &&
+        (c === "@" || c === "+" || c === "!") &&
+        str[i + 1] === "("
+      ) {
+        return true;
+      }
     }
     return false;
   }
@@ -309,7 +322,8 @@ export class GlobExpander {
       }
     }
 
-    // No glob characters - return pattern as-is (shouldn't happen but be safe)
+    // No unescaped glob characters: the word is not a pattern, so it is
+    // returned as it came for the caller to treat as unmatched
     if (firstGlobIndex === -1) {
       return [pattern];
     }
@@ -328,7 +342,11 @@ export class GlobExpander {
         resultPrefix = ""; // Results should be relative, no prefix
       }
     } else {
-      const baseSegments = segments.slice(0, firstGlobIndex);
+      // The segments before the first glob name directories literally, so
+      // the escapes that kept their quoted characters literal come off
+      const baseSegments = segments
+        .slice(0, firstGlobIndex)
+        .map(unescapeGlobPattern);
       if (isAbsolute) {
         fsBasePath = `/${baseSegments.join("/")}`;
         resultPrefix = `/${baseSegments.join("/")}`;
@@ -558,8 +576,10 @@ export class GlobExpander {
 
     // Split pattern at first **
     const doubleStarIndex = pattern.indexOf("**");
+    const prefix = pattern.slice(0, doubleStarIndex).replace(/\/$/, "");
+    // A prefix with no glob of its own names a directory literally
     const beforeDoubleStar =
-      pattern.slice(0, doubleStarIndex).replace(/\/$/, "") || ".";
+      (this.hasGlobChars(prefix) ? prefix : unescapeGlobPattern(prefix)) || ".";
     const afterDoubleStar = pattern.slice(doubleStarIndex + 2);
 
     // Get the file pattern after **
