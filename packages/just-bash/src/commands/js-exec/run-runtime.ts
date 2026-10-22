@@ -42,6 +42,8 @@ import { PATH_MODULE_SOURCE } from "./path-polyfill.js";
 interface RunJsOptions {
   source: string;
   scriptPath: string;
+  /** `process.argv[1]`, or undefined for no entry there. */
+  argvScript: string | undefined;
   scriptArgs: string[];
   bootstrapCode?: string;
   isModule: boolean;
@@ -198,6 +200,8 @@ const BUILTIN_EXPORTS: Record<string, string[]> = Object.assign(
     ],
     process: [
       "argv",
+      "argv0",
+      "execPath",
       "cwd",
       "exit",
       "env",
@@ -468,6 +472,8 @@ const guestSetupSource = (
   globalThis.env = ${serializedEnv};
   globalThis.process = {
     argv: ${serializedArgv},
+    argv0: 'js-exec',
+    execPath: 'js-exec',
     cwd: function() { return ${serializedCwd}; },
     env: globalThis.env,
     platform: 'linux',
@@ -813,7 +819,14 @@ async function executeWithRunInner(
     return Uint8Array.from(data);
   };
   const env = mapToRecord(ctx.env);
-  const argv = [options.scriptPath, ...options.scriptArgs];
+  // Node's shape: the executable, then the script when there is one (a
+  // file, or `-` for stdin named as the script; nothing for inline code or
+  // stdin by default), then the arguments.
+  const argv = [
+    "js-exec",
+    ...(options.argvScript === undefined ? [] : [options.argvScript]),
+    ...options.scriptArgs,
+  ];
   const maxGuestInputBytes = Math.min(
     ctx.limits.maxWorkerMessageBytes,
     RUN_MAX_LIMIT_VALUE,

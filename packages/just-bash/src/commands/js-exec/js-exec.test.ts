@@ -122,6 +122,156 @@ describe("js-exec", () => {
     });
   });
 
+  describe("node's inline-code options", () => {
+    it.each([
+      ["-e", `js-exec -e "console.log(1 + 2)"`],
+      ["--eval", `js-exec --eval "console.log(1 + 2)"`],
+      ["--eval=", `js-exec --eval="console.log(1 + 2)"`],
+    ])("should run inline code with %s", async (_name, command) => {
+      const env = new Bash({ javascript: true });
+      const result = await env.exec(command);
+      expect(result.stdout).toBe("3\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should print the value of an expression with -p", async () => {
+      const env = new Bash({ javascript: true });
+      const result = await env.exec(`js-exec -p "1 + 2;"`);
+      expect(result.stdout).toBe("3\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it.each([
+      ["a trailing line comment", `js-exec -p "1 + 2 // three"`, "3\n"],
+      ["a trailing block comment", `js-exec -p "1 + 2 /* three */;"`, "3\n"],
+      ["a // inside a string", `js-exec -p "'http://x' // url"`, "http://x\n"],
+      ["an empty program", `js-exec -p ""`, "undefined\n"],
+      ["a semicolon alone", `js-exec -p ";"`, "undefined\n"],
+      ["a regular expression", `js-exec -p "/x/g"`, "/x/g\n"],
+      [
+        "a regular expression ending in an escaped slash",
+        `js-exec -p "/https:\\/\\//"`,
+        "/https:\\/\\//\n",
+      ],
+      ["a // inside a regex class", `js-exec -p "/[//]/"`, "/[//]/\n"],
+      [
+        "a quote inside a regex before a comment",
+        `js-exec -p "/'/.source // comment"`,
+        "'\n",
+      ],
+      ["a comment alone", `js-exec -p "// nothing"`, "undefined\n"],
+      ["comments alone", `js-exec -p "/* a */ ; // b"`, "undefined\n"],
+      [
+        "a value after console.log is replaced",
+        `js-exec -p "(console.log = () => {}, 42)"`,
+        "42\n",
+      ],
+      ["a symbol", `js-exec -p "Symbol('x')"`, "Symbol(x)\n"],
+      ["a bigint", `js-exec -p "10n"`, "10n\n"],
+      ["a named function", `js-exec -p "(function f() {})"`, "[Function: f]\n"],
+      ["an arrow function", `js-exec -p "() => 1"`, "[Function (anonymous)]\n"],
+      ["a date", `js-exec -p "new Date(0)"`, "1970-01-01T00:00:00.000Z\n"],
+      ["an invalid date", `js-exec -p "new Date(NaN)"`, "Invalid Date\n"],
+      [
+        "null and NaN",
+        `js-exec -p "[null, NaN].map(String)"`,
+        '["null","NaN"]\n',
+      ],
+      ["an object", `js-exec -p "({ a: [1, 2] })"`, '{"a":[1,2]}\n'],
+    ])("should print %s with -p", async (_name, command, stdout) => {
+      const env = new Bash({ javascript: true });
+      const result = await env.exec(command);
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toBe(stdout);
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should report an error in -p code on line 1, past the wrapper's opening", async () => {
+      const env = new Bash({ javascript: true });
+      const result = await env.exec(`js-exec -p "nope.x"`);
+      expect(result.stderr).toBe("at <eval> (-c:1:9): 'nope' is not defined\n");
+      expect(result.exitCode).toBe(1);
+    });
+
+    it("should keep the -p printer out of the expression's scope", async () => {
+      const env = new Bash({ javascript: true });
+      const result = await env.exec(`js-exec -p "typeof __jbPrint"`);
+      expect(result.stdout).toBe("undefined\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it.each([
+      ["a trailing comma", `js-exec -p "1,"`],
+      ["a spread", `js-exec -p "...[1, 2]"`],
+    ])("should refuse %s in -p code, as node does", async (_name, command) => {
+      const env = new Bash({ javascript: true });
+      const result = await env.exec(command);
+      expect(result.stdout).toBe("");
+      expect(result.exitCode).toBe(1);
+    });
+
+    it("should refuse a -p program of several statements", async () => {
+      const env = new Bash({ javascript: true });
+      const result = await env.exec(`js-exec -p "1; 2"`);
+      expect(result.stdout).toBe("");
+      expect(result.exitCode).toBe(1);
+    });
+
+    it(
+      "should take a long -p string with many slashes in linear time",
+      { timeout: 60000 },
+      async () => {
+        const env = new Bash({ javascript: true });
+        const code = `1${"/**/".repeat(80_000)}`;
+        await env.fs.writeFile("/tmp/code", code);
+        const started = Date.now();
+        const result = await env.exec(`js-exec -p "$(cat /tmp/code)"`);
+        expect(Date.now() - started).toBeLessThan(3000);
+        expect(result.stdout).toBe("1\n");
+      },
+    );
+
+    it("should print with --print and pass the arguments through", async () => {
+      const env = new Bash({ javascript: true });
+      const result = await env.exec(
+        `js-exec --print "process.argv.slice(1)" foo bar`,
+      );
+      expect(result.stdout).toBe('["foo","bar"]\n');
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should accept -e after -m", async () => {
+      const env = new Bash({ javascript: true });
+      const result = await env.exec(
+        `js-exec -m -e "console.log(await Promise.resolve(7))"`,
+      );
+      expect(result.stdout).toBe("7\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should error when -e has no argument", async () => {
+      const env = new Bash({ javascript: true });
+      const result = await env.exec("js-exec -e");
+      expect(result.exitCode).toBe(2);
+      expect(result.stderr).toBe(
+        "js-exec: option requires an argument -- 'e'\n",
+      );
+    });
+
+    it("should leave a script's own -e alone", async () => {
+      const env = new Bash({
+        javascript: true,
+        files: {
+          "/home/user/args.js":
+            "console.log(JSON.stringify(process.argv.slice(2)))\n",
+        },
+      });
+      const result = await env.exec("js-exec /home/user/args.js -e code");
+      expect(result.stdout).toBe('["-e","code"]\n');
+      expect(result.exitCode).toBe(0);
+    });
+  });
+
   describe("script file execution", () => {
     it("should execute a script file", async () => {
       const env = new Bash({
@@ -155,6 +305,18 @@ describe("js-exec", () => {
       const env = new Bash({ javascript: true });
       const result = await env.exec("echo 'console.log(43)' | js-exec -");
       expect(result.stdout).toBe("43\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it.each([
+      ["implicit stdin", "js-exec", '["js-exec"]\n'],
+      ["an explicit dash", "js-exec - a b", '["js-exec","-","a","b"]\n'],
+    ])("should give %s node's argv", async (_name, command, stdout) => {
+      const env = new Bash({ javascript: true });
+      const result = await env.exec(
+        `echo 'console.log(JSON.stringify(process.argv))' | ${command}`,
+      );
+      expect(result.stdout).toBe(stdout);
       expect(result.exitCode).toBe(0);
     });
   });
@@ -192,7 +354,7 @@ describe("js-exec", () => {
   });
 
   describe("process.argv", () => {
-    it("should provide script args via process.argv", async () => {
+    it("should put the executable and the script before the args, as node does", async () => {
       const env = new Bash({
         javascript: true,
         files: {
@@ -200,9 +362,18 @@ describe("js-exec", () => {
         },
       });
       const result = await env.exec("js-exec /home/user/args.js foo bar");
-      const argv = JSON.parse(result.stdout.trim());
-      expect(argv).toContain("foo");
-      expect(argv).toContain("bar");
+      expect(result.stdout).toBe(
+        '["js-exec","/home/user/args.js","foo","bar"]\n',
+      );
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should put the executable alone before the args of inline code, as node -e does", async () => {
+      const env = new Bash({ javascript: true });
+      const result = await env.exec(
+        `js-exec -c "console.log(JSON.stringify(process.argv), process.argv0, process.execPath)" foo bar`,
+      );
+      expect(result.stdout).toBe('["js-exec","foo","bar"] js-exec js-exec\n');
       expect(result.exitCode).toBe(0);
     });
   });
