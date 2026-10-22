@@ -172,6 +172,7 @@ export async function expandSubscriptForAssocArray(
         if (ctx.execFn) {
           const cmdResult = await ctx.execFn(cmdStr, {
             signal: ctx.state.signal,
+            subshell: true,
           });
           // Strip trailing newlines like command substitution does
           result += cmdResult.stdout.replace(/\n+$/, "");
@@ -221,6 +222,7 @@ export async function expandSubscriptForAssocArray(
       if (ctx.execFn) {
         const cmdResult = await ctx.execFn(cmdStr, {
           signal: ctx.state.signal,
+          subshell: true,
         });
         result += cmdResult.stdout.replace(/\n+$/, "");
         if (cmdResult.stderr) {

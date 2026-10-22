@@ -671,7 +671,9 @@ export class Bash {
 
   private async execInScope(
     commandLine: string,
-    options: (ExecOptions & { newShell?: boolean }) | undefined,
+    options:
+      | (ExecOptions & { newShell?: boolean; subshell?: boolean })
+      | undefined,
     executionScope: ExecutionScope,
     execDepth: number,
     parentSignal: AbortSignal | undefined,
@@ -801,12 +803,11 @@ export class Bash {
         execEnv.set("BASHOPTS", buildBashopts(this.state.shoptOptions));
       }
 
-      // A recursive exec continues the calling shell, so it inherits that
-      // shell's shopt settings, readonly attributes, and hashed commands. A
-      // top-level exec or new shell starts from the instance defaults. Each
-      // is copied so changes never reach the source.
+      // Arithmetic command substitution keeps the calling shell's shopt
+      // settings, readonly attributes, and hashed commands. Child commands
+      // and new shells start from the instance, as a child process would.
       const shellSource =
-        callerState && !effectiveOptions.newShell ? callerState : this.state;
+        callerState && effectiveOptions.subshell ? callerState : this.state;
 
       const execState: InterpreterState = {
         ...this.state,
