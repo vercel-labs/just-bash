@@ -214,15 +214,15 @@ describe("diff", () => {
     it("should error on unknown option", async () => {
       const env = new Bash();
       const result = await env.exec("diff --unknown /a.txt /b.txt");
-      expect(result.stderr).toContain("unrecognized option");
-      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toBe("diff: unrecognized option '--unknown'\n");
+      expect(result.exitCode).toBe(2);
     });
 
     it("should error on unknown short option", async () => {
       const env = new Bash();
       const result = await env.exec("diff -z /a.txt /b.txt");
-      expect(result.stderr).toContain("invalid option");
-      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toBe("diff: invalid option -- 'z'\n");
+      expect(result.exitCode).toBe(2);
     });
   });
 
