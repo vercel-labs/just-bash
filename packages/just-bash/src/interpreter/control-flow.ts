@@ -21,12 +21,14 @@ import type {
   WhileNode,
 } from "../ast/types.js";
 import { utf8ByteLength } from "../encoding.js";
+import { BrokenPipeError } from "../streams/byte-pipe.js";
 import type { ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
 import { matchPattern } from "./conditionals.js";
 import {
   BreakError,
   ContinueError,
+  ControlFlowError,
   ErrexitError,
   ExecutionLimitError,
   ExitError,
@@ -205,15 +207,17 @@ async function executeIfBody(
 export async function executeFor(
   ctx: InterpreterContext,
   node: ForNode,
+  emit?: (result: ExecResult) => Promise<void>,
 ): Promise<ExecResult> {
   return withPreparedRedirections(ctx, node.redirections, "", () =>
-    executeForBody(ctx, node),
+    executeForBody(ctx, node, emit),
   );
 }
 
 async function executeForBody(
   ctx: InterpreterContext,
   node: ForNode,
+  emit?: (result: ExecResult) => Promise<void>,
 ): Promise<ExecResult> {
   const output = new CompoundOutput(ctx);
   let exitCode = 0;
@@ -267,10 +271,12 @@ async function executeForBody(
       try {
         for (const stmt of node.body) {
           const stmtResult = await ctx.executeStatement(stmt);
-          output.append(stmtResult.stdout, stmtResult.stderr);
+          output.append(emit ? "" : stmtResult.stdout, stmtResult.stderr);
+          if (emit) await emit(stmtResult);
           exitCode = stmtResult.exitCode;
         }
       } catch (error) {
+        if (error instanceof BrokenPipeError) return output.build(141);
         const loopResult = handleLoopError(
           error,
           output.stdout,
@@ -278,6 +284,18 @@ async function executeForBody(
           ctx.state.loopDepth,
         );
         output.replace(loopResult.stdout, loopResult.stderr);
+        if (emit) {
+          if (loopResult.action === "rethrow") throw loopResult.error;
+          try {
+            await emit(output.build(loopResult.exitCode ?? 0));
+          } catch (emitError) {
+            if (emitError instanceof BrokenPipeError) return output.build(141);
+            throw emitError;
+          }
+          output.replace("", output.stderr);
+          if (loopResult.error instanceof ControlFlowError)
+            loopResult.error.stdout = "";
+        }
         // `break`/`continue` are builtins that return 0, and they were the
         // last command this body ran - so they, not the command that failed
         // before them, set the loop's status. `$?` moves with it, or the next

@@ -10,6 +10,7 @@
  * - Redirections (redirections.ts)
  */
 
+import { combineAbortSignals } from "../abort-signals.js";
 import type {
   ArithmeticCommandNode,
   CommandNode,
@@ -27,7 +28,10 @@ import {
   stdoutAsBytes,
 } from "../encoding.js";
 import { ExecutionOutputAccumulator } from "../execution-output.js";
-import type { ExecutionScope } from "../execution-scope.js";
+import {
+  type ExecutionScope,
+  relinquishPipelineOutput,
+} from "../execution-scope.js";
 import type { IFileSystem } from "../fs/interface.js";
 import { mapToRecord } from "../helpers/env.js";
 import type { ExecutionLimits } from "../limits.js";
@@ -37,6 +41,7 @@ import {
   DefenseInDepthBox,
   SecurityViolationError,
 } from "../security/defense-in-depth-box.js";
+import { _setTimeout } from "../timers.js";
 import type {
   CommandRegistry,
   ExecResult,
@@ -103,6 +108,7 @@ import {
   withPreparedRedirections,
 } from "./redirections.js";
 import { processAssignments } from "./simple-command-assignments.js";
+import { executeStreamingPipeline } from "./streaming-pipeline.js";
 import {
   executeGroup as executeGroupHelper,
   executeSubshell as executeSubshellHelper,
@@ -155,7 +161,10 @@ export interface InterpreterOptions {
 export class Interpreter {
   private ctx: InterpreterContext;
 
-  constructor(options: InterpreterOptions, state: InterpreterState) {
+  constructor(
+    private readonly options: InterpreterOptions,
+    state: InterpreterState,
+  ) {
     this.ctx = {
       state,
       fs: options.fs,
@@ -530,8 +539,61 @@ export class Interpreter {
   }
 
   private async executePipeline(node: PipelineNode): Promise<ExecResult> {
-    return executePipelineHelper(this.ctx, node, (cmd, stdin, stdinOwned) =>
-      this.executeCommand(cmd, stdin, stdinOwned),
+    return executePipelineHelper(
+      this.ctx,
+      node,
+      (cmd, stdin, stdinOwned) => this.executeCommand(cmd, stdin, stdinOwned),
+      () =>
+        executeStreamingPipeline(
+          this.ctx,
+          node,
+          async (command, state, stdin, stdio, resolved, stdinOwned) => {
+            // @banned-pattern-ignore: pipeline stages reuse the parent executionScope and isolate only shell state.
+            const interpreter = new Interpreter(this.options, state);
+            interpreter.ctx.execFn = async (
+              script,
+              options,
+              stdinAccounted,
+            ) => {
+              const combined = combineAbortSignals(
+                state.signal,
+                options?.signal,
+              );
+              try {
+                return await this.options.exec(
+                  script,
+                  { ...options, signal: combined.signal },
+                  stdinAccounted,
+                );
+              } finally {
+                combined.cleanup();
+              }
+            };
+            if (command.type === "For") {
+              if (!stdio) throw new Error("Streaming loop requires stdio");
+              let emitted = 0;
+              return executeFor(interpreter.ctx, command, async (result) => {
+                if ((++emitted & 63) === 0)
+                  await new Promise<void>((resolve) => _setTimeout(resolve, 0));
+                relinquishPipelineOutput(
+                  this.ctx.executionScope,
+                  result.internalOutputAccounting?.stdout ?? 0,
+                  "for pipeline",
+                );
+                await stdio.write(stdoutAsBytes(result));
+              });
+            }
+            if (!resolved)
+              throw new Error("Streaming command requires resolution");
+            interpreter.ctx.stdio = stdio;
+            const name = command.name?.parts[0];
+            interpreter.ctx.pipelineCommand = {
+              name: name?.type === "Literal" ? name.value : "",
+              resolved,
+            };
+            return interpreter.executeCommand(command, stdin, stdinOwned);
+          },
+        ),
     );
   }
 
