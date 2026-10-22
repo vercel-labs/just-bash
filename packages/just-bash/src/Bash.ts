@@ -276,6 +276,14 @@ export interface BashOptions {
     uid?: number;
     gid?: number;
   };
+  /**
+   * Whether a redirect into a directory that does not exist makes the
+   * directory (`echo x > new/f`). Defaults to true, as the filesystems'
+   * `writeFile` has always done. Set false for bash's behavior, where the
+   * redirect fails with "No such file or directory": over a real disk, a
+   * mistyped path otherwise leaves directories behind.
+   */
+  redirectCreatesDirectories?: boolean;
 }
 
 export interface ExecOptions {
@@ -339,6 +347,7 @@ export class Bash {
   private defenseInDepthConfig?: DefenseInDepthConfig | boolean;
   private coverageWriter?: FeatureCoverageWriter;
   private jsBootstrapCode?: string;
+  private redirectCreatesDirectories: boolean;
   private invokeToolFn?: (
     path: string,
     argsJson: string,
@@ -400,6 +409,8 @@ export class Bash {
 
     // Store sleep function if provided (for mock clocks in testing)
     this.sleepFn = options.sleep;
+    this.redirectCreatesDirectories =
+      options.redirectCreatesDirectories ?? true;
 
     // Store trace callback if provided (for performance profiling)
     this.traceFn = options.trace;
@@ -906,6 +917,7 @@ export class Bash {
             requireDefenseContext: defenseBox?.isEnabled() === true,
             jsBootstrapCode: this.jsBootstrapCode,
             invokeTool: this.invokeToolFn,
+            redirectCreatesDirectories: this.redirectCreatesDirectories,
           };
 
           const interpreter = new Interpreter(interpreterOptions, execState);
