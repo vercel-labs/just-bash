@@ -6,8 +6,8 @@
  * - ReadWriteFs (requires node:fs)
  * - Sandbox (uses OverlayFs)
  *
- * Note: The gzip/gunzip/zcat commands will fail at runtime in browsers
- * since they use node:zlib. All other commands work.
+ * Note: The gzip/gunzip/zcat commands and rg -z fail at runtime in browsers
+ * since node:zlib is replaced by a shim. All other commands work.
  */
 
 export type { BashLogger, BashOptions, ExecOptions } from "./Bash.js";
