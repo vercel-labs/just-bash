@@ -121,10 +121,8 @@ export class UserRegex implements RegexLike {
   private _lastIndex = 0;
   // Cache native RegExp for compatibility - created lazily
   private _nativeRegex: RegExp | null = null;
-  // Reusable RE2 Matcher to avoid per-call allocation in tight grep loops.
-  // Matcher allocation dominates regex.test/exec cost when called once per line
-  // across thousands of lines. We mutate charSequence in-place (not resetMatcherInput,
-  // which is broken in re2js 1.2.1 — see acquireMatcher).
+  // Reuse the stateful RE2 Matcher for searches that need positions or captures.
+  // See acquireMatcher for input reset at the pinned RE2JS version.
   private _matcher: ReturnType<RE2JS["matcher"]> | null = null;
   private _matcherInput: string | null = null;
   private readonly maxResults: number;
@@ -274,8 +272,8 @@ export class UserRegex implements RegexLike {
     if (this._global) {
       this._lastIndex = 0;
     }
-    const matcher = this.acquireMatcher(input);
-    return matcher.find();
+    // Boolean searches need no captures; RE2JS can use its DFA instead of the NFA.
+    return this._re2.test(input);
   }
 
   /**
