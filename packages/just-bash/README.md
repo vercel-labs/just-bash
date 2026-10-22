@@ -79,6 +79,25 @@ in a terminable worker or process. Tests that invoke command objects directly
 can use `createCommandContext({ fs })` to get a fully resolved context without
 duplicating internal defaults.
 
+To run commands that just-bash does not provide, pass a command as
+`commandNotFound`. It receives the missing name followed by its arguments,
+similar to bash's `command_not_found_handle`, and nested executions such as
+`bash -c`, `xargs` and `timeout` use it too. Commands the shell registers never
+reach it, even when a script changes `PATH`, while commands left out by the
+`commands` option do. The name and arguments come from the script, so treat them
+as untrusted input:
+
+```typescript
+const forward = defineCommand("forward", async ([name, ...args], ctx) => {
+  // Hand the command to another runner here, such as a remote machine.
+  return { stdout: `${ctx.cwd}: ${name} ${args.join(" ")}\n`, stderr: "", exitCode: 0 };
+});
+
+const bash = new Bash({ commandNotFound: forward });
+
+await bash.exec("node --version"); // "/home/user: node --version\n"
+```
+
 <details>
 <summary><h2>Supported Commands</h2></summary>
 
