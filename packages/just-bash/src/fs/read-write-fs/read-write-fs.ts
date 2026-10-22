@@ -15,6 +15,7 @@ import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { type ByteString, unsafeBytesFromLatin1 } from "../../encoding.js";
+import { CopyDestinationOpenError } from "../copy-errors.js";
 import {
   type FileContent,
   fromBuffer,
@@ -981,6 +982,7 @@ export class ReadWriteFs implements IFileSystem {
         options?.recursive ?? false,
       );
     } catch (e) {
+      if (e instanceof CopyDestinationOpenError) throw e;
       const err = e as NodeJS.ErrnoException;
       if (err.code === "ENOENT") {
         throw new Error(`ENOENT: no such file or directory, cp '${src}'`);
@@ -1095,10 +1097,19 @@ export class ReadWriteFs implements IFileSystem {
     }
 
     const noFollow = this.allowSymlinks ? 0 : fs.constants.O_NOFOLLOW;
-    const handle = await fs.promises.open(
-      destination,
-      fs.constants.O_WRONLY | fs.constants.O_NONBLOCK | noFollow,
-    );
+    let handle: fs.promises.FileHandle;
+    try {
+      handle = await fs.promises.open(
+        destination,
+        fs.constants.O_WRONLY | fs.constants.O_NONBLOCK | noFollow,
+      );
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (!code) throw e;
+      // Only this open failure permits cp -f to unlink the destination.
+      // Later staging, write, metadata and rename errors must not trigger unlink.
+      throw new CopyDestinationOpenError(code, virtualDestination);
+    }
     try {
       const openedStat = await handle.stat();
       if (
