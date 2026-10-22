@@ -398,7 +398,8 @@ async function callUserFunction(
     savedParams[param] = ctx.vars[param];
   }
 
-  // Track array aliases we create (to clean up later)
+  // Preserve caller bindings when a nested function reuses a parameter name.
+  const savedAliases = new Map<string, string | undefined>();
   const createdAliases: string[] = [];
 
   // Set up parameters
@@ -406,17 +407,19 @@ async function callUserFunction(
     const param = func.params[i];
     if (i < args.length) {
       const arg = args[i];
-      // If argument is a simple variable, set up an array alias
-      // This allows arrays to be passed by reference
-      if (arg.type === "variable") {
-        ctx.arrayAliases.set(param, arg.name);
-        createdAliases.push(param);
+      if (ctx.arrayAliases.has(param)) {
+        savedAliases.set(param, ctx.arrayAliases.get(param));
       }
       const value = await withDefenseContext(
         ctx,
         "user function argument evaluation",
         () => evalExpr(ctx, arg),
       );
+      ctx.arrayAliases.set(
+        param,
+        arg.type === "variable" ? arg.name : undefined,
+      );
+      createdAliases.push(param);
       ctx.vars[param] = value;
     } else {
       ctx.vars[param] = "";
@@ -445,9 +448,13 @@ async function callUserFunction(
     }
   }
 
-  // Clean up array aliases we created
+  // Restore the caller's array/scalar parameter bindings.
   for (const alias of createdAliases) {
-    ctx.arrayAliases.delete(alias);
+    if (savedAliases.has(alias)) {
+      ctx.arrayAliases.set(alias, savedAliases.get(alias));
+    } else {
+      ctx.arrayAliases.delete(alias);
+    }
   }
 
   ctx.hasReturn = false;

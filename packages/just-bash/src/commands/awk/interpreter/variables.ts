@@ -122,6 +122,26 @@ function resolveArrayName(ctx: AwkRuntimeContext, array: string): string {
   return resolved;
 }
 
+export function getArrayLength(
+  ctx: AwkRuntimeContext,
+  name: string,
+): number | undefined {
+  const resolved = resolveArrayName(ctx, name);
+  if (
+    ctx.arrayAliases.has(resolved) &&
+    ctx.arrayAliases.get(resolved) === undefined
+  ) {
+    return undefined;
+  }
+  const array =
+    resolved === "ARGV"
+      ? ctx.ARGV
+      : resolved === "ENVIRON"
+        ? ctx.ENVIRON
+        : ctx.arrays[resolved];
+  return array === undefined ? undefined : Object.keys(array).length;
+}
+
 /**
  * Get an array element value.
  */

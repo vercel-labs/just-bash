@@ -17,6 +17,7 @@ import {
   splitFields,
 } from "./interpreter/fields.js";
 import type { AwkValue } from "./interpreter/types.js";
+import { getArrayLength } from "./interpreter/variables.js";
 
 /**
  * Interface for evaluating expressions (passed from interpreter)
@@ -174,6 +175,10 @@ async function awkLength(
 ): Promise<number> {
   if (args.length === 0) {
     return ctx.line.length;
+  }
+  if (args[0].type === "variable") {
+    const length = getArrayLength(ctx, args[0].name);
+    if (length !== undefined) return length;
   }
   const str = toAwkString(await evaluator.evalExpr(args[0]));
   return str.length;
