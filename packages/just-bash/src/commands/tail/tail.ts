@@ -16,6 +16,7 @@ const tailHelp = {
   usage: "tail [OPTION]... [FILE]...",
   options: [
     "-c, --bytes=NUM    print the last NUM bytes",
+    "-c +NUM            print starting from byte NUM",
     "-n, --lines=NUM    print the last NUM lines (default 10)",
     "-n +NUM            print starting from line NUM",
     "-q, --quiet        never print headers giving file names",
@@ -40,10 +41,16 @@ export const tailCommand: RuntimeCommand = {
       return parsed.error;
     }
 
-    const { lines, bytes, fromLine } = parsed.options;
+    const { lines, bytes, fromLine, bytesFromStart } = parsed.options;
 
     return processHeadTailFiles(ctx, parsed.options, "tail", (content) =>
-      getTail(content, lines, bytes, fromLine ?? false),
+      getTail(
+        content,
+        lines,
+        bytes,
+        fromLine ?? false,
+        bytesFromStart ?? false,
+      ),
     );
   },
 };
