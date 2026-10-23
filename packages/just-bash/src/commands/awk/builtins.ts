@@ -8,6 +8,7 @@ import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { utf8ByteLength } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { formatExponential, formatGeneral } from "../../number-format.js";
 import { createUserRegex, type UserRegex } from "../../regex/index.js";
 import type { AwkExpr } from "./ast.js";
 import type { AwkRuntimeContext } from "./interpreter/context.js";
@@ -844,7 +845,7 @@ export function formatPrintf(
               "string_length",
             );
           }
-          let str = num.toExponential(prec);
+          let str = formatExponential(num, prec);
           if (spec === "E") str = str.toUpperCase();
           if (width) {
             const w = parseInt(width, 10);
@@ -870,24 +871,8 @@ export function formatPrintf(
               "string_length",
             );
           }
-          const exp = num !== 0 ? Math.floor(Math.log10(Math.abs(num))) : 0;
-          let str: string;
-          if (num === 0) {
-            str = "0";
-          } else if (exp < -4 || exp >= prec) {
-            str = num.toExponential(prec - 1);
-            if (spec === "G") str = str.toUpperCase();
-          } else {
-            str = num.toPrecision(prec);
-          }
-          // Remove trailing zeros after decimal point, but keep at least one digit
-          // Must not match standalone "0" (which has no decimal point)
-          if (str.includes(".")) {
-            str = str.replace(/\.?0+$/, "").replace(/\.?0+e/, "e");
-          }
-          if (str.includes("e")) {
-            str = str.replace(/\.?0+e/, "e");
-          }
+          let str = formatGeneral(num, prec);
+          if (spec === "G") str = str.toUpperCase();
           if (width) {
             const w = parseInt(width, 10);
             if (flags.includes("-")) {

@@ -1,6 +1,7 @@
 import { sprintf } from "sprintf-js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
+import { formatGeneral } from "../../number-format.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -1067,16 +1068,9 @@ function formatFloat(spec: string, specifier: string, num: number): string {
       result += ".";
     }
   } else if (lowerSpec === "g") {
-    // %g: use shortest representation between %e and %f
-    result = num.toPrecision(precision || 1);
-    // # flag: keep trailing zeros (do not omit zeros in fraction)
-    // Without #: remove trailing zeros and unnecessary decimal point
-    if (!flags.includes("#")) {
-      result = result.replace(/\.?0+$/, "");
-      result = result.replace(/\.?0+e/, "e");
-    }
-    // Ensure exponent has at least 2 digits if present
-    result = result.replace(/e([+-])(\d)$/, "e$10$2");
+    // %g: fixed or exponent notation by C's rules. The # flag keeps trailing
+    // zeros; otherwise they are removed from the mantissa only.
+    result = formatGeneral(num, precision, flags.includes("#"));
     if (specifier === "G") result = result.toUpperCase();
   } else {
     result = num.toString();
