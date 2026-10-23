@@ -470,8 +470,10 @@ function formatOnce(
         }
       }
 
-      // Parse length modifier
-      if (i < format.length && "hlL".includes(format[i])) {
+      // Skip length modifiers (h, hh, l, ll, L, j, z, t): bash accepts and
+      // ignores them, so they must not reach the per-type formatters.
+      const lengthStart = i;
+      while (i < format.length && "hlLjzt".includes(format[i])) {
         i++;
       }
 
@@ -479,7 +481,7 @@ function formatOnce(
       const specifier = format[i] || "";
       i++;
 
-      const fullSpec = format.slice(specStart, i);
+      const fullSpec = format.slice(specStart, lengthStart) + specifier;
 
       // Handle width/precision from args
       let adjustedSpec = fullSpec;

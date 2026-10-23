@@ -1,0 +1,44 @@
+{
+  "53859151a3c38ee8": {
+    "command": "printf '[%*ld] [%.*lf]\\n' 4 7 2 3.14159",
+    "files": {},
+    "stdout": "[   7] [3.14]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6c9bf2e3691f7709": {
+    "command": "printf '[%lu] [%lx] [%lX] [%lo] [%lli] [%lld] [%llu] [%llx]\\n' 3 255 255 8 -9 1 2 255",
+    "files": {},
+    "stdout": "[3] [ff] [FF] [10] [-9] [1] [2] [ff]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "700f7337cee4afef": {
+    "command": "printf '[%ld] [%5ld] [%-5ld] [%05ld] [%+ld]\\n' 1 2 3 4 5",
+    "files": {},
+    "stdout": "[1] [    2] [3    ] [00004] [+5]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c051fbf56c28b388": {
+    "command": "printf '[%lf] [%Lf] [%.2lf] [%le] [%lg] [%Lg] [%LE] [%lG]\\n' 2.5 1.5 3.14159 4.5 3.5 7.5 100 100",
+    "files": {},
+    "stdout": "[2.500000] [1.500000] [3.14] [4.500000e+00] [3.5] [7.5] [1.000000E+02] [100]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c05f40d70e899658": {
+    "command": "printf '[%ls] [%lc] [%10ls]\\n' str xyz abc",
+    "files": {},
+    "stdout": "[str] [x] [       abc]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fa02b8be733cfe06": {
+    "command": "printf '[%hd] [%hhd] [%hu] [%hhx] [%jd] [%ju] [%zd] [%zu] [%td]\\n' 4 5 6 255 7 8 9 10 11",
+    "files": {},
+    "stdout": "[4] [5] [6] [ff] [7] [8] [9] [10] [11]\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
