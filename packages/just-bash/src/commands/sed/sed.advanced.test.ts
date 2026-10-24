@@ -154,6 +154,43 @@ describe("sed advanced commands", () => {
       expect(result.stdout).toBe("HELLO WORLD\n");
     });
 
+    it("joins a substitution continued across lines", async () => {
+      const env = new Bash({
+        files: {
+          "/p.sed":
+            "s/^#define  *\\([A-Z_]*\\)\\(.*\\)/#ifndef P_\\1\\\n#define P_\\1\\2\\\n#endif/\n",
+        },
+      });
+      const result = await env.exec(
+        "printf '#define HAVE_X 1\\n' | sed -f /p.sed",
+      );
+      expect(result).toMatchObject({
+        stdout: "#ifndef P_HAVE_X\n#define P_HAVE_X 1\n#endif\n",
+        stderr: "",
+        exitCode: 0,
+      });
+    });
+
+    it("keeps a continued a\\ text line that starts with #", async () => {
+      const env = new Bash({
+        files: { "/a.sed": "1a\\\nfirst\\\n# not a comment\n" },
+      });
+      const result = await env.exec("printf 'x\\ny\\n' | sed -f /a.sed");
+      expect(result).toMatchObject({
+        stdout: "x\nfirst\n# not a comment\ny\n",
+        stderr: "",
+        exitCode: 0,
+      });
+    });
+
+    it("honors #n on the first line of a script file", async () => {
+      const env = new Bash({
+        files: { "/n.sed": "#n\n/y/p\n" },
+      });
+      const result = await env.exec("printf 'x\\ny\\n' | sed -f /n.sed");
+      expect(result).toMatchObject({ stdout: "y\n", stderr: "", exitCode: 0 });
+    });
+
     it("reports error for missing script file", async () => {
       const env = new Bash({
         files: { "/test.txt": "hello\n" },

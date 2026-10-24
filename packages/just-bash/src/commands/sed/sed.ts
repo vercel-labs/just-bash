@@ -432,13 +432,10 @@ export const sedCommand: RuntimeCommand = {
         const scriptContent = await withDefenseContext("script file read", () =>
           ctx.fs.readFile(scriptPath),
         );
-        // Split by newlines and add each line as a separate script
-        for (const line of scriptContent.split("\n")) {
-          const trimmed = line.trim();
-          if (trimmed && !trimmed.startsWith("#")) {
-            scripts.push(trimmed);
-          }
-        }
+        // Pass the file to the parser whole, as an -e script is, so commands
+        // can span lines (backslash continuations in s/// and a/i/c text)
+        // and the parser handles comments and blank lines.
+        scripts.push(scriptContent.replace(/\n$/, ""));
       } catch (e) {
         if (e instanceof SecurityViolationError) {
           throw e;
