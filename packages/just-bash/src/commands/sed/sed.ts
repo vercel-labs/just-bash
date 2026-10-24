@@ -156,6 +156,7 @@ async function processContent(
     const ctx: ExecuteContext = {
       lines,
       currentLineIndex: lineIndex,
+      silent,
     };
 
     // Execute commands with support for D command cycle restart
@@ -235,15 +236,9 @@ async function processContent(
     holdSpace = state.holdSpace;
     lastPattern = state.lastPattern;
 
-    // Output from n command (respects silent mode) - must come before other outputs
-    if (!silent) {
-      for (const ln of state.nCommandOutput) {
-        appendOutput(`${ln}\n`);
-      }
-    }
-
-    // Output line numbers from = command (and l, F commands, p command)
-    const hadLineNumberOutput = state.lineNumberOutput.length > 0;
+    // Output from p, P, =, l, F and n, in command order
+    const hadLineNumberOutput =
+      state.lineNumberOutput.length > state.lineOutputBeforeNextLine;
     for (const ln of state.lineNumberOutput) {
       appendOutput(`${ln}\n`);
     }
