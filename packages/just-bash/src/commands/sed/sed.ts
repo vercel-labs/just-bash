@@ -432,11 +432,13 @@ export const sedCommand: RuntimeCommand = {
         const scriptContent = await withDefenseContext("script file read", () =>
           ctx.fs.readFile(scriptPath),
         );
-        // Split by newlines and add each line as a separate script
+        // Split by newlines and add each line as a separate script. Keep
+        // trailing blanks, as an -e script does. They can end a command,
+        // such as the closing delimiter of `s a b `.
         for (const line of scriptContent.split("\n")) {
           const trimmed = line.trim();
           if (trimmed && !trimmed.startsWith("#")) {
-            scripts.push(trimmed);
+            scripts.push(line.replace(/\r$/, "").trimStart());
           }
         }
       } catch (e) {

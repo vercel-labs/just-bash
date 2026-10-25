@@ -1,0 +1,133 @@
+{
+  "08abd8dedc37b91e": {
+    "command": "sed 's/a/b/ g' test.txt",
+    "files": {
+      "test.txt": "aaa\nb\n"
+    },
+    "stdout": "bbb\nb\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "0b5acdf3b5921bd4": {
+    "command": "sed 's/a/b/gg' test.txt",
+    "files": {
+      "test.txt": "aaa\nb\n"
+    },
+    "stdout": "",
+    "stderr": "sed: -e expression #1, char 8: multiple `g' options to `s' command\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "1f73fba36f034e9c": {
+    "command": "sed 's/a/b/0' test.txt",
+    "files": {
+      "test.txt": "aaa\nb\n"
+    },
+    "stdout": "",
+    "stderr": "sed: -e expression #1, char 7: number option to `s' command may not be zero\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "51697e2e05148e3f": {
+    "command": "sed -n 's/a/b/g p' test.txt",
+    "files": {
+      "test.txt": "aaa\nb\n"
+    },
+    "stdout": "bbb\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "5a9e4ccbe2328438": {
+    "command": "sed 's/a/b/d' test.txt",
+    "files": {
+      "test.txt": "aaa\nb\n"
+    },
+    "stdout": "",
+    "stderr": "sed: -e expression #1, char 7: unknown option to `s'\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "606d4658645e9a1d": {
+    "command": "sed 's/a/b/g ; p' test.txt",
+    "files": {
+      "test.txt": "aaa\nb\n"
+    },
+    "stdout": "bbb\nbbb\nb\nb\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "6a860b3028f9e5da": {
+    "command": "sed 's/a/b/ # comment' test.txt",
+    "files": {
+      "test.txt": "aaa\nb\n"
+    },
+    "stdout": "baa\nb\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "de4311105fe4b75d": {
+    "command": "sed 's/a/b' test.txt",
+    "files": {
+      "test.txt": "aaa\nb\n"
+    },
+    "stdout": "",
+    "stderr": "sed: -e expression #1, char 5: unterminated `s' command\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "de722df5650e5230": {
+    "command": "sed 's/a/b/1g2' test.txt",
+    "files": {
+      "test.txt": "aaa\nb\n"
+    },
+    "stdout": "",
+    "stderr": "sed: -e expression #1, char 9: multiple number options to `s' command\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "deaf1a2a8a8f76de": {
+    "command": "sed '/a/{s/a/x/ }' test.txt",
+    "files": {
+      "test.txt": "aaa\nb\n"
+    },
+    "stdout": "xaa\nb\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "ee6e79eb3ab328d2": {
+    "command": "sed -f script.sed test.txt",
+    "files": {
+      "script.sed": "s a b \n",
+      "test.txt": "aaa\nb\n"
+    },
+    "stdout": "baa\nb\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "f19689971ce2e0ce": {
+    "command": "sed 's/a/b/ 2' test.txt",
+    "files": {
+      "test.txt": "aaa\nb\n"
+    },
+    "stdout": "aba\nb\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "fa54bcd05d7ba70d": {
+    "command": "sed -i '1s#a#x\\n# default#' test.txt; echo \"exit $?\"; cat test.txt",
+    "files": {
+      "test.txt": "a\nb\n"
+    },
+    "stdout": "exit 1\na\nb\n",
+    "stderr": "sed: -e expression #1, char 11: unknown option to `s'\n",
+    "exitCode": 0,
+    "locked": true
+  }
+}

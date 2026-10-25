@@ -41,12 +41,14 @@ describe("sed errors", () => {
       expect(result.exitCode).toBe(1);
     });
 
-    it("should handle unterminated substitution", async () => {
+    it("should reject an unterminated substitution", async () => {
       const env = createEnv();
       const result = await env.exec("sed 's/foo/bar' /test/file.txt");
-      // Implementation may be lenient with unterminated substitution
-      // Just verify it doesn't hang
-      expect(result).toBeDefined();
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "sed: invalid command: unterminated `s' command\n",
+      );
+      expect(result.exitCode).toBe(1);
     });
 
     it("should handle non-standard substitution delimiter", async () => {
@@ -63,11 +65,14 @@ describe("sed errors", () => {
       expect(result).toBeDefined();
     });
 
-    it("should handle unknown flag gracefully", async () => {
+    it("should reject an unknown flag", async () => {
       const env = createEnv();
       const result = await env.exec("sed 's/a/b/z' /test/file.txt");
-      // Implementation may ignore unknown flags
-      expect(result).toBeDefined();
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "sed: invalid command: unknown option to `s'\n",
+      );
+      expect(result.exitCode).toBe(1);
     });
   });
 
