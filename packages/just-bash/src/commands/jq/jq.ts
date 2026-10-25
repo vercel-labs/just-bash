@@ -92,6 +92,18 @@ function parseJsonSlice(
   return JSON.parse(sanitizeJsonControlChars(input.slice(startPos, endPos)));
 }
 
+/** Skip one quoted token without visiting each character of its contents. */
+function jsonStringEnd(input: string, start: number): number {
+  let quote = input.indexOf('"', start + 1);
+  while (quote !== -1) {
+    let escapeStart = quote;
+    while (input.charCodeAt(escapeStart - 1) === 92) escapeStart--;
+    if ((quote - escapeStart) % 2 === 0) return quote + 1;
+    quote = input.indexOf('"', quote + 1);
+  }
+  return input.length;
+}
+
 /**
  * Parse a JSON stream (concatenated JSON values).
  * Real jq can handle `{...}{...}` or `{...}\n{...}` or pretty-printed concatenated JSONs.
@@ -124,7 +136,6 @@ function parseJsonStream(
     if (char === "{" || char === "[") {
       // Parse object or array by finding matching close bracket
       const bracketStack: string[] = [char === "{" ? "}" : "]"];
-      let inString = false;
       let isEscaped = false;
       pos++;
 
@@ -135,8 +146,9 @@ function parseJsonStream(
         } else if (c === "\\") {
           isEscaped = true;
         } else if (c === '"') {
-          inString = !inString;
-        } else if (!inString) {
+          pos = jsonStringEnd(input, pos);
+          continue;
+        } else {
           if (c === "{" || c === "[") {
             bracketStack.push(c === "{" ? "}" : "]");
             if (bracketStack.length > limits.maxDepth) {
@@ -167,21 +179,7 @@ function parseJsonStream(
         }),
       );
     } else if (char === '"') {
-      // Parse string
-      let isEscaped = false;
-      pos++;
-      while (pos < len) {
-        const c = input[pos];
-        if (isEscaped) {
-          isEscaped = false;
-        } else if (c === "\\") {
-          isEscaped = true;
-        } else if (c === '"') {
-          pos++;
-          break;
-        }
-        pos++;
-      }
+      pos = jsonStringEnd(input, pos);
       appendResult(
         sanitizeParsedData(parseJsonSlice(input, startPos, pos), limits),
       );
