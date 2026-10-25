@@ -37,4 +37,22 @@ describe("executable scripts", () => {
       exitCode: 2,
     });
   });
+
+  it("continues a semicolon list after a script with a lexer error", async () => {
+    const env = new Bash({
+      files: {
+        "/scripts/bad.sh": "x=$(echo a # )\n",
+      },
+    });
+    await env.exec("chmod +x /scripts/bad.sh");
+
+    const result = await env.exec("echo start; /scripts/bad.sh; echo end");
+
+    expect(result).toMatchObject({
+      stdout: "start\nend\n",
+      stderr:
+        "bash: /scripts/bad.sh: line 2: unexpected EOF while looking for matching `)'\n",
+      exitCode: 0,
+    });
+  });
 });
