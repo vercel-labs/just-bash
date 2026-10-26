@@ -134,7 +134,12 @@ export interface EvalContext {
   currentPath?: (string | number)[];
   funcs?: Map<
     string,
-    { params: string[]; body: AstNode; closure?: Map<string, unknown> }
+    {
+      params: string[];
+      body: AstNode;
+      closure?: Map<string, unknown>;
+      vars?: Map<string, QueryValue>;
+    }
   >;
   labels?: Set<string>;
   /** Feature coverage writer for fuzzing instrumentation */
@@ -1056,6 +1061,8 @@ function evaluateNode(
         params: ast.params,
         body: ast.funcBody,
         closure: new Map(ctx.funcs ?? []),
+        // The body sees the variables in scope here, not those of the caller
+        vars: ctx.vars,
       });
       const newCtx: EvalContext = { ...ctx, funcs: newFuncs };
       return evaluate(value, ast.body, newCtx);
@@ -2062,7 +2069,12 @@ function evalBuiltin(
       // Check for user-defined function by name/arity
       const funcKey = `${name}/${args.length}`;
       const userFunc = ctx.funcs?.get(funcKey) as
-        | { params: string[]; body: AstNode; closure?: Map<string, unknown> }
+        | {
+            params: string[];
+            body: AstNode;
+            closure?: Map<string, unknown>;
+            vars?: Map<string, QueryValue>;
+          }
         | undefined;
       if (userFunc) {
         // User-defined function: bind parameters
@@ -2108,7 +2120,11 @@ function evalBuiltin(
             newFuncs.set(`${paramName}/0`, { params: [], body: bodyNode });
           }
         }
-        const newCtx: EvalContext = { ...ctx, funcs: newFuncs };
+        const newCtx: EvalContext = {
+          ...ctx,
+          funcs: newFuncs,
+          vars: userFunc.vars ?? ctx.vars,
+        };
         return evaluate(value, userFunc.body, newCtx);
       }
       throw new Error(`Unknown function: ${name}`);
