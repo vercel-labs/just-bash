@@ -512,7 +512,7 @@ describe("awk printf formats", () => {
       const result = await env.exec(
         `echo "" | awk 'BEGIN { printf "%.2e\\n", 1234.5 }'`,
       );
-      expect(result.stdout).toBe("1.23e+3\n");
+      expect(result.stdout).toBe("1.23e+03\n");
       expect(result.exitCode).toBe(0);
     });
   });

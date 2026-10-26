@@ -1,0 +1,72 @@
+{
+  "0ffb0d9e88192b53": {
+    "command": "printf '%g %g %g\\n' 1e10 1.5e30 1000000",
+    "files": {},
+    "stdout": "1e+10 1.5e+30 1e+06\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "111442d3fe8df3da": {
+    "command": "printf '%.3g|%.10g|%.0g\\n' 1234.5 1e10 123",
+    "files": {},
+    "stdout": "1.23e+03|1e+10|1e+02\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "52e57ff3b9c80385": {
+    "command": "printf '[%#e] [%#.0e] [%#10g] [%#-10g|] [%#+g] [%#010g]\\n' 12345 5 100000 100000 100000 100000",
+    "files": {},
+    "stdout": "[1.234500e+04] [5.e+00] [   100000.] [100000.   |] [+100000.] [000100000.]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5f36367ab8a806ef": {
+    "command": "printf '%g\\n' 0.0001 0.00001 -0.00001234 1234567 123456789 -2500000",
+    "files": {},
+    "stdout": "0.0001\n1e-05\n-1.234e-05\n1.23457e+06\n1.23457e+08\n-2.5e+06\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b01c81083b0adbc3": {
+    "command": "printf '[%#g] [%#.3g] [%#g]\\n' 1.5 100000 1e10",
+    "files": {},
+    "stdout": "[1.50000] [1.00e+05] [1.00000e+10]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "dd71fbb799b30c4c": {
+    "command": "printf '%g\\n' 100000 120000 999999 0",
+    "files": {},
+    "stdout": "100000\n120000\n999999\n0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "de891c74f9d5c90d": {
+    "command": "printf '[%10g] [%-10g] [%010g]\\n' 100000 100000 1e10",
+    "files": {},
+    "stdout": "[    100000] [100000    ] [000001e+10]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f5f38b5909197ead": {
+    "command": "printf '[%#g] [%#g] [%#g] [%#.3g] [%#.0g] [%#.1g]\\n' 100000 1 0 100 123 5",
+    "files": {},
+    "stdout": "[100000.] [1.00000] [0.00000] [100.] [1.e+02] [5.]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f86fd02261e76856": {
+    "command": "printf '%G\\n' 1e-10 1.5e30 0.000123456",
+    "files": {},
+    "stdout": "1E-10\n1.5E+30\n0.000123456\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fbde70fc924ae999": {
+    "command": "printf '[%+g] [% g] [%+g]\\n' 100000 100000 1e-10",
+    "files": {},
+    "stdout": "[+100000] [ 100000] [+1e-10]\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
