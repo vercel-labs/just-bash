@@ -1,0 +1,47 @@
+{
+  "56f604cda75d29a3": {
+    "command": "CC=\"echo cc -O2\"; $CC -c x.c; X=\"echo a b\"; $X",
+    "files": {},
+    "stdout": "cc -O2 -c x.c\na b\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "57d2cbf7f03b8926": {
+    "command": "set --; \"$@\" echo hi; x=; $x echo there; false; $x; echo \"rc=$?\"",
+    "files": {},
+    "stdout": "hi\nthere\nrc=0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6cc3674a3c4eca0f": {
+    "command": "{echo,a} b; ech? hi; x=\"ech*\"; $x hi; nomatch* hi 2>/dev/null; echo \"rc=$?\"",
+    "files": {
+      "echo": "",
+      "echo-x": ""
+    },
+    "stdout": "a b\nhi\necho-x hi\nrc=127\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "885ba53e11f2a1b4": {
+    "command": "x=; $x '' foo 2>/dev/null; echo \"rc=$?\"; y=\"echo a\"; \"$y\" 2>/dev/null; echo \"rc=$?\"",
+    "files": {},
+    "stdout": "rc=127\nrc=127\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9440dfb02ec4ae8f": {
+    "command": "set -- echo a b; $*; t() { shift; \"$@\"; }; t 5 echo c d; a=(echo x y); \"${a[@]}\"",
+    "files": {},
+    "stdout": "a b\nc d\nx y\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c67464270338cbec": {
+    "command": "shopt -s nullglob; nomatch* echo hi; [ 1 = 1 ] && echo yes",
+    "files": {},
+    "stdout": "hi\nyes\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

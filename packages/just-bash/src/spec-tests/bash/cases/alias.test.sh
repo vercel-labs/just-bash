@@ -333,7 +333,6 @@ e_ ${var}
 ## END
 
 #### Alias trailing newline
-## SKIP (unimplementable): alias expansion not implemented - parsing happens before execution
 shopt -s expand_aliases
 alias e_='echo 1
 echo 2
