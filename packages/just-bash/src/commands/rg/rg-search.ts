@@ -378,7 +378,11 @@ export async function executeSearch(
   );
 
   if (files.length === 0) {
-    return { stdout: "", stderr, exitCode: stderr ? 2 : 1 };
+    return {
+      stdout: "",
+      stderr: options.noMessages ? "" : stderr,
+      exitCode: stderr ? 2 : 1,
+    };
   }
 
   // Determine output settings
@@ -901,7 +905,11 @@ async function listFiles(
   );
 
   if (files.length === 0) {
-    return { stdout: "", stderr, exitCode: stderr ? 2 : 1 };
+    return {
+      stdout: "",
+      stderr: options.noMessages ? "" : stderr,
+      exitCode: stderr ? 2 : 1,
+    };
   }
 
   // In quiet mode, just indicate success without output
@@ -918,7 +926,11 @@ async function listFiles(
   for (const file of files) output.append(file).append(sep);
   const stdout = output.build();
 
-  return { stdout, stderr, exitCode: stderr ? 2 : 0 };
+  return {
+    stdout,
+    stderr: options.noMessages ? "" : stderr,
+    exitCode: stderr ? 2 : 0,
+  };
 }
 
 /**
@@ -1382,7 +1394,7 @@ async function searchFiles(
   // rg emits text; the pipeline handles encoding.
   return {
     stdout: finalStdout,
-    stderr,
+    stderr: options.noMessages ? "" : stderr,
     exitCode,
   };
 }

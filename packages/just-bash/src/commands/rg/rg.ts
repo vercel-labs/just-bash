@@ -55,6 +55,7 @@ EXAMPLES:
     "-m, --max-count NUM     limit matching lines per file (0: no matches)",
     "    --color WHEN        never, auto, always, ansi (plain text output only)",
     "-q, --quiet             suppress output, exit 0 on match",
+    "    --no-messages       suppress file access diagnostics (undo with --messages)",
     "    --stats             print search statistics",
     "-n, --line-number       print line numbers (default: on)",
     "-N, --no-line-number    do not print line numbers",

@@ -370,6 +370,19 @@ const BOOL_FLAGS = new Map<string, BoolFlagHandler>([
     },
   ],
 
+  [
+    "--no-messages",
+    (o) => {
+      o.noMessages = true;
+    },
+  ],
+  [
+    "--messages",
+    (o) => {
+      o.noMessages = false;
+    },
+  ],
+
   // Line numbers
   [
     "N",
