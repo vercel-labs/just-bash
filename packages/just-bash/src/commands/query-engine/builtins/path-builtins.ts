@@ -40,7 +40,7 @@ type CollectPathsFn = (
   paths: (string | number)[][],
 ) => void;
 
-function validateBoundedPath(
+export function validateBoundedPath(
   path: unknown,
   ctx: EvalContext,
 ): (string | number)[] {
@@ -58,7 +58,7 @@ function validateBoundedPath(
     if (typeof component === "number") {
       if (
         !Number.isSafeInteger(component) ||
-        component < 0 ||
+        component < -maxElements ||
         component >= maxElements
       ) {
         throw new ExecutionLimitError(
@@ -66,7 +66,7 @@ function validateBoundedPath(
           "array_elements",
         );
       }
-      const allocation = component + 1;
+      const allocation = Math.max(0, component + 1);
       if (prospectiveArrayElements > maxElements - allocation) {
         throw new ExecutionLimitError(
           `query cumulative array allocation limit exceeded (${maxElements})`,
@@ -171,7 +171,7 @@ export function evalPathBuiltin(
             break;
           }
           if (Array.isArray(current) && typeof key === "number") {
-            current = current[key];
+            current = current[key < 0 ? current.length + key : key];
           } else if (typeof key === "string") {
             // Defense against prototype pollution: only access own properties
             const obj = asQueryRecord(current);
@@ -246,7 +246,7 @@ export function evalPathBuiltin(
         for (const key of path) {
           if (current === null || current === undefined) break;
           if (Array.isArray(current) && typeof key === "number") {
-            current = current[key];
+            current = current[key < 0 ? current.length + key : key];
           } else if (typeof key === "string") {
             // Defense against prototype pollution: only access own properties
             const obj = asQueryRecord(current);

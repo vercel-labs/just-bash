@@ -428,7 +428,6 @@ const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   },
 
   // setpath edge cases
-  { pattern: /setpath\(\[-\d+\]/, reason: "setpath with negative index" },
   { pattern: /setpath\(\[\[/, reason: "setpath with array key" },
 
   // Auto-vivification issues
