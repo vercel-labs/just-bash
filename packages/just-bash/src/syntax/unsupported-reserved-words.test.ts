@@ -43,7 +43,7 @@ describe("unsupported reserved words", () => {
 
         expect(result.stdout).toBe("");
         expect(result.stderr).toBe(
-          `bash: syntax error: Parse error at ${context.line}:${context.column}: syntax error near unexpected token \`${word}'\n`,
+          `bash: line ${context.line}: syntax error near unexpected token \`${word}'\n`,
         );
         expect(result.exitCode).toBe(2);
       });
@@ -67,7 +67,7 @@ describe("unsupported reserved words", () => {
 
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe(
-      "bash: syntax error: Parse error at 1:14: syntax error near unexpected token `!'\n",
+      "bash: line 1: syntax error near unexpected token `!'\n",
     );
     expect(result.exitCode).toBe(2);
   });

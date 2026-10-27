@@ -3,6 +3,7 @@
  */
 
 import { type ParseException, parse } from "../../parser/parser.js";
+import { describeParseError } from "../../parser/types.js";
 import type { ExecResult } from "../../types.js";
 import { ExecutionLimitError, ExitError, ReturnError } from "../errors.js";
 import { failure, result } from "../helpers/result.js";
@@ -142,7 +143,9 @@ export async function handleSource(
     }
 
     if ((error as ParseException).name === "ParseException") {
-      return failure(`bash: ${filename}: ${(error as Error).message}\n`);
+      return failure(
+        `${filename}: ${describeParseError(error as ParseException)}\n`,
+      );
     }
     throw error;
   }

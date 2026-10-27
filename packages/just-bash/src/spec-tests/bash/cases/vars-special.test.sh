@@ -744,7 +744,6 @@ prev=prev=prev=
 
 
 #### $_ is not undefined on first use
-## SKIP (unimplementable): $_ in subshell invocation not implemented
 set -e
 
 x=$($SH -u -c 'echo prev=$_')

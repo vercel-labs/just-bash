@@ -12,7 +12,7 @@ import type {
 } from "../ast/types.js";
 import { ExecutionOutputAccumulator } from "../execution-output.js";
 import { Parser } from "../parser/parser.js";
-import type { ParseException } from "../parser/types.js";
+import { describeParseError, type ParseException } from "../parser/types.js";
 import type { ExecResult } from "../types.js";
 import {
   BreakError,
@@ -342,10 +342,12 @@ export async function executeUserScript(
 
   // Check for shebang and skip it if present (we'll execute as bash script)
   // Note: we don't actually support different interpreters, just bash
+  // The newline stays, so $LINENO and a syntax error's line count from the
+  // file's first line.
   if (content.startsWith("#!")) {
     const firstNewline = content.indexOf("\n");
     if (firstNewline !== -1) {
-      content = content.slice(firstNewline + 1);
+      content = content.slice(firstNewline);
     }
   }
 
@@ -397,7 +399,9 @@ export async function executeUserScript(
 
     // Handle parse errors
     if ((error as ParseException).name === "ParseException") {
-      return failure(`bash: ${scriptPath}: ${(error as Error).message}\n`);
+      return failure(
+        `${scriptPath}: ${describeParseError(error as ParseException)}\n`,
+      );
     }
 
     throw error;

@@ -49,19 +49,16 @@ FALSE
 TRUE
 ## END
 #### pass short options like sh -e
-## SKIP (unimplementable): $SH invocation not implemented
 $SH -e -c 'false; echo status=$?'
 ## stdout-json: ""
 ## status: 1
 
 #### pass long options like sh -o errexit
-## SKIP (unimplementable): $SH invocation not implemented
 $SH -o errexit -c 'false; echo status=$?'
 ## stdout-json: ""
 ## status: 1
 
 #### pass shopt options like sh -O nullglob
-## SKIP (unimplementable): $SH invocation not implemented
 $SH +O nullglob -c 'echo foo *.nonexistent bar'
 $SH -O nullglob -c 'echo foo *.nonexistent bar'
 ## STDOUT:
