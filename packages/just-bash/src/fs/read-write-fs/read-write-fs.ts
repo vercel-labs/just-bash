@@ -1300,12 +1300,23 @@ export class ReadWriteFs implements IFileSystem {
       // For other errors, let the rename below handle it
     }
 
-    // Ensure destination parent directory exists
+    // rename(2) requires the destination's parent directory to exist; like
+    // real bash, a move must not create missing parent directories.
     const destDir = nodePath.dirname(destCanonical);
+    let destDirIsDirectory = false;
     try {
-      await fs.promises.mkdir(destDir, { recursive: true });
+      destDirIsDirectory = (await fs.promises.stat(destDir)).isDirectory();
     } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code === "ENOENT") {
+        throw new Error(
+          `ENOENT: no such file or directory, mv '${src}' -> '${dest}'`,
+        );
+      }
       this.sanitizeError(e, dest, "mv");
+    }
+    if (!destDirIsDirectory) {
+      throw new Error(`ENOTDIR: not a directory, mv '${src}' -> '${dest}'`);
     }
 
     try {

@@ -589,7 +589,8 @@ export class InMemoryFs implements IFileSystem {
     let resolvedPath = "";
     const seen = new Set<string>();
 
-    for (const part of parts) {
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
       resolvedPath = `${resolvedPath}/${part}`;
 
       // Check if this path component is a symlink
@@ -615,6 +616,20 @@ export class InMemoryFs implements IFileSystem {
         throw new Error(
           `ELOOP: too many levels of symbolic links, open '${path}'`,
         );
+      }
+
+      // A component that leads somewhere else (i.e. anything but the last)
+      // has to be a directory to be traversed. The real filesystem reports
+      // ENOTDIR here; skipping the check would let the lookup fall through to
+      // "no entry at this path" and report ENOENT, so `mv /f /file/deep` would
+      // blame a missing directory instead of the file standing in its way.
+      if (
+        i < parts.length - 1 &&
+        entry &&
+        entry.type !== "directory" &&
+        entry.type !== "symlink"
+      ) {
+        throw new Error(`ENOTDIR: not a directory, stat '${path}'`);
       }
     }
 
@@ -857,6 +872,27 @@ export class InMemoryFs implements IFileSystem {
     }
   }
 
+  /** rename(2) requires the destination's parent directory to exist. */
+  private async assertMvDestParent(
+    src: string,
+    dest: string,
+    destNorm: string,
+  ): Promise<void> {
+    const parent = dirname(destNorm);
+    if (parent === "/") return;
+    let parentStat: FsStat;
+    try {
+      parentStat = await this.stat(parent);
+    } catch {
+      throw new Error(
+        `ENOENT: no such file or directory, mv '${src}' -> '${dest}'`,
+      );
+    }
+    if (!parentStat.isDirectory) {
+      throw new Error(`ENOTDIR: not a directory, mv '${src}' -> '${dest}'`);
+    }
+  }
+
   async mv(src: string, dest: string): Promise<void> {
     validatePath(src, "mv");
     validatePath(dest, "mv");
@@ -868,28 +904,40 @@ export class InMemoryFs implements IFileSystem {
     if (!source) {
       throw new Error(`ENOENT: no such file or directory, mv '${src}'`);
     }
+    // rename(2) rejects a missing or non-directory destination parent first, and
+    // it does so on the path the caller wrote: `mv /f /file/deep` must blame
+    // the file in the way, not whatever the resolved path turns out to be.
+    await this.assertMvDestParent(src, dest, destNorm);
+
+    // A destination parent that is itself a symlink must then be written
+    // through: storing the entry at the unresolved path registers it where no
+    // read ever looks. Reads follow /link and ask for /real/f.txt, while the
+    // move wrote /link/f.txt and deleted the source — the file becomes
+    // unreachable. The final component is deliberately left unresolved, so a
+    // dest that is a symlink is still replaced, matching rename(2)'s behaviour
+    // on the last component. `destNorm` stays the path reported in messages.
+    const destReal = this.resolvePathWithSymlinks(destNorm);
     if (
       source.type === "directory" &&
-      isSameOrDescendantPath(srcNorm, destNorm)
+      isSameOrDescendantPath(srcNorm, destReal)
     ) {
       throw new Error(`EINVAL: cannot move '${src}' into itself, '${dest}'`);
     }
 
     if (source.type === "directory") {
-      await this.mkdir(destNorm, { recursive: true });
+      await this.mkdir(destReal, { recursive: true });
       const children = await this.readdir(srcNorm);
       for (const child of children) {
-        await this.mv(joinPath(srcNorm, child), joinPath(destNorm, child));
+        await this.mv(joinPath(srcNorm, child), joinPath(destReal, child));
       }
       this.deleteEntry(srcNorm);
       return;
     }
 
-    this.ensureParentDirs(destNorm);
     // Reuse the same body while the old path still retains it. The accounting
     // helper therefore sees an existing reference and a rename never needs
     // temporary capacity equal to the file size.
-    this.setEntry(destNorm, source);
+    this.setEntry(destReal, source);
     this.deleteEntry(srcNorm);
   }
 
