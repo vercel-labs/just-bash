@@ -4,6 +4,7 @@
  * This is the new implementation using proper lexer/parser/interpreter architecture.
  */
 
+import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { decodeBytesToUtf8 } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { mapToRecord } from "../../helpers/env.js";
@@ -19,6 +20,7 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
+import { accountFileInput } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import { utf8ByteLength } from "../printf/escapes.js";
 import type { AwkProgram } from "./ast.js";
@@ -34,6 +36,7 @@ const awkHelp = {
   summary: "pattern scanning and text processing language",
   usage: "awk [OPTIONS] 'PROGRAM' [FILE...]",
   options: [
+    "-f FILE    read the program from FILE (may repeat)",
     "-F FS      use FS as field separator",
     "-v VAR=VAL assign VAL to variable VAR",
     "    --help display this help and exit",
@@ -65,11 +68,29 @@ export const awkCommand2: RuntimeCommand = {
     // Use null-prototype to prevent prototype pollution with user-controlled -v names
     const vars: Record<string, string | number> = Object.create(null);
     let programIdx = 0;
+    const programFiles: string[] = [];
 
     // Parse options
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
-      if (arg === "-F" && i + 1 < args.length) {
+      if (arg === "-f" || arg.startsWith("-f")) {
+        const file = arg.slice(2) || args[++i];
+        if (file === undefined) {
+          return {
+            stdout: "",
+            stderr: "awk: -f requires a filename\n",
+            exitCode: 1,
+          };
+        }
+        programFiles.push(file);
+        programIdx = i + 1;
+      } else if ((arg === "-F" || arg === "-v") && i + 1 >= args.length) {
+        return {
+          stdout: "",
+          stderr: `awk: ${arg} requires an argument\n`,
+          exitCode: 1,
+        };
+      } else if (arg === "-F" && i + 1 < args.length) {
         fieldSepStr = processEscapes(args[++i]);
         fieldSep = createFieldSepRegex(fieldSepStr);
         programIdx = i + 1;
@@ -100,12 +121,47 @@ export const awkCommand2: RuntimeCommand = {
       }
     }
 
-    if (programIdx >= args.length) {
+    if (programFiles.length === 0 && programIdx >= args.length) {
       return { stdout: "", stderr: "awk: missing program\n", exitCode: 1 };
     }
 
-    const program = args[programIdx];
-    const files = args.slice(programIdx + 1);
+    let program = args[programIdx];
+    const files = args.slice(programIdx + (programFiles.length === 0 ? 1 : 0));
+    let programReadStdin = false;
+    if (programFiles.length > 0) {
+      const source = new BoundedStringBuilder(
+        ctx.limits.maxStringLength,
+        "awk",
+      );
+      for (const file of programFiles) {
+        let content: string;
+        try {
+          if (file === "-") {
+            content = programReadStdin ? "" : decodeBytesToUtf8(ctx.stdin);
+            programReadStdin = true;
+          } else {
+            const path = ctx.fs.resolvePath(ctx.cwd, file);
+            const stat = await withDefenseContext("program file stat", () =>
+              ctx.fs.stat(path),
+            );
+            source.reserve(stat.size + 1);
+            accountFileInput(ctx, stat.size, "awk program");
+            content = await withDefenseContext("program file read", () =>
+              ctx.fs.readFile(path),
+            );
+          }
+        } catch (error) {
+          rethrowFatalExecutionError(error);
+          return {
+            stdout: "",
+            stderr: `awk: ${file}: No such file or directory\n`,
+            exitCode: 1,
+          };
+        }
+        source.append(content).append("\n");
+      }
+      program = source.build();
+    }
 
     // Parse program
     const parser = new AwkParser({
@@ -321,7 +377,10 @@ export const awkCommand2: RuntimeCommand = {
         // awk parses fields with regex / FS — decode bytes to UTF-8 so
         // non-ASCII data isn't split mid-codepoint.
         await withDefenseContext("stdin processing", () =>
-          processInput("", decodeBytesToUtf8(ctx.stdin)),
+          processInput(
+            "",
+            programReadStdin ? "" : decodeBytesToUtf8(ctx.stdin),
+          ),
         );
       }
 

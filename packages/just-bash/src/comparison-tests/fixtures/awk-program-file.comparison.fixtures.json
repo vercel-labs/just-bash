@@ -1,0 +1,20 @@
+{
+  "0b69f09f39f4138f": {
+    "command": "awk -f first.awk -fsecond.awk -F, -v prefix=hello data",
+    "files": {
+      "first.awk": "BEGIN {print prefix} # comment\n",
+      "second.awk": "{print $2}",
+      "data": "one,two\nthree,four\n"
+    },
+    "stdout": "hello\ntwo\nfour\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "80f79d3d5c9510f4": {
+    "command": "echo 'BEGIN {print 1} {print 2}' | awk -f -",
+    "files": {},
+    "stdout": "1\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
