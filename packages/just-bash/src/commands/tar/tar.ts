@@ -887,6 +887,21 @@ async function extractTarArchive(
         }
 
         if (isAborted(ctx)) return abortedResult();
+        if (!options.keepOldFiles) {
+          try {
+            const existing = await ctx.fs.lstat(targetPath);
+            if (existing.isFile) {
+              await ctx.fs.rm(targetPath);
+            }
+          } catch (error) {
+            if (
+              !(error instanceof Error) ||
+              !error.message.startsWith("ENOENT")
+            ) {
+              throw error;
+            }
+          }
+        }
         await ctx.fs.writeFile(targetPath, entry.content);
 
         // Set permissions if preserving

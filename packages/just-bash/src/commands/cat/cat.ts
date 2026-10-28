@@ -1,5 +1,6 @@
 import { latin1FromBytes, readBytesFrom } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
+import { isPermissionDenied } from "../../fs/permission-utils.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type {
   ExecResult,
@@ -134,7 +135,9 @@ export const catCommand: RuntimeCommand = {
         stream += rawContent;
       } catch (error) {
         rethrowFatalExecutionError(error);
-        stderr += `cat: ${file}: No such file or directory\n`;
+        stderr += isPermissionDenied(error)
+          ? `cat: ${file}: Permission denied\n`
+          : `cat: ${file}: No such file or directory\n`;
         exitCode = 1;
       }
     }

@@ -1,4 +1,5 @@
 import { isSameOrDescendantPath } from "../../fs/path-utils.js";
+import { isPermissionDenied } from "../../fs/permission-utils.js";
 import {
   compareCanonicalContainment,
   compareFileIdentity,
@@ -101,15 +102,20 @@ export const cpCommand: RuntimeCommand = {
     }
 
     for (const src of sources) {
+      let srcPath = "";
+      let targetPath = destPath;
+      let targetArgument = dest;
       try {
-        const srcPath = ctx.fs.resolvePath(ctx.cwd, src);
+        srcPath = ctx.fs.resolvePath(ctx.cwd, src);
         const srcStat = await ctx.fs.stat(srcPath);
 
-        let targetPath = destPath;
         if (destIsDir) {
           const basename = src.split("/").pop() || src;
           targetPath =
             destPath === "/" ? `/${basename}` : `${destPath}/${basename}`;
+          targetArgument = dest.endsWith("/")
+            ? `${dest}${basename}`
+            : `${dest}/${basename}`;
         }
 
         if (srcStat.isDirectory && !recursive) {
@@ -195,6 +201,20 @@ export const cpCommand: RuntimeCommand = {
           error instanceof ExecutionAbortedError
         ) {
           throw error;
+        }
+        if (isPermissionDenied(error)) {
+          let sourceIsUnreadable = false;
+          try {
+            const stat = await ctx.fs.stat(srcPath);
+            sourceIsUnreadable = stat.isFile && (stat.mode & 0o400) === 0;
+          } catch {
+            // Use the destination diagnostic when source metadata is unavailable.
+          }
+          stderr += sourceIsUnreadable
+            ? `cp: cannot open '${src}' for reading: Permission denied\n`
+            : `cp: cannot create regular file '${targetArgument}': Permission denied\n`;
+          exitCode = 1;
+          continue;
         }
         const message = getErrorMessage(error);
         if (message.includes("ENOENT") || message.includes("no such file")) {
