@@ -59,6 +59,12 @@ export function evalDateBuiltin(
   ctx: EvalContext,
   evaluate: EvalFn,
 ): QueryValue[] | null {
+  if (
+    (name === "fromdateiso8601" || name === "todateiso8601") &&
+    (args.length !== 0 || ctx.funcs?.has(`${name}/0`))
+  ) {
+    return null;
+  }
   switch (name) {
     case "now":
       return [Date.now() / 1000];
@@ -198,6 +204,7 @@ export function evalDateBuiltin(
       throw new Error(`Cannot parse date: ${value}`);
     }
 
+    case "fromdateiso8601":
     case "fromdate": {
       // Parse ISO 8601 date string to Unix timestamp
       if (typeof value !== "string") {
@@ -212,6 +219,7 @@ export function evalDateBuiltin(
       return [Math.floor(date.getTime() / 1000)];
     }
 
+    case "todateiso8601":
     case "todate": {
       // Convert Unix timestamp to ISO 8601 date string
       if (typeof value !== "number") {
