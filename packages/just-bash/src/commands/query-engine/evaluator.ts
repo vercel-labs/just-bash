@@ -1312,7 +1312,7 @@ function applyUpdate(
       }
 
       default:
-        return transform(val);
+        throw new JqError(`Unsupported update path: ${path.type}`);
     }
   }
 

@@ -24,6 +24,9 @@ export function setPath(
   if (path.length === 0) return newVal;
 
   const [head, ...rest] = path;
+  if (value !== null && value !== undefined && typeof value !== "object") {
+    throw new Error(`Cannot index ${typeof value} with ${typeof head}`);
+  }
 
   if (typeof head === "number") {
     // jq: Cannot index object with number
