@@ -208,7 +208,7 @@ describe("join", () => {
           "/b.txt": "key val2\n",
         },
       });
-      const result = await bash.exec("join -o '1.0,1.2,2.2' /a.txt /b.txt");
+      const result = await bash.exec("join -o '0,1.2,2.2' /a.txt /b.txt");
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toBe("key val1 val2\n");
     });

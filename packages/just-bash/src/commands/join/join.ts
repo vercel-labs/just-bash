@@ -34,7 +34,7 @@ const joinHelp = {
     "-a FILENUM   Also print unpairable lines from file FILENUM (1 or 2)",
     "-v FILENUM   Like -a but only output unpairable lines",
     "-e STRING    Replace missing fields with STRING",
-    "-o FORMAT    Output format (comma-separated list of FILENUM.FIELD)",
+    "-o FORMAT    Comma- or space-separated fields: 0 (join key), 1.FIELD, 2.FIELD",
     "-i           Ignore case when comparing fields",
   ],
   examples: [
@@ -104,10 +104,11 @@ function formatOutputLine(
     // Custom format: output specified fields
     const parts: string[] = [];
     for (const { file, field } of options.outputFormat) {
-      const line = file === 1 ? line1 : line2;
+      const line = file === 0 ? (line1 ?? line2) : file === 1 ? line1 : line2;
       if (line && field === 0) {
         // 0 means the join field
-        parts.push(line.joinKey);
+        const joinField = line1 ? options.field1 : options.field2;
+        parts.push(line.fields[joinField - 1] || options.emptyString);
       } else if (line && line.fields[field - 1] !== undefined) {
         parts.push(line.fields[field - 1]);
       } else {
@@ -152,17 +153,22 @@ function formatOutputLine(
 function parseOutputFormat(
   format: string,
 ): Array<{ file: number; field: number }> | null {
-  const parts = format.split(",");
+  const parts = format.split(/[, \t]/);
+  if (parts.length > 1 && parts.at(-1) === "") parts.pop();
   const result: Array<{ file: number; field: number }> = [];
 
   for (const part of parts) {
-    const match = part.trim().match(/^(\d+)\.(\d+)$/);
+    if (part === "0") {
+      result.push({ file: 0, field: 0 });
+      continue;
+    }
+    const match = part.match(/^(\d+)\.(\d+)$/);
     if (!match) {
       return null;
     }
     const file = Number.parseInt(match[1], 10);
     const field = Number.parseInt(match[2], 10);
-    if (file !== 1 && file !== 2) {
+    if ((file !== 1 && file !== 2) || field < 1) {
       return null;
     }
     result.push({ file, field });
@@ -260,6 +266,9 @@ export const join: RuntimeCommand = {
       } else if (arg === "-e" && i + 1 < args.length) {
         options.emptyString = args[i + 1];
         i += 2;
+      } else if (arg.startsWith("-e") && arg.length > 2) {
+        options.emptyString = arg.slice(2);
+        i++;
       } else if (arg === "-o" && i + 1 < args.length) {
         const format = parseOutputFormat(args[i + 1]);
         if (!format) {
