@@ -54,14 +54,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   // def call-by-name semantics
   // ============================================================
   [
-    "jq.test:def f(x): x | x; f([.], . + [42])",
-    "def: requires call-by-name semantics for filter parameters",
-  ],
-  [
-    "jq.test:def x(a;b): a as $a | b as $b | $a + $b; def y($a;$b): $a + $b; def check(a;b): [x(a;b)] == [y(a;b)]; check(.[];.[]*2)",
-    "def: requires call-by-name semantics for filter parameters",
-  ],
-  [
     "jq.test:def inc(x): x |= .+1; inc(.[].a)",
     "def: update operator on parameter requires call-by-name",
   ],
@@ -121,14 +113,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "getpath with string/number path",
   ],
   ["jq.test:delpaths([[-200]])", "delpaths with large negative index"],
-
-  // ============================================================
-  // label with keyword variable names
-  // ============================================================
-  [
-    "jq.test:[ label $if | range(10) | ., (select(. == 5) | break $if), . ]",
-    "label with keyword name $if",
-  ],
 
   // ============================================================
   // fromjson edge cases
@@ -499,7 +483,6 @@ const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\$foreach.*\$and.*\$or/, reason: "Keywords as variables" },
   { pattern: /\{ \$x, as,/, reason: "Complex object shorthand" },
   { pattern: /\. as \{as:/, reason: "Complex destructuring" },
-  { pattern: /label \$if/, reason: "label with keyword variable name" },
 
   // fromjson edge cases
   { pattern: /\.\[\] \| try \(fromjson/, reason: "fromjson with iteration" },
