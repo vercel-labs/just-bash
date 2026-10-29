@@ -2,7 +2,11 @@
  * read - Read a line of input builtin
  */
 
-import { utf8ByteLength } from "../../encoding.js";
+import {
+  decodeBytesToUtf8,
+  unsafeBytesFromLatin1,
+  utf8ByteLength,
+} from "../../encoding.js";
 import type { ExecResult } from "../../types.js";
 import { ExecutionLimitError } from "../errors.js";
 import { advanceFd, getFdEntry, readFd } from "../fd-table.js";
@@ -275,6 +279,32 @@ export function handleRead(
   // Empty string delimiter means read until NUL byte (\0)
   const effectiveDelimiter = delimiter === "" ? "\0" : delimiter;
 
+  // Stdin (pipes, redirects, and fd 0 itself) holds one char per byte, while a
+  // numbered descriptor (`-u N`, `<&N` with N > 0, or a group fed by one) is
+  // already text. Byte input is decoded, and -n/-N count whole characters.
+  const inputIsBytes =
+    !readsFromFd &&
+    stdinSourceFd <= 0 &&
+    !(!stdin && (ctx.state.groupStdinSourceFd ?? -1) > 0);
+  const toText = (value: string): string =>
+    inputIsBytes ? decodeBytesToUtf8(unsafeBytesFromLatin1(value)) : value;
+  // Number of input chars in the character starting at `pos`. A UTF-8 lead
+  // byte gives the sequence length, so -n/-N never split a character. An
+  // invalid sequence counts as one byte, so it never eats the bytes after it.
+  const charLengthAt = (pos: number): number => {
+    if (!inputIsBytes) return 1;
+    const lead = effectiveStdin.charCodeAt(pos);
+    let length = 1;
+    if (lead >= 0xf0 && lead <= 0xf4) length = 4;
+    else if (lead >= 0xe0 && lead <= 0xef) length = 3;
+    else if (lead >= 0xc2 && lead <= 0xdf) length = 2;
+    for (let i = 1; i < length; i++) {
+      const next = effectiveStdin.charCodeAt(pos + i);
+      if (!(next >= 0x80 && next <= 0xbf)) return 1;
+    }
+    return length;
+  };
+
   // Get input
   let line = "";
   let lineBytes = 0;
@@ -319,18 +349,23 @@ export function handleRead(
 
   if (ncharsExact >= 0) {
     // -N: Read exactly N characters (ignores delimiters, no IFS splitting)
-    const toRead = Math.min(ncharsExact, effectiveStdin.length);
+    let toRead = 0;
+    let charCount = 0;
+    while (charCount < ncharsExact && toRead < effectiveStdin.length) {
+      toRead += charLengthAt(toRead);
+      charCount++;
+    }
     line = effectiveStdin.substring(0, toRead);
     assertLineLimit(line);
     consumed = toRead;
-    foundDelimiter = toRead >= ncharsExact;
+    foundDelimiter = charCount >= ncharsExact;
 
     // Consume from appropriate source
     consumeInput(consumed);
 
     // With -N, assign entire content to first variable (no IFS splitting)
     const varName = varNames[0] || "REPLY";
-    ctx.state.env.set(varName, line);
+    ctx.state.env.set(varName, toText(line));
     // Set remaining variables to empty
     for (let j = 1; j < varNames.length; j++) {
       ctx.state.env.set(varNames[j], "");
@@ -368,13 +403,15 @@ export function handleRead(
           consumed = inputPos;
           continue;
         }
-        appendLine(nextChar);
-        inputPos += 2;
+        const length = charLengthAt(inputPos + 1);
+        appendLine(effectiveStdin.slice(inputPos + 1, inputPos + 1 + length));
+        inputPos += 1 + length;
         charCount++;
         consumed = inputPos;
       } else {
-        appendLine(char);
-        inputPos++;
+        const length = charLengthAt(inputPos);
+        appendLine(effectiveStdin.slice(inputPos, inputPos + length));
+        inputPos += length;
         charCount++;
         consumed = inputPos;
       }
@@ -452,6 +489,8 @@ export function handleRead(
     // Consume from appropriate source
     consumeInput(consumed);
   }
+
+  line = toText(line);
 
   // Remove trailing newline if present and delimiter is newline
   if (effectiveDelimiter === "\n" && line.endsWith("\n")) {
