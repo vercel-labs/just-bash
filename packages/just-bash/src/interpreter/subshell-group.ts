@@ -363,17 +363,16 @@ export async function executeUserScript(
 
   // Set positional parameters ($1, $2, etc.) from args
   // $0 should be the script path
+  const oldPositionalCount = Number.parseInt(ctx.state.env.get("#") ?? "0", 10);
+  const positionalExtent = Math.max(args.length, oldPositionalCount, 9);
+  for (let i = 0; i < positionalExtent; i++) {
+    if (i < args.length) ctx.state.env.set(String(i + 1), args[i]);
+    else ctx.state.env.delete(String(i + 1));
+  }
   ctx.state.env.set("0", scriptPath);
   ctx.state.env.set("#", String(args.length));
   ctx.state.env.set("@", args.join(" "));
   ctx.state.env.set("*", args.join(" "));
-  for (let i = 0; i < args.length && i < 9; i++) {
-    ctx.state.env.set(String(i + 1), args[i]);
-  }
-  // Clear any remaining positional parameters
-  for (let i = args.length + 1; i <= 9; i++) {
-    ctx.state.env.delete(String(i));
-  }
 
   try {
     const parser = new Parser();
