@@ -61,6 +61,8 @@ export type {
   FileEntry,
   FileInit,
   FileSystemFactory,
+  FileSystemOperationOptions,
+  FileSystemTraversalBudget,
   FsEntry,
   FsStat,
   InitialFiles,

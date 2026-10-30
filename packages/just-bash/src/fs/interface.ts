@@ -121,9 +121,20 @@ export interface RmOptions {
 }
 
 /**
- * Options for cp operation
+ * Work accounting and cancellation for filesystem operations
  */
-export interface CpOptions {
+export interface FileSystemTraversalBudget {
+  /** Charge work and check cancellation before continuing an operation. */
+  checkpoint(work?: number): void;
+}
+
+export interface FileSystemOperationOptions {
+  /** Shared by a command, mount delegation, and all recursive children. */
+  traversalBudget?: FileSystemTraversalBudget;
+}
+
+/** Options for the cp operation. */
+export interface CpOptions extends FileSystemOperationOptions {
   recursive?: boolean;
 }
 
@@ -258,14 +269,19 @@ export interface IFileSystem {
 
   /**
    * Copy a file or directory
-   * @throws Error if source doesn't exist or trying to copy directory without recursive
+   * @throws Error if the source or destination parent doesn't exist, the destination parent isn't a directory, or trying to copy directory without recursive
    */
   cp(src: string, dest: string, options?: CpOptions): Promise<void>;
 
   /**
    * Move/rename a file or directory
+   * @throws Error if the source or destination parent doesn't exist or the destination parent isn't a directory
    */
-  mv(src: string, dest: string): Promise<void>;
+  mv(
+    src: string,
+    dest: string,
+    options?: FileSystemOperationOptions,
+  ): Promise<void>;
 
   /**
    * Resolve a relative path against a base path

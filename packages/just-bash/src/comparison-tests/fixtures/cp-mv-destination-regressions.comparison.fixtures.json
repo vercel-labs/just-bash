@@ -1,0 +1,60 @@
+{
+  "4414ec5e8ee54a2c": {
+    "command": "mv source \"\" 2>/dev/null; echo status:$?; cat source",
+    "files": {
+      "source": "payload\n"
+    },
+    "stdout": "status:1\npayload\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6a81eb8d68504907": {
+    "command": "mv a/b/ destination; echo status:$?",
+    "files": {
+      "a/b/file": "payload\n",
+      "destination/keep": "keep\n"
+    },
+    "stdout": "status:0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6a909f2a6798c1a2": {
+    "command": "ln -s ../outside/dir source/link; mv source source/link/../copied; echo status:$?; cat outside/copied/nested",
+    "files": {
+      "source/nested": "payload\n",
+      "outside/dir/keep": "keep\n"
+    },
+    "stdout": "status:0\npayload\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "91f01226226ebd2e": {
+    "command": "cp source \"\" 2>/dev/null; echo status:$?; cat source",
+    "files": {
+      "source": "payload\n"
+    },
+    "stdout": "status:1\npayload\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ab80a6e75c4e0de7": {
+    "command": "ln -s ../outside/dir source/link; cp -R source source/link/../copied; echo status:$?; cat outside/copied/nested",
+    "files": {
+      "source/nested": "payload\n",
+      "outside/dir/keep": "keep\n"
+    },
+    "stdout": "status:0\npayload\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f2e91ba97a7e5f9a": {
+    "command": "cp -R a/b/ destination; echo status:$?",
+    "files": {
+      "a/b/file": "payload\n",
+      "destination/keep": "keep\n"
+    },
+    "stdout": "status:0\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
