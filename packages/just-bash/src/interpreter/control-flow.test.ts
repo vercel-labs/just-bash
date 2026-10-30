@@ -148,10 +148,9 @@ describe("control flow execution", () => {
     });
 
     it("should iterate over positional parameters when no list given", async () => {
-      const env = new Bash({
-        env: { "@": "arg1 arg2 arg3" },
-      });
+      const env = new Bash();
       const result = await env.exec(`
+        set -- arg1 arg2 arg3
         for i; do
           echo $i
         done

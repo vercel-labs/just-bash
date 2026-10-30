@@ -75,24 +75,22 @@ export async function handleSource(
   // Save and set positional parameters from additional args
   const savedPositional = new Map<string, string | undefined>();
   if (sourceArgs.length > 1) {
-    // Save current positional parameters
-    for (let i = 1; i <= 9; i++) {
-      savedPositional.set(String(i), ctx.state.env.get(String(i)));
+    const scriptArgs = sourceArgs.slice(1);
+    const oldPositionalCount = Number.parseInt(
+      ctx.state.env.get("#") ?? "0",
+      10,
+    );
+    const positionalExtent = Math.max(scriptArgs.length, oldPositionalCount, 9);
+    for (let i = 0; i < positionalExtent; i++) {
+      const key = String(i + 1);
+      savedPositional.set(key, ctx.state.env.get(key));
+      if (i < scriptArgs.length) ctx.state.env.set(key, scriptArgs[i]);
+      else ctx.state.env.delete(key);
     }
     savedPositional.set("#", ctx.state.env.get("#"));
     savedPositional.set("@", ctx.state.env.get("@"));
-
-    // Set new positional parameters
-    const scriptArgs = sourceArgs.slice(1);
     ctx.state.env.set("#", String(scriptArgs.length));
     ctx.state.env.set("@", scriptArgs.join(" "));
-    for (let i = 0; i < scriptArgs.length && i < 9; i++) {
-      ctx.state.env.set(String(i + 1), scriptArgs[i]);
-    }
-    // Clear any remaining positional parameters
-    for (let i = scriptArgs.length + 1; i <= 9; i++) {
-      ctx.state.env.delete(String(i));
-    }
   }
 
   // Save and restore current source context for BASH_SOURCE tracking
