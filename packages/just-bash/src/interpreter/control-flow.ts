@@ -226,7 +226,10 @@ async function executeForBody(
 
   let words: string[] = [];
   if (node.words === null) {
-    words = (ctx.state.env.get("@") || "").split(" ").filter(Boolean);
+    const numParams = Number.parseInt(ctx.state.env.get("#") || "0", 10);
+    for (let i = 1; i <= numParams; i++) {
+      words.push(ctx.state.env.get(String(i)) || "");
+    }
   } else if (node.words.length === 0) {
     words = [];
   } else {
