@@ -62,6 +62,16 @@ describe("for loop without an in list", () => {
     expect(result.exitCode).toBe(0);
   });
 
+  it("should enforce the element limit before reading a seeded $#", async () => {
+    const env = new Bash({ env: { "#": "1000000000" } });
+    const result = await env.exec(`for a; do :; done; echo after`);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "bash: for-loop expansion element limit exceeded (1000000)\n",
+    );
+    expect(result.exitCode).toBe(126);
+  });
+
   it("should iterate the arguments of a sourced script", async () => {
     const env = new Bash({
       files: { "/s.sh": `for a; do echo "[$a]"; done\n` },

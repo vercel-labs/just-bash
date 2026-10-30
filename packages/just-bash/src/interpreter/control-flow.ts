@@ -227,6 +227,12 @@ async function executeForBody(
   let words: string[] = [];
   if (node.words === null) {
     const numParams = Number.parseInt(ctx.state.env.get("#") || "0", 10);
+    if (numParams > ctx.limits.maxArrayElements) {
+      throw new ExecutionLimitError(
+        `for-loop expansion element limit exceeded (${ctx.limits.maxArrayElements})`,
+        "array_elements",
+      );
+    }
     for (let i = 1; i <= numParams; i++) {
       words.push(ctx.state.env.get(String(i)) || "");
     }
