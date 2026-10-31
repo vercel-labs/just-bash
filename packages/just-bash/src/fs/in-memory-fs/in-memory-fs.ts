@@ -913,9 +913,13 @@ export class InMemoryFs implements IFileSystem {
     // through: storing the entry at the unresolved path registers it where no
     // read ever looks. Reads follow /link and ask for /real/f.txt, while the
     // move wrote /link/f.txt and deleted the source — the file becomes
-    // unreachable. The final component is deliberately left unresolved, so a
-    // dest that is a symlink is still replaced, matching rename(2)'s behaviour
-    // on the last component. `destNorm` stays the path reported in messages.
+    // unreachable.
+    //
+    // The final component is resolved too, so a destination that is a symlink is
+    // followed like rename(2): the link survives and its target is replaced.
+    // Resolving only the parent would overwrite the link entry itself, which is
+    // the one outcome rename(2) rules out. `destNorm` stays the path reported in
+    // messages.
     const destReal = this.resolvePathWithSymlinks(destNorm);
     if (
       source.type === "directory" &&
