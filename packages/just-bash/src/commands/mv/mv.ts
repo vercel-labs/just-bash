@@ -1,4 +1,4 @@
-import { isSameOrDescendantPath } from "../../fs/path-utils.js";
+import { dirname, isSameOrDescendantPath } from "../../fs/path-utils.js";
 import {
   compareCanonicalContainment,
   compareFileIdentity,
@@ -9,7 +9,10 @@ import {
   ExecutionAbortedError,
   ExecutionLimitError,
 } from "../../interpreter/errors.js";
-import { getErrorMessage } from "../../interpreter/helpers/errors.js";
+import {
+  getErrorCode,
+  getErrorMessage,
+} from "../../interpreter/helpers/errors.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -35,6 +38,26 @@ const argDefs = {
   noClobber: { short: "n", long: "no-clobber", type: "boolean" as const },
   verbose: { short: "v", long: "verbose", type: "boolean" as const },
 };
+
+/**
+ * What Unix mv reports for a destination-parent lookup that failed.
+ *
+ * Only ENOENT means "the parent is missing"; the other errnos name a different
+ * reason that callers would otherwise be told to look for a missing directory.
+ */
+function mvParentFailureReason(error: unknown): string {
+  switch (getErrorCode(error)) {
+    case "ENOTDIR":
+      return "Not a directory";
+    case "ELOOP":
+      return "Too many levels of symbolic links";
+    case "EACCES":
+    case "EPERM":
+      return "Permission denied";
+    default:
+      return "No such file or directory";
+  }
+}
 
 export const mvCommand: RuntimeCommand = {
   name: "mv",
@@ -113,6 +136,25 @@ export const mvCommand: RuntimeCommand = {
           const basename = src.split("/").pop() || src;
           targetPath =
             destPath === "/" ? `/${basename}` : `${destPath}/${basename}`;
+        }
+        // rename(2) resolves against the destination's parent directory, so
+        // like real bash the move fails when that parent does not exist.
+        const targetParent = dirname(targetPath);
+        try {
+          const parentStat = await ctx.fs.stat(targetParent);
+          if (!parentStat.isDirectory) {
+            stderr += `mv: cannot stat '${dest}': Not a directory\n`;
+            exitCode = 1;
+            continue;
+          }
+        } catch (e) {
+          // A lookup can fail for reasons other than a missing component — a
+          // file standing in the path, a symlink loop, an unsearchable parent.
+          // Unix mv prints the reason strerror(3) gives; folding every case
+          // into ENOENT reports a missing directory for what is none.
+          stderr += `mv: cannot move '${src}' to '${dest}': ${mvParentFailureReason(e)}\n`;
+          exitCode = 1;
+          continue;
         }
         if (srcStat.isDirectory) {
           const containment = await compareCanonicalContainment(
