@@ -1,3 +1,4 @@
+// Automa modification: N00b bounded od --read-bytes across operands.
 /**
  * od - dump files in octal and other formats
  *
@@ -27,10 +28,47 @@ async function odExecute(
   let addressMode: "octal" | "none" = "octal";
   const outputFormats: OutputFormat[] = [];
   const fileArgs: string[] = [];
+  let readBytes = Infinity;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === "-c") {
+    if (arg === "--") {
+      fileArgs.push(...args.slice(i + 1));
+      break;
+    } else if (
+      arg === "-N" ||
+      arg.startsWith("-N") ||
+      arg === "--read-bytes" ||
+      arg.startsWith("--read-bytes=")
+    ) {
+      const value =
+        arg === "-N" || arg === "--read-bytes"
+          ? args[++i]
+          : arg.startsWith("-N")
+            ? arg.slice(2)
+            : arg.slice(13);
+      if (value === undefined)
+        return {
+          stdout: "",
+          stderr: "od: option requires a byte count\n",
+          exitCode: 1,
+        };
+      const digits = value.replace(/^\+/, "");
+      readBytes = /^0[xX][0-9a-fA-F]+$/.test(digits)
+        ? Number(digits)
+        : /^0[0-7]*$/.test(digits)
+          ? Number.parseInt(digits, 8)
+          : /^(?:0|[1-9][0-9]*)$/.test(digits)
+            ? Number(digits)
+            : NaN;
+      if (!Number.isSafeInteger(readBytes) || readBytes < 0) {
+        return {
+          stdout: "",
+          stderr: `od: invalid byte count: ${value}\n`,
+          exitCode: 1,
+        };
+      }
+    } else if (arg === "-c") {
       outputFormats.push("char");
     } else if (arg === "-An" || (arg === "-A" && args[i + 1] === "n")) {
       addressMode = "none";
@@ -58,9 +96,15 @@ async function odExecute(
   // that exact position; with no operands stdin is the sole input.
   const input = new BoundedStringBuilder(ctx.limits.maxInputBytes, "od input");
   const operands = fileArgs.length === 0 ? ["-"] : fileArgs;
+  let remaining = readBytes;
+  let opened = false;
   for (const operand of operands) {
+    if (opened && remaining === 0) break;
+    opened = true;
     if (operand === "-") {
-      input.append(latin1FromBytes(ctx.stdin));
+      const content = latin1FromBytes(ctx.stdin).slice(0, remaining);
+      input.append(content);
+      remaining -= content.length;
       continue;
     }
     const filePath = operand.startsWith("/")
@@ -69,7 +113,9 @@ async function odExecute(
     try {
       const content = latin1FromBytes(await readBytesFrom(ctx.fs, filePath));
       ctx.executionScope?.consumeInput(content.length, "od");
-      input.append(content);
+      const selected = content.slice(0, remaining);
+      input.append(selected);
+      remaining -= selected.length;
     } catch (error) {
       rethrowFatalExecutionError(error);
       return {

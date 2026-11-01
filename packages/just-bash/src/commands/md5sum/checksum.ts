@@ -1,9 +1,11 @@
+// Automa modifications: N00b checksum operand boundaries and diagnostic channels.
 /**
  * Shared checksum utilities for md5sum, sha1sum, sha256sum
  * Uses WebCrypto API for SHA algorithms, pure JS for MD5
  */
 
 import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -152,13 +154,18 @@ export function createChecksumCommand(
       args: string[],
       ctx: RuntimeCommandContext,
     ): Promise<ExecResult> {
-      if (hasHelpFlag(args)) return showHelp(help);
+      const endOptions = args.indexOf("--");
+      if (hasHelpFlag(endOptions < 0 ? args : args.slice(0, endOptions)))
+        return showHelp(help);
 
       let check = false;
+      let parseOptions = true;
       const files: string[] = [];
 
       for (const arg of args) {
-        if (arg === "-c" || arg === "--check") check = true;
+        if (!parseOptions) files.push(arg);
+        else if (arg === "--") parseOptions = false;
+        else if (arg === "-c" || arg === "--check") check = true;
         else if (
           arg === "-b" ||
           arg === "-t" ||
@@ -183,7 +190,8 @@ export function createChecksumCommand(
         }
         try {
           return await ctx.fs.readFileBuffer(ctx.fs.resolvePath(ctx.cwd, file));
-        } catch {
+        } catch (error) {
+          rethrowFatalExecutionError(error);
           return null;
         }
       };
@@ -200,7 +208,10 @@ export function createChecksumCommand(
               ? decodeBytesToUtf8(ctx.stdin)
               : await ctx.fs
                   .readFile(ctx.fs.resolvePath(ctx.cwd, file))
-                  .catch(() => null);
+                  .catch((error) => {
+                    rethrowFatalExecutionError(error);
+                    return null;
+                  });
           if (content === null)
             return {
               stdout: "",
@@ -233,19 +244,20 @@ export function createChecksumCommand(
       }
 
       let output = "";
+      let stderr = "";
       let exitCode = 0;
 
       for (const file of files) {
         const content = await readBinary(file);
         if (content === null) {
-          output += `${name}: ${file}: No such file or directory\n`;
+          stderr += `${name}: ${file}: No such file or directory\n`;
           exitCode = 1;
           continue;
         }
         output += `${await computeHash(algorithm, content)}  ${file}\n`;
       }
 
-      return { stdout: output, stderr: "", exitCode };
+      return { stdout: output, stderr, exitCode };
     },
   };
 }
