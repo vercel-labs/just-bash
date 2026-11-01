@@ -4,6 +4,21 @@ import { Bash } from "../../Bash.js";
 // Nested sh/bash inherits only exported variables. Expectations verified
 // against bash 3.2 and 5.3; this does not cover other shell-state isolation.
 describe("nested sh/bash environment", () => {
+  it.each([
+    "env",
+    "env -i",
+  ])("exports explicit values through grandchildren with %s", async (wrapper) => {
+    const bash = new Bash({
+      env: { OUTER: "visible" },
+      files: { "/grandchild.sh": `printf '[%s] [%s]' "$NAME" "$PRIVATE"` },
+    });
+    const result = await bash.exec(
+      `PRIVATE=hidden; ${wrapper} NAME=value bash -c 'bash /grandchild.sh'`,
+    );
+    expect(result.stdout).toBe("[value] []");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
   describe("per-exec env with replaceEnv", () => {
     const opts = {
       env: { MARKER: "YES", PATH: "/usr/bin:/bin" },

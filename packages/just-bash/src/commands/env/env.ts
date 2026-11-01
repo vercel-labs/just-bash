@@ -74,7 +74,11 @@ export const envCommand: RuntimeCommand = {
     if (ignoreEnv) {
       newEnv = new Map(setVars);
     } else {
-      newEnv = new Map(ctx.env);
+      // Automa: replaceEnv exports its input; do not promote private shell
+      // variables while preserving the optional direct-command context contract.
+      newEnv = new Map(
+        ctx.exportedEnv ? Object.entries(ctx.exportedEnv) : ctx.env,
+      );
       // Unset variables
       for (const name of unsetVars) {
         newEnv.delete(name);
