@@ -66,6 +66,16 @@ overriding ignore-file exclusions, using the existing traversal and ignore
 manager. Raw `rg` retains native override behavior; hidden-file, explicit-file,
 type, sorting and execution-budget rules are unchanged.
 
+## MR 53 output-accounting follow-up
+
+Multi-level `break`/`continue` unwinds retain already-charged output credits,
+including redirected bytes. Output process-substitution writers carry credits
+for their actual captured descriptor writes; direct backing-file replacement
+cannot borrow unrelated output credits. Capture limits poison the shared
+invocation during `return`/`exit` cleanup, close the remaining descriptors and
+preserve successful writer output on the original control-flow error. These
+changes keep the existing resource thresholds and public package interfaces.
+
 ## Build, validation and future upgrades
 
 Use Node 22.19.0 and the root `packageManager` pnpm 10.33.2 with the frozen lockfile.

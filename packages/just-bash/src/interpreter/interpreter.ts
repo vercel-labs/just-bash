@@ -74,6 +74,7 @@ import {
   BraceExpansionError,
   BreakError,
   ContinueError,
+  ControlFlowError,
   ErrexitError,
   ExecutionAbortedError,
   ExecutionLimitError,
@@ -94,6 +95,7 @@ import { traceSimpleCommand } from "./helpers/xtrace.js";
 import { executePipeline as executePipelineHelper } from "./pipeline-execution.js";
 import {
   markProcessSubstitutions,
+  type ProcessSubstitutionWriterOutput,
   releaseProcessSubstitutions,
 } from "./process-substitution.js";
 import {
@@ -575,12 +577,45 @@ export class Interpreter {
     try {
       result = await this.executeCommandInner(node, stdin, stdinOwned);
     } catch (error) {
-      await releaseProcessSubstitutions(this.ctx, procSubMark).catch(
-        () => undefined,
-      );
+      let writer: ProcessSubstitutionWriterOutput;
+      try {
+        writer = await releaseProcessSubstitutions(this.ctx, procSubMark);
+      } catch (writerError) {
+        // Preserve an admitted fatal failure even if writer cleanup also fails.
+        if (
+          error instanceof ExecutionLimitError ||
+          error instanceof ExecutionAbortedError
+        )
+          throw error;
+        throw writerError;
+      }
+      if (error instanceof ControlFlowError) {
+        const combined = this.appendProcessWriterOutput(
+          {
+            stdout: error.stdout,
+            stderr: error.stderr,
+            exitCode: 0,
+            internalOutputAccounting: error.internalOutputAccounting,
+            internalOutputSegments: error.internalOutputSegments,
+          },
+          writer,
+        );
+        error.stdout = combined.stdout;
+        error.stderr = combined.stderr;
+        error.internalOutputAccounting =
+          combined.internalOutputAccounting ?? error.internalOutputAccounting;
+        error.internalOutputSegments = combined.internalOutputSegments;
+      }
       throw error;
     }
     const writer = await releaseProcessSubstitutions(this.ctx, procSubMark);
+    return this.appendProcessWriterOutput(result, writer);
+  }
+
+  private appendProcessWriterOutput(
+    result: ExecResult,
+    writer: ProcessSubstitutionWriterOutput,
+  ): ExecResult {
     if (!writer.stdout && !writer.stderr) return result;
     // A `>(cmd)` writer shares the shell's stdout and stderr in bash; append
     // what it produced once the outer command has finished writing to it.
@@ -591,6 +626,14 @@ export class Interpreter {
         : result.stdout,
       stdoutKind: writer.stdout ? "bytes" : result.stdoutKind,
       stderr: result.stderr + writer.stderr,
+      internalOutputAccounting: {
+        stdout:
+          (result.internalOutputAccounting?.stdout ?? 0) +
+          (writer.internalOutputAccounting?.stdout ?? 0),
+        stderr:
+          (result.internalOutputAccounting?.stderr ?? 0) +
+          (writer.internalOutputAccounting?.stderr ?? 0),
+      },
       internalOutputSegments: [
         ...outputSegments(result).map(
           ([stream, text, kind]): OutputSegment =>

@@ -1,5 +1,5 @@
 import type { ResourceLease } from "../execution-scope.js";
-import { encodeFdEntry, setFdEntry } from "./fd-table.js";
+import { setFdEntry } from "./fd-table.js";
 import { beginIsolatedShellState } from "./state-transaction.js";
 import { automaTrapChild } from "./traps.js";
 /**
@@ -31,18 +31,30 @@ import { automaTrapChild } from "./traps.js";
  */
 
 import type { ProcessSubstitutionPart, ScriptNode } from "../ast/types.js";
-import { latin1FromBytes, readBytesFrom, stdoutAsBytes } from "../encoding.js";
+import {
+  latin1FromBytes,
+  readBytesFrom,
+  stdoutAsBytes,
+  utf8ByteLength,
+} from "../encoding.js";
+import { ExecutionOutputAccumulator } from "../execution-output.js";
 import { InMemoryFs } from "../fs/in-memory-fs/index.js";
 import type {
   BufferEncoding,
   FileContent,
+  IFileSystem,
   MkdirOptions,
   RmOptions,
   WriteFileOptions,
 } from "../fs/interface.js";
 import { MountableFs } from "../fs/mountable-fs/index.js";
+import { _Proxy } from "../security/trusted-globals.js";
 import type { ExecResult } from "../types.js";
-import { ExecutionLimitError, ExitError } from "./errors.js";
+import {
+  ExecutionAbortedError,
+  ExecutionLimitError,
+  ExitError,
+} from "./errors.js";
 import { cloneArrays } from "./helpers/array.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -239,8 +251,101 @@ export interface ProcessSubstitutionEntry {
   direction: "input" | "output";
   /** Body to run with the written bytes as stdin (output substitutions only). */
   body: ScriptNode;
-  /** Automa: private stdout capture descriptor identity. */
-  automaCaptureProcessBytes?: string;
+  /** Automa: credits belong only to bytes routed into this capture. */
+  automaCaptureAccounting?: {
+    path: string;
+    bytes: number;
+    routing: number;
+    revision: number;
+    paths: Set<string>;
+  };
+}
+
+/** Keep direct backing-file replacement from inheriting stdout routing credits. */
+function captureFileSystem(
+  fs: IFileSystem,
+  capture: NonNullable<ProcessSubstitutionEntry["automaCaptureAccounting"]>,
+): IFileSystem {
+  const captured = async (path: string) => {
+    const resolved = fs.resolvePath("/", path);
+    if (capture.paths.has(resolved)) return true;
+    return capture.paths.has(await fs.realpath(resolved).catch(() => resolved));
+  };
+  const unchangedAlias = async (
+    path: string,
+    revision: number,
+    bytes: number,
+  ) => {
+    const resolved = fs.resolvePath("/", path);
+    if (resolved === capture.path) return false;
+    const [source, destination] = await Promise.all([
+      fs.stat(capture.path).catch(() => undefined),
+      fs.stat(resolved).catch(() => undefined),
+    ]);
+    // Some backends model link() by copying an entry. A replacement that
+    // provably detached the alias did not change the captured file's credits.
+    if (
+      source?.identity &&
+      destination?.identity &&
+      source.identity !== destination.identity
+    ) {
+      if (capture.revision === revision) capture.bytes = bytes;
+      capture.paths.delete(resolved);
+      return true;
+    }
+    return false;
+  };
+  return new _Proxy(fs, {
+    get(target, key) {
+      if (key === "constructor" || key === "prototype" || key === "__proto__")
+        throw new Error("Unsafe process capture filesystem property");
+      // @banned-pattern-ignore: gadget keys are rejected above; this is the
+      // fixed host filesystem capability, never a user-keyed data object.
+      const operation = Reflect.get(target, key, target);
+      if (typeof operation !== "function") return operation;
+      if (key === "writeFile" || key === "appendFile") {
+        return async (
+          path: string,
+          content: FileContent,
+          options?: WriteFileOptions | BufferEncoding,
+        ) => {
+          const routed = capture.routing > 0;
+          const affected = await captured(path);
+          const bytes = capture.bytes;
+          const revision = affected ? ++capture.revision : capture.revision;
+          if (affected && key === "writeFile") capture.bytes = 0;
+          await operation.call(target, path, content, options);
+          const unchanged =
+            affected && (await unchangedAlias(path, revision, bytes));
+          if (affected && !unchanged && routed) {
+            const encoding =
+              typeof options === "string" ? options : options?.encoding;
+            capture.bytes +=
+              typeof content === "string"
+                ? encoding === "binary" || encoding === "latin1"
+                  ? content.length
+                  : utf8ByteLength(content)
+                : content.byteLength;
+          }
+        };
+      }
+      if (["cp", "mv", "link", "symlink", "rm"].includes(String(key))) {
+        return async (...args: unknown[]) => {
+          const destination = String(args[key === "rm" ? 0 : 1]);
+          const affected = await captured(destination);
+          const bytes = capture.bytes;
+          const revision = affected ? ++capture.revision : capture.revision;
+          if (affected) capture.bytes = 0;
+          const alias = key === "link" && (await captured(String(args[0])));
+          const result = await operation.apply(target, args);
+          if (affected) await unchangedAlias(destination, revision, bytes);
+          if (alias) capture.paths.add(fs.resolvePath("/", destination));
+          return result;
+        };
+      }
+      return operation.bind(target);
+    },
+  });
 }
 
 function liveEntries(ctx: InterpreterContext): ProcessSubstitutionEntry[] {
@@ -346,22 +451,28 @@ async function captureProcessBytes(
     );
   const fd = FIRST_FD - entries.length;
   const path = `${PROC_SUB_DIR}/${fd}`;
+  const accounting = {
+    path,
+    bytes: 0,
+    routing: 0,
+    revision: 0,
+    paths: new Set([path]),
+  };
   entries.push({
     fd,
     path,
     direction: "input",
     body,
-    automaCaptureProcessBytes: encodeFdEntry({
-      kind: "output",
-      path,
-      append: true,
-    }),
+    automaCaptureAccounting: accounting,
   });
+  let originalFs: IFileSystem | undefined;
   let restore: (() => void) | undefined;
   let lease: ResourceLease | undefined;
   let returned = false;
   try {
     await writeBackingFile(ctx, path, "");
+    originalFs = ctx.fs;
+    ctx.fs = captureFileSystem(originalFs, accounting);
     restore = beginIsolatedShellState(ctx.state);
     setFdEntry(ctx, 1, { kind: "output", path, append: true });
     ctx.state.closedStandardFds?.delete(1);
@@ -390,6 +501,13 @@ async function captureProcessBytes(
       stdout,
       stdoutKind: "bytes",
       stdoutEncoding: "binary",
+      // The private fd route charged these exact bytes before writing them.
+      // Routing stdout into the backing file removed its result-side credit;
+      // materialising it again must carry that credit, not charge it twice.
+      internalOutputAccounting: {
+        stdout: Math.min(size, accounting.bytes),
+        stderr: result.internalOutputAccounting?.stderr ?? 0,
+      },
       internalOutputSegments: [
         ["stdout", stdout, "bytes"],
         ...(result.internalOutputSegments ?? []).filter(
@@ -400,6 +518,7 @@ async function captureProcessBytes(
     };
   } finally {
     restore?.();
+    if (originalFs) ctx.fs = originalFs;
     await dropBackingFile(ctx, path);
     entries.pop();
     if (!returned) lease?.release();
@@ -471,10 +590,10 @@ export function markProcessSubstitutions(ctx: InterpreterContext): number {
 }
 
 /** Output produced by `>(cmd)` writers drained at the end of a command. */
-export interface ProcessSubstitutionWriterOutput {
-  stdout: string;
-  stderr: string;
-}
+export type ProcessSubstitutionWriterOutput = Pick<
+  ExecResult,
+  "stdout" | "stderr" | "internalOutputAccounting" | "internalOutputSegments"
+>;
 
 /** Nothing was drained. */
 const NO_WRITER_OUTPUT: ProcessSubstitutionWriterOutput = {
@@ -497,35 +616,54 @@ export async function releaseProcessSubstitutions(
   const entries = ctx.state.processSubstitutions;
   if (!entries || entries.length <= mark) return NO_WRITER_OUTPUT;
 
-  let stdout = "";
-  let stderr = "";
-  while (entries.length > mark) {
-    const entry = entries[entries.length - 1];
+  const output = new ExecutionOutputAccumulator(
+    ctx.executionScope,
+    "process substitution",
+  );
+  try {
+    while (entries.length > mark) {
+      const entry = entries[entries.length - 1];
 
-    // Read and drop while the entry is still registered: on the guarded
-    // /dev/fd mount only live descriptors may be removed.
-    let written = "";
-    if (entry.direction === "output") {
-      try {
-        written = latin1FromBytes(await readBytesFrom(ctx.fs, entry.path));
-      } catch {
-        // Backing file already gone - nothing was written.
+      // Read and drop while the entry is still registered: on the guarded
+      // /dev/fd mount only live descriptors may be removed.
+      let written = "";
+      if (entry.direction === "output") {
+        try {
+          written = latin1FromBytes(await readBytesFrom(ctx.fs, entry.path));
+        } catch {
+          // Backing file already gone - nothing was written.
+        }
+      }
+      await dropBackingFile(ctx, entry.path);
+      entries.pop();
+
+      // Run the writer only after the descriptor is gone, so a body that throws
+      // (an execution limit, say) cannot leave the entry or its file behind.
+      if (entry.direction === "output") {
+        const result = await captureProcessBytes(ctx, entry.body, written);
+        try {
+          output.appendResult(result);
+        } finally {
+          result.captureRelease();
+        }
       }
     }
-    await dropBackingFile(ctx, entry.path);
-    entries.pop();
-
-    // Run the writer only after the descriptor is gone, so a body that throws
-    // (an execution limit, say) cannot leave the entry or its file behind.
-    if (entry.direction === "output") {
-      const result = await captureProcessBytes(ctx, entry.body, written);
-      try {
-        stdout += latin1FromBytes(stdoutAsBytes(result));
-        stderr += result.stderr;
-      } finally {
-        result.captureRelease();
-      }
+    return output.build(0);
+  } catch (error) {
+    output.prependTo(error);
+    // A direct capture limit must poison the shared execution just like a
+    // budget-originated failure, even while unwinding return/break/exit.
+    if (
+      error instanceof ExecutionLimitError ||
+      error instanceof ExecutionAbortedError
+    )
+      ctx.executionScope.poisonAfterAbort(error);
+    throw error;
+  } finally {
+    // A failed writer must not leave its siblings live or execute them later.
+    while (entries.length > mark) {
+      await dropBackingFile(ctx, entries[entries.length - 1].path);
+      entries.pop();
     }
   }
-  return { stdout, stderr };
 }

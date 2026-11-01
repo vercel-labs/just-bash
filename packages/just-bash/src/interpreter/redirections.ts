@@ -1206,16 +1206,35 @@ export async function applyRedirections(
   writeErrorCommand = "bash",
   omitShellPrefix = false,
 ): Promise<ExecResult> {
+  const captureEntries = ctx.state.processSubstitutions?.filter(
+    (entry) => entry.automaCaptureAccounting,
+  );
+  const captureFor = async (sink: RedirectSink) => {
+    const path =
+      sink.kind === "file"
+        ? sink.path
+        : sink.kind === "descriptor" &&
+            (sink.source.entry.kind === "output" ||
+              sink.source.entry.kind === "readwrite")
+          ? sink.source.entry.path
+          : undefined;
+    if (!path) return undefined;
+    const resolved = await ctx.fs.realpath(path).catch(() => path);
+    return captureEntries?.find(
+      (entry) =>
+        entry.automaCaptureAccounting?.paths.has(path) ||
+        entry.automaCaptureAccounting?.paths.has(resolved),
+    )?.automaCaptureAccounting;
+  };
+  const captures = captureEntries?.length
+    ? {
+        stdout: await captureFor(outputRoutes.stdout),
+        stderr: await captureFor(outputRoutes.stderr),
+      }
+    : undefined;
   // Output redirected away from the caller still consumes the shared budget.
   // Unredirected pipeline output is charged once at the pipeline boundary.
-  if (
-    hasRedirections ||
-    ctx.state.processSubstitutions?.some(
-      (entry) =>
-        entry.automaCaptureProcessBytes !== undefined &&
-        entry.automaCaptureProcessBytes === ctx.state.fileDescriptors?.get(1),
-    )
-  ) {
+  if (hasRedirections || captures?.stdout || captures?.stderr) {
     result = ctx.executionScope.accountResult(result, "redirection");
   }
   let { stdout, stderr, exitCode } = result;
@@ -1281,35 +1300,41 @@ export async function applyRedirections(
       const sink = stream === "stdout" ? fd1Sink : fd2Sink;
       const encoding = kind === "bytes" ? "binary" : "utf8";
       if (!content) continue;
-      switch (sink.kind) {
-        case "live-stdout":
-          stdout += content;
-          routed.push(["stdout", content, kind]);
-          break;
-        case "live-stderr":
-          stderr += content;
-          routed.push(["stderr", content, kind]);
-          break;
-        case "file":
-          if (written.has(sink))
-            await ctx.fs.appendFile(sink.path, content, encoding);
-          else await deliverToFile(sink, content, encoding);
-          written.add(sink);
-          break;
-        case "descriptor": {
-          const updatedEntry = await writeFdEntry(
-            ctx,
-            sink.source.entry,
-            sink.source.descriptors,
-            content,
-            encoding,
-          );
-          if (updatedEntry) sink.source.entry = updatedEntry;
-          break;
+      const capture = captures?.[stream];
+      if (capture) capture.routing++;
+      try {
+        switch (sink.kind) {
+          case "live-stdout":
+            stdout += content;
+            routed.push(["stdout", content, kind]);
+            break;
+          case "live-stderr":
+            stderr += content;
+            routed.push(["stderr", content, kind]);
+            break;
+          case "file":
+            if (written.has(sink))
+              await ctx.fs.appendFile(sink.path, content, encoding);
+            else await deliverToFile(sink, content, encoding);
+            written.add(sink);
+            break;
+          case "descriptor": {
+            const updatedEntry = await writeFdEntry(
+              ctx,
+              sink.source.entry,
+              sink.source.descriptors,
+              content,
+              encoding,
+            );
+            if (updatedEntry) sink.source.entry = updatedEntry;
+            break;
+          }
+          case "invalid-output":
+          case "discard":
+            break;
         }
-        case "invalid-output":
-        case "discard":
-          break;
+      } finally {
+        if (capture) capture.routing--;
       }
     }
   }

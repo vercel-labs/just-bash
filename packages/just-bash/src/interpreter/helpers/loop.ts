@@ -87,41 +87,53 @@ function handleLoopErrorInner(
   parts?: OutputSegment[],
 ): LoopErrorResult {
   if (error instanceof BreakError) {
-    stdout += error.stdout;
-    stderr += error.stderr;
     // Only propagate if levels > 1 AND we're not at the outermost loop
     // Per bash docs: "If n is greater than the number of enclosing loops,
     // the last enclosing loop is exited"
     if (error.levels > 1 && loopDepth > 1) {
       error.levels--;
-      error.stdout = stdout;
-      error.stderr = stderr;
-      return { action: "rethrow", stdout, stderr, error };
+      prependOutputFrom(error, {
+        stdout,
+        stderr,
+        internalOutputSegments: parts,
+      });
+      return {
+        action: "rethrow",
+        stdout: error.stdout,
+        stderr: error.stderr,
+        error,
+      };
     }
     return {
       action: "break",
-      stdout,
-      stderr,
+      stdout: stdout + error.stdout,
+      stderr: stderr + error.stderr,
       exitCode: BREAK_CONTINUE_STATUS,
     };
   }
 
   if (error instanceof ContinueError) {
-    stdout += error.stdout;
-    stderr += error.stderr;
     // Only propagate if levels > 1 AND we're not at the outermost loop
     // Per bash docs: "If n is greater than the number of enclosing loops,
     // the last enclosing loop is resumed"
     if (error.levels > 1 && loopDepth > 1) {
       error.levels--;
-      error.stdout = stdout;
-      error.stderr = stderr;
-      return { action: "rethrow", stdout, stderr, error };
+      prependOutputFrom(error, {
+        stdout,
+        stderr,
+        internalOutputSegments: parts,
+      });
+      return {
+        action: "rethrow",
+        stdout: error.stdout,
+        stderr: error.stderr,
+        error,
+      };
     }
     return {
       action: "continue",
-      stdout,
-      stderr,
+      stdout: stdout + error.stdout,
+      stderr: stderr + error.stderr,
       exitCode: BREAK_CONTINUE_STATUS,
     };
   }
