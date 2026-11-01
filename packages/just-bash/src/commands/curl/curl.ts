@@ -1,3 +1,4 @@
+// Automa modifications: N00b binary uploads and visible partial header output.
 /**
  * curl - Transfer data from or to a server
  *
@@ -131,25 +132,20 @@ async function prepareRequestBody(
   // Handle -T/--upload-file
   if (options.uploadFile) {
     const filePath = ctx.fs.resolvePath(ctx.cwd, options.uploadFile);
-    const content = await ctx.fs.readFile(filePath);
-    return { body: content };
+    const content = await ctx.fs.readFileBuffer(filePath);
+    return { body: new Uint8Array(content) };
   }
 
   // Handle -F/--form multipart data
   if (options.formFields.length > 0) {
-    const fileContents = new Map<string, string>();
+    const fileContents = new Map<string, Uint8Array>();
 
     // Read any file references
     for (const field of options.formFields) {
       if (field.value.startsWith("@") || field.value.startsWith("<")) {
         const filePath = ctx.fs.resolvePath(ctx.cwd, field.value.slice(1));
-        try {
-          const content = await ctx.fs.readFile(filePath);
-          fileContents.set(field.value.slice(1), content);
-        } catch {
-          // File not found, use empty string
-          fileContents.set(field.value.slice(1), "");
-        }
+        const content = await ctx.fs.readFileBuffer(filePath);
+        fileContents.set(field.value.slice(1), content);
       }
     }
 
@@ -337,6 +333,7 @@ export const curlCommand: RuntimeCommand = {
 
     // Normalize URL - add https:// if no protocol
     let url = options.url;
+    let dumpedHeaders = "";
     if (!url.match(/^https?:\/\//)) {
       url = `https://${url}`;
     }
@@ -401,6 +398,7 @@ export const curlCommand: RuntimeCommand = {
         }
       }
       headerBlock += finalHeaderBlock;
+      dumpedHeaders = options.dumpHeader === "-" ? headerBlock : "";
 
       // -D/--dump-header FILE writes headers even when -f fails the transfer
       // (real curl still dumps 4xx/5xx response headers).
@@ -430,7 +428,9 @@ export const curlCommand: RuntimeCommand = {
       // so building it first would stringify the whole response body just to
       // throw the string away — a full UTF-16 copy of the payload on top of the
       // bytes we write out. Skip buildOutput entirely on that path.
-      const writesToFile = Boolean(options.outputFile || options.useRemoteName);
+      const writesToFile =
+        options.outputFile !== "-" &&
+        Boolean(options.outputFile || options.useRemoteName);
       const skipStdoutBody = writesToFile && !options.verbose;
       let output = skipStdoutBody ? "" : buildOutput(options, result, url);
 
@@ -503,7 +503,12 @@ export const curlCommand: RuntimeCommand = {
       const showErr = !options.silent || options.showError;
       const stderr = showErr ? `curl: (${exitCode}) ${message}\n` : "";
 
-      return { stdout: "", stderr, exitCode };
+      return {
+        stdout: dumpedHeaders,
+        stderr,
+        exitCode,
+        stdoutKind: dumpedHeaders ? "bytes" : undefined,
+      };
     }
   },
 };

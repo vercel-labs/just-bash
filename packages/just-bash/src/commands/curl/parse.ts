@@ -1,3 +1,4 @@
+// Automa modification: N00b redirects require explicit -L.
 /**
  * Option parsing for curl command
  */
@@ -87,7 +88,7 @@ export function parseOptions(args: string[]): CurlOptions | ExecResult {
     silent: false,
     showError: false,
     failSilently: false,
-    followRedirects: true,
+    followRedirects: false,
     verbose: false,
   };
 
