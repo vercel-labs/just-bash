@@ -1,3 +1,4 @@
+// Automa modifications: N00b xargs flags and parallel output isolation.
 import { decodeBytesToUtf8 } from "../../encoding.js";
 import { ExecutionOutputAccumulator } from "../../execution-output.js";
 import type { ExecutionScope } from "../../execution-scope.js";
@@ -75,6 +76,25 @@ function splitWhitespaceBounded(input: string, maxItems: number): string[] {
   return items;
 }
 
+// Normalize only xargs options; command arguments must remain byte-for-byte intact.
+function normalizeAttachedOptions(args: string[]): string[] {
+  const normalized: string[] = [];
+  let options = true;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    const attached = options && arg.match(/^-([InLPd])(.+)$/s);
+    if (attached) normalized.push(`-${attached[1]}`, attached[2]);
+    else if (options && /^-[InLPd]$/.test(arg)) {
+      normalized.push(arg);
+      if (i + 1 < args.length) normalized.push(args[++i]);
+    } else {
+      normalized.push(arg);
+      if (!arg.startsWith("-") || arg === "--") options = false;
+    }
+  }
+  return normalized;
+}
+
 export const xargsCommand: RuntimeCommand = {
   name: "xargs",
 
@@ -82,6 +102,7 @@ export const xargsCommand: RuntimeCommand = {
     args: string[],
     ctx: RuntimeCommandContext,
   ): Promise<ExecResult> {
+    args = normalizeAttachedOptions(args);
     if (hasHelpFlag(args)) {
       return showHelp(xargsHelp);
     }
@@ -89,6 +110,7 @@ export const xargsCommand: RuntimeCommand = {
     let replaceStr: string | null = null;
     let delimiter: string | null = null;
     let maxArgs: number | null = null;
+    let maxLines: number | null = null;
     let maxProcs: number | null = null;
     let nullSeparator = false;
     let verbose = false;
@@ -98,7 +120,25 @@ export const xargsCommand: RuntimeCommand = {
     // Parse xargs options
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
-      if (arg === "-I" && i + 1 < args.length) {
+      if (arg === "--") {
+        commandStart = i + 1;
+        break;
+      } else if (arg === "-L") {
+        const value = args[++i] ?? "";
+        maxLines = Number(value);
+        if (
+          !/^\d+$/.test(value) ||
+          !Number.isSafeInteger(maxLines) ||
+          maxLines < 1
+        ) {
+          return {
+            stdout: "",
+            stderr: `xargs: invalid number for -L: '${value}'\n`,
+            exitCode: 1,
+          };
+        }
+        commandStart = i + 1;
+      } else if (arg === "-I" && i + 1 < args.length) {
         replaceStr = args[++i];
         commandStart = i + 1;
       } else if (arg === "-d" && i + 1 < args.length) {
@@ -217,7 +257,14 @@ export const xargsCommand: RuntimeCommand = {
       }
     } else {
       // Default: split on whitespace and trim
-      items = splitWhitespaceBounded(stdinText, maxArrayElements);
+      items =
+        replaceStr !== null
+          ? splitExactBounded(
+              stdinText.replace(/\n$/, ""),
+              "\n",
+              maxArrayElements,
+            ).map((line) => line.replace(/^[ \t]+/, ""))
+          : splitWhitespaceBounded(stdinText, maxArrayElements);
     }
 
     if (items.length === 0) {
@@ -331,7 +378,10 @@ export const xargsCommand: RuntimeCommand = {
         // Run in parallel batches
         for (let i = 0; i < cmdArgsList.length; i += maxProcs) {
           const batch = cmdArgsList.slice(i, i + maxProcs);
-          const results = await Promise.all(batch.map(executeCommand));
+          const runBatch = () => Promise.all(batch.map(executeCommand));
+          const results = ctx.executionScope?.automaOutput
+            ? await ctx.executionScope.automaOutput.buffer(runBatch)
+            : await runBatch();
           for (const result of results) {
             appendOutput(result);
             if (result.exitCode !== 0) {
@@ -351,7 +401,36 @@ export const xargsCommand: RuntimeCommand = {
       }
     };
 
-    if (replaceStr !== null) {
+    if (maxLines !== null) {
+      const lines = splitExactBounded(
+        stdinText.replace(/[ \t]+\n/g, " "),
+        "\n",
+        maxArrayElements,
+      ).filter((line) => line.trim());
+      const batches: string[][] = [];
+      let elements = 0;
+      for (let i = 0; i < lines.length; i += maxLines) {
+        if (batches.length >= Math.min(maxArrayElements, maxIterations)) {
+          throw new ExecutionLimitError(
+            `xargs: iteration limit exceeded (${maxIterations})`,
+            "iterations",
+          );
+        }
+        const words = splitWhitespaceBounded(
+          lines.slice(i, i + maxLines).join("\n"),
+          maxArrayElements,
+        );
+        elements += command.length + words.length;
+        if (elements > maxArrayElements) {
+          throw new ExecutionLimitError(
+            `xargs: array element limit exceeded (${maxArrayElements})`,
+            "array_elements",
+          );
+        }
+        batches.push([...command, ...words]);
+      }
+      await runCommands(batches);
+    } else if (replaceStr !== null) {
       // -I mode: run command once per item, replacing replaceStr in each argument
       if (items.length > maxIterations) {
         throw new ExecutionLimitError(
