@@ -518,22 +518,32 @@ export const sedCommand: RuntimeCommand = {
               ? backupSuffix.replaceAll("*", file)
               : file + backupSuffix;
             const backupPath = ctx.fs.resolvePath(ctx.cwd, backup);
-            await withDefenseContext("in-place backup write", async () => {
-              const original = await ctx.fs.readFileBuffer(filePath);
-              let symlink = false;
-              try {
-                symlink = (await ctx.fs.lstat(backupPath)).isSymbolicLink;
-              } catch (error) {
-                rethrowFatalExecutionError(error);
-                const missing =
-                  error instanceof Error &&
-                  (("code" in error && error.code === "ENOENT") ||
-                    error.message.startsWith("ENOENT"));
-                if (!missing) throw error;
-              }
-              if (symlink) await ctx.fs.rm(backupPath);
-              await ctx.fs.writeFile(backupPath, original);
-            });
+            const original = await withDefenseContext(
+              "in-place backup input read",
+              () => ctx.fs.readFileBuffer(filePath),
+            );
+            let symlink = false;
+            try {
+              symlink = (
+                await withDefenseContext("in-place backup stat", () =>
+                  ctx.fs.lstat(backupPath),
+                )
+              ).isSymbolicLink;
+            } catch (error) {
+              rethrowFatalExecutionError(error);
+              const missing =
+                error instanceof Error &&
+                (("code" in error && error.code === "ENOENT") ||
+                  error.message.startsWith("ENOENT"));
+              if (!missing) throw error;
+            }
+            if (symlink)
+              await withDefenseContext("in-place backup unlink", () =>
+                ctx.fs.rm(backupPath),
+              );
+            await withDefenseContext("in-place backup write", () =>
+              ctx.fs.writeFile(backupPath, original),
+            );
           }
           await withDefenseContext("in-place output write", () =>
             ctx.fs.writeFile(filePath, result.output),
