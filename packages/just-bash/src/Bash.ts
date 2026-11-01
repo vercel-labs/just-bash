@@ -1,3 +1,4 @@
+import { createOutputSink } from "./output-sink.js";
 /**
  * Bash - Bash Shell Environment
  *
@@ -279,6 +280,11 @@ export interface BashOptions {
 }
 
 export interface ExecOptions {
+  /** Automa: ordered terminal output flushed at command boundaries. */
+  onOutput?: (
+    text: string,
+    stream: "stdout" | "stderr",
+  ) => void | Promise<void>;
   /**
    * Environment variables to set for this execution only.
    * These are merged with the current environment and restored after execution.
@@ -633,6 +639,10 @@ export class Bash {
     options?: ExecOptions,
   ): Promise<BashExecResult> {
     const executionScope = new ExecutionScope(this.limits, options?.signal);
+    executionScope.automaOutput = createOutputSink(
+      executionScope,
+      options?.onOutput,
+    );
     let result: BashExecResult;
     try {
       result = await this.execInScope(
@@ -666,6 +676,18 @@ export class Bash {
         exitCode: 126,
       };
     }
+    if (executionScope.failure instanceof ExecutionLimitError) {
+      finalResult = {
+        ...finalResult,
+        exitCode: 126,
+        executionFailure: {
+          kind: "resource-limit",
+          limitType: executionScope.failure.limitType,
+          message: executionScope.failure.message,
+        },
+      };
+    }
+    finalResult = await executionScope.automaOutput.finish(finalResult);
     return commandLine.trim() ? this.logResult(finalResult) : finalResult;
   }
 
@@ -758,12 +780,13 @@ export class Bash {
 
       // Decide which variables the new shell exports to its children. Only
       // the host API and new shells treat `env` as the environment; internal
-      // callers such as `env` and `time` pass the full variable map and keep
+      // callers such as `time` pass the full variable map and keep
       // the caller's export set, including prefix exports (`FOO=x time ...`).
       // The set is always copied so an `export` in one exec does not leak
       // into later ones. Only valid names can be exported: nested sh/bash
       // passes positional parameters ("0", "#", "1") through env.
-      const exportsEnv = !callerState || effectiveOptions.newShell;
+      // Automa: replaceEnv (env command) supplies an exported environment.
+      const exportsEnv = !callerState || replaceEnv;
       const exportedVars =
         replaceEnv && exportsEnv
           ? new Set<string>()
@@ -931,6 +954,7 @@ export class Bash {
             stderr: error.stderr,
             exitCode: error.exitCode,
             internalOutputAccounting: error.internalOutputAccounting,
+            internalOutputSegments: error.internalOutputSegments,
             env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
           });
         }
@@ -963,11 +987,18 @@ export class Bash {
         // ExecutionLimitError is thrown when our conservative limits are exceeded
         // (command count, recursion depth, loop iterations)
         if (error instanceof ExecutionLimitError) {
+          executionScope.poisonAfterAbort(error);
           return finishResult({
             stdout: error.stdout,
             stderr: sanitizeErrorMessage(error.stderr),
             exitCode: ExecutionLimitError.EXIT_CODE,
+            executionFailure: {
+              kind: "resource-limit",
+              limitType: error.limitType,
+              message: error.message,
+            },
             internalOutputAccounting: error.internalOutputAccounting,
+            internalOutputSegments: error.internalOutputSegments,
             env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
           });
         }
@@ -1021,11 +1052,18 @@ export class Bash {
         });
       }
       if (error instanceof ExecutionLimitError) {
+        executionScope.poisonAfterAbort(error);
         return finishResult({
           stdout: error.stdout,
           stderr: sanitizeErrorMessage(error.stderr),
           exitCode: ExecutionLimitError.EXIT_CODE,
+          executionFailure: {
+            kind: "resource-limit",
+            limitType: error.limitType,
+            message: error.message,
+          },
           internalOutputAccounting: error.internalOutputAccounting,
+          internalOutputSegments: error.internalOutputSegments,
           env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
         });
       }
@@ -1211,7 +1249,10 @@ function normalizeScript(script: string): string {
 /**
  * Strict UTF-8 decoder that throws on invalid byte sequences.
  */
-const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+const strictUtf8Decoder = new TextDecoder("utf-8", {
+  fatal: true,
+  ignoreBOM: true,
+});
 
 /**
  * Decode a binary string (latin1, where each char = one byte) to UTF-8.

@@ -1,3 +1,5 @@
+import { outputSegments, outputSize } from "../execution-output.js";
+import type { OutputSegment } from "../types.js";
 /**
  * Redirection Handling
  *
@@ -92,31 +94,6 @@ const CHARACTER_DEVICES = new Set([
   "/dev/random",
   "/dev/urandom",
 ]);
-
-/**
- * Determine the encoding to use for file I/O.
- * If all character codes are <= 127 (ASCII), use binary encoding (byte data).
- * Otherwise, use UTF-8 encoding (text with non-ASCII characters).
- * For performance, only check the first 8KB of large strings.
- *
- * Characters in the 128-255 range (e.g. Latin-1: Ü Ö Ä é è) need UTF-8
- * encoding because their multi-byte UTF-8 representation would be lost
- * if stored as single bytes via binary encoding.
- */
-function getFileEncoding(content: string): "binary" | "utf8" {
-  const SAMPLE_SIZE = 8192; // 8KB
-
-  // For large strings, only check the first 8KB
-  // This is sufficient since UTF-8 files typically have Unicode chars early
-  const checkLength = Math.min(content.length, SAMPLE_SIZE);
-
-  for (let i = 0; i < checkLength; i++) {
-    if (content.charCodeAt(i) > 127) {
-      return "utf8";
-    }
-  }
-  return "binary";
-}
 
 type PreparedDupSource = {
   kind: "entry";
@@ -232,6 +209,7 @@ const getDupSource = (
 const PATH_ERROR_REASONS = new Map([
   ["ENOENT", "No such file or directory"],
   ["ENOTDIR", "Not a directory"],
+  ["EISDIR", "Is a directory"],
 ]);
 
 async function openOutputEntry(
@@ -268,7 +246,10 @@ async function openOutputEntry(
     else await ctx.fs.writeFile(filePath, "", "binary");
   } catch (error) {
     const code = getErrorCode(error);
-    const reason = code && PATH_ERROR_REASONS.get(code);
+    const reason =
+      !(error instanceof Error && error.name === "AbortError") &&
+      code &&
+      PATH_ERROR_REASONS.get(code);
     if (reason)
       return { error: makeResult("", `bash: ${target}: ${reason}\n`, 1) };
     if (!handleWriteError) throw error;
@@ -1159,7 +1140,10 @@ export async function routeControlFlowError(
         : 0;
   const routed = await applyRedirections(
     ctx,
-    makeResult(error.stdout, error.stderr, exitCode),
+    {
+      ...makeResult(error.stdout, error.stderr, exitCode),
+      internalOutputSegments: error.internalOutputSegments,
+    },
     redirections.length > 0,
     prepared.outputRoutes,
   );
@@ -1225,10 +1209,18 @@ export async function applyRedirections(
 ): Promise<ExecResult> {
   // Output redirected away from the caller still consumes the shared budget.
   // Unredirected pipeline output is charged once at the pipeline boundary.
-  if (hasRedirections) {
+  if (
+    hasRedirections ||
+    ctx.state.processSubstitutions?.some(
+      (entry) =>
+        entry.automaCaptureProcessBytes !== undefined &&
+        entry.automaCaptureProcessBytes === ctx.state.fileDescriptors?.get(1),
+    )
+  ) {
     result = ctx.executionScope.accountResult(result, "redirection");
   }
   let { stdout, stderr, exitCode } = result;
+  const routed: OutputSegment[] = [];
 
   // Determine encoding for stdout writes from the producer's explicit
   // shape rather than guessing at the bytes:
@@ -1243,15 +1235,6 @@ export async function applyRedirections(
   // mostly-ASCII output that happens to have its first non-ASCII char
   // past the window, picking binary and truncating downstream codepoints
   // to their low byte.
-  const stdoutIsBytes =
-    result.stdoutKind === "bytes" ||
-    (result.stdoutKind === undefined && result.stdoutEncoding === "binary");
-  const stdoutFileEncoding: "binary" | "utf8" = stdoutIsBytes
-    ? "binary"
-    : "utf8";
-  const getStdoutEncoding = (_content: string): "binary" | "utf8" =>
-    stdoutFileEncoding;
-
   const { stdout: fd1Sink, stderr: fd2Sink } = outputRoutes;
 
   // Deliver content still held in the streams to each fd's final sink.
@@ -1289,70 +1272,50 @@ export async function applyRedirections(
         await ctx.fs.writeFile(sink.path, content, encoding);
       }
     };
-    if (
-      fd1Sink === fd2Sink &&
-      (fd1Sink.kind === "file" || fd1Sink.kind === "descriptor")
-    ) {
-      // stdout-then-stderr order, not the command's temporal write order:
-      // ExecResult accumulates the two streams separately, so interleaving
-      // is not recorded anywhere in the interpreter. This matches the
-      // convention of the live-stream merge (`stdout += stderr`) used for a
-      // bare `2>&1`.
-      const combined = pendingStdout + pendingStderr;
-      if (combined !== "") {
-        if (fd1Sink.kind === "file") {
-          await deliverToFile(fd1Sink, combined, getStdoutEncoding(combined));
-        } else {
+    // Automa: route each original text/byte segment through the resolved fd sinks.
+    const written = new Set<object>();
+    for (const [stream, content, kind] of outputSegments({
+      ...result,
+      stdout: pendingStdout,
+      stderr: pendingStderr,
+    })) {
+      const sink = stream === "stdout" ? fd1Sink : fd2Sink;
+      const encoding = kind === "bytes" ? "binary" : "utf8";
+      if (!content) continue;
+      switch (sink.kind) {
+        case "live-stdout":
+          stdout += content;
+          routed.push(["stdout", content, kind]);
+          break;
+        case "live-stderr":
+          stderr += content;
+          routed.push(["stderr", content, kind]);
+          break;
+        case "file":
+          if (written.has(sink))
+            await ctx.fs.appendFile(sink.path, content, encoding);
+          else await deliverToFile(sink, content, encoding);
+          written.add(sink);
+          break;
+        case "descriptor":
           await writeFdEntry(
             ctx,
-            fd1Sink.source.entry,
-            fd1Sink.source.descriptors,
-            combined,
-            getStdoutEncoding(combined),
+            sink.source.entry,
+            sink.source.descriptors,
+            content,
+            encoding,
           );
-        }
-      }
-    } else {
-      for (const [content, sink, isStdout] of [
-        [pendingStdout, fd1Sink, true],
-        [pendingStderr, fd2Sink, false],
-      ] as const) {
-        if (content === "") {
-          continue;
-        }
-        switch (sink.kind) {
-          case "live-stdout":
-            stdout += content;
-            break;
-          case "live-stderr":
-            stderr += content;
-            break;
-          case "file":
-            await deliverToFile(
-              sink,
-              content,
-              isStdout ? getStdoutEncoding(content) : getFileEncoding(content),
-            );
-            break;
-          case "descriptor":
-            await writeFdEntry(
-              ctx,
-              sink.source.entry,
-              sink.source.descriptors,
-              content,
-              isStdout ? getStdoutEncoding(content) : getFileEncoding(content),
-            );
-            break;
-          case "invalid-output":
-            break;
-          case "discard":
-            break;
-        }
+          break;
+        case "invalid-output":
+        case "discard":
+          break;
       }
     }
   }
 
   const finalResult = makeResult(stdout, stderr, exitCode);
+  ctx.executionScope.automaOutput?.route(result, fd1Sink, fd2Sink);
+  finalResult.internalOutputSegments = routed;
   // Preserve the upstream's stdout shape through the redirection layer so
   // the next stage (pipeline glue, output boundary) can tell bytes-shaped
   // output from text-shaped output. Both the new `stdoutKind` field and
@@ -1374,8 +1337,8 @@ export async function applyRedirections(
     const priorTotal =
       (result.internalOutputAccounting?.stdout ?? 0) +
       (result.internalOutputAccounting?.stderr ?? 0);
-    const finalStdoutBytes = utf8ByteLength(finalResult.stdout);
-    const finalStderrBytes = utf8ByteLength(finalResult.stderr);
+    const finalStdoutBytes = outputSize(finalResult, "stdout");
+    const finalStderrBytes = outputSize(finalResult, "stderr");
     const inheritedStdout = Math.min(finalStdoutBytes, priorTotal);
     finalResult.internalOutputAccounting = {
       stdout: inheritedStdout,

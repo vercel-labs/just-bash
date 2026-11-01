@@ -1,3 +1,4 @@
+import { outputSegments } from "../execution-output.js";
 /**
  * Interpreter - AST Execution Engine
  *
@@ -260,22 +261,16 @@ export class Interpreter {
         // ExitError always propagates up to terminate the script
         // This allows 'eval exit 42' and 'source exit.sh' to exit properly
         if (error instanceof ExitError) {
-          error.prependOutput(output.stdout, output.stderr);
+          output.prependTo(error);
           throw error;
         }
         // PosixFatalError terminates the script in POSIX mode
         // POSIX 2.8.1: special builtins cause shell to exit on error
         if (error instanceof PosixFatalError) {
-          output.append(
-            "stdout",
-            error.stdout,
-            error.internalOutputAccounting.stdout,
-          );
-          output.append(
-            "stderr",
-            error.stderr,
-            error.internalOutputAccounting.stderr,
-          );
+          output.appendResult({
+            ...error,
+            exitCode: "exitCode" in error ? Number(error.exitCode) : 0,
+          });
           exitCode = error.exitCode;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -291,16 +286,10 @@ export class Interpreter {
           throw error;
         }
         if (error instanceof ErrexitError) {
-          output.append(
-            "stdout",
-            error.stdout,
-            error.internalOutputAccounting.stdout,
-          );
-          output.append(
-            "stderr",
-            error.stderr,
-            error.internalOutputAccounting.stderr,
-          );
+          output.appendResult({
+            ...error,
+            exitCode: "exitCode" in error ? Number(error.exitCode) : 0,
+          });
           exitCode = error.exitCode;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -311,16 +300,10 @@ export class Interpreter {
           };
         }
         if (error instanceof NounsetError) {
-          output.append(
-            "stdout",
-            error.stdout,
-            error.internalOutputAccounting.stdout,
-          );
-          output.append(
-            "stderr",
-            error.stderr,
-            error.internalOutputAccounting.stderr,
-          );
+          output.appendResult({
+            ...error,
+            exitCode: "exitCode" in error ? Number(error.exitCode) : 0,
+          });
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -331,16 +314,10 @@ export class Interpreter {
           };
         }
         if (error instanceof BadSubstitutionError) {
-          output.append(
-            "stdout",
-            error.stdout,
-            error.internalOutputAccounting.stdout,
-          );
-          output.append(
-            "stderr",
-            error.stderr,
-            error.internalOutputAccounting.stderr,
-          );
+          output.appendResult({
+            ...error,
+            exitCode: "exitCode" in error ? Number(error.exitCode) : 0,
+          });
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -353,16 +330,10 @@ export class Interpreter {
         // ArithmeticError in expansion (e.g., echo $((42x))) - the command fails
         // but the script continues execution. This matches bash behavior.
         if (error instanceof ArithmeticError) {
-          output.append(
-            "stdout",
-            error.stdout,
-            error.internalOutputAccounting.stdout,
-          );
-          output.append(
-            "stderr",
-            error.stderr,
-            error.internalOutputAccounting.stderr,
-          );
+          output.appendResult({
+            ...error,
+            exitCode: "exitCode" in error ? Number(error.exitCode) : 0,
+          });
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -372,16 +343,10 @@ export class Interpreter {
         // BraceExpansionError for invalid ranges (e.g., {z..A} mixed case) - the command fails
         // but the script continues execution. This matches bash behavior.
         if (error instanceof BraceExpansionError) {
-          output.append(
-            "stdout",
-            error.stdout,
-            error.internalOutputAccounting.stdout,
-          );
-          output.append(
-            "stderr",
-            error.stderr,
-            error.internalOutputAccounting.stderr,
-          );
+          output.appendResult({
+            ...error,
+            exitCode: "exitCode" in error ? Number(error.exitCode) : 0,
+          });
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -392,7 +357,7 @@ export class Interpreter {
         if (error instanceof BreakError || error instanceof ContinueError) {
           // If we're inside a loop, propagate the error up (for eval/source inside loops)
           if (this.ctx.state.loopDepth > 0) {
-            error.prependOutput(output.stdout, output.stderr);
+            output.prependTo(error);
             throw error;
           }
           // Outside loops (level exceeded loop depth), silently continue with next statement
@@ -402,7 +367,7 @@ export class Interpreter {
         }
         // Handle return - prepend accumulated output before propagating
         if (error instanceof ReturnError) {
-          error.prependOutput(output.stdout, output.stderr);
+          output.prependTo(error);
           throw error;
         }
         throw error;
@@ -522,7 +487,7 @@ export class Interpreter {
       !innerWasSafe
     ) {
       const error = new ErrexitError(exitCode);
-      error.prependOutput(statementOutput.stdout, statementOutput.stderr);
+      statementOutput.prependTo(error);
       throw error;
     }
 
@@ -546,6 +511,18 @@ export class Interpreter {
     stdin: string,
     stdinOwned = false,
   ): Promise<ExecResult> {
+    const execute = () =>
+      this.executeCommandWithSubstitutions(node, stdin, stdinOwned);
+    return this.ctx.executionScope.automaOutput
+      ? this.ctx.executionScope.automaOutput.capture(this.ctx, node, execute)
+      : execute();
+  }
+
+  private async executeCommandWithSubstitutions(
+    node: CommandNode,
+    stdin: string,
+    stdinOwned: boolean,
+  ): Promise<ExecResult> {
     const procSubMark = markProcessSubstitutions(this.ctx);
     let result: ExecResult;
     try {
@@ -567,6 +544,10 @@ export class Interpreter {
         : result.stdout,
       stdoutKind: writer.stdout ? "bytes" : result.stdoutKind,
       stderr: result.stderr + writer.stderr,
+      internalOutputSegments: [
+        ...outputSegments(result),
+        ...outputSegments({ ...writer, stdoutKind: "bytes" }),
+      ],
     };
   }
 

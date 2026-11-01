@@ -1,3 +1,6 @@
+import type { ResourceLease } from "../execution-scope.js";
+import { encodeFdEntry, setFdEntry } from "./fd-table.js";
+import { beginIsolatedShellState } from "./state-transaction.js";
 /**
  * Process Substitution
  *
@@ -235,6 +238,8 @@ export interface ProcessSubstitutionEntry {
   direction: "input" | "output";
   /** Body to run with the written bytes as stdin (output substitutions only). */
   body: ScriptNode;
+  /** Automa: private stdout capture descriptor identity. */
+  automaCaptureProcessBytes?: string;
 }
 
 function liveEntries(ctx: InterpreterContext): ProcessSubstitutionEntry[] {
@@ -294,6 +299,8 @@ async function runBody(
         stdout: error.stdout,
         stderr: error.stderr,
         exitCode: error.exitCode,
+        internalOutputAccounting: error.internalOutputAccounting,
+        internalOutputSegments: error.internalOutputSegments,
       };
     }
     throw error;
@@ -320,6 +327,80 @@ async function runBody(
   return result;
 }
 
+/** Automa: capture stdout before text aggregation, through the original FD table. */
+async function captureProcessBytes(
+  ctx: InterpreterContext,
+  body: ScriptNode,
+  stdin: string | undefined,
+): Promise<ExecResult & { captureRelease(): void }> {
+  const entries = liveEntries(ctx);
+  if (entries.length >= MAX_LIVE)
+    throw new ExecutionLimitError(
+      `Process substitution limit exceeded (${MAX_LIVE} concurrent)`,
+      "file_descriptors",
+    );
+  const fd = FIRST_FD - entries.length;
+  const path = `${PROC_SUB_DIR}/${fd}`;
+  entries.push({
+    fd,
+    path,
+    direction: "input",
+    body,
+    automaCaptureProcessBytes: encodeFdEntry({
+      kind: "output",
+      path,
+      append: true,
+    }),
+  });
+  let restore: (() => void) | undefined;
+  let lease: ResourceLease | undefined;
+  let returned = false;
+  try {
+    await writeBackingFile(ctx, path, "");
+    restore = beginIsolatedShellState(ctx.state);
+    setFdEntry(ctx, 1, { kind: "output", path, append: true });
+    ctx.state.closedStandardFds?.delete(1);
+    ctx.executionScope.throwIfAborted("process substitution");
+    const result = await runBody(ctx, body, stdin);
+    ctx.executionScope.throwIfAborted("process substitution");
+    const size = (await ctx.fs.stat(path)).size;
+    if (!Number.isSafeInteger(size) || size < 0)
+      throw new Error("Invalid process substitution capture size");
+    if (size > ctx.limits.maxStringLength)
+      throw new ExecutionLimitError(
+        `process substitution: string length limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+        "string_length",
+      );
+    lease = ctx.executionScope.reserveBytes(
+      size * 3,
+      "process substitution capture",
+    );
+    const stdout = latin1FromBytes(await readBytesFrom(ctx.fs, path));
+    ctx.executionScope.throwIfAborted("process substitution");
+    if (stdout.length !== size)
+      throw new Error("Process substitution capture changed while reading");
+    returned = true;
+    return {
+      ...result,
+      stdout,
+      stdoutKind: "bytes",
+      stdoutEncoding: "binary",
+      internalOutputSegments: [
+        ["stdout", stdout, "bytes"],
+        ...(result.internalOutputSegments ?? []).filter(
+          (part) => part[0] === "stderr",
+        ),
+      ],
+      captureRelease: () => lease?.release(),
+    };
+  } finally {
+    restore?.();
+    await dropBackingFile(ctx, path);
+    entries.pop();
+    if (!returned) lease?.release();
+  }
+}
+
 /**
  * Expand a process substitution to the path the outer command should use.
  */
@@ -327,48 +408,54 @@ export async function openProcessSubstitution(
   ctx: InterpreterContext,
   part: ProcessSubstitutionPart,
 ): Promise<string> {
-  const entries = liveEntries(ctx);
-  if (entries.length >= MAX_LIVE) {
-    throw new ExecutionLimitError(
-      `Process substitution limit exceeded (${MAX_LIVE} concurrent)`,
-      "file_descriptors",
-    );
-  }
-
-  let bytes = "";
-  if (part.direction === "input") {
-    const result = await runBody(ctx, part.body, undefined);
-    // The body runs during expansion, so its stderr belongs to the shell at
-    // expansion time - later redirections on the outer command must not
-    // capture it (same rule as command substitution).
-    if (result.stderr) {
-      ctx.state.expansionStderr =
-        (ctx.state.expansionStderr || "") + result.stderr;
-    }
-    bytes = latin1FromBytes(stdoutAsBytes(result));
-    if (bytes.length > ctx.limits.maxStringLength) {
+  let captureRelease: (() => void) | undefined;
+  try {
+    const entries = liveEntries(ctx);
+    if (entries.length >= MAX_LIVE) {
       throw new ExecutionLimitError(
-        `process substitution: string length limit exceeded (${ctx.limits.maxStringLength} bytes)`,
-        "string_length",
+        `Process substitution limit exceeded (${MAX_LIVE} concurrent)`,
+        "file_descriptors",
       );
     }
-  }
 
-  // The descriptor is numbered only after the body has run, so a nested
-  // substitution inside it gets - and releases - this same number first, just
-  // as bash reuses a descriptor once its writer is reaped. Registering the
-  // entry before the write is what makes the backing path writable on the
-  // guarded /dev/fd mount; a failed write must not leave it registered.
-  const fd = FIRST_FD - entries.length;
-  const path = `${PROC_SUB_DIR}/${fd}`;
-  entries.push({ fd, path, direction: part.direction, body: part.body });
-  try {
-    await writeBackingFile(ctx, path, bytes);
-  } catch (error) {
-    entries.pop();
-    throw error;
+    let bytes = "";
+    if (part.direction === "input") {
+      const result = await captureProcessBytes(ctx, part.body, undefined);
+      captureRelease = result.captureRelease;
+      // The body runs during expansion, so its stderr belongs to the shell at
+      // expansion time - later redirections on the outer command must not
+      // capture it (same rule as command substitution).
+      if (result.stderr) {
+        ctx.state.expansionStderr =
+          (ctx.state.expansionStderr || "") + result.stderr;
+      }
+      bytes = latin1FromBytes(stdoutAsBytes(result));
+      if (bytes.length > ctx.limits.maxStringLength) {
+        throw new ExecutionLimitError(
+          `process substitution: string length limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+          "string_length",
+        );
+      }
+    }
+
+    // The descriptor is numbered only after the body has run, so a nested
+    // substitution inside it gets - and releases - this same number first, just
+    // as bash reuses a descriptor once its writer is reaped. Registering the
+    // entry before the write is what makes the backing path writable on the
+    // guarded /dev/fd mount; a failed write must not leave it registered.
+    const fd = FIRST_FD - entries.length;
+    const path = `${PROC_SUB_DIR}/${fd}`;
+    entries.push({ fd, path, direction: part.direction, body: part.body });
+    try {
+      await writeBackingFile(ctx, path, bytes);
+    } catch (error) {
+      entries.pop();
+      throw error;
+    }
+    return path;
+  } finally {
+    captureRelease?.();
   }
-  return path;
 }
 
 /**
@@ -426,9 +513,13 @@ export async function releaseProcessSubstitutions(
     // Run the writer only after the descriptor is gone, so a body that throws
     // (an execution limit, say) cannot leave the entry or its file behind.
     if (entry.direction === "output") {
-      const result = await runBody(ctx, entry.body, written);
-      stdout += latin1FromBytes(stdoutAsBytes(result));
-      stderr += result.stderr;
+      const result = await captureProcessBytes(ctx, entry.body, written);
+      try {
+        stdout += latin1FromBytes(stdoutAsBytes(result));
+        stderr += result.stderr;
+      } finally {
+        result.captureRelease();
+      }
     }
   }
   return { stdout, stderr };

@@ -246,6 +246,23 @@ export class GlobExpander {
       results = await this.expandSimple(normalizedPattern);
     }
 
+    // Automa: a trailing slash requires a directory and retains the slash.
+    if (pattern.endsWith("/")) {
+      const directories: string[] = [];
+      for (const path of results) {
+        this.checkOpsLimit();
+        try {
+          if (
+            (await this.fs.stat(this.fs.resolvePath(this.cwd, path)))
+              .isDirectory
+          )
+            directories.push(path.endsWith("/") ? path : `${path}/`);
+        } catch (error) {
+          if (error instanceof ExecutionLimitError) throw error;
+        }
+      }
+      results = directories;
+    }
     // Apply GLOBIGNORE filtering
     return this.filterGlobignore(results);
   }

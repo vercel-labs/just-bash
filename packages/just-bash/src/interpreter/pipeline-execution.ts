@@ -1,3 +1,4 @@
+import { outputSegments } from "../execution-output.js";
 /**
  * Pipeline Execution
  *
@@ -5,11 +6,7 @@
  */
 
 import type { CommandNode, PipelineNode } from "../ast/types.js";
-import {
-  encodeUtf8ToBytes,
-  latin1FromBytes,
-  stdoutAsBytes,
-} from "../encoding.js";
+import { encodeUtf8ToBytes, latin1FromBytes } from "../encoding.js";
 import { relinquishPipelineOutput } from "../execution-scope.js";
 import { _performanceNow } from "../security/trusted-globals.js";
 import type { ExecResult } from "../types.js";
@@ -95,12 +92,20 @@ export async function executePipeline(
     const outputCheckpoint = ctx.executionScope.outputBytesUsed;
     try {
       ctx.state.commandCount = ctx.executionScope.chargeCommand();
-      result = await executeCommand(command, stdin, !isFirst);
+      const execute = () => executeCommand(command, stdin, !isFirst);
+      result = ctx.executionScope.automaOutput
+        ? await ctx.executionScope.automaOutput.pipeline(
+            !isLast,
+            node.pipeStderr?.[i] ?? false,
+            execute,
+          )
+        : await execute();
     } catch (error) {
       // BadSubstitutionError should fail the command but not abort the script
       if (error instanceof BadSubstitutionError) {
         result = {
           stdout: error.stdout,
+          internalOutputSegments: error.internalOutputSegments,
           stderr: error.stderr,
           exitCode: 1,
         };
@@ -111,6 +116,7 @@ export async function executePipeline(
       else if (error instanceof ExitError && node.commands.length > 1) {
         result = {
           stdout: error.stdout,
+          internalOutputSegments: error.internalOutputSegments,
           stderr: error.stderr,
           exitCode: error.exitCode,
         };
@@ -119,6 +125,7 @@ export async function executePipeline(
         // The pipeline's exit code comes from the last command (or pipefail)
         result = {
           stdout: error.stdout,
+          internalOutputSegments: error.internalOutputSegments,
           stderr: error.stderr,
           exitCode: error.exitCode,
         };
@@ -207,12 +214,19 @@ export async function executePipeline(
         // |& pipes stderr + stdout. stderr is text (no producer marks it
         // binary today); UTF-8 encode it before concatenating with the
         // stdout bytes so the merged stream is byte-shaped end-to-end.
-        stdin =
-          latin1FromBytes(encodeUtf8ToBytes(result.stderr)) +
-          latin1FromBytes(stdoutAsBytes(result));
+        stdin = outputSegments(result)
+          .map(([, text, kind]) =>
+            kind === "bytes" ? text : latin1FromBytes(encodeUtf8ToBytes(text)),
+          )
+          .join("");
       } else {
         // Regular | only pipes stdout; stderr goes to the parent
-        stdin = latin1FromBytes(stdoutAsBytes(result));
+        stdin = outputSegments(result)
+          .filter(([stream]) => stream === "stdout")
+          .map(([, text, kind]) =>
+            kind === "bytes" ? text : latin1FromBytes(encodeUtf8ToBytes(text)),
+          )
+          .join("");
         accumulatedStderr += result.stderr;
         accumulatedStderrBytes += result.internalOutputAccounting?.stderr ?? 0;
       }
@@ -233,6 +247,10 @@ export async function executePipeline(
     lastResult = {
       ...lastResult,
       stderr: accumulatedStderr + lastResult.stderr,
+      internalOutputSegments: [
+        ["stderr", accumulatedStderr, "text"],
+        ...outputSegments(lastResult),
+      ],
       internalOutputAccounting: {
         stdout: lastResult.internalOutputAccounting?.stdout ?? 0,
         stderr:

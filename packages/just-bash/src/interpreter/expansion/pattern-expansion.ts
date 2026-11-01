@@ -1,3 +1,4 @@
+import { commandSubstitutionText } from "../../execution-output.js";
 /**
  * Pattern Expansion
  *
@@ -139,7 +140,7 @@ async function executeCommandSubstitutionFromString(
         (ctx.state.expansionStderr || "") + result.stderr;
     }
     ctx.state.bashPid = savedBashPid;
-    return result.stdout.replace(/\n+$/, "");
+    return commandSubstitutionText(result).replace(/\n+$/, "");
   } catch (error) {
     ctx.state.env = savedEnv;
     ctx.state.arrays = savedArrays;
@@ -151,7 +152,7 @@ async function executeCommandSubstitutionFromString(
     }
     if (error instanceof ExitError) {
       recordSubstitutionExit(ctx.state, error.exitCode);
-      return error.stdout?.replace(/\n+$/, "") ?? "";
+      return commandSubstitutionText(error).replace(/\n+$/, "") ?? "";
     }
     return "";
   }

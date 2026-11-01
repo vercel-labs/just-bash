@@ -12,7 +12,16 @@ export interface FeatureCoverageWriter {
   hit(feature: string): void;
 }
 
+// Automa modifications: preserve ordered output and typed host failures.
+export type OutputSegment = ["stdout" | "stderr", string, ("text" | "bytes")?];
 export interface ExecResult {
+  output?: string;
+  internalOutputSegments?: OutputSegment[];
+  executionFailure?: {
+    kind: "resource-limit";
+    limitType: string;
+    message: string;
+  };
   stdout: string;
   stderr: string;
   exitCode: number;

@@ -1,3 +1,6 @@
+import { outputSegments } from "../../execution-output.js";
+import type { OutputSegment } from "../../types.js";
+import { ControlFlowError } from "../errors.js";
 /**
  * Loop Error Handling Helpers
  *
@@ -19,6 +22,7 @@ import { getErrorMessage } from "./errors.js";
 export type LoopAction = "break" | "continue" | "rethrow" | "error";
 
 export interface LoopErrorResult {
+  internalOutputSegments?: OutputSegment[];
   action: LoopAction;
   stdout: string;
   stderr: string;
@@ -75,7 +79,7 @@ export function adoptLoopStatus(
  * @param loopDepth - Current loop nesting depth from ctx.state.loopDepth
  * @returns Result indicating what action the loop should take
  */
-export function handleLoopError(
+function handleLoopErrorInner(
   error: unknown,
   stdout: string,
   stderr: string,
@@ -139,4 +143,23 @@ export function handleLoopError(
     stderr: `${stderr}${message}\n`,
     exitCode: 1,
   };
+}
+
+// Automa: preserve temporal ordering through break/continue/return unwinds.
+export function handleLoopError(
+  error: unknown,
+  stdout: string,
+  stderr: string,
+  loopDepth: number,
+  parts?: OutputSegment[],
+): LoopErrorResult {
+  const combined = [
+    ...outputSegments({ stdout, stderr, internalOutputSegments: parts }),
+    ...(error instanceof ControlFlowError ? outputSegments(error) : []),
+  ];
+  const result = handleLoopErrorInner(error, stdout, stderr, loopDepth);
+  result.internalOutputSegments = combined;
+  if (result.error instanceof ControlFlowError)
+    result.error.internalOutputSegments = combined;
+  return result;
 }

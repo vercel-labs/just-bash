@@ -1,3 +1,4 @@
+import { commandSubstitutionText } from "../execution-output.js";
 /**
  * Word Expansion
  *
@@ -843,7 +844,7 @@ async function expandPart(
         }
         ctx.state.bashPid = savedBashPid;
         ctx.substitutionDepth = savedDepth;
-        const output = result.stdout.replace(/\n+$/, "");
+        const output = commandSubstitutionText(result).replace(/\n+$/, "");
         // Check string length limit for command substitution output
         checkStringLength(
           output,
@@ -871,7 +872,7 @@ async function expandPart(
             ctx.state.expansionStderr =
               (ctx.state.expansionStderr || "") + error.stderr;
           }
-          const exitOutput = error.stdout.replace(/\n+$/, "");
+          const exitOutput = commandSubstitutionText(error).replace(/\n+$/, "");
           // Check string length limit for command substitution output
           checkStringLength(
             exitOutput,
