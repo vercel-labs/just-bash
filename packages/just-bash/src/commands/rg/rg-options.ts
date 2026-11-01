@@ -52,6 +52,8 @@ export interface RgOptions {
   globs: string[];
   iglobs: string[]; // case-insensitive globs
   globCaseInsensitive: boolean; // make all globs case-insensitive
+  // Automa private adapter: recursive glob selection cannot override ignore files.
+  automaRespectIgnore: boolean;
   types: string[];
   typesNot: string[];
   typeAdd: string[]; // runtime type additions (name:pattern)
@@ -115,6 +117,7 @@ export function createDefaultOptions(): RgOptions {
     globs: [],
     iglobs: [],
     globCaseInsensitive: false,
+    automaRespectIgnore: false,
     types: [],
     typesNot: [],
     typeAdd: [],

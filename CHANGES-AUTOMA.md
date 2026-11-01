@@ -60,6 +60,12 @@ Automa still owns its COW filesystem, revocable network/crypto capabilities,
 Worker lifecycle and browser integration tests. Nothing here grants native
 process execution or enables Python/JavaScript in Automa's Shell.
 
+Pi's selected find/grep tools pass the private `--automa-respect-ignore` option
+when filtering recursive results by glob. It prevents a positive glob from
+overriding ignore-file exclusions, using the existing traversal and ignore
+manager. Raw `rg` retains native override behavior; hidden-file, explicit-file,
+type, sorting and execution-budget rules are unchanged.
+
 ## Build, validation and future upgrades
 
 Use Node 22.19.0 and the root `packageManager` pnpm 10.33.2 with the frozen lockfile.

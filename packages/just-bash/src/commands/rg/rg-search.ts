@@ -765,7 +765,10 @@ async function walkDirectory(
         entryAbsolutePath,
         isDirectory,
       );
-      if (gitignoreIgnored && globOverride !== true) {
+      if (
+        gitignoreIgnored &&
+        (options.automaRespectIgnore || globOverride !== true)
+      ) {
         continue;
       }
 
@@ -853,6 +856,10 @@ function shouldIncludeFile(
   const filename = relativePath.split("/").pop() || relativePath;
 
   const globOverride = matchGlobOverride(relativePath, options);
+  // Automa's selected search tools promise ignore-aware glob filtering. Keep
+  // native rg's override default and its existing single traversal otherwise.
+  if (options.automaRespectIgnore && gitignore?.matches(absolutePath, false))
+    return false;
   if (globOverride !== undefined) return globOverride;
   if (
     options.globs.some((glob) => !glob.startsWith("!")) ||

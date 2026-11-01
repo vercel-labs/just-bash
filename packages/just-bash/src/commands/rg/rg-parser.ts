@@ -166,6 +166,13 @@ const VALUE_OPTS: ValueOptDef[] = [
 type BoolFlagHandler = (options: RgOptions) => void;
 
 const BOOL_FLAGS = new Map<string, BoolFlagHandler>([
+  // Automa private adapter; not part of ripgrep's public CLI contract.
+  [
+    "--automa-respect-ignore",
+    (o) => {
+      o.automaRespectIgnore = true;
+    },
+  ],
   [
     "--help",
     (o) => {
