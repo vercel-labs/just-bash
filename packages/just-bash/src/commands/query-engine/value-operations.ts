@@ -65,7 +65,6 @@ export function deepEqual(a: QueryValue, b: QueryValue): boolean {
     }
     const key = frame.keys[frame.index++];
     if (!Object.hasOwn(frame.b as object, key)) return false;
-    // @banned-pattern-ignore: keys are own properties; object prototypes are never consulted.
     stack.push({
       a: (frame.a as Record<string | number, QueryValue>)[key],
       b: (frame.b as Record<string | number, QueryValue>)[key],

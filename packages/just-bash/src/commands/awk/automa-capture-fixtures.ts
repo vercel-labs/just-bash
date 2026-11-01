@@ -1,5 +1,10 @@
 // Automa modifications: independent GNU awk 5.2.1 golden outputs.
-export const cases = [
+export const cases: Array<{
+  id: string;
+  program: string;
+  stdin: string;
+  expected: { exitCode: number; stdout: string; stderr: string };
+}> = [
   {
     id: "match-captures-clear-and-miss",
     program:

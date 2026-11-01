@@ -22,7 +22,9 @@ describe("JQ Execution Limits", () => {
       const result = await env.exec(`jq -n '"12345678" * 9'`);
 
       expect(result.stdout).toBe("");
-      expect(result.stderr).toBe("bash: string size limit exceeded (64 bytes)\n");
+      expect(result.stderr).toBe(
+        "bash: string size limit exceeded (64 bytes)\n",
+      );
       expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     });
 

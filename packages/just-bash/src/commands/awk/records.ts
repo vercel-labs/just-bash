@@ -13,7 +13,10 @@ export interface RecordStream {
   rs?: string;
   regex?: UserRegex;
 }
-export const countCharacters = (text: string, end = text.length): number => {
+export const countCharacters = (
+  text: string,
+  end: number = text.length,
+): number => {
   let count = 0;
   for (let i = 0; i < end; count++) {
     const point = text.codePointAt(i) ?? 0;

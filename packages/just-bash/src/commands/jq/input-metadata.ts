@@ -20,7 +20,7 @@ export function evaluateInputMetadata(
   parse: JsonStreamParser,
   append: AppendValues,
   jsonLimits: JsonLimits,
-) {
+): QueryValue[] {
   const values: QueryValue[] = [];
   const metadata = (source: string | null, line: number) => {
     options.inputMetadata = { filename: source, line };
