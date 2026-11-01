@@ -1,3 +1,4 @@
+// Automa modification: GNU missing-operand diagnostics.
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
@@ -16,7 +17,7 @@ import { Bash } from "../../Bash.js";
  * report an unmatched pattern as a missing file. They differ only in the exit
  * status for the missing case (GNU 2, BSD 1) and in the wording of the
  * diagnostic; just-bash follows GNU on the status and keeps its own existing
- * `ls: NAME: No such file or directory` wording.
+ * `ls: cannot access 'NAME': No such file or directory` wording.
  */
 
 const BRACKET_NAME = "report [ ref:!00D2 ].pdf";
@@ -63,7 +64,7 @@ describe("ls treats operands as literal paths", () => {
     const bash = new Bash({ cwd: "/w", files: { "/w/a.txt": "" } });
     const result = await bash.exec("ls 'nope*'");
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe("ls: nope*: No such file or directory\n");
+    expect(result.stderr).toBe("ls: cannot access 'nope*': No such file or directory\n");
     expect(result.exitCode).toBe(2);
   });
 
@@ -74,7 +75,7 @@ describe("ls treats operands as literal paths", () => {
     });
     const result = await bash.exec("ls 'sub/*'");
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe("ls: sub/*: No such file or directory\n");
+    expect(result.stderr).toBe("ls: cannot access 'sub/*': No such file or directory\n");
     expect(result.exitCode).toBe(2);
   });
 });

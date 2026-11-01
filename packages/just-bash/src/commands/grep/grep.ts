@@ -1,3 +1,4 @@
+// Automa modifications: N00b source migration of shell compatibility patches.
 import { decodeBytesToUtf8 } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
@@ -214,6 +215,10 @@ export const grepCommand: RuntimeCommand = {
 
       if (parseOptions && arg === "--help") {
         return showHelp(grepHelp);
+      }
+
+      if (parseOptions && /^--colou?r(?:=(?:always|auto|never))?$/.test(arg)) {
+        continue; // The sandbox has no terminal colour output.
       }
 
       if (parseOptions && arg.startsWith("-") && arg !== "-") {
@@ -1047,7 +1052,7 @@ async function expandRecursiveWithTypes(
         useTraversalOperation(budget);
         if (entry.name.startsWith(".")) continue; // Skip hidden files
 
-        const entryPath = path === "." ? entry.name : `${path}/${entry.name}`;
+        const entryPath = `${path}/${entry.name}`;
         await expandRecursiveWithTypes(
           entryPath,
           ctx,
@@ -1067,7 +1072,7 @@ async function expandRecursiveWithTypes(
         useTraversalOperation(budget);
         if (entry.startsWith(".")) continue; // Skip hidden files
 
-        const entryPath = path === "." ? entry : `${path}/${entry}`;
+        const entryPath = `${path}/${entry}`;
         await expandRecursiveWithTypes(
           entryPath,
           ctx,

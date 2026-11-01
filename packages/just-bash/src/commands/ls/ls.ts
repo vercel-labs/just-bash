@@ -1,3 +1,4 @@
+// Automa modifications: N00b source migration of shell compatibility patches.
 import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { utf8ByteLength } from "../../encoding.js";
 import type { FsStat } from "../../fs/interface.js";
@@ -299,7 +300,7 @@ export const lsCommand: RuntimeCommand = {
         stderr = appendLsOutput(
           ctx,
           stderr,
-          `ls: ${path}: No such file or directory\n`,
+          `ls: cannot access '${path}': No such file or directory\n`,
         );
         exitCode = 2;
       }
@@ -773,7 +774,7 @@ async function listPath(
     }
     return {
       stdout: "",
-      stderr: `ls: ${path}: No such file or directory\n`,
+      stderr: `ls: cannot access '${path}': No such file or directory\n`,
       exitCode: 2,
     };
   }

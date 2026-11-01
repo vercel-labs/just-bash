@@ -134,14 +134,12 @@ describe("paste command", () => {
   });
 
   describe("stdin", () => {
-    it("should error when no files specified", async () => {
-      const env = createEnv();
-      const result = await env.exec("echo -e 'a\\nb\\nc' | paste");
-      expect(result.stdout).toBe("");
-      expect(result.stderr).toBe(
-        "usage: paste [-s] [-d delimiters] file ...\n",
-      );
-      expect(result.exitCode).toBe(1);
+    // Automa modification: GNU paste defaults to stdin.
+    it("should read stdin when no files specified", async () => {
+      const result = await createEnv().exec("echo -e 'a\\nb\\nc' | paste");
+      expect(result.stdout).toBe("a\nb\nc\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
     });
 
     it("should read from stdin with explicit -", async () => {

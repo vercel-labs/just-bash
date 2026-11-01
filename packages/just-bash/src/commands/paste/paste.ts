@@ -1,3 +1,4 @@
+// Automa modifications: N00b source migration of shell compatibility patches.
 import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { decodeBytesToUtf8, utf8ByteLength } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
@@ -72,14 +73,8 @@ export const pasteCommand: RuntimeCommand = {
       );
     }
 
-    // If no files specified, show usage error (matches BSD/macOS behavior)
-    if (files.length === 0) {
-      return {
-        stdout: "",
-        stderr: "usage: paste [-s] [-d delimiters] file ...\n",
-        exitCode: 1,
-      };
-    }
+    // GNU paste reads stdin when there are no file operands.
+    if (files.length === 0) files.push("-");
 
     // Parse stdin into lines (will be distributed across multiple `-` args).
     // paste reads files as UTF-8 text; normalize stdin to the same shape so
