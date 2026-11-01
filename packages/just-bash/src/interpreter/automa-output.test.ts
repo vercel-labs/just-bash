@@ -4,6 +4,17 @@ import { Bash } from "../Bash.js";
 
 describe("Automa ordered terminal output", () => {
   it.each([
+    ["f(){ { printf a; printf b >&2; printf c; return; } 2>&1; }; f | cat", 0],
+    ["{ printf a; printf b >&2; printf c; exit 7; } 2>&1", 7],
+  ])("retains routed segments through a control-flow error: %s", async (script, status) => {
+    const result = await new Bash().exec(script);
+    expect(result.stdout).toBe("abc");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(status);
+    expect(result.output).toBe("abc");
+  });
+
+  it.each([
     ["printf a; printf b >&2; printf c", "abc"],
     ["{ printf a; printf b >&2; printf c; } 2>&1", "abc"],
     ["{ printf a; printf b >&2; printf c; } > /out 2>&1; cat /out", "abc"],

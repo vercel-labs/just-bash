@@ -1149,6 +1149,7 @@ export async function routeControlFlowError(
   );
   error.stdout = routed.stdout;
   error.stderr = routed.stderr;
+  error.internalOutputSegments = routed.internalOutputSegments;
   error.internalOutputAccounting = routed.internalOutputAccounting ?? {
     stdout: utf8ByteLength(routed.stdout),
     stderr: utf8ByteLength(routed.stderr),

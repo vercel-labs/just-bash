@@ -69,7 +69,7 @@ export class ExecutionOutputAccumulator {
       stdout: result.internalOutputAccounting?.stdout ?? 0,
       stderr: result.internalOutputAccounting?.stderr ?? 0,
     };
-    this.append("stdout", "");
+    this.append("stdout", "", Math.min(credit.stdout, 0));
     for (const [stream, text, kind] of outputSegments(result, stdout)) {
       const bytes = kind === "bytes" ? text.length : utf8ByteLength(text);
       const already = Math.min(credit[stream], bytes);

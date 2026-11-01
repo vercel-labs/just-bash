@@ -25,6 +25,7 @@ import type {
 } from "../ast/types.js";
 import {
   decodedTextFromResult,
+  encodeUtf8ToBytes,
   latin1FromBytes,
   stdoutAsBytes,
 } from "../encoding.js";
@@ -43,6 +44,7 @@ import type {
   CommandRegistry,
   ExecResult,
   FeatureCoverageWriter,
+  OutputSegment,
   TraceCallback,
 } from "../types.js";
 import { expandAlias as expandAliasHelper } from "./alias-expansion.js";
@@ -590,7 +592,18 @@ export class Interpreter {
       stdoutKind: writer.stdout ? "bytes" : result.stdoutKind,
       stderr: result.stderr + writer.stderr,
       internalOutputSegments: [
-        ...outputSegments(result),
+        ...outputSegments(result).map(
+          ([stream, text, kind]): OutputSegment =>
+            writer.stdout && stream === "stdout"
+              ? [
+                  stream,
+                  kind === "bytes"
+                    ? text
+                    : latin1FromBytes(encodeUtf8ToBytes(text)),
+                  "bytes",
+                ]
+              : [stream, text, kind],
+        ),
         ...outputSegments({ ...writer, stdoutKind: "bytes" }),
       ],
     };

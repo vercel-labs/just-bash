@@ -4,6 +4,25 @@ import { Bash } from "../Bash.js";
 import { expandBraceRange } from "./expansion/brace-range.js";
 
 describe("Automa shell byte boundaries", () => {
+  it.each([
+    "f(){ echo -n é; }; f >(printf X)",
+    "echo -n é 2> >(printf X)",
+    "echo -n é 2> >(printf X) | cat",
+    "f(){ echo -n é; }; { f >(printf X); } | cat",
+    "f(){ echo -n é; }; { f >(printf X); } > /tmp/mixed; cat /tmp/mixed",
+  ])("keeps text before a process writer byte stream: %s", async (script) => {
+    let observed = "";
+    const result = await new Bash().exec(script, {
+      onOutput: (text) => {
+        observed += text;
+      },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("éX");
+    expect(result.stderr).toBe("");
+    expect(result.output).toBe("éX");
+    expect(observed).toBe("éX");
+  });
   it("keeps ordered output through a redirected function return", async () => {
     const result = await new Bash().exec(
       "f(){ printf a; printf b >&2; printf c; return; }; f 2>&1",
