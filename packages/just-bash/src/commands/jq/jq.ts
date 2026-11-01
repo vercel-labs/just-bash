@@ -1,3 +1,4 @@
+import { UndefinedQueryFunctionError } from "../query-engine/evaluator.js";
 /**
  * jq - RuntimeCommand-line JSON processor
  *
@@ -363,7 +364,8 @@ export const jqCommand: RuntimeCommand = {
         // become positional args instead of input files.
         positionalMode = "jsonargs";
       } else if (a === "-") files.push("-");
-      else if (a.startsWith("--")) return unknownOption("jq", a);
+      else if (a.startsWith("--"))
+        return { ...unknownOption("jq", a), exitCode: 2 };
       else if (a.startsWith("-")) {
         for (const c of a.slice(1)) {
           if (c === "R") rawInput = true;
@@ -380,7 +382,7 @@ export const jqCommand: RuntimeCommand = {
             /* ignored */
           } else if (c === "M") {
             /* ignored */
-          } else return unknownOption("jq", `-${c}`);
+          } else return { ...unknownOption("jq", `-${c}`), exitCode: 2 };
         }
       } else if (!filterSet) {
         // The first non-option token is always the filter, even when a
@@ -466,12 +468,15 @@ export const jqCommand: RuntimeCommand = {
       }));
     }
 
+    // Automa modifications: classify compilation by phase, never by user error text.
+    let compiled = false;
     try {
       const ast = parse(filter, {
         maxDepth: ctx.limits.maxQueryDepth,
         maxTokens: ctx.limits.maxQueryTokens,
         maxSourceLength: ctx.limits.maxStringLength,
       });
+      compiled = true;
       let values: QueryValue[] = [];
 
       const evalOptions: EvaluateOptions = {
@@ -607,12 +612,14 @@ export const jqCommand: RuntimeCommand = {
       }
       const output = formatted.join(separator);
 
-      const exitCode =
-        exitStatus &&
-        (values.length === 0 ||
-          values.every((v) => v === null || v === undefined || v === false))
-          ? 1
-          : 0;
+      const last = values[values.length - 1];
+      const exitCode = exitStatus
+        ? values.length === 0
+          ? 4
+          : last == null || last === false
+            ? 1
+            : 0
+        : 0;
 
       // jq emits text; the pipeline handles encoding.
       const stdoutText = output ? (joinOutput ? output : `${output}\n`) : "";
@@ -625,16 +632,9 @@ export const jqCommand: RuntimeCommand = {
       if (e instanceof SecurityViolationError) {
         throw e;
       }
-      if (e instanceof ExecutionLimitError) {
-        const message = sanitizeErrorMessage(e.message);
-        return {
-          stdout: "",
-          stderr: `jq: ${message}\n`,
-          exitCode: ExecutionLimitError.EXIT_CODE,
-        };
-      }
+      if (e instanceof ExecutionLimitError) throw e;
       const msg = sanitizeErrorMessage((e as Error).message);
-      if (msg.includes("Unknown function")) {
+      if (!compiled || e instanceof UndefinedQueryFunctionError) {
         return {
           stdout: "",
           stderr: `jq: error: ${msg}\n`,

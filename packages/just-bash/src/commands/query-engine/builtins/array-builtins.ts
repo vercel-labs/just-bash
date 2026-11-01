@@ -277,10 +277,13 @@ export function evalArrayBuiltin(
     }
 
     case "map": {
-      if (args.length === 0 || !Array.isArray(value)) return [null];
-      assertResultCapacity(ctx, 0, value.length);
+      // Automa modifications: map iterates object values as well as arrays.
+      if (args.length === 0 || !value || typeof value !== "object")
+        return [null];
+      const items = Array.isArray(value) ? value : Object.values(value);
+      assertResultCapacity(ctx, 0, items.length);
       const results: QueryValue[] = [];
-      for (const item of value) {
+      for (const item of items) {
         const mapped = evaluate(item, args[0], ctx);
         assertResultCapacity(ctx, results.length, mapped.length);
         for (const mappedValue of mapped) results.push(mappedValue);

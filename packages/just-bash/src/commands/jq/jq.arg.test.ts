@@ -176,12 +176,12 @@ describe("jq named-argument flags", () => {
       expect(Object.getPrototypeOf({})).toBe(Object.prototype);
     });
 
-    it("leaves other unknown long options unchanged", async () => {
+    it("uses jq usage status for other unknown long options", async () => {
       const env = new Bash();
       const result = await env.exec("jq -n --bogus '.'");
       expect(result.stdout).toBe("");
       expect(result.stderr).toBe("jq: unrecognized option '--bogus'\n");
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(2);
     });
   });
 });

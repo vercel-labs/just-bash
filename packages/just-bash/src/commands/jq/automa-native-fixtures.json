@@ -1,0 +1,941 @@
+{
+  "provenance": "Automa modifications: N00b migration of just-bash-jq-{functions,index-types,status,unicode}.test.mjs; recorded with jq-1.7",
+  "cases": [
+    {
+      "input": "{\"a\":[1,{\"b\":2}],\"c\":3}",
+      "command": "jq -c 'walk(if type == \"number\" then .+1 else . end)'",
+      "expected": {
+        "stdout": "{\"a\":[2,{\"b\":3}],\"c\":4}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "[1,2]",
+      "command": "jq -c 'walk(if type == \"number\" then (.,.+10) else . end)'",
+      "expected": {
+        "stdout": "[1,11,2,12]\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "{\"a\":1,\"b\":2}",
+      "command": "jq -c 'walk(if type == \"number\" then (.,.+10) else . end)'",
+      "expected": {
+        "stdout": "{\"a\":1,\"b\":2}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "[1,2]",
+      "command": "jq -c 'walk(if type == \"number\" then empty else . end)'",
+      "expected": {
+        "stdout": "[]\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "{\"a\":1,\"b\":2}",
+      "command": "jq -c 'walk(if type == \"number\" then empty else . end)'",
+      "expected": {
+        "stdout": "{}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "1",
+      "command": "jq -c 'walk((.,.+1))'",
+      "expected": {
+        "stdout": "1\n2\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "{\"b\":[\" a \",{\"n\":\" b \"}]}",
+      "command": "jq -c 'walk(if type == \"string\" then ascii_upcase else . end)'",
+      "expected": {
+        "stdout": "{\"b\":[\" A \",{\"n\":\" B \"}]}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "{\"a\":[1,2]}",
+      "command": "jq -c 'walk(if type == \"array\" then {sum:add} else . end)'",
+      "expected": {
+        "stdout": "{\"a\":{\"sum\":3}}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "null",
+      "command": "jq -c 'walk(.)'",
+      "expected": {
+        "stdout": "null\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "[]",
+      "command": "jq -c 'walk(.)'",
+      "expected": {
+        "stdout": "[]\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "{}",
+      "command": "jq -c 'walk(.)'",
+      "expected": {
+        "stdout": "{}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "1",
+      "command": "jq -c 'walk(empty)'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "null",
+      "command": "jq -c 'def walk($x): \"user\"; walk(\"x\")'",
+      "expected": {
+        "stdout": "\"user\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "1",
+      "command": "jq -c 'def f($x): $x; f(3)'",
+      "expected": {
+        "stdout": "3\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "1",
+      "command": "jq -c 'def f($x;$y): [$x,$y,.]; f((1,2);(3,4))'",
+      "expected": {
+        "stdout": "[1,3,1]\n[1,4,1]\n[2,3,1]\n[2,4,1]\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "1",
+      "command": "jq -c 'def f($x;$y): $x; f(empty;error(\"unreachable\"))'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "1",
+      "command": "jq -c 'def f(g): 2 | g; f(.)'",
+      "expected": {
+        "stdout": "2\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "2",
+      "command": "jq -c 'def f(g): g|g; f(.*2)'",
+      "expected": {
+        "stdout": "8\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "null",
+      "command": "jq -c '1 as $x | def f: $x; 2 as $x | f'",
+      "expected": {
+        "stdout": "1\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "null",
+      "command": "jq -c 'def g: \"outer\"; def f(g): g; f(g)'",
+      "expected": {
+        "stdout": "\"outer\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "null",
+      "command": "jq -c 'def walk($n): if $n < 3 then walk($n+1) else $n end; walk(0)'",
+      "expected": {
+        "stdout": "3\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "null",
+      "command": "jq -c 'def repeat($n): if $n > 0 then repeat($n-1) else \"done\" end; repeat(3)'",
+      "expected": {
+        "stdout": "\"done\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "[1,2]",
+      "command": "jq -c 'def map(f): [f]; map(.[]+1)'",
+      "expected": {
+        "stdout": "[2,3]\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "1",
+      "command": "jq -c 'def length: \"value\"; length'",
+      "expected": {
+        "stdout": "\"value\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "1",
+      "command": "jq -c 'def length($n): $n; [length(3),length]'",
+      "expected": {
+        "stdout": "[3,1]\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "1",
+      "command": "jq -c 'def input: \"custom\"; input'",
+      "expected": {
+        "stdout": "\"custom\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "null",
+      "command": "jq -c 'def input_filename: \"custom\"; input_filename'",
+      "expected": {
+        "stdout": "\"custom\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "null",
+      "command": "jq -c 'def f(x): [x,x]; f((1,2))'",
+      "expected": {
+        "stdout": "[1,2,1,2]\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "null",
+      "command": "jq -c 'def f($x;g): $x|g; f(3;.+2)'",
+      "expected": {
+        "stdout": "5\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "null",
+      "command": "jq -c '1 as $x | def f(g): 2 as $x | g; f($x)'",
+      "expected": {
+        "stdout": "1\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "null",
+      "command": "jq -c 'def select(g): [g]; select(1,2)'",
+      "expected": {
+        "stdout": "[1,2]\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "{\"children\":[{\"name\":\"one\",\"children\":[{\"name\":\"two\",\"children\":[]}]}]}",
+      "command": "jq -c 'def walk($prefix): .children[] | ($prefix + .name) as $next | $next, walk($next+\"/\"); walk(\"\")'",
+      "expected": {
+        "stdout": "\"one\"\n\"one/two\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "[1,2]",
+      "command": "jq -c 'def f(g): g; f(.[])'",
+      "expected": {
+        "stdout": "1\n2\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "null",
+      "command": "jq -c 'def f(g): 1; f(error(\"unused\"))'",
+      "expected": {
+        "stdout": "1\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "null",
+      "command": "jq -c 'def f(g): g; try f(error(\"expected\")) catch .'",
+      "expected": {
+        "stdout": "\"expected\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "[1,2]",
+      "command": "jq -c 'map(.+1)'",
+      "expected": {
+        "stdout": "[2,3]\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "1",
+      "command": "jq -c 'walk(.+1)'",
+      "expected": {
+        "stdout": "2\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '{}|.[0]'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '{\"0\":\"kept\"}|.[0]'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"text\"|.[0]'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '3|.[0]'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc 'false|.[0]'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '[]|.[\"x\"]'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '1|.[\"x\"]'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc 'true|.[\"x\"]'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '{}|.[true]'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc 'null|.[false]'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '{}|.[null]'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '{}|.[\"missing\"]'",
+      "expected": {
+        "stdout": "null\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc 'null|.[0]'",
+      "expected": {
+        "stdout": "null\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc 'null|.[\"x\"]'",
+      "expected": {
+        "stdout": "null\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '[3,5]|.[0]'",
+      "expected": {
+        "stdout": "3\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '[3,5]|.[-1]'",
+      "expected": {
+        "stdout": "5\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '[3,5]|.[9]'",
+      "expected": {
+        "stdout": "null\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '[3,5]|.[0.5]'",
+      "expected": {
+        "stdout": "3\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc 'try ({}|.[0]) catch \"caught\"'",
+      "expected": {
+        "stdout": "\"caught\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '{}|.[0]?'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -n '[)'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 3,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -n '\"\\uD800\"'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 3,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -n missing_filter",
+      "expected": {
+        "stdout": "",
+        "exitCode": 3,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -n 'error(\"Unknown function: user message\")'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -n 'error(\"Expected ) at position 1\")'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -n '1|keys'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -n '\"x\"|fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -n 'try (\"x\"|fromjson) catch \"caught\"'",
+      "expected": {
+        "stdout": "\"caught\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "printf '{' | jq .",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "printf '{' | jq -s .",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq --unexpected .",
+      "expected": {
+        "stdout": "",
+        "exitCode": 2,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq --arg name",
+      "expected": {
+        "stdout": "",
+        "exitCode": 2,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq --argjson name invalid",
+      "expected": {
+        "stdout": "",
+        "exitCode": 2,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -en false",
+      "expected": {
+        "stdout": "false\n",
+        "exitCode": 1,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -en null",
+      "expected": {
+        "stdout": "null\n",
+        "exitCode": 1,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -en empty",
+      "expected": {
+        "stdout": "",
+        "exitCode": 4,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -en 'true,false'",
+      "expected": {
+        "stdout": "true\nfalse\n",
+        "exitCode": 1,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -en 'false,true'",
+      "expected": {
+        "stdout": "false\ntrue\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -en 0",
+      "expected": {
+        "stdout": "0\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\u0000\"'",
+      "expected": {
+        "stdout": "\"\\u0000\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\u0041\\u0061\\u0030\\u00a0\"'",
+      "expected": {
+        "stdout": "\"Aa0 \"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\u4e2d\\u6587\"'",
+      "expected": {
+        "stdout": "\"中文\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\uD83D\\uDE00\"'",
+      "expected": {
+        "stdout": "\"😀\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\ud83d\\ude00\"'",
+      "expected": {
+        "stdout": "\"😀\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\u000a\"'",
+      "expected": {
+        "stdout": "\"\\n\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\\\u00a0\"'",
+      "expected": {
+        "stdout": "\"\\\\u00a0\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\u005c(1)\"'",
+      "expected": {
+        "stdout": "\"\\\\(1)\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\u005c\\u0028\\u0031\\u0029\"'",
+      "expected": {
+        "stdout": "\"\\\\(1)\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"prefix \\u00a0 \\(1+2) suffix\"'",
+      "expected": {
+        "stdout": "\"prefix   3 suffix\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\uD83D\\uDE00 \\(1)\"'",
+      "expected": {
+        "stdout": "\"😀 1\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\u0022quoted\\u0022\"'",
+      "expected": {
+        "stdout": "\"\\\"quoted\\\"\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\uDC00\"'",
+      "expected": {
+        "stdout": "\"�\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\uDE00\\uDE01\"'",
+      "expected": {
+        "stdout": "\"��\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '{\"\\u0061\":\"\\u0062\"}'",
+      "expected": {
+        "stdout": "{\"a\":\"b\"}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\u002e\" | test(\"^\\\\.$\")'",
+      "expected": {
+        "stdout": "true\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\u005c\\u005c\"'",
+      "expected": {
+        "stdout": "\"\\\\\\\\\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"nested \\(\"\\u0041\")\"'",
+      "expected": {
+        "stdout": "\"nested A\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\u\"'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 3,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\u123\"'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 3,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\u00xz\"'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 3,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\u{1f600}\"'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 3,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\uD800\"'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 3,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\uD800a\"'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 3,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\uD800\\u0041\"'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 3,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\uD800\\uD800\"'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 3,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc '\"\\uD800\\uDE0x\"'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 3,
+        "hasError": true
+      }
+    },
+    {
+      "input": "",
+      "command": "jq -nc 'try \"\\uD800\" catch \"unreachable\"'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 3,
+        "hasError": true
+      }
+    }
+  ]
+}
