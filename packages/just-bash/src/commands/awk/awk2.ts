@@ -1,10 +1,14 @@
+import { EMPTY_BYTES } from "../../encoding.js";
+import { preserveAwkOutput } from "./execution-error.js";
+import { setFieldSeparator } from "./interpreter/fields.js";
+import { readProgramFiles } from "./program-files.js";
+import { countCharacters, setupMainInput } from "./records.js";
 /**
  * AWK RuntimeCommand - New AST-based Implementation
  *
  * This is the new implementation using proper lexer/parser/interpreter architecture.
  */
 
-import { decodeBytesToUtf8 } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { mapToRecord } from "../../helpers/env.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
@@ -20,7 +24,6 @@ import type {
   RuntimeCommandContext,
 } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
-import { utf8ByteLength } from "../printf/escapes.js";
 import type { AwkProgram } from "./ast.js";
 import {
   type AwkFileSystem,
@@ -36,6 +39,7 @@ const awkHelp = {
   options: [
     "-F FS      use FS as field separator",
     "-v VAR=VAL assign VAL to variable VAR",
+    "-f FILE   read program from FILE (repeatable; --file also supported)",
     "    --help display this help and exit",
   ],
 };
@@ -65,11 +69,35 @@ export const awkCommand2: RuntimeCommand = {
     // Use null-prototype to prevent prototype pollution with user-controlled -v names
     const vars: Record<string, string | number> = Object.create(null);
     let programIdx = 0;
+    const programFiles: string[] = [];
 
     // Parse options
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
-      if (arg === "-F" && i + 1 < args.length) {
+      if (arg === "-f" || arg === "--file") {
+        if (i + 1 >= args.length)
+          return {
+            stdout: "",
+            stderr: "awk: option requires a program file\n",
+            exitCode: 2,
+          };
+        programFiles.push(args[++i]);
+        programIdx = i + 1;
+      } else if (
+        (arg.startsWith("-f") && arg.length > 2) ||
+        arg.startsWith("--file=")
+      ) {
+        programFiles.push(
+          arg.startsWith("--file=") ? arg.slice(7) : arg.slice(2),
+        );
+        programIdx = i + 1;
+      } else if (arg === "--") {
+        programIdx = i + 1;
+        break;
+      } else if (programFiles.length && arg === "-") {
+        programIdx = i;
+        break;
+      } else if (arg === "-F" && i + 1 < args.length) {
         fieldSepStr = processEscapes(args[++i]);
         fieldSep = createFieldSepRegex(fieldSepStr);
         programIdx = i + 1;
@@ -100,12 +128,26 @@ export const awkCommand2: RuntimeCommand = {
       }
     }
 
-    if (programIdx >= args.length) {
+    if (!programFiles.length && programIdx >= args.length) {
       return { stdout: "", stderr: "awk: missing program\n", exitCode: 1 };
     }
 
-    const program = args[programIdx];
-    const files = args.slice(programIdx + 1);
+    let program = args[programIdx];
+    let files = args.slice(programIdx + 1);
+    if (programFiles.length) {
+      try {
+        const loaded = await withDefenseContext("program sources", () =>
+          readProgramFiles(programFiles, ctx, withDefenseContext),
+        );
+        program = loaded.source;
+        files = args.slice(programIdx);
+        if (loaded.stdinConsumed) ctx = { ...ctx, stdin: EMPTY_BYTES };
+      } catch (error) {
+        rethrowFatalExecutionError(error);
+        const message = error instanceof Error ? error.message : String(error);
+        return { stdout: "", stderr: `awk: ${message}\n`, exitCode: 2 };
+      }
+    }
 
     // Parse program
     const parser = new AwkParser({
@@ -174,6 +216,9 @@ export const awkCommand2: RuntimeCommand = {
     runtimeCtx.FS = fieldSepStr;
     // Use Object.assign with null-prototype to preserve safety
     runtimeCtx.vars = Object.assign(Object.create(null), vars);
+    if (Object.hasOwn(vars, "FS"))
+      setFieldSeparator(runtimeCtx, String(vars.FS));
+    runtimeCtx.RS = Object.hasOwn(vars, "RS") ? String(vars.RS) : "\n";
 
     // Set up ARGC/ARGV
     // ARGV[0] is "awk", ARGV[1..n] are the input files
@@ -201,6 +246,7 @@ export const awkCommand2: RuntimeCommand = {
 
     // Execute BEGIN blocks
     try {
+      setupMainInput(runtimeCtx, ctx, files, withDefenseContext);
       await withDefenseContext("BEGIN execution", () => interp.executeBegin());
       if (runtimeCtx.shouldExit) {
         // exit in BEGIN still runs END blocks (AWK semantics)
@@ -225,104 +271,15 @@ export const awkCommand2: RuntimeCommand = {
         };
       }
 
-      const maxInputBytes = Math.min(
-        ctx.limits.maxInputBytes,
-        ctx.limits.maxStringLength,
-      );
-      const maxRecords = ctx.limits.maxArrayElements;
-      let aggregateInputBytes = 0;
-
-      const processInput = async (
-        filename: string,
-        content: string,
-      ): Promise<void> => {
-        const contentBytes = utf8ByteLength(content);
-        if (contentBytes > maxInputBytes - aggregateInputBytes) {
-          throw new ExecutionLimitError(
-            `aggregate input size limit exceeded (${maxInputBytes} bytes)`,
-            "string_length",
-          );
-        }
-        aggregateInputBytes += contentBytes;
-
-        let recordCount = content.length > 0 ? 1 : 0;
-        for (let index = 0; index < content.length; index++) {
-          if (content.charCodeAt(index) === 10) recordCount++;
-          if (recordCount > maxRecords + 1) {
-            throw new ExecutionLimitError(
-              `record array limit exceeded (${maxRecords})`,
-              "array_elements",
-            );
-          }
-        }
-
-        const lines = content.split("\n");
-        if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-        if (lines.length > maxRecords) {
-          throw new ExecutionLimitError(
-            `record array limit exceeded (${maxRecords})`,
-            "array_elements",
-          );
-        }
-
-        runtimeCtx.FILENAME = filename;
-        runtimeCtx.FNR = 0;
-        runtimeCtx.lines = lines;
-        runtimeCtx.lineIndex = -1;
-        runtimeCtx.shouldNextFile = false;
-
-        // Use while loop with lineIndex to support getline advancing the line
-        while (runtimeCtx.lineIndex < lines.length - 1) {
-          runtimeCtx.lineIndex++;
-          const activeLineIndex = runtimeCtx.lineIndex;
-          await withDefenseContext("line execution", () =>
-            interp.executeLine(lines[activeLineIndex]),
-          );
-          if (runtimeCtx.shouldExit || runtimeCtx.shouldNextFile) break;
-        }
-      };
-
-      if (files.length > 0) {
-        for (const file of files) {
-          let content: string;
-          try {
-            const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-            const stat = await withDefenseContext("input file stat", () =>
-              ctx.fs.stat(filePath),
-            );
-            if (stat.size > maxInputBytes - aggregateInputBytes) {
-              throw new ExecutionLimitError(
-                `aggregate input size limit exceeded (${maxInputBytes} bytes)`,
-                "string_length",
-              );
-            }
-            content = await withDefenseContext("input file read", () =>
-              ctx.fs.readFile(filePath),
-            );
-          } catch (e) {
-            if (
-              e instanceof SecurityViolationError ||
-              e instanceof ExecutionLimitError
-            ) {
-              throw e;
-            }
-            return {
-              stdout: "",
-              stderr: `awk: ${file}: No such file or directory\n`,
-              exitCode: 1,
-            };
-          }
-          await withDefenseContext("input processing", () =>
-            processInput(file, content),
-          );
-          if (runtimeCtx.shouldExit) break;
-        }
-      } else {
-        // awk parses fields with regex / FS — decode bytes to UTF-8 so
-        // non-ASCII data isn't split mid-codepoint.
-        await withDefenseContext("stdin processing", () =>
-          processInput("", decodeBytesToUtf8(ctx.stdin)),
+      for (;;) {
+        const record = await withDefenseContext("input processing", () =>
+          runtimeCtx.readMain ? runtimeCtx.readMain() : Promise.resolve(null),
         );
+        if (record === null) break;
+        await withDefenseContext("line execution", () =>
+          interp.executeLine(record),
+        );
+        if (runtimeCtx.shouldExit) break;
       }
 
       // Execute END blocks (always run, even after exit - AWK semantics)
@@ -338,10 +295,13 @@ export const awkCommand2: RuntimeCommand = {
       if (e instanceof SecurityViolationError) {
         throw e;
       }
+      if (e instanceof ExecutionLimitError) {
+        preserveAwkOutput(e, runtimeCtx);
+        throw e;
+      }
       // Handle errors during execution
       const msg = e instanceof Error ? e.message : String(e);
-      const exitCode =
-        e instanceof ExecutionLimitError ? ExecutionLimitError.EXIT_CODE : 2;
+      const exitCode = 2;
       return {
         stdout: interp.getOutput(),
         stderr: `awk: ${msg}\n`,
@@ -370,6 +330,7 @@ function createFieldSepRegex(
     return createUserRegex("\\s+");
   }
 
+  if (countCharacters(sep) === 1) return createUserRegex(escapeForRegex(sep));
   const regexMetachars = /[[\](){}.*+?^$|\\]/;
   if (regexMetachars.test(sep)) {
     try {
@@ -393,6 +354,8 @@ export const flagsForFuzzing: CommandFuzzInfo = {
   flags: [
     { flag: "-F", type: "value", valueHint: "delimiter" },
     { flag: "-v", type: "value", valueHint: "string" },
+    { flag: "-f", type: "value", valueHint: "path" },
+    { flag: "--file", type: "value", valueHint: "path" },
   ],
   stdinType: "text",
   needsArgs: true,
