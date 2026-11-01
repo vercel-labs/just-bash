@@ -406,10 +406,10 @@ export async function writeFdEntry(
   descriptors: number[],
   content: string,
   encoding: "binary" | "utf8",
-): Promise<boolean> {
+): Promise<FdEntry | false> {
   if (entry.kind === "output") {
     await ctx.fs.appendFile(entry.path, content, encoding);
-    return true;
+    return entry;
   }
   const liveEntry = descriptors
     .map((fd) => getFdEntry(ctx, fd))
@@ -435,7 +435,7 @@ export async function writeFdEntry(
     if (isFdOpen(ctx, fd))
       writeRawFd(ctx, fd, raw, false, updated.device === true);
   }
-  return true;
+  return updated;
 }
 
 /**

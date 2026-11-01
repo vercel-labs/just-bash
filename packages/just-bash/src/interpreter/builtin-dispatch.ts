@@ -1,3 +1,4 @@
+import { automaTrapBuiltin } from "./traps.js";
 /**
  * Builtin Command Dispatch
  *
@@ -467,6 +468,13 @@ export async function dispatchBuiltin(
   stdinUnavailable = false,
 ): Promise<ExecResult | null> {
   const { ctx, runCommand } = dispatchCtx;
+  if (commandName === "trap") return automaTrapBuiltin(ctx, args);
+  if (["umask", "ulimit", "kill"].includes(commandName))
+    return {
+      stdout: "",
+      stderr: `bash: ${commandName}: unavailable in this interpreter; no host process or resource state is exposed\n`,
+      exitCode: 1,
+    };
 
   // Coverage tracking for builtins (lightweight: only fires when coverage is enabled)
   if (ctx.coverage && SHELL_BUILTINS.has(commandName)) {

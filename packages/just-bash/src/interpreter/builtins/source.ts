@@ -138,7 +138,11 @@ export async function handleSource(
 
     // Handle return in sourced script - treat as normal exit
     if (error instanceof ReturnError) {
-      return result(error.stdout, error.stderr, error.exitCode);
+      return {
+        ...result(error.stdout, error.stderr, error.exitCode),
+        internalOutputSegments: error.internalOutputSegments,
+        internalOutputAccounting: error.internalOutputAccounting,
+      };
     }
 
     if ((error as ParseException).name === "ParseException") {

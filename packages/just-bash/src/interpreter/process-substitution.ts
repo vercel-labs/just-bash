@@ -1,6 +1,7 @@
 import type { ResourceLease } from "../execution-scope.js";
 import { encodeFdEntry, setFdEntry } from "./fd-table.js";
 import { beginIsolatedShellState } from "./state-transaction.js";
+import { automaTrapChild } from "./traps.js";
 /**
  * Process Substitution
  *
@@ -288,7 +289,11 @@ async function runBody(
 
   let result: ExecResult;
   try {
-    result = await ctx.executeScript(body);
+    result = await automaTrapChild(
+      ctx,
+      () => ctx.executeScript(body),
+      "process",
+    );
   } catch (error) {
     // Safety limits always propagate.
     if (error instanceof ExecutionLimitError) throw error;

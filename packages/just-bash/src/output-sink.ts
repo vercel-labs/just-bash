@@ -152,7 +152,7 @@ export function createOutputSink(
       ctx: InterpreterContext,
       command: CommandNode,
       execute: () => Promise<ExecResult>,
-    ) {
+    ): Promise<ExecResult> {
       if (bufferedBatches) return execute();
       const previous = mask;
       const parent = current;
@@ -174,7 +174,7 @@ export function createOutputSink(
       };
       try {
         let result = await execute();
-        result = scope.accountResult(result, "output sink");
+        result = scope.accountResult(result, "pipeline");
         complete(frame.parts, result);
         mask = frame.depth > 0 ? { stdout: true, stderr: true } : previous;
         for (const part of frame.parts) await emit(part);
@@ -192,7 +192,7 @@ export function createOutputSink(
       result: ExecResult,
       stdout: { kind: string },
       stderr: { kind: string },
-    ) {
+    ): void {
       if (!current || bufferedBatches) return;
       const routed: Part[] = [];
       for (const part of complete(current.parts, result)) {
@@ -208,7 +208,7 @@ export function createOutputSink(
       intermediate: boolean,
       pipeStderr: boolean,
       execute: () => Promise<ExecResult>,
-    ) {
+    ): Promise<ExecResult> {
       if (bufferedBatches) return execute();
       const previous = mask;
       const parent = current;
@@ -228,7 +228,7 @@ export function createOutputSink(
         }
       }
     },
-    async buffer<T>(execute: () => Promise<T>) {
+    async buffer<T>(execute: () => Promise<T>): Promise<T> {
       bufferedBatches++;
       try {
         return await execute();

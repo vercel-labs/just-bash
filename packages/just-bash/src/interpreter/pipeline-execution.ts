@@ -1,4 +1,5 @@
 import { outputSegments } from "../execution-output.js";
+import { automaTrapPipeline } from "./traps.js";
 /**
  * Pipeline Execution
  *
@@ -92,7 +93,10 @@ export async function executePipeline(
     const outputCheckpoint = ctx.executionScope.outputBytesUsed;
     try {
       ctx.state.commandCount = ctx.executionScope.chargeCommand();
-      const execute = () => executeCommand(command, stdin, !isFirst);
+      const execute = () =>
+        automaTrapPipeline(ctx, node, runsInSubshell, () =>
+          executeCommand(command, stdin, !isFirst),
+        );
       result = ctx.executionScope.automaOutput
         ? await ctx.executionScope.automaOutput.pipeline(
             !isLast,

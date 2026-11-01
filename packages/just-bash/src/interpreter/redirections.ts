@@ -1297,15 +1297,17 @@ export async function applyRedirections(
           else await deliverToFile(sink, content, encoding);
           written.add(sink);
           break;
-        case "descriptor":
-          await writeFdEntry(
+        case "descriptor": {
+          const updatedEntry = await writeFdEntry(
             ctx,
             sink.source.entry,
             sink.source.descriptors,
             content,
             encoding,
           );
+          if (updatedEntry) sink.source.entry = updatedEntry;
           break;
+        }
         case "invalid-output":
         case "discard":
           break;

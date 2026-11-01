@@ -113,7 +113,7 @@ type OutputSource = Pick<
 >;
 export function outputSegments(
   result: OutputSource,
-  stdout = result.stdout,
+  stdout: string = result.stdout,
 ): OutputSegment[] {
   if (!result.internalOutputSegments) {
     const parts: OutputSegment[] = [

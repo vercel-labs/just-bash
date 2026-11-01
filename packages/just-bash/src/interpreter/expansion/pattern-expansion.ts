@@ -1,4 +1,5 @@
 import { commandSubstitutionText } from "../../execution-output.js";
+import { automaTrapChild } from "../traps.js";
 /**
  * Pattern Expansion
  *
@@ -127,7 +128,11 @@ async function executeCommandSubstitutionFromString(
   ctx.state.suppressVerbose = true;
 
   try {
-    const result = await ctx.executeScript(ast);
+    const result = await automaTrapChild(
+      ctx,
+      () => ctx.executeScript(ast),
+      "command",
+    );
     // Restore environment but preserve exit code
     const exitCode = result.exitCode;
     ctx.state.env = savedEnv;

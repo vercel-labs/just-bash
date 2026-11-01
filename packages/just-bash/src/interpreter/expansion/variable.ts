@@ -154,6 +154,7 @@ export async function getVariable(
       // B = braceexpand (always on in our implementation)
       flags += "B";
       if (ctx.state.options.noclobber) flags += "C";
+      if (ctx.state.options.errtrace) flags += "E";
       // s = stdin reading (always on since we execute scripts passed as strings,
       // which is conceptually equivalent to reading from stdin like `bash < script.sh`)
       flags += "s";

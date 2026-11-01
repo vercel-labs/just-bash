@@ -1,4 +1,8 @@
-import { outputSegments, outputSize } from "../execution-output.js";
+import {
+  outputSegments,
+  outputSize,
+  prependOutputFrom,
+} from "../execution-output.js";
 import type { OutputSegment } from "../types.js";
 /**
  * Control Flow Execution

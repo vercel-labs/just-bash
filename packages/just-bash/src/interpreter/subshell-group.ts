@@ -1,3 +1,4 @@
+import { automaTrapChild } from "./traps.js";
 /**
  * Subshell, Group, and Script Execution
  *
@@ -72,12 +73,17 @@ export async function executeSubshell(
       node.redirections,
       stdin,
       (prepared) =>
-        executeSubshellBody(
+        automaTrapChild(
           ctx,
-          node,
-          prepared.stdin ?? stdin,
-          executeStatement,
-          stdinOwned || prepared.stdin !== undefined,
+          () =>
+            executeSubshellBody(
+              ctx,
+              node,
+              prepared.stdin ?? stdin,
+              executeStatement,
+              stdinOwned || prepared.stdin !== undefined,
+            ),
+          "subshell",
         ),
     );
   } finally {
@@ -348,7 +354,11 @@ export async function executeUserScript(
   try {
     const parser = new Parser();
     const ast = parser.parse(content);
-    const execResult = await executeScript(ast);
+    const execResult = await automaTrapChild(
+      ctx,
+      () => executeScript(ast),
+      "script",
+    );
     cleanup();
     return execResult;
   } catch (error) {
@@ -357,7 +367,11 @@ export async function executeUserScript(
     // Executable scripts run in a subshell-like environment, so exit only
     // ends the script and returns its status to the surrounding command list.
     if (error instanceof ExitError) {
-      return result(error.stdout, error.stderr, error.exitCode);
+      return {
+        ...result(error.stdout, error.stderr, error.exitCode),
+        internalOutputSegments: error.internalOutputSegments,
+        internalOutputAccounting: error.internalOutputAccounting,
+      };
     }
 
     // ExecutionLimitError must always propagate

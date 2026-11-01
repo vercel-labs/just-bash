@@ -1,4 +1,5 @@
 import { outputSegments } from "../execution-output.js";
+import { automaTrapEligible, automaTrapRun, automaTrapShell } from "./traps.js";
 /**
  * Interpreter - AST Execution Engine
  *
@@ -236,6 +237,19 @@ export class Interpreter {
   }
 
   async executeScript(node: ScriptNode): Promise<ExecResult> {
+    const state = this.ctx.state;
+    const root = !state.automaTrapScriptDepth;
+    state.automaTrapScriptDepth = (state.automaTrapScriptDepth ?? 0) + 1;
+    try {
+      return root
+        ? await automaTrapShell(this.ctx, () => this.executeScriptBody(node))
+        : await this.executeScriptBody(node);
+    } finally {
+      state.automaTrapScriptDepth--;
+    }
+  }
+
+  private async executeScriptBody(node: ScriptNode): Promise<ExecResult> {
     this.assertDefenseContext("execution");
 
     let exitCode = 0;
@@ -282,6 +296,13 @@ export class Interpreter {
         }
         // ExecutionLimitError must always propagate - these are safety limits
         if (error instanceof ExecutionLimitError) {
+          output.prependTo(error);
+          throw error;
+        }
+        if (
+          error instanceof ErrexitError &&
+          (this.ctx.state.automaTrapScriptDepth ?? 0) > 1
+        ) {
           output.prependTo(error);
           throw error;
         }
@@ -444,7 +465,15 @@ export class Interpreter {
         if (operator === "&&" && exitCode !== 0) continue;
         if (operator === "||" && exitCode === 0) continue;
 
-        const result = await this.executePipeline(pipeline);
+        let result: ExecResult;
+        const condition = this.ctx.state.inCondition;
+        this.ctx.state.inCondition =
+          condition || i < node.pipelines.length - 1 || pipeline.negated;
+        try {
+          result = await this.executePipeline(pipeline);
+        } finally {
+          this.ctx.state.inCondition = condition;
+        }
         // Decode each pipeline's stdout to text via its explicit `stdoutKind`
         // before concatenating, so a statement that joins text-shaped and
         // byte-shaped pipelines with && / || does not interleave raw byte and
@@ -469,6 +498,22 @@ export class Interpreter {
     const wasShortCircuited = lastExecutedIndex < node.pipelines.length - 1;
     // Preserve errexitSafe if it was set by an inner compound command
     const innerWasSafe = this.ctx.state.errexitSafe;
+    if (
+      exitCode !== 0 &&
+      lastExecutedIndex === node.pipelines.length - 1 &&
+      !lastPipelineNegated &&
+      !this.ctx.state.inCondition &&
+      !innerWasSafe &&
+      automaTrapEligible(node.pipelines[lastExecutedIndex])
+    ) {
+      try {
+        const trap = await automaTrapRun(this.ctx, "ERR", exitCode);
+        if (trap) statementOutput.appendResult(trap);
+      } catch (error) {
+        statementOutput.prependTo(error);
+        throw error;
+      }
+    }
     this.ctx.state.errexitSafe =
       wasShortCircuited || lastPipelineNegated || innerWasSafe;
 
@@ -1143,13 +1188,30 @@ export class Interpreter {
     stdin = "",
     stdinOwned = false,
   ): Promise<ExecResult> {
-    return executeSubshellHelper(
+    const negate =
+      node.body.length === 1 &&
+      node.body[0].pipelines.length === 1 &&
+      node.body[0].pipelines[0].negated;
+    if (negate)
+      node = {
+        ...node,
+        body: [
+          {
+            ...node.body[0],
+            pipelines: [{ ...node.body[0].pipelines[0], negated: false }],
+          },
+        ],
+      };
+    const result = await executeSubshellHelper(
       this.ctx,
       node,
       stdin,
       (stmt) => this.executeStatement(stmt),
       stdinOwned,
     );
+    return negate
+      ? { ...result, exitCode: result.exitCode === 0 ? 1 : 0 }
+      : result;
   }
 
   private async executeGroup(

@@ -44,6 +44,8 @@ export interface CompletionSpec {
 }
 
 export interface ShellOptions {
+  /** Automa: inherit ERR traps into functions and child shells. */
+  errtrace?: boolean;
   /** set -e: Exit immediately if a command exits with non-zero status */
   errexit: boolean;
   /** set -o pipefail: Return the exit status of the last (rightmost) command in a pipeline that fails */
@@ -71,6 +73,8 @@ export interface ShellOptions {
 }
 
 export interface ShoptOptions {
+  /** Automa: retain errexit in command substitutions. */
+  inherit_errexit?: boolean;
   /** shopt -s extglob: Enable extended globbing patterns @(), *(), +(), ?(), !() */
   extglob: boolean;
   /** shopt -s dotglob: Include dotfiles in glob expansion */
@@ -399,6 +403,13 @@ export interface InterpreterState
     ProcessState,
     IOState,
     ExpansionState {
+  /** Automa: shell-local EXIT/ERR lifecycle state. */
+  automaTraps?: Map<string, string>;
+  automaTrapVersions?: Map<string, number>;
+  automaTrapRunning?: Set<string>;
+  automaTrapScriptDepth?: number;
+  automaTrapExiting?: boolean;
+  automaTrapExitStatus?: number;
   // ---- Core Environment ----
   /** Environment variables (exported to commands) - uses Map to prevent prototype pollution */
   env: Map<string, string>;

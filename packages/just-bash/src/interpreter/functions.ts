@@ -1,3 +1,4 @@
+import { automaTrapFunction } from "./traps.js";
 /**
  * Function Handling
  *
@@ -51,6 +52,19 @@ export async function callFunction(
   callLine?: number,
   /** A redirection on the call site (`f < file`) gave the function its own fd 0. */
   stdinRedirected = false,
+): Promise<ExecResult> {
+  return automaTrapFunction(ctx, () =>
+    callFunctionBody(ctx, func, args, stdin, callLine, stdinRedirected),
+  );
+}
+
+async function callFunctionBody(
+  ctx: InterpreterContext,
+  func: FunctionDefNode,
+  args: string[],
+  stdin: string,
+  callLine: number | undefined,
+  stdinRedirected: boolean,
 ): Promise<ExecResult> {
   ctx.state.callDepth++;
   if (ctx.state.callDepth > ctx.limits.maxCallDepth) {
@@ -213,7 +227,11 @@ export async function callFunction(
     if (error instanceof ControlFlowError && prepared) {
       await routeControlFlowError(ctx, error, func.redirections, prepared);
       if (error instanceof ReturnError) {
-        return result(error.stdout, error.stderr, error.exitCode);
+        return {
+          ...result(error.stdout, error.stderr, error.exitCode),
+          internalOutputSegments: error.internalOutputSegments,
+          internalOutputAccounting: error.internalOutputAccounting,
+        };
       }
     }
     throw error;

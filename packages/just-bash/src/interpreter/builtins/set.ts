@@ -20,7 +20,7 @@ import {
   quoteValue,
 } from "../helpers/quoting.js";
 import { failure, OK, success } from "../helpers/result.js";
-import { updateShellopts } from "../helpers/shellopts.js";
+import { updateBashopts, updateShellopts } from "../helpers/shellopts.js";
 import type { InterpreterContext, ShellOptions } from "../types.js";
 
 const SET_USAGE = `set: usage: set [-eux] [+eux] [-o option] [+o option]
@@ -61,7 +61,7 @@ const SHORT_OPTION_MAP = new Map<string, keyof ShellOptions | null>([
   ["H", null],
   ["P", null],
   ["T", null],
-  ["E", null],
+  ["E", "errtrace"],
   ["p", null],
 ]);
 
@@ -88,7 +88,7 @@ const LONG_OPTION_MAP = new Map<string, keyof ShellOptions | null>([
   ["histexpand", null],
   ["physical", null],
   ["functrace", null],
-  ["errtrace", null],
+  ["errtrace", "errtrace"],
   ["privileged", null],
   ["hashall", null],
   ["ignoreeof", null],
@@ -99,6 +99,7 @@ const LONG_OPTION_MAP = new Map<string, keyof ShellOptions | null>([
 
 // List of implemented options to display in `set -o` / `set +o` output
 const DISPLAY_OPTIONS: (keyof ShellOptions)[] = [
+  "errtrace",
   "errexit",
   "nounset",
   "pipefail",
@@ -116,7 +117,6 @@ const DISPLAY_OPTIONS: (keyof ShellOptions)[] = [
 // List of no-op options to display (always off, for compatibility)
 const NOOP_DISPLAY_OPTIONS: string[] = [
   "braceexpand",
-  "errtrace",
   "functrace",
   "hashall",
   "histexpand",
@@ -152,6 +152,10 @@ function setShellOption(
       }
     }
     ctx.state.options[optionKey] = value;
+    if (optionKey === "posix" && value) {
+      ctx.state.shoptOptions.inherit_errexit = true;
+      updateBashopts(ctx);
+    }
     updateShellopts(ctx);
   }
 }

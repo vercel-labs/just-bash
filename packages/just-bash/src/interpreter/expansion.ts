@@ -1,4 +1,5 @@
 import { commandSubstitutionText } from "../execution-output.js";
+import { automaTrapChild } from "./traps.js";
 /**
  * Word Expansion
  *
@@ -827,7 +828,11 @@ async function expandPart(
       const savedSuppressVerbose = ctx.state.suppressVerbose;
       ctx.state.suppressVerbose = true;
       try {
-        const result = await ctx.executeScript(part.body);
+        const result = await automaTrapChild(
+          ctx,
+          () => ctx.executeScript(part.body),
+          "command",
+        );
         // Restore environment but preserve exit code
         const exitCode = result.exitCode;
         ctx.state.env = savedEnv;
