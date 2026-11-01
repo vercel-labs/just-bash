@@ -1,4 +1,4 @@
-import { outputSegments } from "../../execution-output.js";
+import { outputSegments, prependOutputFrom } from "../../execution-output.js";
 import type { OutputSegment } from "../../types.js";
 import { ControlFlowError } from "../errors.js";
 /**
@@ -84,6 +84,7 @@ function handleLoopErrorInner(
   stdout: string,
   stderr: string,
   loopDepth: number,
+  parts?: OutputSegment[],
 ): LoopErrorResult {
   if (error instanceof BreakError) {
     stdout += error.stdout;
@@ -131,7 +132,7 @@ function handleLoopErrorInner(
     error instanceof ExitError ||
     error instanceof ExecutionLimitError
   ) {
-    error.prependOutput(stdout, stderr);
+    prependOutputFrom(error, { stdout, stderr, internalOutputSegments: parts });
     return { action: "rethrow", stdout, stderr, error };
   }
 
@@ -157,7 +158,7 @@ export function handleLoopError(
     ...outputSegments({ stdout, stderr, internalOutputSegments: parts }),
     ...(error instanceof ControlFlowError ? outputSegments(error) : []),
   ];
-  const result = handleLoopErrorInner(error, stdout, stderr, loopDepth);
+  const result = handleLoopErrorInner(error, stdout, stderr, loopDepth, parts);
   result.internalOutputSegments = combined;
   if (result.error instanceof ControlFlowError)
     result.error.internalOutputSegments = combined;

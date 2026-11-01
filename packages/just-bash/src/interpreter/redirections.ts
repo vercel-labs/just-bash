@@ -17,7 +17,6 @@ import {
   encodeUtf8ToBytes,
   latin1FromBytes,
   readBytesFrom,
-  utf8ByteLength,
 } from "../encoding.js";
 import type { ExecResult } from "../types.js";
 import {
@@ -1143,6 +1142,7 @@ export async function routeControlFlowError(
     {
       ...makeResult(error.stdout, error.stderr, exitCode),
       internalOutputSegments: error.internalOutputSegments,
+      internalOutputAccounting: error.internalOutputAccounting,
     },
     redirections.length > 0,
     prepared.outputRoutes,
@@ -1150,10 +1150,8 @@ export async function routeControlFlowError(
   error.stdout = routed.stdout;
   error.stderr = routed.stderr;
   error.internalOutputSegments = routed.internalOutputSegments;
-  error.internalOutputAccounting = routed.internalOutputAccounting ?? {
-    stdout: utf8ByteLength(routed.stdout),
-    stderr: utf8ByteLength(routed.stderr),
-  };
+  error.internalOutputAccounting =
+    routed.internalOutputAccounting ?? error.internalOutputAccounting;
 }
 
 export async function withPreparedRedirections(

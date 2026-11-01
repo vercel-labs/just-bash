@@ -184,7 +184,12 @@ export function prependOutputFrom(
   result: OutputSource,
 ): void {
   const segments = [...outputSegments(result), ...outputSegments(error)];
-  error.prependOutput(result.stdout, result.stderr);
+  // Automa: raw byte fragments are Latin-1 strings, not UTF-8 text. Preserve
+  // their already charged size while attaching them to a control-flow error.
+  error.stdout = result.stdout + error.stdout;
+  error.stderr = result.stderr + error.stderr;
+  error.internalOutputAccounting.stdout += outputSize(result, "stdout");
+  error.internalOutputAccounting.stderr += outputSize(result, "stderr");
   error.internalOutputSegments = segments;
 }
 export function accountOutputSegments(

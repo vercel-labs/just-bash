@@ -3,11 +3,29 @@
 import { describe, expect, it } from "vitest";
 import { ExecutionOutputAccumulator, outputSize } from "./execution-output.js";
 import { ExecutionScope } from "./execution-scope.js";
-import { ExecutionLimitError } from "./interpreter/errors.js";
+import { ExecutionLimitError, ReturnError } from "./interpreter/errors.js";
 import { resolveLimits } from "./limits.js";
 import type { ExecResult } from "./types.js";
 
 describe("Automa output segment accounting", () => {
+  it("preserves exact mixed byte credits when unwinding a return", () => {
+    const scope = new ExecutionScope(resolveLimits({ maxOutputSize: 6 }));
+    const output = new ExecutionOutputAccumulator(scope, "producer");
+    output.append("stdout", "é");
+    output.append("stdout", "\u00e2", 0, "bytes");
+    output.append("stdout", "\u0082\u00ac", 0, "bytes");
+    output.append("stderr", "ÿ", 0, "bytes");
+    const error = new ReturnError(4);
+    output.prependTo(error);
+    output.prependTo(error);
+    expect(error.stdout).toBe("é\u00e2\u0082\u00ac");
+    expect(error.stderr).toBe("ÿ");
+    expect(error.internalOutputSegments).toEqual(output.internalOutputSegments);
+    expect(error.internalOutputAccounting).toEqual({ stdout: 5, stderr: 1 });
+    scope.accountResult({ ...error, exitCode: 4 }, "relay");
+    expect(scope.outputBytesUsed).toBe(6);
+  });
+
   it("preserves BOM data and its existing three-byte credit when normalizing", () => {
     const scope = new ExecutionScope(resolveLimits({ maxOutputSize: 3 }));
     scope.appendOutput("stdout", "\u00ef\u00bb\u00bf", "producer", 0, "bytes");
