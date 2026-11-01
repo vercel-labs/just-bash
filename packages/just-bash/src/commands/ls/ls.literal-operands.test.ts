@@ -64,7 +64,9 @@ describe("ls treats operands as literal paths", () => {
     const bash = new Bash({ cwd: "/w", files: { "/w/a.txt": "" } });
     const result = await bash.exec("ls 'nope*'");
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe("ls: cannot access 'nope*': No such file or directory\n");
+    expect(result.stderr).toBe(
+      "ls: cannot access 'nope*': No such file or directory\n",
+    );
     expect(result.exitCode).toBe(2);
   });
 
@@ -75,7 +77,9 @@ describe("ls treats operands as literal paths", () => {
     });
     const result = await bash.exec("ls 'sub/*'");
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe("ls: cannot access 'sub/*': No such file or directory\n");
+    expect(result.stderr).toBe(
+      "ls: cannot access 'sub/*': No such file or directory\n",
+    );
     expect(result.exitCode).toBe(2);
   });
 });

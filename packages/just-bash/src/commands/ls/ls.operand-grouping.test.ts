@@ -80,7 +80,9 @@ describe("ls groups multiple operands", () => {
   it("lists the operands that exist and reports the one that does not", async () => {
     const result = await run("ls -1 nope.txt f2.txt dir1 f1.txt");
     expect(result.stdout).toBe("f1.txt\nf2.txt\n\ndir1:\nx.txt\n");
-    expect(result.stderr).toBe("ls: cannot access 'nope.txt': No such file or directory\n");
+    expect(result.stderr).toBe(
+      "ls: cannot access 'nope.txt': No such file or directory\n",
+    );
     expect(result.exitCode).toBe(2);
   });
 

@@ -31,7 +31,9 @@ describe("ls path and recursive error boundaries", () => {
     });
     const result = await bash.exec("ls 'bar*'");
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe("ls: cannot access 'bar*': No such file or directory\n");
+    expect(result.stderr).toBe(
+      "ls: cannot access 'bar*': No such file or directory\n",
+    );
     expect(result.exitCode).toBe(2);
   });
 
@@ -43,7 +45,9 @@ describe("ls path and recursive error boundaries", () => {
     const bash = new Bash({ fs, cwd: "/" });
     const result = await bash.exec("ls -R /root");
     expect(result.stdout).toBe("/root:\nbad\ngood\n\n\n/root/good:\nfile\n");
-    expect(result.stderr).toBe("ls: cannot access '/root/bad': No such file or directory\n");
+    expect(result.stderr).toBe(
+      "ls: cannot access '/root/bad': No such file or directory\n",
+    );
     expect(result.exitCode).toBe(2);
   });
 });

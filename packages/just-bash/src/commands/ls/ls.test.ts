@@ -142,7 +142,9 @@ describe("ls", () => {
     const env = new Bash();
     const result = await env.exec("ls /nonexistent");
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe("ls: cannot access '/nonexistent': No such file or directory\n");
+    expect(result.stderr).toBe(
+      "ls: cannot access '/nonexistent': No such file or directory\n",
+    );
     expect(result.exitCode).toBe(2);
   });
 
