@@ -53,9 +53,16 @@ export async function callFunction(
   /** A redirection on the call site (`f < file`) gave the function its own fd 0. */
   stdinRedirected = false,
 ): Promise<ExecResult> {
-  return automaTrapFunction(ctx, () =>
-    callFunctionBody(ctx, func, args, stdin, callLine, stdinRedirected),
-  );
+  const execute = () =>
+    callFunctionBody(ctx, func, args, stdin, callLine, stdinRedirected);
+  // Automa: definition redirects are not on the call's SimpleCommand. Hold
+  // descendant chunks until the existing function FD transaction has routed them.
+  return automaTrapFunction(ctx, () => {
+    const sink = ctx.executionScope.automaOutput;
+    return func.redirections.length && sink
+      ? sink.capture(ctx, func, execute)
+      : execute();
+  });
 }
 
 async function callFunctionBody(

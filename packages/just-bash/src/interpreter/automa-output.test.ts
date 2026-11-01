@@ -4,6 +4,56 @@ import { Bash } from "../Bash.js";
 
 describe("Automa ordered terminal output", () => {
   it.each([
+    [
+      "f(){ printf a; printf b >&2; printf c; } 2>&1; f | cat",
+      "abc",
+      "",
+      "abc",
+    ],
+    [
+      "f(){ printf a; printf b >&2; printf c; return; } 2>&1; f | cat",
+      "abc",
+      "",
+      "abc",
+    ],
+    [
+      "f(){ printf a; printf b >&2; printf c; return; } 2>&1; f",
+      "abc",
+      "",
+      "abc",
+    ],
+    [
+      "f(){ printf a; printf b >&2; printf c; return; } 1>&2; f | cat",
+      "",
+      "abc",
+      "abc",
+    ],
+    [
+      "f(){ printf a; printf b >&2; printf c; return; } > /tmp/captured 2>&1; f; cat /tmp/captured",
+      "abc",
+      "",
+      "abc",
+    ],
+    [
+      "f(){ printf a; printf b >&2; printf c; return; } 2>&1; f > /dev/null; printf X",
+      "X",
+      "",
+      "X",
+    ],
+  ])("defers definition redirects until final routing: %s", async (script, stdout, stderr, ordered) => {
+    let observed = "";
+    const result = await new Bash().exec(script, {
+      onOutput: (text) => {
+        observed += text;
+      },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe(stdout);
+    expect(result.stderr).toBe(stderr);
+    expect(result.output).toBe(ordered);
+    expect(observed).toBe(ordered);
+  });
+  it.each([
     ["f(){ { printf a; printf b >&2; printf c; return; } 2>&1; }; f | cat", 0],
     ["{ printf a; printf b >&2; printf c; exit 7; } 2>&1", 7],
   ])("retains routed segments through a control-flow error: %s", async (script, status) => {
