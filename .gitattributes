@@ -1,1 +1,4 @@
 packages/just-bash/vendor/cpython-emscripten/python.wasm filter=lfs diff=lfs merge=lfs -text
+
+# Dependency patches retain upstream blank-line context and LF byte identity.
+patches/*.patch text eol=lf -whitespace
