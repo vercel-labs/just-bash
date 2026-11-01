@@ -1,3 +1,4 @@
+// Automa modification: N00b --sort/--sortr parsing and validation.
 /**
  * Argument parsing for rg command - Declarative approach
  */
@@ -647,24 +648,33 @@ function applyValueOpt(
 function parseSort(
   args: string[],
   i: number,
-): { value: "path" | "none"; newIndex: number } | null {
-  const arg = args[i];
-
-  if (arg === "--sort" && i + 1 < args.length) {
-    const val = args[i + 1];
-    if (val === "path" || val === "none") {
-      return { value: val, newIndex: i + 1 };
-    }
+):
+  | { value: RgOptions["sort"]; reverse: boolean; newIndex: number }
+  | { error: ExecResult }
+  | null {
+  const match = /^--(sort|sortr)(?:=(.*))?$/.exec(args[i]);
+  if (!match) return null;
+  const value = match[2] === undefined ? args[i + 1] : match[2];
+  if (
+    value !== "none" &&
+    value !== "path" &&
+    value !== "modified" &&
+    value !== "accessed" &&
+    value !== "created"
+  ) {
+    return {
+      error: {
+        stdout: "",
+        stderr: "rg: invalid or missing sort value\n",
+        exitCode: 2,
+      },
+    };
   }
-
-  if (arg.startsWith("--sort=")) {
-    const val = arg.slice("--sort=".length);
-    if (val === "path" || val === "none") {
-      return { value: val, newIndex: i };
-    }
-  }
-
-  return null;
+  return {
+    value,
+    reverse: match[1] === "sortr" && value !== "none",
+    newIndex: match[2] === undefined ? i + 1 : i,
+  };
 }
 
 /**
@@ -704,7 +714,11 @@ export function parseArgs(args: string[]): ParseArgsResult {
       // Try sort option
       const sortResult = parseSort(args, i);
       if (sortResult) {
+        if ("error" in sortResult)
+          return { success: false, error: sortResult.error };
         options.sort = sortResult.value;
+        options.sortRequested = true;
+        options.sortReverse = sortResult.reverse;
         i = sortResult.newIndex;
         continue;
       }

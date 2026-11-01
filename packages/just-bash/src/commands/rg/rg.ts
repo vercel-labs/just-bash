@@ -1,3 +1,4 @@
+// Automa modification: N00b document explicit sort modes.
 /**
  * rg - ripgrep-like recursive search
  *
@@ -79,7 +80,7 @@ EXAMPLES:
     "    --hidden            search hidden files and directories",
     "    --no-ignore         don't respect .gitignore/.ignore files",
     "-d, --max-depth NUM     maximum search depth",
-    "    --sort TYPE         sort files (path, none)",
+    "    --sort/--sortr TYPE sort ascending/descending (path, modified, accessed, created, none)",
     "    --heading           group matches by file; no heading for one explicit file",
     "    --                  end options; remaining arguments are pattern and paths",
     "    --passthru          print all lines (non-matches use - separator)",

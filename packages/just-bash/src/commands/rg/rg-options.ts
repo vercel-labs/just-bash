@@ -1,3 +1,4 @@
+// Automa modification: N00b explicit path and timestamp sort options.
 /**
  * RgOptions interface and default values
  */
@@ -42,7 +43,9 @@ export interface RgOptions {
   heading: boolean;
   passthru: boolean;
   includeZero: boolean;
-  sort: "path" | "none";
+  sort: "path" | "none" | "modified" | "accessed" | "created";
+  sortRequested: boolean;
+  sortReverse: boolean;
   json: boolean;
 
   // File selection
@@ -106,6 +109,8 @@ export function createDefaultOptions(): RgOptions {
     passthru: false,
     includeZero: false,
     sort: "path",
+    sortRequested: false,
+    sortReverse: false,
     json: false,
     globs: [],
     iglobs: [],

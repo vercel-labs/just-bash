@@ -1,3 +1,4 @@
+// Automa modifications: N00b bounded rg ordering and zero-directory globstar.
 /**
  * Core search logic for rg command
  */
@@ -223,7 +224,7 @@ export async function executeSearch(
           patternSourceLeases.push(reservePatternSource(ctx, contentBytes));
         }
 
-        const content = decodeBytesToUtf8(
+        const content = decodeSearchText(
           rawContent,
           ctx.limits.maxStringLength,
         );
@@ -288,7 +289,7 @@ export async function executeSearch(
   // Skip when `-f -` already consumed stdin for patterns to avoid
   // double-consuming it as both pattern source and search input.
   const stdinConsumedByPatternFile = options.patternFiles.includes("-");
-  const stdinText = decodeBytesToUtf8(ctx.stdin);
+  const stdinText = decodeSearchText(ctx.stdin);
   // Ripgrep treats character devices and closed descriptors as absent input.
   // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/cli/src/lib.rs#L204-L208
   if (
@@ -465,6 +466,79 @@ interface CollectFilesResult {
 /**
  * Collect files to search based on paths and options
  */
+// Ripgrep consumes a leading UTF-8 BOM at its text boundary, independently of
+// the shell decoder (which preserves bytes for the other commands).
+function decodeSearchText(
+  ...args: Parameters<typeof decodeBytesToUtf8>
+): string {
+  return decodeBytesToUtf8(...args).replace(/^\uFEFF/, "");
+}
+
+function compareNames(
+  left: string,
+  right: string,
+  budget: FileTraversalBudget,
+): number {
+  let a = 0,
+    b = 0;
+  while (a < left.length && b < right.length) {
+    budget.checkpoint();
+    const x = left.codePointAt(a) ?? 0,
+      y = right.codePointAt(b) ?? 0;
+    if (x !== y) return x < y ? -1 : 1;
+    a += x > 0xffff ? 2 : 1;
+    b += y > 0xffff ? 2 : 1;
+  }
+  return a < left.length ? 1 : b < right.length ? -1 : 0;
+}
+
+async function sortFiles(
+  ctx: RuntimeCommandContext,
+  files: string[],
+  options: RgOptions,
+  budget: FileTraversalBudget,
+): Promise<string[]> {
+  if (!options.sortRequested)
+    return options.sort === "path" ? files.sort() : files;
+  if (options.sort === "path" || options.sort === "none") return files;
+  const field =
+    options.sort === "modified"
+      ? "mtime"
+      : options.sort === "accessed"
+        ? "atime"
+        : "birthtime";
+  const lease = ctx.executionScope?.reserveBytes(
+    "rg sort metadata",
+    files.length * 32,
+    "rg",
+  );
+  try {
+    const records: { file: string; time: number }[] = [];
+    for (const file of files) {
+      budget.checkpoint();
+      const stat = await ctx.fs.stat(ctx.fs.resolvePath(ctx.cwd, file));
+      const timestamp = stat[field];
+      const time = timestamp?.getTime();
+      if (time === undefined || !Number.isFinite(time))
+        throw new Error(`${options.sort} timestamp is unavailable`);
+      records.push({ file, time });
+    }
+    records.sort((left, right) => {
+      budget.checkpoint();
+      return options.sortReverse
+        ? right.time - left.time
+        : left.time - right.time;
+    });
+    for (let index = 0; index < records.length; index++) {
+      budget.checkpoint();
+      files[index] = records[index].file;
+    }
+    return files;
+  } finally {
+    lease?.release();
+  }
+}
+
 async function collectFiles(
   ctx: RuntimeCommandContext,
   paths: string[],
@@ -530,7 +604,7 @@ async function collectFiles(
     }
   }
 
-  const sortedFiles = options.sort === "path" ? files.sort() : files;
+  const sortedFiles = await sortFiles(ctx, files, options, traversalBudget);
 
   return {
     files: sortedFiles,
@@ -591,6 +665,13 @@ async function walkDirectory(
           name,
           isFile: undefined as boolean | undefined,
         }));
+
+    if (options.sortRequested && options.sort !== "none") {
+      entries.sort((left, right) => {
+        const order = compareNames(left.name, right.name, budget);
+        return options.sort === "path" && options.sortReverse ? -order : order;
+      });
+    }
 
     for (const entry of entries) {
       budget.checkpoint();
@@ -836,8 +917,13 @@ function matchGlob(str: string, pattern: string, ignoreCase = false): boolean {
     const char = pattern[i];
     if (char === "*") {
       if (pattern[i + 1] === "*") {
-        regexStr += ".*";
-        i++;
+        if ((i === 0 || pattern[i - 1] === "/") && pattern[i + 2] === "/") {
+          regexStr += "(?:.*/)?";
+          i += 2;
+        } else {
+          regexStr += ".*";
+          i++;
+        }
       } else {
         regexStr += "[^/]*";
       }
@@ -969,7 +1055,7 @@ async function readFileContent(
             result.stdout.length,
             "rg preprocessor",
           );
-          const content = decodeBytesToUtf8(
+          const content = decodeSearchText(
             unsafeBytesFromLatin1(result.stdout),
           );
           ctx.executionScope?.consumeInput(
@@ -1057,7 +1143,7 @@ async function readFileContent(
       );
     }
     ctx.executionScope?.consumeInput(contentBytes, "rg");
-    const content = decodeBytesToUtf8(rawContent, ctx.limits.maxStringLength);
+    const content = decodeSearchText(rawContent, ctx.limits.maxStringLength);
     const sample = content.slice(0, 8192);
     return { content, isBinary: sample.includes("\0"), lease };
   } catch (error) {
