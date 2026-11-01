@@ -12,7 +12,9 @@ import {
   latin1FromBytes,
   utf8ByteLength,
 } from "../../encoding.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { fromBuffer, toBuffer } from "../../fs/encoding.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import { _Headers } from "../../security/trusted-globals.js";
 import type {
@@ -480,6 +482,10 @@ export const curlCommand: RuntimeCommand = {
       // ASCII, so the whole stream is byte-shaped and must be marked "bytes".
       return { stdout: output, stderr: "", exitCode: 0, stdoutKind: "bytes" };
     } catch (error) {
+      if (error instanceof ExecutionLimitError && dumpedHeaders) {
+        error.prependOutput(dumpedHeaders, "");
+      }
+      rethrowFatalExecutionError(error);
       const message = getErrorMessage(error);
 
       // Determine exit code based on error type

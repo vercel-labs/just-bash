@@ -558,27 +558,21 @@ export const sedCommand: RuntimeCommand = {
     // latin1 bytes.
     if (files.length === 0) {
       content = decodeBytesToUtf8(ctx.stdin);
-      try {
-        const result = await withDefenseContext("stdin processing", () =>
-          processContent(content, commands, effectiveSilent, {
-            limits: ctx.limits,
-            fs: ctx.fs,
-            cwd: ctx.cwd,
-            coverage: ctx.coverage,
-            requireDefenseContext: ctx.requireDefenseContext,
-          }),
-        );
-        // sed emits text; the pipeline handles encoding.
-        return {
-          stdout: result.output,
-          stderr: result.errorMessage ? `${result.errorMessage}\n` : "",
-          exitCode: result.exitCode ?? 0,
-        };
-      } catch (e) {
-        rethrowFatalExecutionError(e);
-
-        throw e;
-      }
+      const result = await withDefenseContext("stdin processing", () =>
+        processContent(content, commands, effectiveSilent, {
+          limits: ctx.limits,
+          fs: ctx.fs,
+          cwd: ctx.cwd,
+          coverage: ctx.coverage,
+          requireDefenseContext: ctx.requireDefenseContext,
+        }),
+      );
+      // sed emits text; the pipeline handles encoding.
+      return {
+        stdout: result.output,
+        stderr: result.errorMessage ? `${result.errorMessage}\n` : "",
+        exitCode: result.exitCode ?? 0,
+      };
     }
 
     // Read all files and process
@@ -622,27 +616,21 @@ export const sedCommand: RuntimeCommand = {
       content += fileContent;
     }
 
-    try {
-      const result = await withDefenseContext("final processing", () =>
-        processContent(content, commands, effectiveSilent, {
-          limits: ctx.limits,
-          filename: files.length === 1 ? files[0] : undefined,
-          fs: ctx.fs,
-          cwd: ctx.cwd,
-          coverage: ctx.coverage,
-          requireDefenseContext: ctx.requireDefenseContext,
-        }),
-      );
-      return {
-        stdout: result.output,
-        stderr: result.errorMessage ? `${result.errorMessage}\n` : "",
-        exitCode: result.exitCode ?? 0,
-      };
-    } catch (e) {
-      rethrowFatalExecutionError(e);
-
-      throw e;
-    }
+    const result = await withDefenseContext("final processing", () =>
+      processContent(content, commands, effectiveSilent, {
+        limits: ctx.limits,
+        filename: files.length === 1 ? files[0] : undefined,
+        fs: ctx.fs,
+        cwd: ctx.cwd,
+        coverage: ctx.coverage,
+        requireDefenseContext: ctx.requireDefenseContext,
+      }),
+    );
+    return {
+      stdout: result.output,
+      stderr: result.errorMessage ? `${result.errorMessage}\n` : "",
+      exitCode: result.exitCode ?? 0,
+    };
   },
 };
 

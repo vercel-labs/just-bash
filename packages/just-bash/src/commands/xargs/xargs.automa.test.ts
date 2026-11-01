@@ -33,4 +33,22 @@ describe("Automa xargs adapters", () => {
     expect(result.stderr).not.toBe("");
     expect(result.exitCode).not.toBe(0);
   });
+  it("isolates concurrent output sinks without duplication or missing chunks", async () => {
+    const chunks: string[] = [];
+    const result = await new Bash().exec(
+      "seq 4 | xargs -P2 -n1 bash -c 'echo start$0;echo err$0 >&2;echo end$0'",
+      {
+        onOutput: (text) => {
+          chunks.push(text);
+        },
+      },
+    );
+    const expected = Array.from(
+      { length: 4 },
+      (_, i) => `start${i + 1}\nerr${i + 1}\nend${i + 1}\n`,
+    ).join("");
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toBe(expected);
+    expect(chunks.join("")).toBe(expected);
+  });
 });

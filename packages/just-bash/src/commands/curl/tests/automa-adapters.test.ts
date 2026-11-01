@@ -1,6 +1,7 @@
 // Automa modifications: N00b regressions from curl inline and shell-flags adapters.
 import { describe, expect, it, vi } from "vitest";
 import { Bash } from "../../../Bash.js";
+import { ExecutionLimitError } from "../../../interpreter/errors.js";
 import type { SecureFetch } from "../../../network/index.js";
 import { generateMultipartBody, parseFormField } from "../form.js";
 
@@ -79,5 +80,19 @@ describe("Automa curl adapters", () => {
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).not.toBe("");
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("retains typed resource failures and already observed headers", async () => {
+    const shell = new Bash({ fetch: async () => response });
+    shell.fs.writeFile = async () => {
+      throw new ExecutionLimitError("write budget exhausted", "string_length");
+    };
+    const result = await shell.exec(
+      "curl -D - -o output https://example.test/data || true",
+    );
+    expect(result.stdout).toBe(
+      "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\n\r\n",
+    );
+    expect(result.executionFailure?.kind).toBe("resource-limit");
+    expect(result.exitCode).not.toBe(0);
   });
 });
