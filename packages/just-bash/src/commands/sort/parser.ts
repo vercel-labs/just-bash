@@ -1,3 +1,4 @@
+// Automa modification: N00b per-key modifiers replace global modifiers.
 // Parser for sort key specifications
 
 import type { KeySpec } from "./types.js";
@@ -29,6 +30,18 @@ export function parseKeySpec(spec: string): KeySpec | null {
   if (modifierMatch) {
     modifierStr = modifierMatch[1];
     mainSpec = mainSpec.slice(0, -modifierStr.length);
+  }
+
+  // A key with any local modifier does not inherit global ordering modifiers.
+  if (modifierStr) {
+    result.numeric = false;
+    result.reverse = false;
+    result.ignoreCase = false;
+    result.ignoreLeading = false;
+    result.humanNumeric = false;
+    result.versionSort = false;
+    result.dictionaryOrder = false;
+    result.monthSort = false;
   }
 
   // Parse modifiers (case-sensitive: M and V are uppercase)

@@ -1,3 +1,4 @@
+// Automa modification: N00b explicit C/POSIX collation.
 // Types for sort command implementation
 
 export interface KeySpec {
@@ -21,6 +22,7 @@ export interface KeySpec {
 }
 
 export interface SortOptions {
+  cLocale?: boolean;
   reverse: boolean;
   numeric: boolean;
   unique: boolean;

@@ -1,3 +1,4 @@
+// Automa modification: GNU count width is seven columns.
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
@@ -24,7 +25,9 @@ describe("uniq command", () => {
   it("should count occurrences with -c", async () => {
     const env = createEnv();
     const result = await env.exec("uniq -c /test/adjacent.txt");
-    expect(result.stdout).toBe("   2 apple\n   3 banana\n   1 cherry\n");
+    expect(result.stdout).toBe(
+      "      2 apple\n      3 banana\n      1 cherry\n",
+    );
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);
   });
