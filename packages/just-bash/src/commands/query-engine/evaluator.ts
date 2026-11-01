@@ -1,3 +1,4 @@
+import type { InputMetadata, InputPolicy, InputState } from "./input-state.js";
 /**
  * Query expression evaluator
  *
@@ -131,6 +132,10 @@ interface QueryFunction {
 export class UndefinedQueryFunctionError extends Error {}
 
 export interface EvalContext {
+  /** Automa modifications: shared input cursor and source identity. */
+  inputMetadata?: InputMetadata;
+  inputState?: InputState;
+  inputPolicy?: InputPolicy;
   vars: Map<string, QueryValue>;
   limits: ResolvedQueryExecutionLimits;
   env?: Map<string, string>;
@@ -204,7 +209,9 @@ function appendQueryResults(
   values: readonly QueryValue[],
 ): void {
   assertQueryResultCapacity(ctx, target.length, values.length);
+  const offset = target.length;
   for (const value of values) target.push(value);
+  ctx.inputState?.append(target, values, offset);
 }
 
 function boundedFlatMap(
@@ -213,8 +220,10 @@ function boundedFlatMap(
   mapper: (value: QueryValue) => QueryValue[],
 ): QueryValue[] {
   const results: QueryValue[] = [];
+  let ordinal = 0;
   for (const value of values) {
     chargeQueryWork(ctx);
+    ctx.inputState?.beforeEach(values, ordinal++);
     const mapped = mapper(value);
     appendQueryResults(ctx, results, mapped);
   }
@@ -245,6 +254,9 @@ function createContext(options?: EvaluateOptions): EvalContext {
     namedArgs: options?.namedArgs,
     positionalArgs: options?.positionalArgs,
     coverage: options?.coverage,
+    inputMetadata: options?.inputMetadata,
+    inputState: options?.inputState,
+    inputPolicy: options?.inputPolicy,
     requireDefenseContext: options?.requireDefenseContext,
     defenseContextChecked: false,
     budget: options?.budget ?? { operations: 0, callDepth: 0 },
@@ -271,6 +283,9 @@ function withVar(
     funcs: ctx.funcs,
     labels: ctx.labels,
     coverage: ctx.coverage,
+    inputMetadata: ctx.inputMetadata,
+    inputState: ctx.inputState,
+    inputPolicy: ctx.inputPolicy,
     budget: ctx.budget,
   };
 }
@@ -465,6 +480,10 @@ function applyPathTransform(
 }
 
 export interface EvaluateOptions {
+  /** Automa modifications: shared input cursor and source identity. */
+  inputMetadata?: InputMetadata;
+  inputState?: InputState;
+  inputPolicy?: InputPolicy;
   limits?: QueryExecutionLimits;
   env?: Map<string, string>;
   /** Named arguments (bare names) bound to $NAME and exposed via $ARGS.named */
@@ -549,6 +568,7 @@ export function evaluate(
   }
 
   try {
+    ctx = ctx.inputState?.context(ctx, ast) ?? ctx;
     const results = evaluateNode(value, ast, ctx);
     // Enforce the public evaluator contract as well as individual builders.
     // Direct nodes such as `.[]` can otherwise return an attacker-owned array
@@ -683,20 +703,28 @@ function evaluateNode(
     }
 
     case "Pipe": {
+      const inputBefore = ctx.inputState?.readCount ?? 0;
       const leftResults = evaluate(value, ast.left, ctx);
       const leftPath = extractPathFromAst(ast.left);
       const pipeResults: QueryValue[] = [];
+      let ordinal = 0;
       for (const v of leftResults) {
         try {
+          ctx.inputState?.beforeEach(leftResults, ordinal++);
+          const rightContext =
+            leftResults.length > 1 &&
+            (ctx.inputState?.readCount ?? 0) > inputBefore
+              ? { ...ctx, inputPolicy: "multi-result input pipeline" }
+              : ctx;
           if (leftPath !== null) {
             const newCtx = {
-              ...ctx,
+              ...rightContext,
               currentPath: [...(ctx.currentPath ?? []), ...leftPath],
             };
             const next = evaluate(v, ast.right, newCtx);
             appendQueryResults(ctx, pipeResults, next);
           } else {
-            const next = evaluate(v, ast.right, ctx);
+            const next = evaluate(v, ast.right, rightContext);
             appendQueryResults(ctx, pipeResults, next);
           }
         } catch (e) {
@@ -710,9 +738,13 @@ function evaluateNode(
     }
     case "Comma": {
       const leftResults = evaluate(value, ast.left, ctx);
+      ctx.inputState?.stamp(leftResults);
       const rightResults = evaluate(value, ast.right, ctx);
       assertQueryResultCapacity(ctx, leftResults.length, rightResults.length);
-      return [...leftResults, ...rightResults];
+      const result = [...leftResults, ...rightResults];
+      return (
+        ctx.inputState?.concat(result, leftResults, rightResults) ?? result
+      );
     }
 
     case "Literal":
@@ -760,10 +792,13 @@ function evaluateNode(
               }
               continue;
             }
+            let ordinal = 0;
             for (const v of values) {
+              ctx.inputState?.beforeEach(values, ordinal++);
               const newObj = nullPrototypeCopy(obj);
               safeSet(newObj, k, v);
               newResults.push(newObj);
+              ctx.inputState?.pushRecord(newResults);
             }
           }
         }
@@ -1830,6 +1865,9 @@ function evalBuiltin(
         ...ctx,
         funcs: definition.closure,
         vars: definition.vars ?? ctx.vars,
+        inputPolicy: ctx.inputState
+          ? "custom filter argument"
+          : ctx.inputPolicy,
       });
     const funcs = new Map(definition.closure ?? ctx.funcs ?? []);
     funcs.set(key, definition);
@@ -1841,7 +1879,13 @@ function evalBuiltin(
       const parameter = definition.params[i];
       const argument = args[i];
       if (parameter.startsWith("$")) {
-        const values = evaluate(value, argument, ctx);
+        const values = evaluate(
+          value,
+          argument,
+          ctx.inputState
+            ? { ...ctx, inputPolicy: "custom filter argument" }
+            : ctx,
+        );
         const next: EvalContext[] = [];
         for (const parent of contexts) {
           chargeQueryWork(ctx);
@@ -1873,6 +1917,11 @@ function evalBuiltin(
     return output;
   }
   // Handle simple single-argument math functions via lookup table
+  if (args.length === 0) {
+    if (name === "input_filename") return [ctx.inputMetadata?.filename ?? null];
+    if (name === "input_line_number") return [ctx.inputMetadata?.line ?? 0];
+    if (name === "input" && ctx.inputState) return ctx.inputState.read(ctx);
+  }
   const simpleMathFn = SIMPLE_MATH_FUNCTIONS.get(name);
   if (simpleMathFn) {
     if (typeof value === "number") return [simpleMathFn(value)];

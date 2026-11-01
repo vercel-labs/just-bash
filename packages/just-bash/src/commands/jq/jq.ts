@@ -1,4 +1,3 @@
-import { UndefinedQueryFunctionError } from "../query-engine/evaluator.js";
 /**
  * jq - RuntimeCommand-line JSON processor
  *
@@ -21,15 +20,14 @@ import type {
 import { readFiles } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import { utf8ByteLength } from "../printf/escapes.js";
-import {
-  type EvaluateOptions,
-  evaluate,
-  parse,
-  type QueryValue,
-} from "../query-engine/index.js";
+import { UndefinedQueryFunctionError } from "../query-engine/evaluator.js";
+import { parse, type QueryValue } from "../query-engine/index.js";
+import { hasInputCall, InputEOFError } from "../query-engine/input-state.js";
 import { formatJsonValue } from "../query-engine/json-output.js";
 import { sanitizeParsedData } from "../query-engine/safe-object.js";
 import { getValueDepth } from "../query-engine/value-operations.js";
+import { evaluateInputs } from "./input.js";
+import type { InputOptions, InputSource } from "./input-types.js";
 
 function escapeControlChar(char: string): string {
   switch (char) {
@@ -100,6 +98,8 @@ function parseJsonSlice(
 function parseJsonStream(
   input: string,
   limits: { maxDepth: number; maxElements: number },
+  onValue?: (end: number, value: QueryValue) => void,
+  startOffset = 0,
 ): unknown[] {
   const results: unknown[] = [];
   const appendResult = (value: unknown): void => {
@@ -110,8 +110,9 @@ function parseJsonStream(
       );
     }
     results.push(value);
+    onValue?.(pos, value);
   };
-  let pos = 0;
+  let pos = startOffset;
   const len = input.length;
 
   while (pos < len) {
@@ -193,14 +194,14 @@ function parseJsonStream(
         sanitizeParsedData(parseJsonSlice(input, startPos, pos), limits),
       );
     } else if (input.slice(pos, pos + 4) === "true") {
+      pos += 4;
       appendResult(true);
-      pos += 4;
     } else if (input.slice(pos, pos + 5) === "false") {
-      appendResult(false);
       pos += 5;
+      appendResult(false);
     } else if (input.slice(pos, pos + 4) === "null") {
-      appendResult(null);
       pos += 4;
+      appendResult(null);
     } else {
       // Try to provide context about what we found
       const context = input.slice(pos, pos + 10);
@@ -442,30 +443,62 @@ export const jqCommand: RuntimeCommand = {
     // Build list of inputs: stdin or files. jq parses JSON, so the input
     // bytes are decoded to UTF-8 before parsing — without this, multi-byte
     // sequences inside string values get re-encoded twice and emit mojibake.
-    let inputs: { source: string; content: string }[] = [];
-    if (nullInput) {
-      // No input
-    } else if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
-      inputs.push({ source: "stdin", content: decodeBytesToUtf8(ctx.stdin) });
-    } else {
-      // Read all files in parallel using shared utility
-      const result = await withDefenseContext("file read", () =>
-        readFiles(ctx, files, {
-          cmdName: "jq",
-          stopOnError: true,
+    // Automa modifications: explicit input consumes this invocation's shared cursor.
+    let mayReadInput = false;
+    try {
+      mayReadInput = hasInputCall(
+        parse(filter, {
+          maxDepth: ctx.limits.maxQueryDepth,
+          maxTokens: ctx.limits.maxQueryTokens,
+          maxSourceLength: ctx.limits.maxStringLength,
         }),
       );
-      if (result.exitCode !== 0) {
-        return {
-          stdout: "",
-          stderr: result.stderr,
-          exitCode: 2, // jq uses exit code 2 for file errors
-        };
+    } catch (error) {
+      if (
+        error instanceof ExecutionLimitError ||
+        error instanceof SecurityViolationError
+      )
+        throw error;
+      // The normal compilation phase below reports syntax failures.
+    }
+    const inputs: InputSource[] = [];
+    if (!nullInput || mayReadInput) {
+      if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
+        inputs.push({
+          source: "<stdin>",
+          content: decodeBytesToUtf8(ctx.stdin),
+        });
+      } else {
+        let stdinRead = false;
+        for (const operand of files) {
+          if (mayReadInput && operand === "-") {
+            if (stdinRead) continue;
+            stdinRead = true;
+          }
+          const result = await withDefenseContext("file read", () =>
+            readFiles(ctx, [operand], { cmdName: "jq", stopOnError: true }),
+          );
+          if (result.exitCode !== 0) {
+            if (!nullInput && !mayReadInput)
+              return { stdout: "", stderr: result.stderr, exitCode: 2 };
+            inputs.push({
+              source: operand,
+              content: "",
+              error: { stderr: result.stderr },
+            });
+          } else {
+            inputs.push(
+              ...result.files.map((file) => ({
+                source:
+                  file.filename && file.filename !== "-"
+                    ? file.filename
+                    : "<stdin>",
+                content: decodeBytesToUtf8(file.content),
+              })),
+            );
+          }
+        }
       }
-      inputs = result.files.map((f) => ({
-        source: f.filename || "stdin",
-        content: decodeBytesToUtf8(f.content),
-      }));
     }
 
     // Automa modifications: classify compilation by phase, never by user error text.
@@ -479,16 +512,14 @@ export const jqCommand: RuntimeCommand = {
       compiled = true;
       let values: QueryValue[] = [];
 
-      const evalOptions: EvaluateOptions = {
-        limits: ctx.limits
-          ? {
-              maxIterations: ctx.limits.maxJqIterations,
-              maxStringLength: ctx.limits.maxStringLength,
-              maxOutputSize: ctx.limits.maxOutputSize,
-              maxArrayElements: ctx.limits.maxQueryElements,
-              maxDepth: ctx.limits.maxQueryDepth,
-            }
-          : undefined,
+      const evalOptions: InputOptions = {
+        limits: {
+          maxIterations: ctx.limits.maxJqIterations,
+          maxStringLength: ctx.limits.maxStringLength,
+          maxOutputSize: ctx.limits.maxOutputSize,
+          maxArrayElements: ctx.limits.maxQueryElements,
+          maxDepth: ctx.limits.maxQueryDepth,
+        },
         env: ctx.env,
         namedArgs,
         positionalArgs,
@@ -506,62 +537,18 @@ export const jqCommand: RuntimeCommand = {
         for (const value of next) target.push(value);
       };
 
-      if (nullInput) {
-        values = evaluate(null, ast, evalOptions);
-      } else if (rawInput && slurp) {
-        // Raw slurp: the entire concatenated input becomes one JSON string.
-        const rawText = inputs.map(({ content }) => content).join("");
-        values = evaluate(rawText, ast, evalOptions);
-      } else if (rawInput) {
-        // Raw input: real jq concatenates all inputs into a single stream and
-        // splits on newlines, so a line can span a file boundary when a file
-        // lacks a trailing newline. Scan incrementally, carrying only the
-        // unterminated trailing fragment across inputs, instead of building the
-        // full concatenated string and a complete array of lines. A trailing
-        // newline does not yield a final empty string, but interior blank
-        // lines are preserved.
-        let remainder = "";
-        for (const { content } of inputs) {
-          const text = remainder + content;
-          let start = 0;
-          let nl = text.indexOf("\n", start);
-          while (nl !== -1) {
-            appendValues(
-              values,
-              evaluate(text.slice(start, nl), ast, evalOptions),
-            );
-            start = nl + 1;
-            nl = text.indexOf("\n", start);
-          }
-          remainder = text.slice(start);
-        }
-        if (remainder !== "") {
-          appendValues(values, evaluate(remainder, ast, evalOptions));
-        }
-      } else if (slurp) {
-        // Slurp mode: combine all inputs into single array
-        // Use JSON stream parser to handle concatenated JSON (not just NDJSON)
-        const items: QueryValue[] = [];
-        for (const { content } of inputs) {
-          const trimmed = content.trim();
-          if (trimmed) {
-            appendValues(items, parseJsonStream(trimmed, jsonLimits));
-          }
-        }
-        values = evaluate(items, ast, evalOptions);
-      } else {
-        // Process each input file separately
-        // Use JSON stream parser to handle concatenated JSON (e.g., cat file1.json file2.json | jq .)
-        for (const { content } of inputs) {
-          const trimmed = content.trim();
-          if (!trimmed) continue;
-
-          const jsonValues = parseJsonStream(trimmed, jsonLimits);
-          for (const jsonValue of jsonValues) {
-            appendValues(values, evaluate(jsonValue, ast, evalOptions));
-          }
-        }
-      }
+      values = evaluateInputs(
+        inputs,
+        evalOptions,
+        nullInput,
+        rawInput,
+        slurp,
+        ast,
+        parseJsonStream,
+        appendValues,
+        jsonLimits,
+        ctx.limits,
+      );
 
       const separator = joinOutput ? "" : "\n";
       const maxStringLength = Math.min(
@@ -625,14 +612,27 @@ export const jqCommand: RuntimeCommand = {
       const stdoutText = output ? (joinOutput ? output : `${output}\n`) : "";
       return {
         stdout: stdoutText,
-        stderr: "",
-        exitCode,
+        stderr: (evalOptions.inputState?.fileErrors ?? []).join(""),
+        exitCode: evalOptions.inputState?.fileErrors.length ? 2 : exitCode,
       };
     } catch (e) {
       if (e instanceof SecurityViolationError) {
         throw e;
       }
-      if (e instanceof ExecutionLimitError) throw e;
+      if (e instanceof InputEOFError)
+        return {
+          stdout: "",
+          stderr: `${e.fileErrors.join("")}jq: error (at ${e.metadata.filename ?? "<stdin>"}:${e.metadata.line}): break\n`,
+          exitCode: e.fileErrors.length ? 2 : 5,
+        };
+      if (e instanceof ExecutionLimitError) {
+        if (e.limitType !== "input_composition") throw e;
+        return {
+          stdout: "",
+          stderr: `jq: ${sanitizeErrorMessage(e.message)}\n`,
+          exitCode: ExecutionLimitError.EXIT_CODE,
+        };
+      }
       const msg = sanitizeErrorMessage((e as Error).message);
       if (!compiled || e instanceof UndefinedQueryFunctionError) {
         return {
