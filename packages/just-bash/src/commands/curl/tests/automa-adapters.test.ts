@@ -1,7 +1,7 @@
 // Automa modifications: N00b regressions from curl inline and shell-flags adapters.
 import { describe, expect, it, vi } from "vitest";
 import { Bash } from "../../../Bash.js";
-import type { SecureFetch } from "../../../network/types.js";
+import type { SecureFetch } from "../../../network/index.js";
 import { generateMultipartBody, parseFormField } from "../form.js";
 
 const bytes = new Uint8Array([0, 255, 128, 120, 10]);
