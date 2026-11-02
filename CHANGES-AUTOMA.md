@@ -153,6 +153,20 @@ changes keep the existing resource thresholds and public package interfaces.
   normalizing timestamps, modes or output. Owning tests cover explicit host
   defaults, binary escapes, unsupported resources and cancellation.
 
+## N2c shared permission metadata
+
+- Extract chmod's numeric/symbolic parser as `parseFileMode(mode, currentMode,
+  isDirectory)`, exported from both public entries for embedding commands.
+  `X` checks directory/executable identity; invalid modes fail before effects.
+  chmod reuses it, with the same export available to mkdir and host install.
+- Port the regular/lazy overwrite-mode preservation from
+  [upstream PR #578](https://github.com/vercel-labs/just-bash/pull/578) to
+  InMemoryFs. Explicit metadata wins, and newly created files retain defaults.
+  This targets the virtual filesystem's stored permission bits; no POSIX
+  privilege or inode semantics are inferred for browser storage.
+- Owning tests and recorded GNU coreutils 9.7 fixtures verify restricted modes,
+  executable rewrites, conditional execute bits, special bits and rejection.
+
 ## Build, validation and future upgrades
 
 Use Node 22.19.0 and the root `packageManager` pnpm 10.33.2 with the frozen lockfile.
