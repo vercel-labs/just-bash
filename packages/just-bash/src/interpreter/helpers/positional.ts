@@ -3,14 +3,11 @@ export function replacePositionalParams(
   args: string[],
 ): Map<string, string | undefined> {
   const saved = new Map<string, string | undefined>();
-  for (const [key, value] of env) {
-    if (/^[1-9]\d*$/.test(key)) saved.set(key, value);
+  for (let i = 1; i <= args.length || env.has(String(i)); i++) {
+    const key = String(i);
+    saved.set(key, env.get(key));
+    if (i <= args.length) env.set(key, args[i - 1]);
+    else env.delete(key);
   }
-  for (const key of saved.keys()) env.delete(key);
-  args.forEach((arg, i) => {
-    const key = String(i + 1);
-    if (!saved.has(key)) saved.set(key, undefined);
-    env.set(key, arg);
-  });
   return saved;
 }

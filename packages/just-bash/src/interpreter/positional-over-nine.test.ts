@@ -88,16 +88,19 @@ describe("more than nine positional parameters", () => {
     expect(result.exitCode).toBe(0);
   });
 
-  it("should hide and restore a parameter set beyond $#", async () => {
+  it("should hide and restore parameters set beyond $#", async () => {
+    const seeded = Object.fromEntries(
+      Array.from({ length: 12 }, (_, i) => [String(i + 1), `p${i + 1}`]),
+    );
     const env = new Bash({
-      env: { "#": "0", "12": "stale" },
+      env: { ...seeded, "#": "0" },
       files: { "/s.sh": `echo "$# [\${12}]"\n` },
     });
     await env.exec("chmod +x /s.sh");
     const result = await env.exec(
       `/s.sh x; source /s.sh y; echo "after [\${12}]"`,
     );
-    expect(result.stdout).toBe("1 []\n1 []\nafter [stale]\n");
+    expect(result.stdout).toBe("1 []\n1 []\nafter [p12]\n");
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);
   });
