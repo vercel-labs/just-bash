@@ -115,4 +115,86 @@ describe("explicit cookie jar capability", () => {
     });
     expect(fetch).not.toHaveBeenCalled();
   });
+  it.each([
+    "-o /combined",
+    "-D /combined -o /dev/null",
+  ])("finalizes the cookie jar after a colliding output: %s", async (flags) => {
+    const shell = new Bash({ fetch: async () => response });
+    const result = await shell.exec(`curl -s -c /combined ${flags} ${url}`);
+    expect(result).toMatchObject({ stdout: "", stderr: "", exitCode: 0 });
+    expect(await shell.fs.readFile("/combined")).toBe(jar);
+  });
+  it("finalizes a colliding header/jar file after an HTTP -f failure", async () => {
+    const shell = new Bash({
+      fetch: async () => ({ ...response, status: 403 }),
+    });
+    const result = await shell.exec(
+      `curl -sf -c /combined -D /combined ${url}`,
+    );
+    expect(result).toMatchObject({ stdout: "", stderr: "", exitCode: 22 });
+    expect(await shell.fs.readFile("/combined")).toBe(jar);
+  });
+  it.each([
+    "-o /denied",
+    "-D /denied",
+  ])("exports an available jar but preserves ordinary output failure: %s", async (flags) => {
+    const fs = new InMemoryFs();
+    const write = fs.writeFile.bind(fs);
+    let deniedWrites = 0;
+    vi.spyOn(fs, "writeFile").mockImplementation(
+      async (path, content, options) => {
+        // Header files are first truncated before dispatch. Fail their final
+        // header write instead so this exercise has an available response jar.
+        if (path === "/denied" && content !== "") {
+          deniedWrites++;
+          throw new Error("EACCES: output denied");
+        }
+        return write(path, content, options);
+      },
+    );
+    const shell = new Bash({ fs, fetch: async () => response });
+    const result = await shell.exec(`curl -sS -c /jar ${flags} ${url}`);
+    expect(result).toMatchObject({
+      stdout: "",
+      stderr: "curl: (23) EACCES: output denied\n",
+      exitCode: 23,
+    });
+    expect(await fs.readFile("/jar")).toBe(jar);
+    expect(deniedWrites).toBe(1);
+  });
+  it("does not retry an uncertain jar write or hide a second write failure", async () => {
+    const fs = new InMemoryFs();
+    const writes: string[] = [];
+    vi.spyOn(fs, "writeFile").mockImplementation(async (path) => {
+      writes.push(path);
+      throw new Error(`EACCES: ${path}`);
+    });
+    const result = await new Bash({ fs, fetch: async () => response }).exec(
+      `curl -sS -c /jar -o /body ${url}`,
+    );
+    expect(result).toMatchObject({
+      stdout: "",
+      stderr: "curl: (23) EACCES: /body; cookie jar: EACCES: /jar\n",
+      exitCode: 23,
+    });
+    expect(writes).toEqual(["/body", "/jar"]);
+  });
+  it("does not finalize a jar after Stop during an output write", async () => {
+    const fs = new InMemoryFs();
+    const controller = new AbortController();
+    const writes: string[] = [];
+    vi.spyOn(fs, "writeFile").mockImplementation(async (path) => {
+      writes.push(path);
+      controller.abort();
+      throw new Error("output interrupted");
+    });
+    const result = await new Bash({ fs, fetch: async () => response }).exec(
+      `curl -c /jar -o /body ${url}`,
+      { signal: controller.signal },
+    );
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stdout).toBe("");
+    expect(writes).toEqual(["/body"]);
+    expect(await fs.exists("/jar")).toBe(false);
+  });
 });

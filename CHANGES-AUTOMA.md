@@ -366,3 +366,15 @@ branch before rebasing. Record upstream PR links here when they exist.
   original mode. Default 0022 adds no chmod call or native metadata requirement.
 - Record native Bash/coreutils comparisons for umask 0777, an explicit leaf mode,
   and an existing parent with a different mode.
+
+## N7 cookie finalization review
+
+- Finalize exported cookie jars after response body/header output, so a -c path
+  shared with -o or -D ends as a valid jar, matching native curl. HTTP -f failures
+  still export the available jar after their header dump.
+- Ordinary output-write failures retain exit 23 while still attempting the
+  available jar once. A failed/uncertain jar write is never retried, a second
+  write failure remains visible, and Stop/resource failures prohibit finalization.
+- Add exact-output regressions for path collisions, HTTP failures, ordinary
+  output failures, uncertain jar writes and Stop. Compare both collision forms
+  with native curl against a local synthetic-cookie HTTP server.

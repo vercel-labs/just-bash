@@ -359,6 +359,14 @@ export const curlCommand: RuntimeCommand = {
       url = `https://${url}`;
     }
     metrics.url = url;
+    let pendingCookieJar: string | undefined;
+    let cookieOutput = "";
+    let cookieWriteAttempted = false;
+    const persistCookies = async () => {
+      // Never retry a jar write after an uncertain or partial filesystem error.
+      cookieWriteAttempted = true;
+      cookieOutput = await saveCookies(options, pendingCookieJar, ctx);
+    };
 
     try {
       // Resolve -d/--data* payloads (reading any @file references) once, then
@@ -408,7 +416,7 @@ export const curlCommand: RuntimeCommand = {
         },
       );
 
-      // Save cookies if requested
+      // Capture transfer metrics and the explicitly exported host jar.
       metrics = {
         status: result.status,
         headers: result.headers,
@@ -416,7 +424,7 @@ export const curlCommand: RuntimeCommand = {
         bodyLength: result.body.byteLength,
         timeTotal,
       };
-      const cookieOutput = await saveCookies(options, result.cookieJar, ctx);
+      pendingCookieJar = result.cookieJar;
       const writeOut = options.writeOut
         ? fromBuffer(
             requestDataEncoder.encode(applyWriteOut(options.writeOut, metrics)),
@@ -457,6 +465,8 @@ export const curlCommand: RuntimeCommand = {
           options.showError || !options.silent
             ? `curl: (22) The requested URL returned error: ${result.status}\n`
             : "";
+        // Finalize the jar after the header file, including -f failures.
+        await persistCookies();
         // -D - still emits headers on stdout under -f (real curl).
         const stdout =
           (options.dumpHeader === "-" ? headerBlock : "") +
@@ -505,6 +515,9 @@ export const curlCommand: RuntimeCommand = {
         output = headerBlock + output;
       }
 
+      // Curl finalizes its jar after response outputs. When -c shares a path
+      // with -o or -D, the final file must still be a cookie jar.
+      await persistCookies();
       // The response body is a latin1-shaped byte buffer (see
       // `fetchBodyToStdoutString`); write-out text is UTF-8 encoded separately
       // so non-ASCII format text and effective URLs survive byte composition.
@@ -521,7 +534,24 @@ export const curlCommand: RuntimeCommand = {
       ctx.executionScope?.throwIfAborted("curl");
       ctx.signal?.throwIfAborted();
       rethrowFatalExecutionError(error);
-      const message = getErrorMessage(error);
+      let message = getErrorMessage(error);
+      // Ordinary output failures still finalize an available jar, as curl does.
+      // Cancellation/resource failures above never perform another write.
+      if (
+        error instanceof CurlWriteError &&
+        options.cookieJar !== undefined &&
+        pendingCookieJar !== undefined &&
+        !cookieWriteAttempted
+      ) {
+        try {
+          await persistCookies();
+        } catch (jarError) {
+          ctx.executionScope?.throwIfAborted("curl cookie jar");
+          ctx.signal?.throwIfAborted();
+          rethrowFatalExecutionError(jarError);
+          message += `; cookie jar: ${getErrorMessage(jarError)}`;
+        }
+      }
 
       // Determine exit code based on error type
       let exitCode = 1;
@@ -558,7 +588,8 @@ export const curlCommand: RuntimeCommand = {
                 ),
                 "binary",
               )
-            : ""),
+            : "") +
+          cookieOutput,
         stderr,
         exitCode,
         stdoutKind: "bytes",
