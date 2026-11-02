@@ -344,10 +344,13 @@ export class Interpreter {
         }
         if (error instanceof NounsetError) {
           // Fatal in this shell, including function/eval/source scripts. Bash
-          // uses 127 at the shell entry and 1 inside an isolated subshell.
+          // uses 1 under errexit or in an isolated subshell, otherwise 127.
           output.prependTo(error);
           const fatal = new ExitError(
-            this.ctx.state.bashPid === this.ctx.state.virtualPid ? 127 : 1,
+            this.ctx.state.options.errexit ||
+              this.ctx.state.bashPid !== this.ctx.state.virtualPid
+              ? 1
+              : 127,
             error.stdout,
             error.stderr,
           );

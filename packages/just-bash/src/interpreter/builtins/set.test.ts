@@ -219,7 +219,7 @@ describe("set builtin", () => {
         echo "never"
       `);
       expect(result.stderr).toContain("UNDEFINED: unbound variable");
-      expect(result.exitCode).toBe(127);
+      expect(result.exitCode).toBe(1);
       expect(result.stdout).not.toContain("never");
     });
   });
@@ -245,7 +245,7 @@ describe("set builtin", () => {
         echo never
       `);
       expect(result.stderr).toContain("UNDEFINED: unbound variable");
-      expect(result.exitCode).toBe(127);
+      expect(result.exitCode).toBe(1);
       expect(result.stdout).not.toContain("never");
     });
 

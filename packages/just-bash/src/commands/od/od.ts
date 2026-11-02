@@ -244,9 +244,13 @@ async function odExecute(
       return fail("cannot skip past end of combined input");
     const bytes = input.build();
     const work = bytes.length * formats.length;
-    if (!Number.isSafeInteger(work) || work > ctx.limits.maxTraversalWork)
+    const formatLimit = Math.min(
+      ctx.limits.maxLoopIterations,
+      ctx.limits.maxTraversalWork,
+    );
+    if (!Number.isSafeInteger(work) || work > formatLimit)
       throw new ExecutionLimitError(
-        `od: format work limit exceeded (${ctx.limits.maxTraversalWork})`,
+        `od: format work limit exceeded (${formatLimit})`,
         "iterations",
       );
     ctx.executionScope?.consumeWork(work, "od formatting");

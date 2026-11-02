@@ -7,6 +7,7 @@ import { automaTrapBuiltin } from "./traps.js";
  */
 
 import { isBrowserExcludedCommand } from "../commands/browser-excluded.js";
+import { isSafeKey } from "../commands/query-engine/safe-object.js";
 import { latin1FromBytes, unsafeBytesFromLatin1 } from "../encoding.js";
 import {
   createCommandExecutionBudget,
@@ -199,9 +200,18 @@ function createRevocableCommandContext(
       const copy: object = Array.isArray(value) ? [] : Object.create(prototype);
       wrappedValues.set(value, copy);
       const descriptors = Object.getOwnPropertyDescriptors(value);
-      for (const descriptor of Object.values(descriptors)) {
+      for (const [key, descriptor] of Object.entries(descriptors)) {
         if ("value" in descriptor) {
-          const member = descriptor.value;
+          // A filesystem facade can interpose on method access (for example,
+          // to invalidate process capture credits). Its backing descriptor
+          // alone does not represent the capability granted to this command.
+          let member = descriptor.value;
+          if (value === context.fs && typeof member === "function") {
+            if (!isSafeKey(key))
+              throw new Error(`${commandName}: unsafe filesystem method`);
+            // @banned-pattern-ignore: validated own key of the host filesystem facade.
+            member = Reflect.get(context.fs, key);
+          }
           descriptor.value =
             typeof member === "function"
               ? (...args: unknown[]) => {

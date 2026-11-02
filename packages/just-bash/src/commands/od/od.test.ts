@@ -55,6 +55,20 @@ describe("od command", () => {
     expect(result.stdout).toBe("0000000 054101 000102\n0000003\n");
   });
 
+  it.each([
+    "maxLoopIterations",
+    "maxTraversalWork",
+  ])("limits byte formatting through %s", async (limit) => {
+    const env = new Bash({
+      files: { "/input": "abc" },
+      executionLimits: { [limit]: 5 },
+    });
+    const result = await env.exec("od -An -t x1 -t c /input");
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("bash: od: format work limit exceeded (5)\n");
+    expect(result.exitCode).toBe(126);
+  });
+
   it("should error on non-existent file", async () => {
     const env = new Bash();
     const result = await env.exec("od /nonexistent/file.txt");

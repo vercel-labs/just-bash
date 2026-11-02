@@ -221,8 +221,8 @@ changes keep the existing resource thresholds and public package interfaces.
 - `caller` reads bounded function/source frames, preserving call-site lines,
   source filenames, nesting, returns and subshell isolation. Unsupported options
   and invalid numeric arguments fail visibly.
-- Fatal nounset expansion exits the command-string shell with 127 and isolated
-  subshells with 1. Function, eval, source, group and loop unwinds preserve output
+- Fatal nounset expansion exits the command-string shell with 127 under -u or
+  1 under -eu. Isolated subshells exit with 1. Function, eval, source, group and loop unwinds preserve output
   and reach the existing EXIT-trap boundary instead of continuing the script.
 - `times` prints two pairs of fixed zero virtual CPU counters. Its help explicitly
   distinguishes them from actual CPU measurements; wall time is never substituted.
@@ -378,3 +378,10 @@ branch before rebasing. Record upstream PR links here when they exist.
 - Add exact-output regressions for path collisions, HTTP failures, ordinary
   output failures, uncertain jar writes and Stop. Compare both collision forms
   with native curl against a local synthetic-cookie HTTP server.
+
+## MR 55 regression follow-up
+
+- Bind plain-object filesystem capabilities through their actual method accessors
+  so copying over a process substitution descriptor invalidates its output credit.
+- Bound od formatting by both the configured loop and traversal limits before
+  charging its shared work budget.

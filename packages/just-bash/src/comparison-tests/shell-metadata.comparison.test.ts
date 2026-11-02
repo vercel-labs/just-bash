@@ -42,6 +42,10 @@ describe("Bash 5.2 shell metadata and small builtins", () => {
       'set -u; echo before; echo "$AUTOMA_UNSET_N8"; echo after',
     ],
     [
+      "nounset with errexit",
+      'set -eu; echo before; echo "$AUTOMA_UNSET_N8"; echo after',
+    ],
+    [
       "nounset function",
       'set -u; f() { echo "$AUTOMA_UNSET_N8"; }; f; echo after',
     ],

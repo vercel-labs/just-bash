@@ -122,6 +122,13 @@
     "exitCode": 0,
     "locked": true
   },
+  "ac0a4a21c52ce465": {
+    "command": "set -eu; echo before; echo \"$AUTOMA_UNSET_N8\"; echo after",
+    "files": {},
+    "stdout": "before\n",
+    "stderr": "/bin/bash: line 1: AUTOMA_UNSET_N8: unbound variable\n",
+    "exitCode": 1
+  },
   "ac2d89129b62cbaf": {
     "command": "bash -c 'set -u; echo \"$AUTOMA_UNSET_N8\"; echo after'; echo \"child:$?\"",
     "files": {},
