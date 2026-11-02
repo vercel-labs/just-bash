@@ -2,7 +2,6 @@
  * diff - Compare files line by line
  */
 
-import { decodeBytesToUtf8 } from "../../encoding.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -10,14 +9,8 @@ import type {
 } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
 import { hasHelpFlag, showHelp } from "../help.js";
-import {
-  computeChanges,
-  DEFAULT_CONTEXT,
-  formatContext,
-  formatNormal,
-  formatUnified,
-  splitLines,
-} from "./format.js";
+import { comparePaths } from "./compare.js";
+import { DEFAULT_CONTEXT } from "./format.js";
 
 const diffHelp = {
   name: "diff",
@@ -26,6 +19,10 @@ const diffHelp = {
   options: [
     "    --normal      output a normal diff (default)",
     "-u, --unified     output a unified diff",
+    "-U N             output a unified diff with N context lines",
+    "-r, --recursive   recursively compare directories",
+    "-N, --new-file    treat absent files as empty",
+    "    --label L     use L for the next file header",
     "-c, --context     output a context diff",
     "-q, --brief       report only whether files differ",
     "-s, --report-identical-files  report when files are the same",
@@ -35,6 +32,7 @@ const diffHelp = {
   ],
 };
 
+const helpHint = "diff: Try 'diff --help' for more information.\n";
 const argDefs = {
   normal: { long: "normal", type: "boolean" as const },
   unified: { short: "u", long: "unified", type: "boolean" as const },
@@ -47,6 +45,9 @@ const argDefs = {
   },
   ignoreCase: { short: "i", long: "ignore-case", type: "boolean" as const },
   version: { long: "version", type: "boolean" as const },
+  recursive: { short: "r", long: "recursive", type: "boolean" as const },
+  newFile: { short: "N", long: "new-file", type: "boolean" as const },
+  lines: { short: "U", type: "number" as const },
 };
 
 export const diffCommand: RuntimeCommand = {
@@ -58,8 +59,53 @@ export const diffCommand: RuntimeCommand = {
   ): Promise<ExecResult> {
     if (hasHelpFlag(args)) return showHelp(diffHelp);
 
-    const parsed = parseArgs("diff", args, argDefs);
-    if (!parsed.ok) return parsed.error;
+    const normalized: string[] = [];
+    const labels: string[] = [];
+    const optionWords: string[] = [];
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      if (arg === "--") {
+        normalized.push(...args.slice(i));
+        break;
+      }
+      if (arg === "--label" || arg.startsWith("--label=")) {
+        const value = arg === "--label" ? args[++i] : arg.slice(8);
+        if (value === undefined)
+          return {
+            stdout: "",
+            stderr: `diff: option '--label' requires an argument\n${helpHint}`,
+            exitCode: 2,
+          };
+        labels.push(value);
+        optionWords.push(arg, ...(arg === "--label" ? [value] : []));
+      } else {
+        if (arg.startsWith("--unified=")) normalized.push("-U", arg.slice(10));
+        else normalized.push(arg);
+        if (arg.startsWith("-") && arg !== "-") {
+          optionWords.push(arg);
+          if (arg === "-U") {
+            const value = args[++i];
+            if (value !== undefined) {
+              normalized.push(value);
+              optionWords.push(value);
+            }
+          }
+        }
+      }
+    }
+    if (labels.length > 2)
+      return {
+        stdout: "",
+        stderr: `diff: too many file label options\n${helpHint}`,
+        exitCode: 2,
+      };
+    const parsed = parseArgs("diff", normalized, argDefs);
+    if (!parsed.ok)
+      return {
+        ...parsed.error,
+        stderr: parsed.error.stderr + helpHint,
+        exitCode: 2,
+      };
 
     const flags = parsed.result.flags;
     if (flags.version) {
@@ -70,119 +116,50 @@ export const diffCommand: RuntimeCommand = {
     }
 
     const styleCount =
-      Number(flags.normal) + Number(flags.unified) + Number(flags.context);
+      Number(flags.normal) +
+      Number(flags.unified || flags.lines !== undefined) +
+      Number(flags.context);
     if (styleCount > 1) {
       return {
         stdout: "",
-        stderr:
-          "diff: conflicting output style options\n" +
-          "diff: Try 'diff --help' for more information.\n",
+        stderr: `diff: conflicting output style options\n${helpHint}`,
         exitCode: 2,
       };
     }
 
-    const brief = flags.brief;
-    const reportSame = flags.reportSame;
-    const ignoreCase = flags.ignoreCase;
     const files = parsed.result.positional;
-
-    if (files.length < 2) {
-      return { stdout: "", stderr: "diff: missing operand\n", exitCode: 2 };
-    }
-
-    let c1: string, c2: string;
-    const [f1, f2] = files;
-
-    // diff compares lines as strings. Normalize stdin (byte buffer) to
-    // UTF-8 so it compares correctly against file content (utf8 by default).
-    try {
-      c1 =
-        f1 === "-"
-          ? decodeBytesToUtf8(ctx.stdin)
-          : await ctx.fs.readFile(ctx.fs.resolvePath(ctx.cwd, f1));
-    } catch {
+    if (files.length !== 2)
       return {
         stdout: "",
-        stderr: `diff: ${f1}: No such file or directory\n`,
+        stderr:
+          (files.length < 2
+            ? "diff: missing operand\n"
+            : `diff: extra operand '${files[2]}'\n`) + helpHint,
         exitCode: 2,
       };
-    }
-
-    try {
-      c2 =
-        f2 === "-"
-          ? decodeBytesToUtf8(ctx.stdin)
-          : await ctx.fs.readFile(ctx.fs.resolvePath(ctx.cwd, f2));
-    } catch {
+    const context = flags.lines ?? DEFAULT_CONTEXT;
+    if (!Number.isSafeInteger(context) || context < 0)
       return {
         stdout: "",
-        stderr: `diff: ${f2}: No such file or directory\n`,
+        stderr: `diff: invalid context length '${context}'\n${helpHint}`,
         exitCode: 2,
       };
-    }
-
-    // Cheap whole-content equality first: -q and identical files never need
-    // the line-by-line diff.
-    let t1 = c1,
-      t2 = c2;
-    if (ignoreCase) {
-      t1 = t1.toLowerCase();
-      t2 = t2.toLowerCase();
-    }
-
-    if (t1 === t2) {
-      if (reportSame)
-        // diff emits text; the pipeline handles encoding.
-        return {
-          stdout: `Files ${f1} and ${f2} are identical\n`,
-          stderr: "",
-          exitCode: 0,
-        };
-      return { stdout: "", stderr: "", exitCode: 0 };
-    }
-
-    if (brief) {
-      // diff emits text; the pipeline handles encoding.
-      return {
-        stdout: `Files ${f1} and ${f2} differ\n`,
-        stderr: "",
-        exitCode: 1,
-      };
-    }
-
-    const oldFile = splitLines(c1);
-    const newFile = splitLines(c2);
-    const changes = computeChanges(oldFile, newFile, ignoreCase);
-
-    let output: string;
-    if (flags.unified) {
-      output = formatUnified(
-        f1,
-        f2,
-        oldFile,
-        newFile,
-        changes,
-        DEFAULT_CONTEXT,
-      );
-    } else if (flags.context) {
-      output = formatContext(
-        f1,
-        f2,
-        oldFile,
-        newFile,
-        changes,
-        DEFAULT_CONTEXT,
-      );
-    } else {
-      output = formatNormal(oldFile, newFile, changes);
-    }
-
-    // diff emits text; the pipeline handles encoding.
-    return {
-      stdout: output,
-      stderr: "",
-      exitCode: 1,
-    };
+    return comparePaths(ctx, files[0], files[1], {
+      recursive: flags.recursive,
+      newFile: flags.newFile,
+      brief: flags.brief,
+      reportSame: flags.reportSame,
+      ignoreCase: flags.ignoreCase,
+      style:
+        flags.unified || flags.lines !== undefined
+          ? "unified"
+          : flags.context
+            ? "context"
+            : "normal",
+      context,
+      labels,
+      optionWords,
+    });
   },
 };
 

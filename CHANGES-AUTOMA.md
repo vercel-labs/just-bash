@@ -294,3 +294,25 @@ branch before rebasing. Record upstream PR links here when they exist.
   in their established order instead of retaining and sorting them a second time.
 - Record GNU coreutils 9.7 comparisons, normalizing only box:box owner and link
   counts to A12's user:user/1. Keep traversal, output and cancellation boundaries.
+
+## N2d comparison and byte-format options
+
+- Extend the existing diff formatter with recursive/brief/new-file comparison,
+  literal dual labels and configurable unified context. Keep 0/1/2 exit semantics,
+  preserve binary equality using raw bytes, and bound directory admission, live
+  input pairs, line arrays and edit work. Canonical directory identities detect
+  ancestor cycles while permitting aliases in separate branches.
+- Restore du's top-level totals for depth-limited and summary output, ordered
+  human/kilobyte flags and grand totals. Share ls's allocation estimate instead
+  of preserving a separate raw-byte compatibility path. Symlinks remain unfollowed.
+- Align uniq count fields to GNU's seven columns. od now supports byte/word/char
+  types, address radix, skip/read counts and duplicate-line suppression. Correct
+  the prior byte-wise octal default to GNU's little-endian 16-bit octal words.
+  Release skipped input buffers per file while retaining bounded selected input.
+- Record GNU coreutils 9.7 / diffutils 3.10 fixtures with exact stdout, stderr and
+  exits; activate the comparison runner's previously ignored explicit stderr
+  assertion. Add regressions for input, memory, traversal and edit-work limits.
+- Unified/context headers still omit synthetic timestamps, and ambiguous minimal
+  edit grouping retains the existing formatter's documented difference. Backends
+  without allocation metadata use the shared ls/du virtual block estimate; this
+  does not assert physical storage consumption.

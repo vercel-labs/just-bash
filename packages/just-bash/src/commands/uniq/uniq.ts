@@ -103,7 +103,7 @@ export const uniqCommand: RuntimeCommand = {
     let output = "";
     for (const { line, count: c } of filtered) {
       if (count) {
-        // Real bash right-justifies count in 4-char field followed by space
+        // Real bash right-justifies count in a 7-character field followed by space
         output += `${String(c).padStart(7)} ${line}\n`;
       } else {
         output += `${line}\n`;

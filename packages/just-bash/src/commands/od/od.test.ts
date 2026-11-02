@@ -5,8 +5,8 @@ describe("od command", () => {
   it("should dump stdin in octal format", async () => {
     const env = new Bash();
     const result = await env.exec('echo -n "AB" | od');
-    // A=101, B=102 in octal (4-char fields: space + 3-digit octal)
-    expect(result.stdout).toBe("0000000  101 102\n0000002\n");
+    // Native default is a little-endian 16-bit octal word.
+    expect(result.stdout).toBe("0000000 041101\n0000002\n");
     expect(result.exitCode).toBe(0);
   });
 
@@ -14,7 +14,7 @@ describe("od command", () => {
     const env = new Bash();
     const result = await env.exec('echo -n "hi" | od -c');
     // Character mode uses 4-char fields (3 spaces + char for printable)
-    expect(result.stdout).toBe("0000000    h   i\n0000002\n");
+    expect(result.stdout).toBe("0000000   h   i\n0000002\n");
     expect(result.exitCode).toBe(0);
   });
 
@@ -22,15 +22,15 @@ describe("od command", () => {
     const env = new Bash();
     const result = await env.exec('echo "hello" | od -c');
     // Character mode uses 4-char fields (2 spaces + 2-char escape sequence)
-    expect(result.stdout).toBe("0000000    h   e   l   l   o  \\n\n0000006\n");
+    expect(result.stdout).toBe("0000000   h   e   l   l   o  \\n\n0000006\n");
     expect(result.exitCode).toBe(0);
   });
 
   it("should suppress addresses with -An", async () => {
     const env = new Bash();
     const result = await env.exec('echo -n "A" | od -An');
-    // Octal mode uses 4-char fields (1 space + 3-digit octal)
-    expect(result.stdout).toBe(" 101\n");
+    // A short final word is padded with a zero byte.
+    expect(result.stdout).toBe(" 000101\n");
     expect(result.exitCode).toBe(0);
   });
 
@@ -38,21 +38,21 @@ describe("od command", () => {
     const env = new Bash();
     await env.exec('echo -n "test" > /tmp/od-test.txt');
     const result = await env.exec("od /tmp/od-test.txt");
-    // t=164, e=145, s=163, t=164 in octal (4-char fields)
-    expect(result.stdout).toBe("0000000  164 145 163 164\n0000004\n");
+    // Native default octal words for the bytes in "test".
+    expect(result.stdout).toBe("0000000 062564 072163\n0000004\n");
     expect(result.exitCode).toBe(0);
   });
 
   it("concatenates every file operand in order", async () => {
     const env = new Bash({ files: { "/a": "A", "/b": "B" } });
     const result = await env.exec("od /a /b");
-    expect(result.stdout).toBe("0000000  101 102\n0000002\n");
+    expect(result.stdout).toBe("0000000 041101\n0000002\n");
   });
 
   it("honors stdin operands between file operands", async () => {
     const env = new Bash({ files: { "/a": "A", "/b": "B" } });
     const result = await env.exec("echo -n X | od /a - /b");
-    expect(result.stdout).toBe("0000000  101 130 102\n0000003\n");
+    expect(result.stdout).toBe("0000000 054101 000102\n0000003\n");
   });
 
   it("should error on non-existent file", async () => {
