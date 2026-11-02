@@ -4,6 +4,13 @@ import { Bash } from "../../Bash.js";
 import { InMemoryFs } from "./in-memory-fs.js";
 
 describe("InMemoryFs preserves existing file modes", () => {
+  it("rejects writes over a directory without replacing its children", async () => {
+    const fs = new InMemoryFs({ "/d/f": "kept" });
+    await expect(fs.writeFile("/d", "bad")).rejects.toThrow("EISDIR");
+    expect(() => fs.writeFileLazy("/d", () => "bad")).toThrow("EISDIR");
+    expect((await fs.stat("/d")).isDirectory).toBe(true);
+    expect(await fs.readFile("/d/f")).toBe("kept");
+  });
   it("keeps a restricted file mode through overwrite and truncate", async () => {
     const fs = new InMemoryFs();
     await fs.writeFile("/f", "old");

@@ -257,6 +257,10 @@ export class InMemoryFs implements IFileSystem {
   ): void {
     validatePath(path, "write");
     const normalized = normalizePath(path);
+    if (this.data.get(normalized)?.type === "directory")
+      throw new Error(
+        `EISDIR: illegal operation on a directory, write '${path}'`,
+      );
     this.ensureParentDirs(normalized);
 
     // Store content - convert to Uint8Array for internal storage
@@ -292,6 +296,10 @@ export class InMemoryFs implements IFileSystem {
   ): void {
     validatePath(path, "write");
     const normalized = normalizePath(path);
+    if (this.data.get(normalized)?.type === "directory")
+      throw new Error(
+        `EISDIR: illegal operation on a directory, write '${path}'`,
+      );
     this.ensureParentDirs(normalized);
 
     this.setEntry(normalized, {

@@ -167,6 +167,27 @@ changes keep the existing resource thresholds and public package interfaces.
 - Owning tests and recorded GNU coreutils 9.7 fixtures verify restricted modes,
   executable rewrites, conditional execute bits, special bits and rejection.
 
+## N2c file command flags
+
+- Add `cp -a/-d/-u/-T/-t` and functional `-p`/`--preserve=all`, with per-file
+  no-clobber/update decisions. Preserve file and directory modes/timestamps,
+  and canonicalize parent paths before mutation. Keep the source-tree preflight
+  and retain its bounded, prospectively reserved plan, removing the second
+  recursive walk and the old accepted-but-ignored preserve branch.
+- Copy timestamp values into owned Dates before writing metadata; revocable
+  command-context Date proxies must not escape into the filesystem. A request
+  to preserve symlink timestamps fails visibly with ENOTSUP after any completed
+  copy. No non-following timestamp API exists, so the target is never modified
+  to pretend success; partial writes remain visible.
+- `mkdir -m` reuses `parseFileMode`; `-p` preserves existing modes and verbose
+  output names only newly created entries. Add actual `ln -n` directory-symlink
+  behavior, relative symlink targets, dangling-link replacement and canonical
+  parent handling. Remove the ignored `-n` compatibility branch.
+- Existing mktemp directory/temporary-path/dry-run options already match native
+  behavior; keep that implementation and propagate fatal filesystem failures.
+  InMemoryFs rejects ordinary/lazy writes over directories with EISDIR, retaining
+  their children. Native fixtures cover flags and bounded/COW-style regressions.
+
 ## N7 transfer controls and explicit cookie export
 
 - Curl supports bounded `--retry` with the native transient HTTP status set
