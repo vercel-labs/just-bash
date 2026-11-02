@@ -5,7 +5,10 @@
 import { type ParseException, parse } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { ExecutionLimitError, ExitError, ReturnError } from "../errors.js";
-import { replacePositionalParams } from "../helpers/positional.js";
+import {
+  clearPositionalParams,
+  replacePositionalParams,
+} from "../helpers/positional.js";
 import { failure, result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -92,6 +95,7 @@ export async function handleSource(
     ctx.state.currentSource = savedSource;
     // Restore positional parameters if we changed them
     if (sourceArgs.length > 1) {
+      clearPositionalParams(ctx.state.env);
       for (const [key, value] of savedPositional) {
         if (value === undefined) {
           ctx.state.env.delete(key);

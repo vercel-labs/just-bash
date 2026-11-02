@@ -104,4 +104,28 @@ describe("more than nine positional parameters", () => {
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);
   });
+
+  it("should drop parameters the callee sets when source and functions return", async () => {
+    const env = new Bash({
+      files: { "/s.sh": "set -- 1 2 3 4 5 6 7 8 9 10\n" },
+    });
+    const result = await env.exec(
+      `f () { set -- 1 2 3 4 5 6 7 8 9 10; }; set -- a; source /s.sh x; echo "[$#][$1][$2][\${10}]"; f y; echo "[$#][$1][$2][\${10}]"`,
+    );
+    expect(result.stdout).toBe("[1][a][][]\n[1][a][][]\n");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("should hide seeded single digit parameters after a gap", async () => {
+    const env = new Bash({
+      env: { "1": "a", "3": "c" },
+      files: { "/s.sh": `echo "[$#][$1][$3]"\n` },
+    });
+    await env.exec("chmod +x /s.sh");
+    const result = await env.exec(`/s.sh; /s.sh x; source /s.sh y`);
+    expect(result.stdout).toBe("[0][][]\n[1][x][]\n[1][y][]\n");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
 });

@@ -11,7 +11,10 @@ import type { ExecResult } from "../types.js";
 import { clearLocalVarStackForScope } from "./builtins/variable-assignment.js";
 import { ControlFlowError, ExitError, ReturnError } from "./errors.js";
 import { cloneArray } from "./helpers/array.js";
-import { replacePositionalParams } from "./helpers/positional.js";
+import {
+  clearPositionalParams,
+  replacePositionalParams,
+} from "./helpers/positional.js";
 import { OK, result, throwExecutionLimit } from "./helpers/result.js";
 import { POSIX_SPECIAL_BUILTINS } from "./helpers/shell-constants.js";
 import {
@@ -157,6 +160,7 @@ export async function callFunction(
       }
     }
 
+    clearPositionalParams(ctx.state.env);
     for (const [key, value] of savedPositional) {
       if (value === undefined) {
         ctx.state.env.delete(key);
