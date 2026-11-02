@@ -71,9 +71,7 @@ describe("Automa trap lifecycle", () => {
     expect(result.output).toBe(observed);
   });
   it.each([
-    "umask",
-    "ulimit -n",
-    "kill -0 $$",
+    "kill -TERM $$",
     "trap 'echo bad' TERM",
   ])("fails visibly for unsupported host state: %s", async (script) => {
     const result = await new Bash().exec(script);

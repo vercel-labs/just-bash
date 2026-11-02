@@ -401,9 +401,9 @@ const BUILTIN_HELP = new Map<string, [string, string]>([
     "kill",
     [
       "kill [-s sigspec | -n signum | -sigspec] pid | jobspec ... or kill -l [sigspec]",
-      `Send a signal to a job.
-    Send the processes identified by PID or JOBSPEC the signal named by
-    SIGSPEC or SIGNUM.
+      `Inspect virtual process identity and Linux-compatible signal names.
+    kill -0 succeeds for the current virtual $$ or BASHPID. Other processes
+    and jobs do not exist; actual signal delivery is explicitly unsupported.
     Exit Status:
     Returns success unless an invalid option is given or an error occurs.`,
     ],
@@ -721,9 +721,9 @@ const BUILTIN_HELP = new Map<string, [string, string]>([
     "ulimit",
     [
       "ulimit [-SHabcdefiklmnpqrstuvxPT] [limit]",
-      `Modify shell resource limits.
-    Provides control over the resources available to the shell and processes
-    it creates, on systems that allow such control.
+      `Display interpreter resource limits.
+    Open files reports the enforced maxFileDescriptors limit. Resources without
+    a corresponding interpreter limit report unlimited. Modification fails.
     Exit Status:
     Returns success unless an invalid option is supplied or an error occurs.`,
     ],
@@ -734,7 +734,8 @@ const BUILTIN_HELP = new Map<string, [string, string]>([
       "umask [-p] [-S] [mode]",
       `Display or set file mode mask.
     Sets the user file-creation mask to MODE.  If MODE is omitted, prints
-    the current value of the mask.
+    the current value of the mask. New filesystem entries use this shell-local
+    mask; a backend unable to apply a nondefault mask at creation fails visibly.
     Exit Status:
     Returns success unless MODE is invalid or an invalid option is given.`,
     ],

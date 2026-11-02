@@ -154,10 +154,14 @@ export const cpCommand: RuntimeCommand = {
         const lexicalTarget = destIsDir
           ? `${destPath === "/" ? "" : destPath}/${basename}`
           : destPath;
-        const targetPath = ctx.fs.resolvePath(
-          await ctx.fs.realpath(dirname(lexicalTarget)),
-          lexicalTarget.split("/").pop() ?? "",
-        );
+        const targetEntry = await optionalStat(ctx, lexicalTarget, false);
+        const targetPath =
+          targetEntry && !targetEntry.isSymbolicLink
+            ? await ctx.fs.realpath(lexicalTarget)
+            : ctx.fs.resolvePath(
+                await ctx.fs.realpath(dirname(lexicalTarget)),
+                lexicalTarget.split("/").pop() ?? "",
+              );
         const targetName = destIsDir
           ? `${dest.replace(/\/+$/, "")}/${basename}`
           : dest;
@@ -246,6 +250,10 @@ export const cpCommand: RuntimeCommand = {
               );
             if (!existing) {
               await ctx.fs.mkdir(target);
+              const mode =
+                entry.stat.mode & ~(ctx.fileCreationMask ?? 0o022) & 0o7777;
+              if (((await ctx.fs.stat(target)).mode & 0o7777) !== mode)
+                await ctx.fs.chmod(target, mode);
               if (flags.verbose)
                 output.append(`'${shownSource}' -> '${shownTarget}'\n`);
             }
@@ -298,13 +306,24 @@ export const cpCommand: RuntimeCommand = {
             const existingMode = existing
               ? (await ctx.fs.stat(actualTarget)).mode
               : undefined;
-            if (!(await ctx.fs.stat(dirname(actualTarget))).isDirectory)
+            if (
+              !existing &&
+              !(await ctx.fs.stat(dirname(actualTarget))).isDirectory
+            )
               throw new Error(`ENOTDIR: '${shownTarget}'`);
             await ctx.fs.cp(entry.path, actualTarget);
             const copiedMode = preserve
               ? entry.stat.mode
-              : (existingMode ?? entry.stat.mode & ~0o022);
-            await ctx.fs.chmod(actualTarget, copiedMode & 0o7777);
+              : (existingMode ??
+                entry.stat.mode & ~(ctx.fileCreationMask ?? 0o022));
+            // Existing devices need no parent-directory or POSIX metadata
+            // authority (for example a virtual /dev/null capability).
+            if (!existing || existing.isFile || preserve)
+              if (
+                ((await ctx.fs.stat(actualTarget)).mode & 0o7777) !==
+                (copiedMode & 0o7777)
+              )
+                await ctx.fs.chmod(actualTarget, copiedMode & 0o7777);
             if (preserve)
               await ctx.fs.utimes(
                 actualTarget,

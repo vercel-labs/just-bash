@@ -203,6 +203,7 @@ export async function automaTrapChild(
       automaTrapScriptDepth: state.automaTrapScriptDepth,
       options: state.options,
       shoptOptions: state.shoptOptions,
+      fileCreationMask: state.fileCreationMask,
     };
   const handlers = new Map<string, string>();
   if (

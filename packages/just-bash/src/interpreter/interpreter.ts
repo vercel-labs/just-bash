@@ -1,5 +1,6 @@
 import { outputSegments } from "../execution-output.js";
 import { automaTrapEligible, automaTrapRun, automaTrapShell } from "./traps.js";
+
 /**
  * Interpreter - AST Execution Engine
  *
@@ -31,6 +32,7 @@ import {
 } from "../encoding.js";
 import { ExecutionOutputAccumulator } from "../execution-output.js";
 import type { ExecutionScope } from "../execution-scope.js";
+import { getFileSystemIdentity } from "../fs/identity.js";
 import type { IFileSystem } from "../fs/interface.js";
 import { mapToRecord } from "../helpers/env.js";
 import type { ExecutionLimits } from "../limits.js";
@@ -120,6 +122,7 @@ import type {
   InterpreterState,
   SharedInputSession,
 } from "./types.js";
+import { withUmaskFileSystem } from "./umask-fs.js";
 
 function unsupportedCommandNode(node: never): never {
   throw new TypeError(`Unsupported command node: ${JSON.stringify(node)}`);
@@ -171,7 +174,13 @@ export class Interpreter {
       environmentInfo: options.environmentInfo,
       virtualFileMetadata: options.virtualFileMetadata,
       state,
-      fs: options.fs,
+      fs: withUmaskFileSystem(
+        options.fs,
+        state,
+        options.limits,
+        options.executionScope,
+      ),
+      fsIdentity: getFileSystemIdentity(options.fs),
       commands: options.commands,
       limits: options.limits,
       executionScope: options.executionScope,

@@ -212,6 +212,9 @@ const PATH_ERROR_REASONS = new Map([
   ["ENOENT", "No such file or directory"],
   ["ENOTDIR", "Not a directory"],
   ["EISDIR", "Is a directory"],
+  ["ELOOP", "Too many levels of symbolic links"],
+  ["ENOTSUP", "Operation not supported"],
+  ["ENOSYS", "Function not implemented"],
 ]);
 
 async function openOutputEntry(

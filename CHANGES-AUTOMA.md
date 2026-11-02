@@ -316,3 +316,28 @@ branch before rebasing. Record upstream PR links here when they exist.
   edit grouping retains the existing formatter's documented difference. Backends
   without allocation metadata use the shared ls/du virtual block estimate; this
   does not assert physical storage consumption.
+
+## N6 virtual process and resource builtins
+
+- Replace the blanket umask/ulimit/kill rejection with their supported virtual
+  semantics. umask is shell-local, inherited by child shells and restored through
+  the existing isolated-shell boundary, including pipelines and substitutions.
+- Apply creation masks to redirections, touch, mkdir, cp and command filesystem
+  capabilities. Explicit install/create modes and cp preservation remain explicit;
+  mktemp applies the mask to its private creation mode. Existing entries keep their
+  modes. Default 0022 delegates normal native-directory writes unchanged; a backend
+  without atomic mode-aware creation rejects nondefault new entries before content
+  writes. Raw recursive fs.cp cannot promise this policy and fails explicitly;
+  the cp command supports recursion through its existing per-entry traversal.
+- Keep one backend filesystem identity across the new interpreter-local facade,
+  check cancellation after asynchronous preparation, and bound link/parent walks.
+- ulimit reports the enforced maxFileDescriptors value for open files and unlimited
+  for resources without an interpreter rlimit. All modification attempts fail.
+  kill lists Linux-compatible signal names and only permits signal-zero queries
+  for the current virtual $$ and BASHPID; no host process control is introduced.
+- Fix cp to existing virtual devices: it does not require authority over their
+  parent directory or metadata when copying ordinary content. Preserve normal
+  canonical-path, source-read, symlink and same-file checks.
+- Add Bash 5.2.37 native fixtures and regressions for scope inheritance, masks,
+  native-backend failures, cancellation and virtual-device copies. Existing trap,
+  descriptor, filesystem and resource-limit tests remain enabled.

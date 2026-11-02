@@ -55,8 +55,11 @@ import {
   handleSource,
   handleUnset,
 } from "./builtins/index.js";
+import { handleKill } from "./builtins/kill.js";
 import { handleShopt } from "./builtins/shopt.js";
 import { handleTimes } from "./builtins/times.js";
+import { handleUlimit } from "./builtins/ulimit.js";
+import { handleUmask } from "./builtins/umask.js";
 import {
   findCommandInPath as findCommandInPathHelper,
   resolveCommand as resolveCommandHelper,
@@ -471,12 +474,6 @@ export async function dispatchBuiltin(
 ): Promise<ExecResult | null> {
   const { ctx, runCommand } = dispatchCtx;
   if (commandName === "trap") return automaTrapBuiltin(ctx, args);
-  if (["umask", "ulimit", "kill"].includes(commandName))
-    return {
-      stdout: "",
-      stderr: `bash: ${commandName}: unavailable in this interpreter; no host process or resource state is exposed\n`,
-      exitCode: 1,
-    };
 
   // Coverage tracking for builtins (lightweight: only fires when coverage is enabled)
   if (ctx.coverage && SHELL_BUILTINS.has(commandName)) {
@@ -666,6 +663,9 @@ export async function dispatchBuiltin(
   }
   if (commandName === "caller") return handleCaller(ctx, args);
   if (commandName === "times") return handleTimes(args);
+  if (commandName === "umask") return handleUmask(ctx, args);
+  if (commandName === "ulimit") return handleUlimit(ctx, args);
+  if (commandName === "kill") return handleKill(ctx, args);
   if (commandName === "help") {
     return handleHelp(ctx, args);
   }
@@ -885,7 +885,8 @@ export async function executeExternalCommand(
   ctx.state.fileDescriptors ??= new Map();
   const cmdCtx: RuntimeCommandContext = {
     fs: ctx.fs,
-    fsIdentity: getFileSystemIdentity(ctx.fs),
+    fsIdentity: ctx.fsIdentity ?? getFileSystemIdentity(ctx.fs),
+    fileCreationMask: ctx.state.fileCreationMask ?? 0o022,
     cwd: ctx.state.cwd,
     env: ctx.state.env,
     assignShellVariable: async (name, value, subscript) => {

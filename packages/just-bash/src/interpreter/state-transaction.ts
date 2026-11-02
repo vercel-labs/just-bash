@@ -66,6 +66,7 @@ function cloneLocalVarStack(
 export function beginIsolatedShellState(state: InterpreterState): () => void {
   const saved = {
     env: state.env,
+    fileCreationMask: state.fileCreationMask,
     arrays: state.arrays,
     cwd: state.cwd,
     previousDir: state.previousDir,

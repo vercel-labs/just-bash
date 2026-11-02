@@ -462,6 +462,7 @@ export class Bash {
       lastArg: "", // $_ is initially empty (or could be shell name)
       startTime: Date.now(),
       lastBackgroundPid: 0,
+      fileCreationMask: 0o022,
       virtualPid: options.processInfo?.pid ?? 1,
       virtualPpid: options.processInfo?.ppid ?? 0,
       virtualUid: options.processInfo?.uid ?? 1000,
@@ -862,6 +863,9 @@ export class Bash {
 
       const execState: InterpreterState = {
         ...this.state,
+        // A new bash inherits the process mask too; unlike variables it is
+        // not reset by env -i or the newShell environment policy.
+        fileCreationMask: (callerState ?? this.state).fileCreationMask,
         env: execEnv,
         exportedVars,
         arrays: replaceEnv

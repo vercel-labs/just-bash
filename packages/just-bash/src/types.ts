@@ -181,6 +181,8 @@ export interface VirtualFileMetadata {
 }
 
 export interface RuntimeCommandContext {
+  /** Shell creation mask for commands that request source-derived modes. */
+  fileCreationMask?: number;
   environmentInfo?: EnvironmentInfo;
   virtualFileMetadata?: VirtualFileMetadata;
   /** Virtual filesystem interface for file operations */

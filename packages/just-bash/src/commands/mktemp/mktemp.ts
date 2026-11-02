@@ -418,7 +418,9 @@ export const mktempCommand: RuntimeCommand = {
           if (await pathIsTaken(ctx, fullPath)) continue;
         } else {
           await createExclusiveOn(ctx.fs, fullPath, {
-            mode: flags.directory ? DIR_MODE : FILE_MODE,
+            mode:
+              (flags.directory ? DIR_MODE : FILE_MODE) &
+              ~(ctx.fileCreationMask ?? 0o022),
             directory: flags.directory,
           });
         }

@@ -289,6 +289,8 @@ export interface ControlFlowState {
  * Powers special variables like $$, $BASHPID, $!, and $SECONDS.
  */
 export interface ProcessState {
+  /** Interpreter-local file creation mask; never reads or mutates host umask. */
+  fileCreationMask?: number;
   /** Total commands executed (for execution limits) */
   commandCount: number;
   /** Time when shell started (for $SECONDS) */
@@ -492,6 +494,8 @@ export interface InterpreterContext {
   virtualFileMetadata?: VirtualFileMetadata;
   state: InterpreterState;
   fs: IFileSystem;
+  /** Identity of the backend before interpreter-local filesystem facades. */
+  fsIdentity?: object;
   commands: CommandRegistry;
   /** Execution limits configuration */
   limits: Required<ExecutionLimits>;

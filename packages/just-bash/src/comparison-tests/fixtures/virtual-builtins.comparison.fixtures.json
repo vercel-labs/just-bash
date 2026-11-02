@@ -1,0 +1,156 @@
+{
+  "00c14020acc02158": {
+    "command": "ulimit -a | sed -E 's/ [0-9]+$/ unlimited/'",
+    "files": {},
+    "stdout": "real-time non-blocking time  (microseconds, -R) unlimited\ncore file size              (blocks, -c) unlimited\ndata seg size               (kbytes, -d) unlimited\nscheduling priority                 (-e) unlimited\nfile size                   (blocks, -f) unlimited\npending signals                     (-i) unlimited\nmax locked memory           (kbytes, -l) unlimited\nmax memory size             (kbytes, -m) unlimited\nopen files                          (-n) unlimited\npipe size                (512 bytes, -p) unlimited\nPOSIX message queues         (bytes, -q) unlimited\nreal-time priority                  (-r) unlimited\nstack size                  (kbytes, -s) unlimited\ncpu time                   (seconds, -t) unlimited\nmax user processes                  (-u) unlimited\nvirtual memory              (kbytes, -v) unlimited\nfile locks                          (-x) unlimited\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "038cf265a96999ed": {
+    "command": "umask 777; f=$(mktemp ./file.XXXXXX); d=$(mktemp -d ./dir.XXXXXX); stat -c %a \"$f\" \"$d\"; chmod 700 \"$d\"",
+    "files": {},
+    "stdout": "0\n0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "0703d1a00ca2e8c6": {
+    "command": "umask 077; umask; umask -p; umask -S; umask -pS",
+    "files": {},
+    "stdout": "0077\numask 0077\nu=rwx,g=,o=\numask -S u=rwx,g=,o=\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "08c5a9e9e961fa68": {
+    "command": "umask -z 2>/dev/null; echo option:$?; umask 089 2>/dev/null; echo octal:$?; umask bad 2>/dev/null; echo symbolic:$?",
+    "files": {},
+    "stdout": "option:2\noctal:1\nsymbolic:1\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1227a26146472129": {
+    "command": "ulimit -t; ulimit -St; ulimit -Ht; ulimit -tv",
+    "files": {},
+    "stdout": "unlimited\nunlimited\nunlimited\n",
+    "stderr": "/bin/bash: line 1: ulimit: v: invalid number\n",
+    "exitCode": 1
+  },
+  "18d1d970be98f063": {
+    "command": "umask 077; bash -c 'umask; umask 000'; umask; env -i bash -c 'umask'",
+    "files": {},
+    "stdout": "0077\n0077\n0077\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1fb08a454ea2445f": {
+    "command": "umask -- 000; umask; umask 002 ignored; umask",
+    "files": {},
+    "stdout": "0000\n0002\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "407e23845a9bfa52": {
+    "command": "kill -0 $$; echo own:$?; (kill -0 $BASHPID; echo sub:$?)",
+    "files": {},
+    "stdout": "own:0\nsub:0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "48adc47117b86d0e": {
+    "command": "umask 077; mkdir -m 755 explicit; mkdir -p -m 750 parent/child; stat -c %a explicit parent parent/child",
+    "files": {},
+    "stdout": "755\n700\n750\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "55910c24e30600ed": {
+    "command": "kill -l missing 2>/dev/null; echo name:$?; kill -z 12345 2>/dev/null; echo option:$?; kill -0 hello 2>/dev/null; echo pid:$?",
+    "files": {},
+    "stdout": "name:1\noption:1\npid:1\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7753b8ab5c2f7cc9": {
+    "command": "kill -l 0 128 EXIT term sigint",
+    "files": {},
+    "stdout": "EXIT\n0\n15\n2\n",
+    "stderr": "/bin/bash: line 1: kill: 128: invalid signal specification\n",
+    "exitCode": 1
+  },
+  "81181864824f8728": {
+    "command": "umask 022; umask u=rwx,g=rx,o=; umask; umask u-w; umask; umask a=rx; umask",
+    "files": {},
+    "stdout": "0027\n0227\n0222\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ae75a5736297e531": {
+    "command": "ulimit -Z 2>/dev/null; echo status:$?",
+    "files": {},
+    "stdout": "status:2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "aefcbe54ae8fd609": {
+    "command": "kill -l TERM SIGINT 9 143 RTMIN RTMAX 64 IOT CLD POLL",
+    "files": {},
+    "stdout": "15\n2\nKILL\nTERM\n34\n64\nRTMAX\n",
+    "stderr": "/bin/bash: line 1: kill: IOT: invalid signal specification\n/bin/bash: line 1: kill: CLD: invalid signal specification\n/bin/bash: line 1: kill: POLL: invalid signal specification\n",
+    "exitCode": 1
+  },
+  "b7465941ae0625b4": {
+    "command": "umask 077; umask 002 | cat; umask; echo ignored | umask 027; umask; shopt -s lastpipe; echo ignored | umask 027; umask",
+    "files": {},
+    "stdout": "0077\n0077\n0027\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cc0e4b8514cedd17": {
+    "command": "umask 077; (umask 002; umask); umask; value=$(umask 007; umask); echo $value; umask",
+    "files": {},
+    "stdout": "0002\n0077\n0007\n0077\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f459ff0526e7b5e8": {
+    "command": "umask 022; f() { umask 027; }; f; umask",
+    "files": {},
+    "stdout": "0027\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f5d375cee90e5d50": {
+    "command": "umask 022; touch first; umask 077; echo changed >first; echo more >>first; stat -c %a first",
+    "files": {},
+    "stdout": "644\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f7156ec9959bb33f": {
+    "command": "umask 077; cat <(umask 007; umask); umask",
+    "files": {},
+    "stdout": "0007\n0077\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f855f464d53736f3": {
+    "command": "umask 077; touch first; echo text >second; mkdir parent; stat -c %a first second parent",
+    "files": {},
+    "stdout": "600\n600\n700\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fb3754b6c6faf9a2": {
+    "command": "umask 022; mkdir src; touch src/file; chmod 750 src; chmod 664 src/file; umask 077; cp -r src copy; cp -a src archive; stat -c %a copy copy/file archive archive/file",
+    "files": {},
+    "stdout": "700\n600\n750\n664\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fb52b6e9cc064e78": {
+    "command": "kill -l",
+    "files": {},
+    "stdout": " 1) SIGHUP\t 2) SIGINT\t 3) SIGQUIT\t 4) SIGILL\t 5) SIGTRAP\n 6) SIGABRT\t 7) SIGBUS\t 8) SIGFPE\t 9) SIGKILL\t10) SIGUSR1\n11) SIGSEGV\t12) SIGUSR2\t13) SIGPIPE\t14) SIGALRM\t15) SIGTERM\n16) SIGSTKFLT\t17) SIGCHLD\t18) SIGCONT\t19) SIGSTOP\t20) SIGTSTP\n21) SIGTTIN\t22) SIGTTOU\t23) SIGURG\t24) SIGXCPU\t25) SIGXFSZ\n26) SIGVTALRM\t27) SIGPROF\t28) SIGWINCH\t29) SIGIO\t30) SIGPWR\n31) SIGSYS\t34) SIGRTMIN\t35) SIGRTMIN+1\t36) SIGRTMIN+2\t37) SIGRTMIN+3\n38) SIGRTMIN+4\t39) SIGRTMIN+5\t40) SIGRTMIN+6\t41) SIGRTMIN+7\t42) SIGRTMIN+8\n43) SIGRTMIN+9\t44) SIGRTMIN+10\t45) SIGRTMIN+11\t46) SIGRTMIN+12\t47) SIGRTMIN+13\n48) SIGRTMIN+14\t49) SIGRTMIN+15\t50) SIGRTMAX-14\t51) SIGRTMAX-13\t52) SIGRTMAX-12\n53) SIGRTMAX-11\t54) SIGRTMAX-10\t55) SIGRTMAX-9\t56) SIGRTMAX-8\t57) SIGRTMAX-7\n58) SIGRTMAX-6\t59) SIGRTMAX-5\t60) SIGRTMAX-4\t61) SIGRTMAX-3\t62) SIGRTMAX-2\n63) SIGRTMAX-1\t64) SIGRTMAX\t\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
