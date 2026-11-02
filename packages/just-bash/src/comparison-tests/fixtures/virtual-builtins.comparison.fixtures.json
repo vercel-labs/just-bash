@@ -69,6 +69,13 @@
     "stderr": "",
     "exitCode": 0
   },
+  "76f90c742e4c6b8c": {
+    "command": "mkdir -m 751 p; umask 777; mkdir -p -m 710 p/c; stat -c %a p p/c; chmod 700 p p/c",
+    "files": {},
+    "stdout": "751\n710\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "7753b8ab5c2f7cc9": {
     "command": "kill -l 0 128 EXIT term sigint",
     "files": {},
@@ -97,6 +104,13 @@
     "stderr": "/bin/bash: line 1: kill: IOT: invalid signal specification\n/bin/bash: line 1: kill: CLD: invalid signal specification\n/bin/bash: line 1: kill: POLL: invalid signal specification\n",
     "exitCode": 1
   },
+  "b6c3f2a097fadd4f": {
+    "command": "umask 777; mkdir -p -m 710 p/c; stat -c %a p p/c; chmod 700 p p/c",
+    "files": {},
+    "stdout": "300\n710\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "b7465941ae0625b4": {
     "command": "umask 077; umask 002 | cat; umask; echo ignored | umask 027; umask; shopt -s lastpipe; echo ignored | umask 027; umask",
     "files": {},
@@ -108,6 +122,13 @@
     "command": "umask 077; (umask 002; umask); umask; value=$(umask 007; umask); echo $value; umask",
     "files": {},
     "stdout": "0002\n0077\n0007\n0077\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ec704d74ed5b0e8c": {
+    "command": "umask 777; mkdir -p p/c; stat -c %a p p/c; chmod 700 p p/c",
+    "files": {},
+    "stdout": "300\n0\n",
     "stderr": "",
     "exitCode": 0
   },

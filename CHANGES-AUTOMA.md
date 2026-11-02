@@ -357,3 +357,12 @@ branch before rebasing. Record upstream PR links here when they exist.
   2,000 text requests with 160 bounded read batches. Output hashes match. This is
   a source/protocol check; production-bundle latency is measured separately in
   Automa's fixed before/after benchmark and is not inferred from these counts.
+
+## N6 recursive mkdir permission review
+
+- Match GNU mkdir -p under restrictive umasks: newly created intermediate parents
+  retain owner write/search bits so descendants can be created. The final
+  directory still follows umask or explicit -m, and existing parents keep their
+  original mode. Default 0022 adds no chmod call or native metadata requirement.
+- Record native Bash/coreutils comparisons for umask 0777, an explicit leaf mode,
+  and an existing parent with a different mode.

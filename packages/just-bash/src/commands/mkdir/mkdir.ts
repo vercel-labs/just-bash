@@ -100,6 +100,13 @@ export const mkdirCommand: RuntimeCommand = {
             }
           }
           await ctx.fs.mkdir(path);
+          if (recursive && path !== fullPath) {
+            // GNU -p keeps newly created parents writable/searchable by their
+            // owner even when umask removes those bits. Existing parents were
+            // skipped above; the final directory still uses its requested mode.
+            const mask = ctx.fileCreationMask ?? 0o022;
+            if (mask & 0o300) await ctx.fs.chmod(path, (0o777 & ~mask) | 0o300);
+          }
           if (mode !== undefined && path === fullPath)
             await ctx.fs.chmod(path, mode);
           if (verbose)

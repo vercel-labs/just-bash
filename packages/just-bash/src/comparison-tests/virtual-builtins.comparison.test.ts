@@ -59,6 +59,18 @@ describe("Bash 5.2 virtual builtin semantics", () => {
       "mask explicit modes",
       "umask 077; mkdir -m 755 explicit; mkdir -p -m 750 parent/child; stat -c %a explicit parent parent/child",
     ],
+    [
+      "mask recursive parents retain owner access",
+      "umask 777; mkdir -p p/c; stat -c %a p p/c; chmod 700 p p/c",
+    ],
+    [
+      "mask recursive explicit leaf mode",
+      "umask 777; mkdir -p -m 710 p/c; stat -c %a p p/c; chmod 700 p p/c",
+    ],
+    [
+      "mask recursive existing parent mode",
+      "mkdir -m 751 p; umask 777; mkdir -p -m 710 p/c; stat -c %a p p/c; chmod 700 p p/c",
+    ],
     ["limit query shape", "ulimit -a | sed -E 's/ [0-9]+$/ unlimited/'"],
     ["limit selectors", "ulimit -t; ulimit -St; ulimit -Ht; ulimit -tv"],
     ["limit invalid option", "ulimit -Z 2>/dev/null; echo status:$?"],
