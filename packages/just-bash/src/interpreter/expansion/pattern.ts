@@ -192,11 +192,11 @@ function splitExtglobAlternatives(content: string): string[] {
 /**
  * Find the end of a character class starting at position i (where pattern[i] is '[')
  */
-function findCharClassEnd(pattern: string, start: number): number {
+export function findCharClassEnd(pattern: string, start: number): number {
   let i = start + 1;
 
   // Handle negation
-  if (i < pattern.length && pattern[i] === "^") {
+  if (i < pattern.length && (pattern[i] === "^" || pattern[i] === "!")) {
     i++;
   }
 
@@ -246,7 +246,7 @@ function findCharClassEnd(pattern: string, start: number): number {
  * Convert a shell character class content to regex equivalent.
  * Input is the content inside [...], e.g., ":alpha:" for [[:alpha:]]
  */
-function convertCharClass(content: string): string {
+export function convertCharClass(content: string): string {
   let result = "[";
   let i = 0;
 
@@ -255,6 +255,7 @@ function convertCharClass(content: string): string {
     result += "^";
     i++;
   }
+  const firstIndex = i;
 
   while (i < content.length) {
     // Handle single quotes inside character class (bash extension)
@@ -317,7 +318,7 @@ function convertCharClass(content: string): string {
       i++;
     } else {
       // Regular character - some need escaping in regex char class
-      if (char === "]" && i === 0) {
+      if (char === "]" && i === firstIndex) {
         result += "\\]";
       } else {
         result += char;
