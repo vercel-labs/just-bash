@@ -277,3 +277,20 @@ branch before rebasing. Record upstream PR links here when they exist.
   contract supplies no partial response metadata; do not invent status or bytes.
 - Reject missing values for existing parameter options before network dispatch.
   Add source regressions and a local native-curl failure-timing comparison.
+
+## N4 long directory listings
+
+- Reuse the shared real-mode formatter and overwrite-preserving file modes already
+  implemented for N2b/N2c (the behavior covered by upstream PRs #577/#564 and
+  #578/#565). Avoid layering a second permission implementation over them.
+- Align size columns across each operand/listing block, estimate allocated blocks
+  through one shared ls/du helper, use GNU human-size rounding, and support
+  custom, long-iso and full-iso timestamps with the injected host timezone.
+- Apply A12's identity, link count and directory-size values only through the
+  existing virtualFileMetadata injection; keep ordinary filesystem metadata when
+  the override is absent. Preserve symlink mode, target text and classification.
+- Honor the order of -a/-A, keep dot entries in sorted -F output, and avoid following
+  symlink directories in the recursive fallback. Append recursive results directly
+  in their established order instead of retaining and sorting them a second time.
+- Record GNU coreutils 9.7 comparisons, normalizing only box:box owner and link
+  counts to A12's user:user/1. Keep traversal, output and cancellation boundaries.

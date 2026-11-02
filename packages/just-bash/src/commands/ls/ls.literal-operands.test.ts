@@ -53,9 +53,7 @@ describe("ls treats operands as literal paths", () => {
   ])("echoes an absolute operand back for a %s name", async (_label, name) => {
     const bash = new Bash({ cwd: "/", files: { [`/w/${name}`]: "body\n" } });
     const result = await bash.exec(`ls -l '/w/${name}'`);
-    expect(result.stdout.startsWith("-rw-r--r-- 1 user user     5 ")).toBe(
-      true,
-    );
+    expect(result.stdout.startsWith("-rw-r--r-- 1 user user 5 ")).toBe(true);
     expect(result.stdout.endsWith(` /w/${name}\n`)).toBe(true);
     expect(result.exitCode).toBe(0);
   });

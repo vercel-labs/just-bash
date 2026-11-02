@@ -1,12 +1,10 @@
 // Automa modifications: N00b source migration of shell compatibility patches.
+
 import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { utf8ByteLength } from "../../encoding.js";
-import type { FsStat } from "../../fs/interface.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { FileTraversalBudget } from "../../fs/traversal.js";
-import {
-  ExecutionAbortedError,
-  ExecutionLimitError,
-} from "../../interpreter/errors.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -15,6 +13,11 @@ import type {
 import { parseArgs } from "../../utils/args.js";
 import { DEFAULT_BATCH_SIZE } from "../../utils/constants.js";
 import { hasHelpFlag, showHelp } from "../help.js";
+import {
+  classifySuffix,
+  type LongListingOptions,
+  longListing,
+} from "./ls-format.js";
 
 function appendLsOutput(
   ctx: RuntimeCommandContext,
@@ -81,60 +84,6 @@ function joinLsLines(
   return output.build();
 }
 
-// Format size in human-readable format (e.g., 1.5K, 234M, 2G)
-function formatHumanSize(bytes: number): string {
-  if (bytes < 1024) return String(bytes);
-  if (bytes < 1024 * 1024) {
-    const k = bytes / 1024;
-    return k < 10 ? `${k.toFixed(1)}K` : `${Math.round(k)}K`;
-  }
-  if (bytes < 1024 * 1024 * 1024) {
-    const m = bytes / (1024 * 1024);
-    return m < 10 ? `${m.toFixed(1)}M` : `${Math.round(m)}M`;
-  }
-  const g = bytes / (1024 * 1024 * 1024);
-  return g < 10 ? `${g.toFixed(1)}G` : `${Math.round(g)}G`;
-}
-
-// Format date for ls -l output (e.g., "Jan  1 00:00" or "Jan  1  2024")
-function formatDate(date: Date): string {
-  const months = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-  const month = months[date.getMonth()];
-  const day = String(date.getDate()).padStart(2, " ");
-  const now = new Date();
-  const sixMonthsAgo = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
-
-  // If within last 6 months, show time; otherwise show year
-  if (date > sixMonthsAgo) {
-    const hours = String(date.getHours()).padStart(2, "0");
-    const mins = String(date.getMinutes()).padStart(2, "0");
-    return `${month} ${day} ${hours}:${mins}`;
-  }
-  const year = date.getFullYear();
-  return `${month} ${day}  ${year}`;
-}
-
-// Classify suffix for ls -F: / directory, @ symlink, * executable
-function classifySuffix(stat: FsStat): string {
-  if (stat.isDirectory) return "/";
-  if (stat.isSymbolicLink) return "@";
-  if ((stat.mode & 0o111) !== 0) return "*";
-  return "";
-}
-
 const lsHelp = {
   name: "ls",
   summary: "list directory contents",
@@ -143,7 +92,7 @@ const lsHelp = {
     "-a, --all            do not ignore entries starting with .",
     "-A, --almost-all     do not list . and ..",
     "-d, --directory      list directories themselves, not their contents",
-    "-F, --classify       append indicator (one of */=>@) to entries",
+    "-F, --classify       append *, / or @ to entries",
     "-h, --human-readable with -l, print sizes like 1K 234M 2G etc.",
     "-l                   use a long listing format",
     "-r, --reverse        reverse order while sorting",
@@ -151,6 +100,8 @@ const lsHelp = {
     "-S                   sort by file size, largest first",
     "-t                   sort by time, newest first",
     "-1                   list one file per line",
+    "    --time-style=STYLE  +FORMAT, long-iso or full-iso timestamps",
+    "    --color=never      disable color (other modes unsupported)",
     "    --help           display this help and exit",
   ],
 };
@@ -173,6 +124,8 @@ const argDefs = {
   directoryOnly: { short: "d", long: "directory", type: "boolean" as const },
   sortByTime: { short: "t", type: "boolean" as const },
   onePerLine: { short: "1", type: "boolean" as const },
+  timeStyle: { long: "time-style", type: "string" as const },
+  color: { long: "color", type: "string" as const },
 };
 
 export const lsCommand: RuntimeCommand = {
@@ -187,9 +140,13 @@ export const lsCommand: RuntimeCommand = {
     }
 
     const parsed = parseArgs("ls", args, argDefs);
-    if (!parsed.ok) return parsed.error;
+    if (!parsed.ok) return { ...parsed.error, exitCode: 2 };
 
-    const showAll = parsed.result.flags.showAll;
+    const showAll = resolveShowAll(
+      args,
+      parsed.result.flags.showAll,
+      parsed.result.flags.showAlmostAll,
+    );
     const showAlmostAll = parsed.result.flags.showAlmostAll;
     const longFormat = parsed.result.flags.longFormat;
     const humanReadable = parsed.result.flags.humanReadable;
@@ -205,11 +162,34 @@ export const lsCommand: RuntimeCommand = {
     // Note: onePerLine is accepted but implicit in our output
     void parsed.result.flags.onePerLine;
 
+    const timeStyle = parsed.result.flags.timeStyle;
+    if (
+      (parsed.result.flags.color !== undefined &&
+        parsed.result.flags.color !== "never") ||
+      (timeStyle !== undefined &&
+        timeStyle !== "long-iso" &&
+        timeStyle !== "full-iso" &&
+        !timeStyle.startsWith("+")) ||
+      (timeStyle?.split("\n").length ?? 0) > 2
+    ) {
+      return {
+        stdout: "",
+        stderr: "ls: unsupported color or time style\n",
+        exitCode: 2,
+      };
+    }
+    const listingOptions: LongListingOptions = {
+      humanReadable,
+      classifyFiles,
+      timeStyle,
+      now: Date.now(),
+    };
     const paths = parsed.result.positional;
 
     if (paths.length === 0) {
       paths.push(".");
     }
+    checkEntryCount(ctx, paths.length);
 
     let stdout = "";
     let stderr = "";
@@ -224,42 +204,37 @@ export const lsCommand: RuntimeCommand = {
     // With -d every operand names itself, so there is nothing to group: the
     // whole list is one block of names in sort order.
     if (directoryOnly) {
-      for (const path of await sortOperands(
+      const sorted = await sortOperands(
         paths,
         ctx,
         sortKey,
         reverse,
         traversalBudget,
-      )) {
-        // -d never descends, but each operand is still a filesystem visit and
-        // is charged like one, so the limit bounds this list as it bounds a walk.
+      );
+      if (longFormat) {
+        for (const _path of sorted) traversalBudget.visit(0);
+        return longListing(
+          ctx,
+          sorted.map((name) => ({
+            name,
+            path: ctx.fs.resolvePath(ctx.cwd, name),
+          })),
+          listingOptions,
+          traversalBudget,
+          false,
+        );
+      }
+      for (const path of sorted) {
         traversalBudget.visit(0);
-        const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
         try {
-          const stat = await ctx.fs.stat(fullPath);
-          if (longFormat) {
-            const mode = stat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
-            const suffix = classifyFiles
-              ? classifySuffix(await ctx.fs.lstat(fullPath))
-              : "";
-            const size = stat.size ?? 0;
-            const sizeStr = humanReadable
-              ? formatHumanSize(size).padStart(5)
-              : String(size).padStart(5);
-            const mtime = stat.mtime ?? new Date(0);
-            const dateStr = formatDate(mtime);
-            stdout = appendLsOutput(
-              ctx,
-              stdout,
-              `${mode} 1 user user ${sizeStr} ${dateStr} ${path}${suffix}\n`,
-            );
-          } else {
-            const suffix = classifyFiles
-              ? classifySuffix(await ctx.fs.lstat(fullPath))
-              : "";
-            stdout = appendLsOutput(ctx, stdout, `${path}${suffix}\n`);
-          }
-        } catch {
+          const stat = await ctx.fs.lstat(ctx.fs.resolvePath(ctx.cwd, path));
+          stdout = appendLsOutput(
+            ctx,
+            stdout,
+            `${path}${classifyFiles ? classifySuffix(stat) : ""}\n`,
+          );
+        } catch (error) {
+          rethrowFatalExecutionError(error);
           stderr = appendLsOutput(
             ctx,
             stderr,
@@ -284,7 +259,10 @@ export const lsCommand: RuntimeCommand = {
       // listPath is told not to charge it a second time.
       traversalBudget.visit(0);
       try {
-        const stat = await ctx.fs.stat(ctx.fs.resolvePath(ctx.cwd, path));
+        const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
+        const stat = await (longFormat
+          ? ctx.fs.lstat(fullPath)
+          : ctx.fs.stat(fullPath));
         if (stat.isDirectory) {
           // `visit()` and `discover()` keep separate counters, so charging an
           // operand as a visit does not reserve it as a root whose children
@@ -296,7 +274,8 @@ export const lsCommand: RuntimeCommand = {
         } else {
           fileOperands.push(path);
         }
-      } catch {
+      } catch (error) {
+        rethrowFatalExecutionError(error);
         stderr = appendLsOutput(
           ctx,
           stderr,
@@ -327,20 +306,36 @@ export const lsCommand: RuntimeCommand = {
         0,
         new Set(),
         true,
+        listingOptions,
       );
       stdout = appendLsOutput(ctx, stdout, result.stdout);
       stderr = appendLsOutput(ctx, stderr, result.stderr);
       if (result.exitCode !== 0) exitCode = result.exitCode;
     };
 
-    for (const path of await sortOperands(
+    const sortedFiles = await sortOperands(
       fileOperands,
       ctx,
       sortKey,
       reverse,
       traversalBudget,
-    )) {
-      await listOperand(path, false);
+    );
+    if (longFormat && sortedFiles.length > 0) {
+      const result = await longListing(
+        ctx,
+        sortedFiles.map((name) => ({
+          name,
+          path: ctx.fs.resolvePath(ctx.cwd, name),
+        })),
+        listingOptions,
+        traversalBudget,
+        false,
+      );
+      stdout = appendLsOutput(ctx, stdout, result.stdout);
+      stderr = appendLsOutput(ctx, stderr, result.stderr);
+      if (result.exitCode) exitCode = result.exitCode;
+    } else {
+      for (const path of sortedFiles) await listOperand(path, false);
     }
 
     // A lone directory operand is listed bare; anything else labels it.
@@ -383,6 +378,28 @@ function resolveSortKey(
     }
   }
   return last;
+}
+
+// GNU processes -a/-A and their long forms in command-line order.
+function resolveShowAll(
+  args: readonly string[],
+  showAll: boolean,
+  showAlmostAll: boolean,
+): boolean {
+  if (!showAll || !showAlmostAll) return showAll;
+  let result = false;
+  for (const arg of args) {
+    if (arg === "--") break;
+    if (arg === "--all") result = true;
+    else if (arg === "--almost-all") result = false;
+    else if (arg.startsWith("-") && !arg.startsWith("--")) {
+      for (const flag of arg.slice(1)) {
+        if (flag === "a") result = true;
+        else if (flag === "A") result = false;
+      }
+    }
+  }
+  return result;
 }
 
 // Operands carry the same sort order as directory entries do.
@@ -435,10 +452,13 @@ async function sortNames(
         keys.set(
           name,
           sortKey === "size"
-            ? (stat.size ?? 0)
+            ? stat.isDirectory
+              ? (ctx.virtualFileMetadata?.directorySize ?? stat.size)
+              : stat.size
             : (stat.mtime ?? new Date(0)).getTime(),
         );
-      } catch {
+      } catch (error) {
+        rethrowFatalExecutionError(error);
         keys.set(name, 0);
       }
     }
@@ -475,6 +495,11 @@ async function listPath(
   traversalDepth = 0,
   ancestorIdentities: Set<string> = new Set(),
   visitAlreadyCharged = false,
+  listingOptions: LongListingOptions = {
+    humanReadable,
+    classifyFiles,
+    now: Date.now(),
+  },
 ): Promise<ExecResult> {
   const showHidden = showAll || showAlmostAll;
   const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
@@ -483,26 +508,23 @@ async function listPath(
     // An operand is charged where it is resolved, before its stat, so charging
     // it here as well would spend two entries on one visit.
     if (!visitAlreadyCharged) traversalBudget.visit(traversalDepth);
-    const stat = await ctx.fs.stat(fullPath);
+    const stat = await (longFormat
+      ? ctx.fs.lstat(fullPath)
+      : ctx.fs.stat(fullPath));
 
     if (!stat.isDirectory) {
       // It's a file, just show it
       const fileSuffix = classifyFiles
         ? classifySuffix(await ctx.fs.lstat(fullPath))
         : "";
-      if (longFormat) {
-        const size = stat.size ?? 0;
-        const sizeStr = humanReadable
-          ? formatHumanSize(size).padStart(5)
-          : String(size).padStart(5);
-        const mtime = stat.mtime ?? new Date(0);
-        const dateStr = formatDate(mtime);
-        return {
-          stdout: `-rw-r--r-- 1 user user ${sizeStr} ${dateStr} ${path}${fileSuffix}\n`,
-          stderr: "",
-          exitCode: 0,
-        };
-      }
+      if (longFormat)
+        return longListing(
+          ctx,
+          [{ name: path, path: fullPath }],
+          listingOptions,
+          traversalBudget,
+          false,
+        );
       return { stdout: `${path}${fileSuffix}\n`, stderr: "", exitCode: 0 };
     }
 
@@ -510,7 +532,10 @@ async function listPath(
       stat.identity ??
       (stat.dev !== undefined && stat.ino !== undefined
         ? `${String(stat.dev)}:${String(stat.ino)}`
-        : await ctx.fs.realpath(fullPath).catch(() => undefined));
+        : await ctx.fs.realpath(fullPath).catch((error) => {
+            rethrowFatalExecutionError(error);
+            return undefined;
+          }));
     if (identity !== undefined && ancestorIdentities.has(identity)) {
       return {
         stdout: "",
@@ -534,20 +559,16 @@ async function listPath(
       entries = entries.filter((e) => !e.startsWith("."));
     }
 
-    // -S and -t need each entry's metadata; plain name order does not.
+    // Dot entries participate in the same sort as every other entry.
+    if (showAll) entries = [".", "..", ...entries];
     entries = await sortNames(
       entries,
-      (entry) => (fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`),
+      (entry) => ctx.fs.resolvePath(fullPath, entry),
       ctx,
       sortKey,
       false,
       traversalBudget,
     );
-
-    // Add . and .. entries for -a flag (but not for -A)
-    if (showAll) {
-      entries = [".", "..", ...entries];
-    }
 
     if (reverse) {
       entries.reverse();
@@ -567,89 +588,34 @@ async function listPath(
     }
 
     if (longFormat) {
-      stdout = appendLsOutput(ctx, stdout, `total ${entries.length}\n`);
-
-      // Separate special entries (. and ..) from regular entries
-      const specialEntries = entries.filter((e) => e === "." || e === "..");
-      const regularEntries = entries.filter((e) => e !== "." && e !== "..");
-
-      // Add special entries first
-      for (const entry of specialEntries) {
-        stdout = appendLsOutput(
-          ctx,
-          stdout,
-          `drwxr-xr-x 1 user user     0 Jan  1 00:00 ${entry}\n`,
-        );
-      }
-
-      // Parallelize stat calls for regular entries
-      const entryStats: {
-        name: string;
-        line: string;
-      }[] = [];
-
-      for (let i = 0; i < regularEntries.length; i += DEFAULT_BATCH_SIZE) {
-        const batch = regularEntries.slice(i, i + DEFAULT_BATCH_SIZE);
-        const batchResults = await Promise.all(
-          batch.map(async (entry) => {
-            const entryPath =
-              fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`;
-            try {
-              const entryStat = await ctx.fs.stat(entryPath);
-              const mode = entryStat.isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
-              const suffix = classifyFiles
-                ? classifySuffix(await ctx.fs.lstat(entryPath))
-                : "";
-              const size = entryStat.size ?? 0;
-              const sizeStr = humanReadable
-                ? formatHumanSize(size).padStart(5)
-                : String(size).padStart(5);
-              const mtime = entryStat.mtime ?? new Date(0);
-              const dateStr = formatDate(mtime);
-              return {
-                name: entry,
-                line: `${mode} 1 user user ${sizeStr} ${dateStr} ${entry}${suffix}\n`,
-              };
-            } catch {
-              return {
-                name: entry,
-                line: `-rw-r--r-- 1 user user     0 Jan  1 00:00 ${entry}\n`,
-              };
-            }
-          }),
-        );
-        entryStats.push(...batchResults);
-      }
-
-      // Sort to maintain original order (entries were already sorted)
-      const entryOrder = new Map(regularEntries.map((e, i) => [e, i]));
-      entryStats.sort(
-        (a, b) => (entryOrder.get(a.name) ?? 0) - (entryOrder.get(b.name) ?? 0),
+      const result = await longListing(
+        ctx,
+        entries.map((name) => ({
+          name,
+          path: ctx.fs.resolvePath(fullPath, name),
+        })),
+        listingOptions,
+        traversalBudget,
+        true,
       );
-
-      for (const { line } of entryStats) {
-        stdout = appendLsOutput(ctx, stdout, line);
-      }
+      stdout = appendLsOutput(ctx, stdout, result.stdout);
+      stderr = appendLsOutput(ctx, stderr, result.stderr);
+      exitCode = result.exitCode;
     } else if (classifyFiles) {
       // Classify each entry with type suffix
       const classified: string[] = [];
-      const regularEntries = entries.filter((e) => e !== "." && e !== "..");
-      const specialEntries = entries.filter((e) => e === "." || e === "..");
-
-      for (const entry of specialEntries) {
-        classified.push(`${entry}/`);
-      }
-
-      for (let i = 0; i < regularEntries.length; i += DEFAULT_BATCH_SIZE) {
-        const batch = regularEntries.slice(i, i + DEFAULT_BATCH_SIZE);
+      for (let i = 0; i < entries.length; i += DEFAULT_BATCH_SIZE) {
+        const batch = entries.slice(i, i + DEFAULT_BATCH_SIZE);
         const batchResults = await Promise.all(
           batch.map(async (entry) => {
+            if (entry === "." || entry === "..") return `${entry}/`;
             const entryPath =
               fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`;
             try {
               const entryStat = await ctx.fs.lstat(entryPath);
               return `${entry}${classifySuffix(entryStat)}`;
-            } catch {
+            } catch (error) {
+              rethrowFatalExecutionError(error);
               return entry;
             }
           }),
@@ -662,7 +628,7 @@ async function listPath(
       stdout = appendLsOutput(ctx, stdout, joinLsLines(ctx, entries));
     }
 
-    // Handle recursive - parallel processing for better performance
+    // Preserve the established ordering when recursively listing directories.
     if (recursive) {
       // Filter out . and .. and get directory entries
       const filteredEntries = entries.filter((e) => e !== "." && e !== "..");
@@ -689,9 +655,10 @@ async function listPath(
               const entryPath =
                 fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`;
               try {
-                const entryStat = await ctx.fs.stat(entryPath);
+                const entryStat = await ctx.fs.lstat(entryPath);
                 return { name: entry, isDirectory: entryStat.isDirectory };
-              } catch {
+              } catch (error) {
+                rethrowFatalExecutionError(error);
                 return { name: entry, isDirectory: false };
               }
             }),
@@ -723,8 +690,6 @@ async function listPath(
       // by the batch width. Entries within a single directory are still
       // statted in parallel batches; that work runs over an already-admitted,
       // bounded list.
-      const subResults: { name: string; result: ExecResult }[] = [];
-
       for (const dir of dirEntries) {
         const subPath = path === "." ? `./${dir.name}` : `${path}/${dir.name}`;
         const result = await listPath(
@@ -743,20 +708,9 @@ async function listPath(
           traversalBudget,
           traversalDepth + 1,
           childAncestors,
+          false,
+          listingOptions,
         );
-        subResults.push({ name: dir.name, result });
-      }
-
-      // Descending in order already yields this order; keep the explicit sort
-      // so the output contract does not depend on the traversal staying
-      // sequential, and reuse the ranking settled above rather than sorting by
-      // name a second time.
-      subResults.sort(
-        (a, b) => (dirRank.get(a.name) ?? 0) - (dirRank.get(b.name) ?? 0),
-      );
-
-      // Append results
-      for (const { result } of subResults) {
         stdout = appendLsOutput(ctx, stdout, "\n");
         stdout = appendLsOutput(ctx, stdout, result.stdout);
         stderr = appendLsOutput(ctx, stderr, result.stderr);
@@ -766,12 +720,7 @@ async function listPath(
 
     return { stdout, stderr, exitCode };
   } catch (error) {
-    if (
-      error instanceof ExecutionLimitError ||
-      error instanceof ExecutionAbortedError
-    ) {
-      throw error;
-    }
+    rethrowFatalExecutionError(error);
     return {
       stdout: "",
       stderr: `ls: cannot access '${path}': No such file or directory\n`,

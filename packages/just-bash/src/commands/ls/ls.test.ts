@@ -66,7 +66,7 @@ describe("ls", () => {
     });
     const result = await env.exec("ls -l /dir");
     expect(result.stdout).toMatch(
-      /^total 1\n-rw-r--r-- 1 user user\s+0 \w{3}\s+\d+\s+[\d:]+\s+test\.txt\n$/,
+      /^total 0\n-rw-r--r-- 1 user user\s+0 \w{3}\s+\d+\s+[\d:]+\s+test\.txt\n$/,
     );
     expect(result.stderr).toBe("");
   });
@@ -77,7 +77,7 @@ describe("ls", () => {
     });
     const result = await env.exec("ls -l /dir");
     expect(result.stdout).toMatch(
-      /^total 1\ndrwxr-xr-x 1 user user\s+0 \w{3}\s+\d+\s+[\d:]+\s+subdir\n$/,
+      /^total 0\ndrwxr-xr-x 1 user user\s+0 \w{3}\s+\d+\s+[\d:]+\s+subdir\n$/,
     );
     expect(result.stderr).toBe("");
   });
@@ -88,7 +88,7 @@ describe("ls", () => {
     });
     const result = await env.exec("ls -lF /dir");
     expect(result.stdout).toMatch(
-      /^total 1\ndrwxr-xr-x 1 user user\s+0 \w{3}\s+\d+\s+[\d:]+\s+subdir\/\n$/,
+      /^total 0\ndrwxr-xr-x 1 user user\s+0 \w{3}\s+\d+\s+[\d:]+\s+subdir\/\n$/,
     );
     expect(result.stderr).toBe("");
   });
@@ -103,7 +103,7 @@ describe("ls", () => {
     const result = await env.exec("ls -la /dir");
     // Check structure: 4 entries (., .., .hidden, visible)
     const lines = result.stdout.split("\n").filter((l) => l);
-    expect(lines[0]).toBe("total 4");
+    expect(lines[0]).toBe("total 0");
     expect(lines[1]).toMatch(/^drwxr-xr-x 1 user user\s+0 .+ \.$/);
     expect(lines[2]).toMatch(/^drwxr-xr-x 1 user user\s+0 .+ \.\.$/);
     expect(lines[3]).toMatch(/^-rw-r--r-- 1 user user\s+0 .+ \.hidden$/);
@@ -272,7 +272,7 @@ describe("ls", () => {
       expect(result.stderr).toBe("");
     });
 
-    it("should show directory mode for symlinks to directories in long format", async () => {
+    it("should retain symlink mode and classify its target in long format", async () => {
       const env = new Bash({
         files: {
           "/dir/realdir/file.txt": "",
@@ -281,9 +281,9 @@ describe("ls", () => {
       await env.exec("ln -s /dir/realdir /dir/linkdir");
       const result = await env.exec("ls -lF /dir");
       const lines = result.stdout.split("\n").filter((l) => l);
-      expect(lines[0]).toBe("total 2");
-      // symlink to dir should show drwxr-xr-x mode but @ suffix
-      expect(lines[1]).toMatch(/^drwxr-xr-x.*linkdir@$/);
+      expect(lines[0]).toBe("total 0");
+      // Long format keeps the link and appends the directory suffix to its target.
+      expect(lines[1]).toMatch(/^lrwxrwxrwx.*linkdir -> \/dir\/realdir\/$/);
       // real directory should show drwxr-xr-x mode with / suffix
       expect(lines[2]).toMatch(/^drwxr-xr-x.*realdir\/$/);
     });
@@ -298,7 +298,7 @@ describe("ls", () => {
       });
       const result = await env.exec("ls -lF /dir");
       const lines = result.stdout.split("\n").filter((l) => l);
-      expect(lines[0]).toBe("total 3");
+      expect(lines[0]).toBe("total 4");
       expect(lines[1]).toMatch(/regular\.txt$/);
       expect(lines[2]).toMatch(/script\.sh\*$/);
       expect(lines[3]).toMatch(/subdir\/$/);
