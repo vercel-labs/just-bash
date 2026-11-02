@@ -172,7 +172,7 @@ describe("curl error handling", () => {
       });
       const result = await env.exec("curl https://api.example.com/test");
       expect(result.stderr).toContain("Network error");
-      expect(result.exitCode).toBe(1); // Generic error for fetch rejection
+      expect(result.exitCode).toBe(7); // Recognized transport failure
     });
 
     it("should suppress fetch error with -s", async () => {
@@ -182,7 +182,7 @@ describe("curl error handling", () => {
       });
       const result = await env.exec("curl -s https://api.example.com/test");
       expect(result.stderr).toBe("");
-      expect(result.exitCode).toBe(1); // Generic error for fetch rejection
+      expect(result.exitCode).toBe(7); // Recognized transport failure
     });
 
     it("should show fetch error with -sS", async () => {
@@ -192,7 +192,7 @@ describe("curl error handling", () => {
       });
       const result = await env.exec("curl -sS https://api.example.com/test");
       expect(result.stderr).toContain("Connection refused");
-      expect(result.exitCode).toBe(1); // Generic error for fetch rejection
+      expect(result.exitCode).toBe(7); // Recognized transport failure
     });
   });
 

@@ -46,16 +46,24 @@ export function applyWriteOut(
     headers: Record<string, string>;
     url: string;
     bodyLength: number;
+    timeTotal?: number;
   },
 ): string {
   let output = format;
-  output = output.replace(/%\{http_code\}/g, String(result.status));
+  output = output.replace(
+    /%\{http_code\}/g,
+    String(result.status).padStart(3, "0"),
+  );
   output = output.replace(
     /%\{content_type\}/g,
     result.headers["content-type"] || "",
   );
   output = output.replace(/%\{url_effective\}/g, result.url);
   output = output.replace(/%\{size_download\}/g, String(result.bodyLength));
+  output = output.replace(
+    /%\{time_total\}/g,
+    (result.timeTotal ?? 0).toFixed(6),
+  );
   output = output.replace(/\\n/g, "\n");
   return output;
 }

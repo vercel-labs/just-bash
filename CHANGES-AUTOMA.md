@@ -167,6 +167,29 @@ changes keep the existing resource thresholds and public package interfaces.
 - Owning tests and recorded GNU coreutils 9.7 fixtures verify restricted modes,
   executable rewrites, conditional execute bits, special bits and rejection.
 
+## N7 transfer controls and explicit cookie export
+
+- Curl supports bounded `--retry` with the native transient HTTP status set
+  (408/429/500/502/503/504), recognizable network failures and timeout exit 28.
+  Retries require an explicit flag, consume the existing execution budget, and
+  stop on revocation, policy rejection or resource failure. The retry delay is
+  cancellable; enclosing command deadlines remain authoritative.
+- `-m` and `--connect-timeout` validate finite decimal values. Fetch does not
+  expose connection timing, so the latter is an explicitly documented whole
+  request bound; the host still caps time and bytes. `%{time_total}` measures
+  elapsed transfer time, with status/size/effective URL written exactly once.
+  The existing `-L` opt-in policy and response-header output remain intact.
+- Remove the raw Set-Cookie-as-jar fallback. `-c` requests a complete Netscape
+  jar through optional `SecureFetchOptions.wantCookieJar` /
+  `FetchResult.cookieJar`; only a capable trusted host provides it. The standard
+  transport rejects export before dispatch. File writes use the supplied FS,
+  `-c -` emits bytes on stdout, and unavailable/failed exports never succeed.
+  Cookie input (`-b`), session filtering (`-j`) and manual Cookie overrides fail
+  explicitly pending a separately isolated browser transport.
+- Local real-curl HTTP comparisons cover retries, timeout and redirect metrics;
+  source tests cover cancellation, policy errors, unsupported capability and
+  jar output. Browser cookie permissions and host identity remain Automa-owned.
+
 ## Build, validation and future upgrades
 
 Use Node 22.19.0 and the root `packageManager` pnpm 10.33.2 with the frozen lockfile.
