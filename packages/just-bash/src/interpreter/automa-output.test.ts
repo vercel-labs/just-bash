@@ -235,4 +235,34 @@ describe("command descriptor writes", () => {
     expect(output).toContain("é");
     expect(output).not.toContain("xxx");
   });
+
+  it("preserves streamed bytes through merged pipes and files", async () => {
+    const bash = new Bash({
+      customCommands: [
+        {
+          name: "live",
+          async execute(_args, ctx) {
+            if (!ctx.writeOutput) throw new Error("No command output writer");
+            await ctx.writeOutput("\xff\x00", "stdout", "bytes");
+            await ctx.writeOutput("\x80", "stderr", "bytes");
+            await ctx.writeOutput("é", "stdout");
+            return result;
+          },
+        },
+      ],
+    });
+    const observed: string[] = [];
+    const actual = await bash.exec("live 2>&1 | tee /captured | base64", {
+      onOutput: (text) => {
+        observed.push(text);
+      },
+    });
+    const bytes = Uint8Array.of(0xff, 0x00, 0x80, 0xc3, 0xa9);
+    const encoded = `${Buffer.from(bytes).toString("base64")}\n`;
+    expect(actual.exitCode).toBe(0);
+    expect(actual.stdout).toBe(encoded);
+    expect(actual.stderr).toBe("");
+    expect(observed.join("")).toBe(encoded);
+    expect(await bash.fs.readFileBuffer("/captured")).toEqual(bytes);
+  });
 });

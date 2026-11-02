@@ -182,11 +182,15 @@ export interface VirtualFileMetadata {
 
 export interface RuntimeCommandContext {
   /**
-   * Write text to the command's stdout or stderr. Await each write for ordered
-   * delivery. The shell retains these bytes for redirects and pipes; return only
-   * additional output in ExecResult.
+   * Write text or a Latin1-shaped byte string to stdout or stderr. Await each
+   * write for ordered delivery. The shell retains the original bytes for
+   * redirects and pipes; return only additional output in ExecResult.
    */
-  writeOutput?(text: string, stream: "stdout" | "stderr"): Promise<void>;
+  writeOutput?(
+    text: string,
+    stream: "stdout" | "stderr",
+    kind?: "text" | "bytes",
+  ): Promise<void>;
   /** Shell creation mask for commands that request source-derived modes. */
   fileCreationMask?: number;
   environmentInfo?: EnvironmentInfo;

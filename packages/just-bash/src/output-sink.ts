@@ -160,13 +160,17 @@ export function createOutputSink(
     },
     /** Keep the original descriptor for final routing, publish only to a known live destination. */
     commandWriter():
-      | ((text: string, stream: Stream) => Promise<void>)
+      | ((
+          text: string,
+          stream: Stream,
+          kind?: "text" | "bytes",
+        ) => Promise<void>)
       | undefined {
       if (!current?.routes || bufferedBatches) return undefined;
       const frame = current;
       const routes = current.routes;
-      return async (text: string, stream: Stream) => {
-        const part: Part = { text, stream, kind: "text" };
+      return async (text, stream, kind = "text") => {
+        const part: Part = { text, stream, kind };
         frame.parts.push(part);
         const target = routes[stream].kind;
         if (target === "live-stdout") await emit(part, frame.hidden, "stdout");

@@ -903,13 +903,14 @@ export async function executeExternalCommand(
     return { ...result, ...streamed.build(result.exitCode) };
   };
   const cmdCtx: RuntimeCommandContext = {
-    writeOutput: async (text, stream) => {
+    writeOutput: async (text, stream, kind = "text") => {
       if (
         typeof text !== "string" ||
-        (stream !== "stdout" && stream !== "stderr")
+        (stream !== "stdout" && stream !== "stderr") ||
+        (kind !== "text" && kind !== "bytes")
       )
         throw new TypeError(
-          "writeOutput requires text and a stdout or stderr stream",
+          "writeOutput requires a string, stdout or stderr, and text or bytes",
         );
       if (!text) return;
       ctx.executionScope.consumeLimited(
@@ -922,8 +923,8 @@ export async function executeExternalCommand(
         ctx.executionScope,
         commandName,
       );
-      streamed.append(stream, text);
-      await observeWrite?.(text, stream);
+      streamed.append(stream, text, 0, kind);
+      await observeWrite?.(text, stream, kind);
     },
     fs: ctx.fs,
     fsIdentity: ctx.fsIdentity ?? getFileSystemIdentity(ctx.fs),
