@@ -341,3 +341,19 @@ branch before rebasing. Record upstream PR links here when they exist.
 - Add Bash 5.2.37 native fixtures and regressions for scope inheritance, masks,
   native-backend failures, cancellation and virtual-device copies. Existing trap,
   descriptor, filesystem and resource-limit tests remain enabled.
+
+## N11 measured grep RPC batching
+
+- Keep grep's existing 50-file processing window and ordered aggregation, but
+  read bytes through the filesystem's batchable path instead of requesting one
+  decoded text RPC per file. Reuse the filesystem UTF-8 decoder, preserving BOM
+  handling and replacement of malformed bytes.
+- Reserve the byte buffer and decoded string against the shared live-byte budget
+  before dispatch, charge each file's actual input once, and release the lease
+  after searching or prefilter rejection. Growth and cancellation remain fatal;
+  ordinary per-file errors retain their existing output order.
+- With Automa's actual remoteFs, full-stat owner protocol and production hardened
+  limits, the validated 2,000-file fixture drops from 2,025 RPCs to 185, replacing
+  2,000 text requests with 160 bounded read batches. Output hashes match. This is
+  a source/protocol check; production-bundle latency is measured separately in
+  Automa's fixed before/after benchmark and is not inferred from these counts.

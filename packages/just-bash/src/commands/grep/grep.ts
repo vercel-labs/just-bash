@@ -1,7 +1,12 @@
 // Automa modifications: N00b source migration of shell compatibility patches.
 import { decodeBytesToUtf8 } from "../../encoding.js";
+import type { ResourceLease } from "../../execution-scope.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
-import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { fromBuffer } from "../../fs/encoding.js";
+import {
+  ExecutionAbortedError,
+  ExecutionLimitError,
+} from "../../interpreter/errors.js";
 import type { UserRegex } from "../../regex/index.js";
 import type {
   ExecResult,
@@ -674,6 +679,7 @@ export const grepCommand: RuntimeCommand = {
             }
           }
 
+          let inputLease: ResourceLease | undefined;
           try {
             let content: string;
             if (fileEntry.isStdin) {
@@ -687,23 +693,46 @@ export const grepCommand: RuntimeCommand = {
             } else {
               const filePath = ctx.fs.resolvePath(ctx.cwd, file);
 
-              // Skip stat if we already know it's a file from glob expansion
-              let isDirectory = false;
-              if (fileEntry.isFile === undefined) {
-                const stat = await ctx.fs.stat(filePath);
-                isDirectory = stat.isDirectory;
-              } else {
-                isDirectory = !fileEntry.isFile;
-              }
-
-              if (isDirectory) {
+              // Directory replies supply cached full stats in remoteFs. Keep
+              // this bounded 50-file window, but use its byte-read batching
+              // instead of issuing one text RPC for each file.
+              const stat =
+                fileEntry.isFile === false
+                  ? undefined
+                  : await ctx.fs.stat(filePath);
+              if (!stat || stat.isDirectory) {
                 if (!recursive) {
                   return { error: `grep: ${file}: Is a directory\n` };
                 }
                 return null;
               }
-
-              content = await ctx.fs.readFile(filePath);
+              if (stat.size > ctx.limits.maxStringLength) {
+                throw new ExecutionLimitError(
+                  "grep: file text size limit exceeded",
+                  "string_length",
+                );
+              }
+              // The byte array and up to two UTF-16 bytes per decoded byte can
+              // coexist. Reserve before reading and release after this search.
+              inputLease = ctx.executionScope?.reserveBytes(
+                "grep file text",
+                stat.size * 3,
+                "grep",
+              );
+              ctx.executionScope?.throwIfAborted("grep");
+              if (ctx.signal?.aborted) throw new ExecutionAbortedError();
+              const bytes = await ctx.fs.readFileBuffer(filePath);
+              ctx.executionScope?.throwIfAborted("grep");
+              if (ctx.signal?.aborted) throw new ExecutionAbortedError();
+              if (bytes.byteLength > stat.size) {
+                throw new ExecutionLimitError(
+                  "grep: file grew while being read",
+                  "string_length",
+                );
+              }
+              ctx.executionScope?.consumeInput(bytes.byteLength, "grep");
+              // Match IFileSystem.readFile's UTF-8 replacement/BOM behavior.
+              content = fromBuffer(bytes);
             }
 
             // File-level preFilter: skip searchContent entirely when no needle exists in file.
@@ -752,6 +781,8 @@ export const grepCommand: RuntimeCommand = {
           } catch (error) {
             rethrowFatalExecutionError(error);
             return { error: `grep: ${file}: No such file or directory\n` };
+          } finally {
+            inputLease?.release();
           }
         }),
       );
