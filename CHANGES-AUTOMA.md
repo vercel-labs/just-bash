@@ -76,6 +76,34 @@ invocation during `return`/`exit` cleanup, close the remaining descriptors and
 preserve successful writer output on the original control-flow error. These
 changes keep the existing resource thresholds and public package interfaces.
 
+## N1 rg high-frequency flags
+
+- Port `--no-heading` and ordered `--messages`/`--no-messages` controls from
+  [upstream PR #712](https://github.com/vercel-labs/just-bash/pull/712) and
+  [upstream PR #705](https://github.com/vercel-labs/just-bash/pull/705). File-error
+  suppression preserves exit status and never hides argument, regex or fatal
+  resource errors. The owning changes are in `rg-options.ts`, `rg-parser.ts`,
+  `rg-search.ts`, `rg.ts`, and the N1 regression tests.
+- Add `-M`/`--max-columns`, preview and its negation through the shared search
+  formatter. Matching/counting still uses the same bounded regex engine;
+  rendering tests byte length, preserves Unicode previews, and retains context,
+  replacement, only-matching and JSON behavior. New metadata and formatting work
+  obey existing execution limits; grep does not enable these options.
+- Count `-u` occurrences independently of existing hidden/ignore flags. Add the
+  real `--binary` behavior for `-uuu`, retaining ordered `--text` overrides and
+  prospectively accounting the binary scan representation. Remove the old
+  state-based escalation helper, whose inference incorrectly promoted a single
+  `-u` after `--hidden`/`--no-ignore`.
+- Reuse upstream explicit `./` prefixes, negative globs, file listings and
+  symlink traversal unchanged. Native comparison also exposed an unnecessary
+  multiline group separator when no context was requested; remove it and
+  correct its prior unit-test expectation. Vimgrep output retains its required
+  filename prefix for a single explicit file.
+- Record new, separate fixtures against native ripgrep **14.1.1** for N1. Existing
+  ripgrep 15.2.0 fixture recordings remain unchanged. Source and comparison tests
+  cover `rg`, the shared formatter and unaffected `grep`; they do not claim
+  browser or real-model validation.
+
 ## Build, validation and future upgrades
 
 Use Node 22.19.0 and the root `packageManager` pnpm 10.33.2 with the frozen lockfile.

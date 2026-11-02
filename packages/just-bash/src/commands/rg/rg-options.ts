@@ -26,6 +26,8 @@ export interface RgOptions {
   stats: boolean;
   onlyMatching: boolean;
   maxCount: number;
+  maxColumns: number;
+  maxColumnsPreview: boolean;
   help: boolean;
   typeList: boolean;
   lineNumber: boolean;
@@ -40,6 +42,7 @@ export interface RgOptions {
   beforeContext: number;
   contextSeparator: string;
   quiet: boolean;
+  noMessages: boolean;
   heading: boolean;
   passthru: boolean;
   includeZero: boolean;
@@ -68,6 +71,7 @@ export interface RgOptions {
   followSymlinks: boolean;
   searchZip: boolean;
   searchBinary: boolean;
+  binaryAsText: boolean;
   preprocessor: string | null; // --pre command
   preprocessorGlobs: string[]; // --pre-glob patterns
 }
@@ -93,6 +97,8 @@ export function createDefaultOptions(): RgOptions {
     stats: false,
     onlyMatching: false,
     maxCount: Infinity,
+    maxColumns: 0,
+    maxColumnsPreview: false,
     help: false,
     typeList: false,
     lineNumber: true,
@@ -107,6 +113,7 @@ export function createDefaultOptions(): RgOptions {
     beforeContext: 0,
     contextSeparator: "--",
     quiet: false,
+    noMessages: false,
     heading: false,
     passthru: false,
     includeZero: false,
@@ -134,6 +141,7 @@ export function createDefaultOptions(): RgOptions {
     followSymlinks: false,
     searchZip: false,
     searchBinary: false,
+    binaryAsText: false,
     preprocessor: null,
     preprocessorGlobs: [],
   };

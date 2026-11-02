@@ -96,6 +96,13 @@ interface ValueOptDef {
 }
 
 const VALUE_OPTS: ValueOptDef[] = [
+  {
+    short: "M",
+    long: "max-columns",
+    target: "maxColumns",
+    parse: Number,
+    validate: (value) => validateNonnegativeInteger("max-columns", value),
+  },
   { short: "g", long: "glob", target: "globs", multi: true },
   { long: "iglob", target: "iglobs", multi: true },
   {
@@ -524,16 +531,57 @@ const BOOL_FLAGS = new Map<string, BoolFlagHandler>([
     "a",
     (o) => {
       o.searchBinary = true;
+      o.binaryAsText = true;
     },
   ],
   [
     "--text",
     (o) => {
       o.searchBinary = true;
+      o.binaryAsText = true;
+    },
+  ],
+
+  [
+    "--binary",
+    (o) => {
+      o.searchBinary = true;
+      o.binaryAsText = false;
     },
   ],
 
   // Output formatting
+  [
+    "--max-columns-preview",
+    (o) => {
+      o.maxColumnsPreview = true;
+    },
+  ],
+  [
+    "--no-max-columns-preview",
+    (o) => {
+      o.maxColumnsPreview = false;
+    },
+  ],
+  // Backported from vercel-labs/just-bash#705 and #712.
+  [
+    "--no-messages",
+    (o) => {
+      o.noMessages = true;
+    },
+  ],
+  [
+    "--messages",
+    (o) => {
+      o.noMessages = false;
+    },
+  ],
+  [
+    "--no-heading",
+    (o) => {
+      o.heading = false;
+    },
+  ],
   [
     "--heading",
     (o) => {
@@ -562,17 +610,6 @@ const BOOL_FLAGS = new Map<string, BoolFlagHandler>([
 
 // Special flags that return a value indicating line number was explicitly set
 const LINE_NUMBER_FLAGS = new Set(["n", "--line-number"]);
-
-// Handle unrestricted mode (-u, -uu, -uuu)
-function handleUnrestricted(options: RgOptions): void {
-  if (options.hidden) {
-    options.searchBinary = true;
-  } else if (options.noIgnore) {
-    options.hidden = true;
-  } else {
-    options.noIgnore = true;
-  }
-}
 
 /**
  * Try to parse a value option, returning the new index if matched
@@ -698,6 +735,7 @@ export function parseArgs(args: string[]): ParseArgsResult {
   let explicitC = -1;
   let explicitLineNumbers = false;
   let endOfOptions = false;
+  let unrestrictedCount = 0;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -743,7 +781,13 @@ export function parseArgs(args: string[]): ParseArgsResult {
 
         // Check for unrestricted mode
         if (flag === "u" || flag === "--unrestricted") {
-          handleUnrestricted(options);
+          unrestrictedCount++;
+          options.noIgnore = true;
+          if (unrestrictedCount >= 2) options.hidden = true;
+          if (unrestrictedCount >= 3) {
+            options.searchBinary = true;
+            options.binaryAsText = false;
+          }
           continue;
         }
 

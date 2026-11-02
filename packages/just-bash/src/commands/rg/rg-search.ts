@@ -300,6 +300,8 @@ export async function executeSearch(
   ) {
     const content = stdinText;
     const result = searchContent(content, regex, {
+      maxColumns: options.json ? 0 : options.maxColumns,
+      maxColumnsPreview: options.maxColumnsPreview,
       invertMatch: options.invertMatch,
       showLineNumbers: options.lineNumber,
       countOnly: options.count,
@@ -379,13 +381,20 @@ export async function executeSearch(
   );
 
   if (files.length === 0) {
-    return { stdout: "", stderr, exitCode: stderr ? 2 : 1 };
+    return {
+      stdout: "",
+      stderr: options.noMessages ? "" : stderr,
+      exitCode: stderr ? 2 : 1,
+    };
   }
 
   // Determine output settings
   const showFilename =
     !options.noFilename &&
-    (options.withFilename || !singleExplicitFile || files.length > 1);
+    (options.withFilename ||
+      options.vimgrep ||
+      !singleExplicitFile ||
+      files.length > 1);
 
   let effectiveLineNumbers = options.lineNumber;
   if (!explicitLineNumbers) {
@@ -994,7 +1003,11 @@ async function listFiles(
   );
 
   if (files.length === 0) {
-    return { stdout: "", stderr, exitCode: stderr ? 2 : 1 };
+    return {
+      stdout: "",
+      stderr: options.noMessages ? "" : stderr,
+      exitCode: stderr ? 2 : 1,
+    };
   }
 
   // In quiet mode, just indicate success without output
@@ -1011,7 +1024,11 @@ async function listFiles(
   for (const file of files) output.append(file).append(sep);
   const stdout = output.build();
 
-  return { stdout, stderr, exitCode: stderr ? 2 : 0 };
+  return {
+    stdout,
+    stderr: options.noMessages ? "" : stderr,
+    exitCode: stderr ? 2 : 0,
+  };
 }
 
 /**
@@ -1246,7 +1263,7 @@ async function searchFiles(
         const { content, isBinary, lease } = fileData;
         bytesSearched += content.length;
 
-        // Skip binary files unless -a/--text is specified.
+        // -a searches as text; --binary/-uuu searches and reports a binary match.
         if (isBinary && !options.searchBinary) {
           lease?.release();
           return null;
@@ -1257,8 +1274,22 @@ async function searchFiles(
           (!options.heading || options.count || options.countMatches)
             ? file
             : "";
+        let binaryLease: ResourceLease | undefined;
         try {
-          const result = searchContent(content, regex, {
+          if (isBinary && !options.binaryAsText) {
+            binaryLease = ctx.executionScope?.reserveBytes(
+              "rg binary text",
+              content.length * 2,
+              "rg",
+            );
+          }
+          const searchText =
+            isBinary && !options.binaryAsText
+              ? content.replace(/\0/g, "\n")
+              : content;
+          const result = searchContent(searchText, regex, {
+            maxColumns: options.json ? 0 : options.maxColumns,
+            maxColumnsPreview: options.maxColumnsPreview,
             invertMatch: options.invertMatch,
             showLineNumbers: effectiveLineNumbers,
             countOnly: options.count,
@@ -1290,11 +1321,17 @@ async function searchFiles(
             return { file, result, content, isBinary: false, lease };
           }
 
+          const binaryOffset =
+            isBinary && !options.binaryAsText
+              ? utf8ByteLength(content.slice(0, content.indexOf("\0")))
+              : undefined;
           lease?.release();
-          return { file, result };
+          return { file, result, binaryOffset };
         } catch (error) {
           lease?.release();
           throw error;
+        } finally {
+          binaryLease?.release();
         }
       }),
     );
@@ -1384,6 +1421,13 @@ async function searchFiles(
         } else if (options.filesWithMatches) {
           const sep = options.nullSeparator ? "\0" : "\n";
           stdout += `${file}${sep}`;
+        } else if (
+          !options.filesWithoutMatch &&
+          res.binaryOffset !== undefined &&
+          !options.count &&
+          !options.countMatches
+        ) {
+          stdout += `${showFilename ? `${file}: ` : ""}binary file matches (found "\\0" byte around offset ${res.binaryOffset})\n`;
         } else if (!options.filesWithoutMatch) {
           // Filename visibility still controls headings for one explicit file.
           // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/core/flags/hiargs.rs#L176-L195
@@ -1475,7 +1519,7 @@ async function searchFiles(
   // rg emits text; the pipeline handles encoding.
   return {
     stdout: finalStdout,
-    stderr,
+    stderr: options.noMessages ? "" : stderr,
     exitCode,
   };
 }
