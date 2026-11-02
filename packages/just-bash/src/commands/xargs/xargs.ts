@@ -1,7 +1,12 @@
-// Automa modifications: N00b xargs flags and parallel output isolation.
-import { decodeBytesToUtf8 } from "../../encoding.js";
+// Automa modifications: N00b bounded flags; N2a argument files and sequential GNU statuses.
+import {
+  decodeBytesToUtf8,
+  latin1FromBytes,
+  readBytesFrom,
+} from "../../encoding.js";
 import { ExecutionOutputAccumulator } from "../../execution-output.js";
-import type { ExecutionScope } from "../../execution-scope.js";
+import type { ExecutionScope, ResourceLease } from "../../execution-scope.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type {
@@ -9,7 +14,8 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
-import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { accountFileInput } from "../../utils/file-reader.js";
+import { showHelp, unknownOption } from "../help.js";
 import { utf8ByteLength } from "../printf/escapes.js";
 
 const xargsHelp = {
@@ -17,10 +23,11 @@ const xargsHelp = {
   summary: "build and execute command lines from standard input",
   usage: "xargs [OPTION]... [COMMAND [INITIAL-ARGS]]",
   options: [
+    "-a, --arg-file FILE  read arguments from FILE, leaving stdin for commands",
     "-I REPLACE   replace occurrences of REPLACE with input",
     "-d DELIM     use DELIM as input delimiter (e.g., -d '\\n' for newline)",
     "-n NUM       use at most NUM arguments per command line",
-    "-P NUM       run at most NUM processes at a time",
+    "-P NUM       accept NUM processes; execute sequentially in this runtime",
     "-0, --null   items are separated by null, not whitespace",
     "-t, --verbose  print commands before executing",
     "-r, --no-run-if-empty  do not run command if input is empty",
@@ -41,7 +48,7 @@ function splitExactBounded(
   while (start <= input.length) {
     const end = input.indexOf(delimiter, start);
     const item = input.slice(start, end === -1 ? input.length : end);
-    if (item.length > 0) {
+    if (end !== -1 || item.length > 0) {
       if (items.length >= maxItems) {
         throw new ExecutionLimitError(
           `xargs: array element limit exceeded (${maxItems})`,
@@ -82,9 +89,9 @@ function normalizeAttachedOptions(args: string[]): string[] {
   let options = true;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    const attached = options && arg.match(/^-([InLPd])(.+)$/s);
+    const attached = options && arg.match(/^-([aInLPd])(.+)$/s);
     if (attached) normalized.push(`-${attached[1]}`, attached[2]);
-    else if (options && /^-[InLPd]$/.test(arg)) {
+    else if (options && (/^-[aInLPd]$/.test(arg) || arg === "--arg-file")) {
       normalized.push(arg);
       if (i + 1 < args.length) normalized.push(args[++i]);
     } else {
@@ -103,10 +110,7 @@ export const xargsCommand: RuntimeCommand = {
     ctx: RuntimeCommandContext,
   ): Promise<ExecResult> {
     args = normalizeAttachedOptions(args);
-    if (hasHelpFlag(args)) {
-      return showHelp(xargsHelp);
-    }
-
+    let argFile: string | null = null;
     let replaceStr: string | null = null;
     let delimiter: string | null = null;
     let maxArgs: number | null = null;
@@ -123,6 +127,20 @@ export const xargsCommand: RuntimeCommand = {
       if (arg === "--") {
         commandStart = i + 1;
         break;
+      } else if (arg === "-a" || arg === "--arg-file") {
+        if (i + 1 >= args.length)
+          return {
+            stdout: "",
+            stderr: `xargs: option '${arg}' requires an argument\n`,
+            exitCode: 1,
+          };
+        argFile = args[++i];
+        commandStart = i + 1;
+      } else if (arg.startsWith("--arg-file=")) {
+        argFile = arg.slice("--arg-file=".length);
+        commandStart = i + 1;
+      } else if (arg === "--help") {
+        return showHelp(xargsHelp);
       } else if (arg === "-L") {
         const value = args[++i] ?? "";
         maxLines = Number(value);
@@ -150,6 +168,13 @@ export const xargsCommand: RuntimeCommand = {
           .replace(/\\r/g, "\r")
           .replace(/\\0/g, "\0")
           .replace(/\\\\/g, "\\");
+        if (utf8ByteLength(delimiter) !== 1) {
+          return {
+            stdout: "",
+            stderr: "xargs: delimiter must be one byte\n",
+            exitCode: 1,
+          };
+        }
         commandStart = i + 1;
       } else if (arg === "-n" && i + 1 < args.length) {
         const value = args[++i];
@@ -208,6 +233,8 @@ export const xargsCommand: RuntimeCommand = {
       }
     }
 
+    if (argFile === "-") argFile = null;
+
     // Get command and initial args
     const command = args.slice(commandStart);
     if (command.length === 0) {
@@ -218,303 +245,342 @@ export const xargsCommand: RuntimeCommand = {
     // (whitespace). xargs' delimiters (`\0`, ASCII whitespace, user-provided
     // single-byte delim) all live in the ASCII range, but the args produced
     // are passed onward as text — decode so multibyte filenames survive.
-    const stdinText = decodeBytesToUtf8(ctx.stdin);
-    const maxStringLength = Math.min(
-      ctx.limits.maxInputBytes,
-      ctx.limits.maxStringLength,
-    );
-    const maxArrayElements = ctx.limits.maxArrayElements;
-    const maxIterations = ctx.limits.maxLoopIterations;
-    const maxOutputSize = ctx.limits.maxOutputSize;
-    if (utf8ByteLength(stdinText) > maxStringLength) {
-      throw new ExecutionLimitError(
-        `xargs: input size limit exceeded (${maxStringLength} bytes)`,
-        "string_length",
+    let argumentLease: ResourceLease | undefined;
+    try {
+      let stdinText: string;
+      if (argFile === null) {
+        stdinText = decodeBytesToUtf8(ctx.stdin);
+      } else {
+        try {
+          const path = ctx.fs.resolvePath(ctx.cwd, argFile);
+          const stat = await ctx.fs.stat(path);
+          if (stat.size > ctx.limits.maxInputBytes)
+            throw new ExecutionLimitError(
+              `xargs: input size limit exceeded (${ctx.limits.maxInputBytes} bytes)`,
+              "string_length",
+            );
+          argumentLease = ctx.executionScope?.reserveBytes(
+            "xargs argument file",
+            stat.size * 2,
+            "xargs",
+          );
+          const content = await readBytesFrom(ctx.fs, path);
+          const bytes = latin1FromBytes(content).length;
+          if (bytes > stat.size)
+            throw new ExecutionLimitError(
+              "xargs: argument file grew while being read",
+              "string_length",
+            );
+          accountFileInput(ctx, bytes, "xargs");
+          stdinText = decodeBytesToUtf8(content);
+        } catch (error) {
+          rethrowFatalExecutionError(error);
+          return {
+            stdout: "",
+            stderr: `xargs: ${argFile}: Unable to read argument file\n`,
+            exitCode: 1,
+          };
+        }
+      }
+      const maxStringLength = Math.min(
+        ctx.limits.maxInputBytes,
+        ctx.limits.maxStringLength,
       );
-    }
-    if (maxProcs !== null && maxProcs > maxArrayElements) {
-      throw new ExecutionLimitError(
-        `xargs: array element limit exceeded (${maxArrayElements})`,
-        "array_elements",
-      );
-    }
-    let items: string[];
-    if (nullSeparator) {
-      items = splitExactBounded(stdinText, "\0", maxArrayElements);
-    } else if (delimiter !== null) {
-      // Custom delimiter - split on exact string
-      // Strip trailing newline from input before splitting (echo adds trailing newlines)
-      const input = stdinText.replace(/\n$/, "");
-      try {
-        items = splitExactBounded(input, delimiter, maxArrayElements);
-      } catch (error) {
-        if (error instanceof ExecutionLimitError) throw error;
-        return {
-          stdout: "",
-          stderr: "xargs: delimiter must not be empty\n",
-          exitCode: 1,
-        };
-      }
-    } else {
-      // Default: split on whitespace and trim
-      items =
-        replaceStr !== null
-          ? splitExactBounded(
-              stdinText.replace(/\n$/, ""),
-              "\n",
-              maxArrayElements,
-            ).map((line) => line.replace(/^[ \t]+/, ""))
-          : splitWhitespaceBounded(stdinText, maxArrayElements);
-    }
-
-    if (items.length === 0) {
-      if (noRunIfEmpty) {
-        return { stdout: "", stderr: "", exitCode: 0 };
-      }
-      // With no -r flag, still run the command with no args
-      // (echo with no args just outputs newline)
-      return { stdout: "", stderr: "", exitCode: 0 };
-    }
-
-    // Execute commands
-    const stdoutChunks: string[] = [];
-    const stderrChunks: string[] = [];
-    let exitCode = 0;
-    let outputBytes = 0;
-    let commandIterations = 0;
-    const output = ctx.executionScope
-      ? new ExecutionOutputAccumulator(
-          ctx.executionScope as ExecutionScope,
-          "xargs",
-        )
-      : undefined;
-    const appendOutput = (result: ExecResult): void => {
-      if (output) {
-        output.appendResult(result);
-        return;
-      }
-      const addedBytes =
-        utf8ByteLength(result.stdout) + utf8ByteLength(result.stderr);
-      if (addedBytes > maxOutputSize - outputBytes) {
+      const maxArrayElements = ctx.limits.maxArrayElements;
+      const maxIterations = ctx.limits.maxLoopIterations;
+      const maxOutputSize = ctx.limits.maxOutputSize;
+      if (utf8ByteLength(stdinText) > maxStringLength) {
         throw new ExecutionLimitError(
-          `xargs: output size limit exceeded (${maxOutputSize} bytes)`,
-          "output_size",
+          `xargs: input size limit exceeded (${maxStringLength} bytes)`,
+          "string_length",
         );
       }
-      if (result.stdout) stdoutChunks.push(result.stdout);
-      if (result.stderr) stderrChunks.push(result.stderr);
-      outputBytes += addedBytes;
-    };
-    const appendStderr = (value: string): void => {
-      if (output) {
-        output.append("stderr", value);
-        return;
-      }
-      const addedBytes = utf8ByteLength(value);
-      if (addedBytes > maxOutputSize - outputBytes) {
-        throw new ExecutionLimitError(
-          `xargs: output size limit exceeded (${maxOutputSize} bytes)`,
-          "output_size",
-        );
-      }
-      if (value) stderrChunks.push(value);
-      outputBytes += addedBytes;
-    };
-
-    // Helper to quote an argument if it contains special characters
-    const quoteArg = (arg: string): string => {
-      // If arg contains spaces, quotes, or shell metacharacters, quote it
-      // Note: \s includes spaces, tabs, and newlines
-      if (/[\s"'\\$`!*?[\]{}();&|<>#]/.test(arg)) {
-        // Use double quotes and escape characters that are special inside double quotes:
-        // backslash, double quote, dollar sign, and backtick
-        return `"${arg.replace(/([\\"`$])/g, "\\$1")}"`;
-      }
-      return arg;
-    };
-
-    // Helper to execute a single command via the shell
-    const executeCommand = async (cmdArgs: string[]): Promise<ExecResult> => {
-      if (++commandIterations > maxIterations) {
-        throw new ExecutionLimitError(
-          `xargs: iteration limit exceeded (${maxIterations})`,
-          "iterations",
-        );
-      }
-      if (cmdArgs.length > maxArrayElements) {
+      if (maxProcs !== null && maxProcs > maxArrayElements) {
         throw new ExecutionLimitError(
           `xargs: array element limit exceeded (${maxArrayElements})`,
           "array_elements",
         );
       }
-      for (const value of cmdArgs) {
-        if (utf8ByteLength(value) > maxStringLength) {
-          throw new ExecutionLimitError(
-            `xargs: string length limit exceeded (${maxStringLength} bytes)`,
-            "string_length",
-          );
-        }
-      }
-      if (verbose) {
-        const cmdLine = cmdArgs.map(quoteArg).join(" ");
-        appendStderr(`${cmdLine}\n`);
-      }
-      // Use ctx.exec to run the command, passing current working directory
-      if (ctx.exec) {
-        return ctx.exec(shellJoinArgs([cmdArgs[0]]), {
-          cwd: ctx.cwd,
-          signal: ctx.signal,
-          args: cmdArgs.slice(1),
-        });
-      }
-      // Fallback: just output what would be run
-      const cmdLine = cmdArgs.map(quoteArg).join(" ");
-      return { stdout: `${cmdLine}\n`, stderr: "", exitCode: 0 };
-    };
-
-    // Helper to run commands with optional parallelism
-    const runCommands = async (cmdArgsList: string[][]): Promise<void> => {
-      if (maxProcs !== null && maxProcs > 1) {
-        // Run in parallel batches
-        for (let i = 0; i < cmdArgsList.length; i += maxProcs) {
-          const batch = cmdArgsList.slice(i, i + maxProcs);
-          const runBatch = () => Promise.all(batch.map(executeCommand));
-          const results = ctx.executionScope?.automaOutput
-            ? await ctx.executionScope.automaOutput.buffer(runBatch)
-            : await runBatch();
-          for (const result of results) {
-            appendOutput(result);
-            if (result.exitCode !== 0) {
-              exitCode = result.exitCode;
-            }
-          }
+      let items: string[];
+      if (nullSeparator) {
+        items = splitExactBounded(stdinText, "\0", maxArrayElements);
+      } else if (delimiter !== null) {
+        // Custom delimiter - split on exact string
+        const input = stdinText;
+        try {
+          items = splitExactBounded(input, delimiter, maxArrayElements);
+        } catch (error) {
+          rethrowFatalExecutionError(error);
+          return {
+            stdout: "",
+            stderr: "xargs: delimiter must not be empty\n",
+            exitCode: 1,
+          };
         }
       } else {
-        // Sequential execution
-        for (const cmdArgs of cmdArgsList) {
-          const result = await executeCommand(cmdArgs);
-          appendOutput(result);
-          if (result.exitCode !== 0) {
-            exitCode = result.exitCode;
-          }
-        }
+        // Default: split on whitespace and trim
+        items =
+          replaceStr !== null
+            ? splitExactBounded(
+                stdinText.replace(/\n$/, ""),
+                "\n",
+                maxArrayElements,
+              ).map((line) => line.replace(/^[ \t]+/, ""))
+            : splitWhitespaceBounded(stdinText, maxArrayElements);
       }
-    };
 
-    if (maxLines !== null) {
-      const lines = splitExactBounded(
-        stdinText.replace(/[ \t]+\n/g, " "),
-        "\n",
-        maxArrayElements,
-      ).filter((line) => line.trim());
-      const batches: string[][] = [];
-      let elements = 0;
-      for (let i = 0; i < lines.length; i += maxLines) {
-        if (batches.length >= Math.min(maxArrayElements, maxIterations)) {
+      if (
+        items.length === 0 &&
+        (noRunIfEmpty || replaceStr !== null || maxLines !== null)
+      ) {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }
+
+      // Execute commands
+      const stdoutChunks: string[] = [];
+      const stderrChunks: string[] = [];
+      let exitCode = 0;
+      let outputBytes = 0;
+      let commandIterations = 0;
+      const output = ctx.executionScope
+        ? new ExecutionOutputAccumulator(
+            ctx.executionScope as ExecutionScope,
+            "xargs",
+          )
+        : undefined;
+      const appendOutput = (result: ExecResult): void => {
+        if (output) {
+          output.appendResult(result);
+          return;
+        }
+        const addedBytes =
+          utf8ByteLength(result.stdout) + utf8ByteLength(result.stderr);
+        if (addedBytes > maxOutputSize - outputBytes) {
+          throw new ExecutionLimitError(
+            `xargs: output size limit exceeded (${maxOutputSize} bytes)`,
+            "output_size",
+          );
+        }
+        if (result.stdout) stdoutChunks.push(result.stdout);
+        if (result.stderr) stderrChunks.push(result.stderr);
+        outputBytes += addedBytes;
+      };
+      const appendStderr = (value: string): void => {
+        if (output) {
+          output.append("stderr", value);
+          return;
+        }
+        const addedBytes = utf8ByteLength(value);
+        if (addedBytes > maxOutputSize - outputBytes) {
+          throw new ExecutionLimitError(
+            `xargs: output size limit exceeded (${maxOutputSize} bytes)`,
+            "output_size",
+          );
+        }
+        if (value) stderrChunks.push(value);
+        outputBytes += addedBytes;
+      };
+
+      // Helper to quote an argument if it contains special characters
+      const quoteArg = (arg: string): string => {
+        // If arg contains spaces, quotes, or shell metacharacters, quote it
+        // Note: \s includes spaces, tabs, and newlines
+        if (/[\s"'\\$`!*?[\]{}();&|<>#]/.test(arg)) {
+          // Use double quotes and escape characters that are special inside double quotes:
+          // backslash, double quote, dollar sign, and backtick
+          return `"${arg.replace(/([\\"`$])/g, "\\$1")}"`;
+        }
+        return arg;
+      };
+
+      // Helper to execute a single command via the shell
+      const executeCommand = async (cmdArgs: string[]): Promise<ExecResult> => {
+        if (++commandIterations > maxIterations) {
           throw new ExecutionLimitError(
             `xargs: iteration limit exceeded (${maxIterations})`,
             "iterations",
           );
         }
-        const words = splitWhitespaceBounded(
-          lines.slice(i, i + maxLines).join("\n"),
-          maxArrayElements,
-        );
-        elements += command.length + words.length;
-        if (elements > maxArrayElements) {
+        if (cmdArgs.length > maxArrayElements) {
           throw new ExecutionLimitError(
             `xargs: array element limit exceeded (${maxArrayElements})`,
             "array_elements",
           );
         }
-        batches.push([...command, ...words]);
-      }
-      await runCommands(batches);
-    } else if (replaceStr !== null) {
-      // -I mode: run command once per item, replacing replaceStr in each argument
-      if (items.length > maxIterations) {
-        throw new ExecutionLimitError(
-          `xargs: iteration limit exceeded (${maxIterations})`,
-          "iterations",
-        );
-      }
-      if (replaceStr.length === 0) {
+        for (const value of cmdArgs) {
+          if (utf8ByteLength(value) > maxStringLength) {
+            throw new ExecutionLimitError(
+              `xargs: string length limit exceeded (${maxStringLength} bytes)`,
+              "string_length",
+            );
+          }
+        }
+        if (verbose) {
+          const cmdLine = cmdArgs.map(quoteArg).join(" ");
+          appendStderr(`${cmdLine}\n`);
+        }
+        // Use ctx.exec to run the command, passing current working directory
+        if (argFile !== null && ctx.execWithInheritedStdin) {
+          return ctx.execWithInheritedStdin(shellJoinArgs([cmdArgs[0]]), {
+            cwd: ctx.cwd,
+            signal: ctx.signal,
+            args: cmdArgs.slice(1),
+          });
+        }
+        if (ctx.exec) {
+          return ctx.exec(shellJoinArgs([cmdArgs[0]]), {
+            cwd: ctx.cwd,
+            signal: ctx.signal,
+            args: cmdArgs.slice(1),
+            stdin: argFile === null ? "" : latin1FromBytes(ctx.stdin),
+            stdinKind: "bytes",
+          });
+        }
         return {
           stdout: "",
-          stderr: "xargs: replacement string must not be empty\n",
-          exitCode: 1,
+          stderr: "xargs: command execution is unavailable\n",
+          exitCode: 127,
         };
-      }
-      if (
-        command.length > 0 &&
-        items.length > Math.floor(maxArrayElements / command.length)
-      ) {
-        throw new ExecutionLimitError(
-          `xargs: array element limit exceeded (${maxArrayElements})`,
-          "array_elements",
-        );
-      }
-      const replaceBounded = (template: string, item: string): string => {
-        let occurrences = 0;
-        let position = 0;
-        while (true) {
-          position = template.indexOf(replaceStr, position);
-          if (position === -1) break;
-          occurrences++;
-          position += replaceStr.length;
+      };
+
+      // Sequential admission keeps inherited stdin and descriptor events ordered.
+      // -P is accepted without introducing privileged system processes.
+      const runCommands = async (cmdArgsList: string[][]): Promise<void> => {
+        for (const cmdArgs of cmdArgsList) {
+          const result = await executeCommand(cmdArgs);
+          appendOutput(result);
+          if (result.exitCode === 255) {
+            appendStderr(
+              `xargs: ${cmdArgs[0]}: exited with status 255; aborting\n`,
+            );
+            exitCode = 124;
+            break;
+          }
+          if (result.exitCode === 126 || result.exitCode === 127) {
+            exitCode = result.exitCode;
+            break;
+          }
+          if (result.exitCode !== 0) exitCode = 123;
         }
-        const prospectiveBytes =
-          utf8ByteLength(template) +
-          occurrences * (utf8ByteLength(item) - utf8ByteLength(replaceStr));
-        if (prospectiveBytes > maxStringLength) {
+      };
+
+      if (items.length === 0) {
+        await runCommands([command]);
+      } else if (maxLines !== null) {
+        const lines = splitExactBounded(
+          stdinText.replace(/[ \t]+\n/g, " "),
+          "\n",
+          maxArrayElements,
+        ).filter((line) => line.trim());
+        const batches: string[][] = [];
+        let elements = 0;
+        for (let i = 0; i < lines.length; i += maxLines) {
+          if (batches.length >= Math.min(maxArrayElements, maxIterations)) {
+            throw new ExecutionLimitError(
+              `xargs: iteration limit exceeded (${maxIterations})`,
+              "iterations",
+            );
+          }
+          const words = splitWhitespaceBounded(
+            lines.slice(i, i + maxLines).join("\n"),
+            maxArrayElements,
+          );
+          elements += command.length + words.length;
+          if (elements > maxArrayElements) {
+            throw new ExecutionLimitError(
+              `xargs: array element limit exceeded (${maxArrayElements})`,
+              "array_elements",
+            );
+          }
+          batches.push([...command, ...words]);
+        }
+        await runCommands(batches);
+      } else if (replaceStr !== null) {
+        // -I mode: run command once per item, replacing replaceStr in each argument
+        if (items.length > maxIterations) {
           throw new ExecutionLimitError(
-            `xargs: string length limit exceeded (${maxStringLength} bytes)`,
-            "string_length",
+            `xargs: iteration limit exceeded (${maxIterations})`,
+            "iterations",
           );
         }
-        return template.replaceAll(replaceStr, item);
-      };
-      const cmdArgsList = items.map((item) =>
-        command.map((c) => replaceBounded(c, item)),
-      );
-      await runCommands(cmdArgsList);
-    } else if (maxArgs !== null) {
-      // -n mode: batch items
-      const cmdArgsList: string[][] = [];
-      const batchCount = Math.ceil(items.length / maxArgs);
-      if (batchCount > Math.min(maxArrayElements, maxIterations)) {
-        throw new ExecutionLimitError(
-          `xargs: iteration limit exceeded (${maxIterations})`,
-          "iterations",
+        if (replaceStr.length === 0) {
+          return {
+            stdout: "",
+            stderr: "xargs: replacement string must not be empty\n",
+            exitCode: 1,
+          };
+        }
+        if (
+          command.length > 0 &&
+          items.length > Math.floor(maxArrayElements / command.length)
+        ) {
+          throw new ExecutionLimitError(
+            `xargs: array element limit exceeded (${maxArrayElements})`,
+            "array_elements",
+          );
+        }
+        const replaceBounded = (template: string, item: string): string => {
+          let occurrences = 0;
+          let position = 0;
+          while (true) {
+            position = template.indexOf(replaceStr, position);
+            if (position === -1) break;
+            occurrences++;
+            position += replaceStr.length;
+          }
+          const prospectiveBytes =
+            utf8ByteLength(template) +
+            occurrences * (utf8ByteLength(item) - utf8ByteLength(replaceStr));
+          if (prospectiveBytes > maxStringLength) {
+            throw new ExecutionLimitError(
+              `xargs: string length limit exceeded (${maxStringLength} bytes)`,
+              "string_length",
+            );
+          }
+          return template.replaceAll(replaceStr, item);
+        };
+        const cmdArgsList = items.map((item) =>
+          command.map((c) => replaceBounded(c, item)),
         );
+        await runCommands(cmdArgsList);
+      } else if (maxArgs !== null) {
+        // -n mode: batch items
+        const cmdArgsList: string[][] = [];
+        const batchCount = Math.ceil(items.length / maxArgs);
+        if (batchCount > Math.min(maxArrayElements, maxIterations)) {
+          throw new ExecutionLimitError(
+            `xargs: iteration limit exceeded (${maxIterations})`,
+            "iterations",
+          );
+        }
+        const prospectiveElements = items.length + batchCount * command.length;
+        if (prospectiveElements > maxArrayElements) {
+          throw new ExecutionLimitError(
+            `xargs: array element limit exceeded (${maxArrayElements})`,
+            "array_elements",
+          );
+        }
+        for (let i = 0; i < items.length; i += maxArgs) {
+          const batch = items.slice(i, i + maxArgs);
+          cmdArgsList.push([...command, ...batch]);
+        }
+        await runCommands(cmdArgsList);
+      } else {
+        // Default: all items on one line
+        const cmdArgs = [...command, ...items];
+        await runCommands([cmdArgs]);
       }
-      const prospectiveElements = items.length + batchCount * command.length;
-      if (prospectiveElements > maxArrayElements) {
-        throw new ExecutionLimitError(
-          `xargs: array element limit exceeded (${maxArrayElements})`,
-          "array_elements",
-        );
-      }
-      for (let i = 0; i < items.length; i += maxArgs) {
-        const batch = items.slice(i, i + maxArgs);
-        cmdArgsList.push([...command, ...batch]);
-      }
-      await runCommands(cmdArgsList);
-    } else {
-      // Default: all items on one line
-      const cmdArgs = [...command, ...items];
-      const result = await executeCommand(cmdArgs);
-      appendOutput(result);
-      exitCode = result.exitCode;
-    }
 
-    return (
-      output?.build(exitCode) ?? {
-        stdout: stdoutChunks.join(""),
-        stderr: stderrChunks.join(""),
-        exitCode,
-      }
-    );
+      return (
+        output?.build(exitCode) ?? {
+          stdout: stdoutChunks.join(""),
+          stderr: stderrChunks.join(""),
+          exitCode,
+        }
+      );
+    } finally {
+      argumentLease?.release();
+    }
   },
 };
 

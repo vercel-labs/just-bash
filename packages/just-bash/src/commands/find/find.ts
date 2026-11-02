@@ -1,6 +1,7 @@
 import { utf8ByteLength } from "../../encoding.js";
 import { ExecutionOutputAccumulator } from "../../execution-output.js";
 import type { ExecutionScope } from "../../execution-scope.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import type { DirentEntry } from "../../fs/interface.js";
 import { FileTraversalBudget } from "../../fs/traversal.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
@@ -76,6 +77,7 @@ function emitTraceSummary(
   });
 }
 
+import { isValidTimezone } from "../date/date.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 import {
   applyWidth,
@@ -114,7 +116,9 @@ const findHelp = {
     "-type TYPE       file is of type: f (regular file), d (directory)",
     "-empty           file is empty or directory is empty",
     "-mtime N         file's data was modified N*24 hours ago",
+    "-mmin N          file's data was modified N minutes ago",
     "-newer FILE      file was modified more recently than FILE",
+    "-newermt DATE    file was modified more recently than DATE (YYYY-MM-DD[ HH:MM[:SS]])",
     "-size N[ckMGb]   file uses N units of space (c=bytes, k=KB, M=MB, G=GB, b=512B blocks)",
     "-perm MODE       file's permission bits are exactly MODE (octal)",
     "-perm -MODE      all permission bits MODE are set",
@@ -130,7 +134,8 @@ const findHelp = {
     "-exec CMD {} +   execute CMD with multiple files at once",
     "-print           print the full file name (default action)",
     "-print0          print the full file name followed by a null character",
-    "-printf FORMAT   print FORMAT with directives: %f %h %p %P %s %d %m %M %t",
+    "-printf FORMAT   print FORMAT with directives: %f %h %p %P %s %d %m %M %t %T@ %TY %Tm %Td %y",
+    "-quit            stop immediately when this action is reached",
     "-delete          delete found files/directories",
     "    --help       display this help and exit",
   ],
@@ -210,7 +215,12 @@ export const findCommand: RuntimeCommand = {
     }
 
     // Parse the complete expression before any filesystem access or action.
-    const { expr, error } = parseExpressions(args, expressionStart);
+    // A bare -newermt date is read in $TZ when it names a zone, and in UTC
+    // otherwise, the same contract `date` keeps.
+    const tz = ctx.env.get("TZ");
+    const { expr, error } = parseExpressions(args, expressionStart, {
+      tz: tz && isValidTimezone(tz) ? tz : undefined,
+    });
 
     // Return error for unknown predicates
     if (error) {
@@ -219,6 +229,8 @@ export const findCommand: RuntimeCommand = {
 
     const expressionActions = collectActions(expr);
     const hasAnyAction = expressionActions.length > 0;
+    const hasQuit = expressionActions.some((action) => action.type === "quit");
+    let quitRequested = false;
     if (expressionActions.some((a) => a.type === "delete")) depthFirst = true;
 
     // Result type for find entries
@@ -229,6 +241,7 @@ export const findCommand: RuntimeCommand = {
       mtime: number;
       mode: number;
       isDirectory: boolean;
+      fileType: string;
       depth: number;
       startingPoint: string;
     }
@@ -292,6 +305,10 @@ export const findCommand: RuntimeCommand = {
       }
     };
 
+    // One reference time for the whole traversal, so -mtime and -mmin do not
+    // move their cutoff while a long search runs.
+    const now = Date.now();
+
     // Collect and resolve -newer reference file mtimes
     const newerRefPaths = collectNewerRefs(expr);
     const newerRefTimes = new Map<string, number>();
@@ -301,8 +318,13 @@ export const findCommand: RuntimeCommand = {
       try {
         const refStat = await ctx.fs.stat(refFullPath);
         newerRefTimes.set(refPath, refStat.mtime?.getTime() ?? Date.now());
-      } catch {
-        // Reference file doesn't exist, -newer will always be false
+      } catch (error) {
+        rethrowFatalExecutionError(error);
+        return {
+          stdout: "",
+          stderr: `find: ${refPath}: Unable to inspect reference file\n`,
+          exitCode: 1,
+        };
       }
     }
 
@@ -314,7 +336,7 @@ export const findCommand: RuntimeCommand = {
       // Check for stat-dependent directives: %s %m %M %t %T
       // But skip escaped %% and handle width/precision modifiers like %10s or %-5.2s
       const format = a.format.replace(/%%/g, "");
-      return /%[-+]?[0-9]*\.?[0-9]*(s|m|M|t|T)/.test(format);
+      return /%[-+]?[0-9]*\.?[0-9]*(s|m|M|t|T|y)/.test(format);
     });
 
     // Check if expression needs full stat metadata (optimization)
@@ -453,10 +475,32 @@ export const findCommand: RuntimeCommand = {
           }
         }
 
+        // A reached -quit must not inspect this directory's children. The
+        // expression is pure here; effects are retained in traversal order below.
+        const quitsHere =
+          hasQuit &&
+          expr !== null &&
+          !depthFirst &&
+          !needsEmptyCheck &&
+          (minDepth === null || depth >= minDepth) &&
+          evaluateExpressionWithPrune(expr, {
+            name,
+            relativePath,
+            isFile,
+            isDirectory,
+            isEmpty: false,
+            mtime: stat?.mtime?.getTime() ?? now,
+            size: stat?.size ?? 0,
+            mode: stat?.mode ?? 0o644,
+            newerRefTimes,
+            now,
+          }).quit;
+
         // Optimization: skip reading directory contents if we're at maxdepth
         // Exception: if -empty is used, we need to read to check if directory is empty
         const atMaxDepth = depth >= (maxDepth ?? ctx.limits.maxTraversalDepth);
-        const shouldDescendIntoSubdirs = !atMaxDepth && !earlyPruned;
+        const shouldDescendIntoSubdirs =
+          !atMaxDepth && !earlyPruned && !quitsHere;
         const shouldReadDir =
           (shouldDescendIntoSubdirs || needsEmptyCheck) && !earlyPruned;
 
@@ -550,6 +594,7 @@ export const findCommand: RuntimeCommand = {
             size: stat?.size ?? 0,
             mode: stat?.mode ?? 0o644,
             newerRefTimes,
+            now,
           };
           const evalResult = evaluateExpressionWithPrune(expr, evalCtx);
           pruned = evalResult.pruned;
@@ -581,6 +626,13 @@ export const findCommand: RuntimeCommand = {
           mtime: node.stat?.mtime?.getTime() ?? Date.now(),
           mode: node.stat?.mode ?? 0o644,
           isDirectory: node.isDirectory,
+          fileType: node.stat?.isSymbolicLink
+            ? "l"
+            : node.isDirectory
+              ? "d"
+              : node.isFile
+                ? "f"
+                : "?",
           depth: node.depth,
           startingPoint: searchPath,
         };
@@ -636,10 +688,12 @@ export const findCommand: RuntimeCommand = {
               size: node.stat?.size ?? 0,
               mode: node.stat?.mode ?? 0o644,
               newerRefTimes,
+              now,
             };
             evalResult = evaluateExpressionWithPrune(expr, evalCtx);
           }
 
+          if (evalResult.quit) quitRequested = true;
           matches = evalResult.matches;
           reachedActions = evalResult.actions ?? [];
           traceCounters.evalCalls++;
@@ -672,6 +726,30 @@ export const findCommand: RuntimeCommand = {
       // Uses work array with slot-based result collection for ordering
       async function findIterative(): Promise<NodeResult> {
         const finalResult: NodeResult = { effects: [] };
+        if (hasQuit) {
+          // Commands with -quit need serial depth-first admission: a later node
+          // must not be visited or diagnosed after the first reached quit.
+          const stack: Array<{ item: WorkItem; node?: ProcessedNode }> = [
+            { item: { path: basePath, depth: 0, resultIndex: 0 } },
+          ];
+          while (stack.length > 0 && !quitRequested) {
+            traversalBudget.checkpoint();
+            const pending = stack.pop();
+            if (!pending) break;
+            const node = pending.node ?? (await processNode(pending.item));
+            if (!node) continue;
+            if (!depthFirst || pending.node) {
+              finalResult.effects.push(...evaluateNode(node));
+              if (quitRequested || pending.node) continue;
+            } else {
+              stack.push({ item: pending.item, node });
+            }
+            for (let index = node.children.length - 1; index >= 0; index--) {
+              stack.push({ item: node.children[index] });
+            }
+          }
+          return finalResult;
+        }
 
         // For depth-first (post-order), we use a different strategy:
         // 1. Discover all nodes level by level (BFS with parallel batches)
@@ -876,6 +954,8 @@ export const findCommand: RuntimeCommand = {
       const searchResult = await findIterative();
       for (const effect of searchResult.effects) effects.push(effect);
 
+      if (quitRequested) break;
+
       // Emit trace summary for this search path
       if (ctx.trace) {
         const totalMs = Date.now() - traceStartTime;
@@ -900,6 +980,8 @@ export const findCommand: RuntimeCommand = {
     for (const effect of effects) {
       const { action, path: file } = effect;
       switch (action.type) {
+        case "quit":
+          break;
         case "diagnostic":
           appendStderr(action.message);
           exitCode = 1;
@@ -1023,6 +1105,7 @@ function formatFindPrintf(
     mtime: number;
     mode: number;
     isDirectory: boolean;
+    fileType: string;
     depth: number;
     startingPoint: string;
   },
@@ -1089,6 +1172,10 @@ function formatFindPrintf(
           i++;
           break;
         }
+        case "y":
+          value = result.fileType;
+          i++;
+          break;
         case "s":
           // File size in bytes
           value = String(result.size);
@@ -1214,7 +1301,7 @@ function formatTimeDirective(date: Date, format: string): string {
   switch (format) {
     case "@":
       // Seconds since epoch (with fractional part)
-      return String(date.getTime() / 1000);
+      return `${(date.getTime() / 1000).toFixed(3)}0000000`;
     case "Y":
       // Year with century
       return String(date.getFullYear());

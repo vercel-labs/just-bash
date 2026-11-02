@@ -91,27 +91,19 @@ export const wcCommand: RuntimeCommand = {
       allStats.push({ filename, stats });
     }
 
-    // Calculate the max width needed for alignment
-    // Consider totals if we have multiple files
-    const maxLines =
-      files.length > 1
-        ? totalLines
-        : Math.max(...allStats.map((s) => s.stats.lines));
-    const maxWords =
-      files.length > 1
-        ? totalWords
-        : Math.max(...allStats.map((s) => s.stats.words));
-    const maxThird =
-      files.length > 1
-        ? totalThird
-        : Math.max(...allStats.map((s) => s.stats.third));
-
-    // Calculate width based on which columns are shown
-    // Use minimum width of 3 for alignment when there are multiple files (matches osh behavior)
-    let maxWidth = files.length > 1 ? 3 : 0;
-    if (showLines) maxWidth = Math.max(maxWidth, String(maxLines).length);
-    if (showWords) maxWidth = Math.max(maxWidth, String(maxWords).length);
-    if (showThird) maxWidth = Math.max(maxWidth, String(maxThird).length);
+    // GNU uses the width of the combined regular-file byte size, even when
+    // printing only lines/words. A single selected count needs no padding.
+    let maxWidth =
+      files.length === 1 &&
+      Number(showLines) + Number(showWords) + Number(showThird) === 1
+        ? 0
+        : 1;
+    if (files.length > 1 || maxWidth > 0) {
+      let totalBytes = 0;
+      for (const file of readResult.files)
+        totalBytes += latin1FromBytes(file.content).length;
+      maxWidth = Math.max(maxWidth, String(totalBytes).length);
+    }
 
     // Second pass: format output with proper alignment
     let stdout = "";

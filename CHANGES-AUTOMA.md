@@ -104,6 +104,30 @@ changes keep the existing resource thresholds and public package interfaces.
   cover `rg`, the shared formatter and unaffected `grep`; they do not claim
   browser or real-model validation.
 
+## N2a find, xargs and wc
+
+- Adapt `find -mmin`/`-newermt` from [upstream PR #555](https://github.com/vercel-labs/just-bash/pull/555),
+  reusing the existing date timezone parser. Native GNU find 4.10.0 comparison
+  corrects the PR's minute rounding and the older `-mtime +N` comparison. Capture
+  one reference time for a traversal. Missing `-newer` references fail visibly.
+- Add expression-aware `find -quit`: only a reached action stops traversal,
+  pending `-exec ... +` effects still flush, and later paths are not inspected.
+  Preserve the existing batched traversal for commands without `-quit`. Add `%y`
+  and native fractional `%T@` formatting; existing path/depth/negation predicates
+  remain shared with the original evaluator.
+- Adapt virtual argument-file reading from [upstream PR #714](https://github.com/vercel-labs/just-bash/pull/714),
+  adding prospective memory reservation and cumulative input accounting. Keep
+  option operands separate from child argv. `-d`/`-0` preserve empty fields and
+  non-delimiter newlines; empty input runs once unless `-r`/`-I`/`-L` suppress it.
+  `-P` executes sequentially with GNU status aggregation, including stop-on-255.
+  Remove the parallel buffering branch and the false-success executor fallback.
+- Match GNU regular-file `wc` column widths using total byte sizes rather than a
+  fixed three-column minimum; remove the redundant per-column map/spread passes.
+- Add separate native findutils 4.10.0/coreutils 9.7 fixtures and resource/action
+  regressions. The next stdin-session change closes argument-file forwarding
+  across multiple input-consuming child invocations; this entry does not claim
+  that the previous fixed-string inherited-input helper supplies a shared cursor.
+
 ## Build, validation and future upgrades
 
 Use Node 22.19.0 and the root `packageManager` pnpm 10.33.2 with the frozen lockfile.
