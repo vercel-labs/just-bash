@@ -88,7 +88,7 @@ describe("more than nine positional parameters", () => {
     expect(result.exitCode).toBe(0);
   });
 
-  it("should hide and restore parameters set beyond $#", async () => {
+  it("should hide and restore contiguous parameters set beyond $#", async () => {
     const seeded = Object.fromEntries(
       Array.from({ length: 12 }, (_, i) => [String(i + 1), `p${i + 1}`]),
     );
@@ -105,12 +105,12 @@ describe("more than nine positional parameters", () => {
     expect(result.exitCode).toBe(0);
   });
 
-  it("should drop parameters the callee sets when source and functions return", async () => {
+  it("should drop parameters set by a function or by source inside a function", async () => {
     const env = new Bash({
       files: { "/s.sh": "set -- 1 2 3 4 5 6 7 8 9 10\n" },
     });
     const result = await env.exec(
-      `f () { set -- 1 2 3 4 5 6 7 8 9 10; }; set -- a; source /s.sh x; echo "[$#][$1][$2][\${10}]"; f y; echo "[$#][$1][$2][\${10}]"`,
+      `f () { set -- 1 2 3 4 5 6 7 8 9 10; }; g () { set -- a; source /s.sh x; echo "[$#][$1][$2][\${10}]"; }; g; set -- a; f y; echo "[$#][$1][$2][\${10}]"`,
     );
     expect(result.stdout).toBe("[1][a][][]\n[1][a][][]\n");
     expect(result.stderr).toBe("");
