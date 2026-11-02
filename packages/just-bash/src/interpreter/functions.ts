@@ -35,10 +35,10 @@ export function executeFunctionDef(
     throw new ExitError(2, "", stderr);
   }
   // Store the source file where this function is defined (for BASH_SOURCE)
-  // Use currentSource from state, or the node's sourceFile, or "main" as default
+  // Use currentSource from state, or the node's sourceFile, or "environment" for command-string definitions
   const funcWithSource: FunctionDefNode = {
     ...node,
-    sourceFile: node.sourceFile ?? ctx.state.currentSource ?? "main",
+    sourceFile: node.sourceFile ?? ctx.state.currentSource ?? "environment",
   };
   ctx.state.functions.set(node.name, funcWithSource);
   return OK;
@@ -99,7 +99,16 @@ async function callFunctionBody(
   // Use provided callLine, or fall back to currentLine
   ctx.state.callLineStack.unshift(callLine ?? ctx.state.currentLine);
   // Push the source file where this function was defined (for BASH_SOURCE)
-  ctx.state.sourceStack.unshift(func.sourceFile ?? "main");
+  ctx.state.sourceStack.unshift(func.sourceFile ?? "environment");
+  const callerFrames = ctx.state.callerFrames;
+  ctx.state.callerFrames = [
+    {
+      name: func.name,
+      source: func.sourceFile ?? "environment",
+      line: callLine ?? ctx.state.currentLine,
+    },
+    ...(callerFrames ?? []),
+  ];
 
   ctx.state.localScopes.push(new Map());
   ctx.state.localArrayScopes ??= [];
@@ -197,6 +206,7 @@ async function callFunctionBody(
     ctx.state.funcNameStack?.shift();
     ctx.state.callLineStack?.shift();
     ctx.state.sourceStack?.shift();
+    ctx.state.callerFrames = callerFrames;
 
     ctx.state.callDepth--;
   };

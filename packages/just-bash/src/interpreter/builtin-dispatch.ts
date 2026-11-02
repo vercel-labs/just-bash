@@ -26,6 +26,7 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../types.js";
+import { handleCaller } from "./builtins/caller.js";
 import {
   handleBreak,
   handleCd,
@@ -55,6 +56,7 @@ import {
   handleUnset,
 } from "./builtins/index.js";
 import { handleShopt } from "./builtins/shopt.js";
+import { handleTimes } from "./builtins/times.js";
 import {
   findCommandInPath as findCommandInPathHelper,
   resolveCommand as resolveCommandHelper,
@@ -662,6 +664,8 @@ export async function dispatchBuiltin(
   if (commandName === "hash") {
     return handleHash(ctx, args);
   }
+  if (commandName === "caller") return handleCaller(ctx, args);
+  if (commandName === "times") return handleTimes(args);
   if (commandName === "help") {
     return handleHelp(ctx, args);
   }

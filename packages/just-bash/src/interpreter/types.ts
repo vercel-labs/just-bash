@@ -245,6 +245,8 @@ export interface CallStackState {
   funcNameStack?: string[];
   /** Stack of source files for BASH_SOURCE (tracks where functions were defined) */
   sourceStack?: string[];
+  /** caller includes source invocations as well as function invocations. */
+  callerFrames?: ReadonlyArray<{ name: string; source: string; line: number }>;
   /** Current source file context (for function definitions) */
   currentSource?: string;
 }

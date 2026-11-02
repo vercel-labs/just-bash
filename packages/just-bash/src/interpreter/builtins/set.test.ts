@@ -38,7 +38,7 @@ describe("set builtin", () => {
         echo $UNDEFINED_VAR
       `);
       expect(result.stderr).toContain("UNDEFINED_VAR: unbound variable");
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(127);
     });
 
     it("should not error on set variable", async () => {
@@ -81,7 +81,7 @@ describe("set builtin", () => {
         echo $UNDEFINED
       `);
       expect(result.stderr).toContain("UNDEFINED: unbound variable");
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(127);
     });
 
     it("should be disabled with +o nounset", async () => {
@@ -149,7 +149,7 @@ describe("set builtin", () => {
         myfunc
       `);
       expect(result.stderr).toContain("1: unbound variable");
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(127);
     });
 
     it("should not error on set positional parameter", async () => {
@@ -219,7 +219,7 @@ describe("set builtin", () => {
         echo "never"
       `);
       expect(result.stderr).toContain("UNDEFINED: unbound variable");
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(127);
       expect(result.stdout).not.toContain("never");
     });
   });
@@ -245,7 +245,7 @@ describe("set builtin", () => {
         echo never
       `);
       expect(result.stderr).toContain("UNDEFINED: unbound variable");
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(127);
       expect(result.stdout).not.toContain("never");
     });
 

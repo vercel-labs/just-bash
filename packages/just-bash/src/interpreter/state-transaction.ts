@@ -107,6 +107,7 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
     callLineStack: state.callLineStack,
     funcNameStack: state.funcNameStack,
     sourceStack: state.sourceStack,
+    callerFrames: state.callerFrames,
     currentSource: state.currentSource,
     inCondition: state.inCondition,
     loopDepth: state.loopDepth,

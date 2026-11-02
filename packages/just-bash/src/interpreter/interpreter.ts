@@ -334,18 +334,17 @@ export class Interpreter {
           };
         }
         if (error instanceof NounsetError) {
-          output.appendResult({
-            ...error,
-            exitCode: "exitCode" in error ? Number(error.exitCode) : 0,
-          });
-          exitCode = 1;
-          this.ctx.state.lastExitCode = exitCode;
-          this.ctx.state.env.set("?", String(exitCode));
-          return {
-            ...output.build(exitCode),
-            exitCode,
-            env: mapToRecord(this.ctx.state.env),
-          };
+          // Fatal in this shell, including function/eval/source scripts. Bash
+          // uses 127 at the shell entry and 1 inside an isolated subshell.
+          output.prependTo(error);
+          const fatal = new ExitError(
+            this.ctx.state.bashPid === this.ctx.state.virtualPid ? 127 : 1,
+            error.stdout,
+            error.stderr,
+          );
+          fatal.internalOutputSegments = error.internalOutputSegments;
+          fatal.internalOutputAccounting = error.internalOutputAccounting;
+          throw fatal;
         }
         if (error instanceof BadSubstitutionError) {
           output.appendResult({

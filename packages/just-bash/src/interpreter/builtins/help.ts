@@ -657,11 +657,11 @@ const BUILTIN_HELP = new Map<string, [string, string]>([
     "times",
     [
       "times",
-      `Display process times.
-    Prints the accumulated user and system times for the shell and all of its
-    child processes.
+      `Display virtual CPU counters.
+    Prints two pairs of zero user/system CPU counters for the virtual shell
+    and its children. These fixed values are not actual CPU measurements.
     Exit Status:
-    Always succeeds.`,
+    Returns success unless an invalid option is supplied.`,
     ],
   ],
   [

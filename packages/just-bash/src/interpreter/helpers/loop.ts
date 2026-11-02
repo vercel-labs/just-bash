@@ -14,6 +14,7 @@ import {
   ErrexitError,
   ExecutionLimitError,
   ExitError,
+  NounsetError,
   ReturnError,
 } from "../errors.js";
 import type { InterpreterContext } from "../types.js";
@@ -142,6 +143,7 @@ function handleLoopErrorInner(
     error instanceof ReturnError ||
     error instanceof ErrexitError ||
     error instanceof ExitError ||
+    error instanceof NounsetError ||
     error instanceof ExecutionLimitError
   ) {
     prependOutputFrom(error, { stdout, stderr, internalOutputSegments: parts });

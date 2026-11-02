@@ -12,7 +12,6 @@
 import { utf8ByteLength } from "../../encoding.js";
 import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
-import { BASH_VERSION } from "../../shell-metadata.js";
 import { evaluateArithmetic } from "../arithmetic.js";
 import {
   BadSubstitutionError,
@@ -195,9 +194,6 @@ export async function getVariable(
     case "SECONDS":
       // Seconds since shell started
       return String(Math.floor((Date.now() - ctx.state.startTime) / 1000));
-    case "BASH_VERSION":
-      // Simulated bash version (from shared metadata)
-      return BASH_VERSION;
     case "!":
       // PID of most recent background job (0 if none)
       return String(ctx.state.lastBackgroundPid);
@@ -502,7 +498,6 @@ export async function isVariableSet(
     "EUID",
     "RANDOM",
     "SECONDS",
-    "BASH_VERSION",
     "!",
     "BASHPID",
     "LINENO",

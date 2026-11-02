@@ -1,4 +1,5 @@
 import { createOutputSink } from "./output-sink.js";
+import { BASH_VERSION, bashVersionInfo } from "./shell-metadata.js";
 /**
  * Bash - Bash Shell Environment
  *
@@ -55,7 +56,7 @@ import {
   type InterpreterOptions,
   type InterpreterState,
 } from "./interpreter/index.js";
-import type { SharedInputSession } from "./interpreter/types.js";
+import type { SharedInputSession, ShellArray } from "./interpreter/types.js";
 import {
   type ExecutionLimitProfile,
   type ExecutionLimits,
@@ -93,6 +94,15 @@ import type {
 export type { ExecutionLimitProfile, ExecutionLimits } from "./limits.js";
 
 const DEFAULT_PATH = "/usr/bin:/bin";
+
+function versionArray(arch?: string): ShellArray {
+  return {
+    kind: "indexed",
+    elements: new Map(
+      bashVersionInfo(arch).map((value, index) => [String(index), value]),
+    ),
+  };
+}
 
 /**
  * Variables a shell sets from its build and host at startup when the
@@ -407,7 +417,9 @@ export class Bash {
       ["OPTIND", "1"], // getopts option index
       // Add user-provided env vars
       ...Object.entries(options.env ?? {}),
+      ["BASH_VERSION", BASH_VERSION],
     ]);
+    env.delete("BASH_VERSINFO");
 
     // Create secure fetch: prefer explicit fetch, fall back to network config
     if (options.fetch) {
@@ -435,7 +447,9 @@ export class Bash {
     // Initialize interpreter state
     this.state = {
       env,
-      arrays: new Map(),
+      arrays: new Map([
+        ["BASH_VERSINFO", versionArray(this.environmentInfo?.arch)],
+      ]),
       cwd,
       previousDir: "/home/user",
       functions: new Map<string, FunctionDefNode>(),
@@ -495,7 +509,7 @@ export class Bash {
         ...Object.keys(options.env || {}),
       ]),
       // SHELLOPTS and BASHOPTS are readonly
-      readonlyVars: new Set(["SHELLOPTS", "BASHOPTS"]),
+      readonlyVars: new Set(["SHELLOPTS", "BASHOPTS", "BASH_VERSINFO"]),
       // Hash table for PATH command lookup caching
       hashTable: new Map(),
     };
@@ -835,6 +849,8 @@ export class Bash {
         execEnv.set("OPTIND", "1");
         execEnv.set("SHELLOPTS", buildShellopts(this.state.options));
         execEnv.set("BASHOPTS", buildBashopts(this.state.shoptOptions));
+        execEnv.set("BASH_VERSION", BASH_VERSION);
+        execEnv.delete("BASH_VERSINFO");
       }
 
       // A recursive exec continues the calling shell, so it inherits that
@@ -848,7 +864,11 @@ export class Bash {
         ...this.state,
         env: execEnv,
         exportedVars,
-        arrays: replaceEnv ? new Map() : cloneArrays(this.state.arrays),
+        arrays: replaceEnv
+          ? new Map([
+              ["BASH_VERSINFO", versionArray(this.environmentInfo?.arch)],
+            ])
+          : cloneArrays(this.state.arrays),
         cwd: newCwd,
         previousDir:
           effectiveOptions.env?.OLDPWD ??

@@ -22,6 +22,7 @@ import {
   ExecutionLimitError,
   ExitError,
   isScopeExitError,
+  NounsetError,
   ReturnError,
   SubshellExitError,
 } from "./errors.js";
@@ -187,6 +188,10 @@ async function executeSubshellBody(
       });
       return output.build(error.exitCode);
     }
+    if (error instanceof NounsetError) {
+      output.appendResult({ ...error, exitCode: 1 });
+      return output.build(1);
+    }
     // Apply output redirections before returning
     output.append("stderr", `${getErrorMessage(error)}\n`);
     return output.build(1);
@@ -291,6 +296,7 @@ async function executeGroupBody(
     }
     if (
       isScopeExitError(error) ||
+      error instanceof NounsetError ||
       error instanceof ErrexitError ||
       error instanceof ExitError
     ) {

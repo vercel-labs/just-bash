@@ -211,6 +211,26 @@ changes keep the existing resource thresholds and public package interfaces.
   source tests cover cancellation, policy errors, unsupported capability and
   jar output. Browser cookie permissions and host identity remain Automa-owned.
 
+## N8 shell metadata and small builtins
+
+- Initialize `BASH_VERSION` and readonly indexed `BASH_VERSINFO` from the
+  Bash 5.2.37 compatibility target, with the injected architecture in element 5.
+  Version values are ordinary shell state: declarations, scalar assignment,
+  array protection and clean child-shell startup reuse the existing machinery.
+  Array declaration output now retains its readonly/export/integer attributes.
+- `caller` reads bounded function/source frames, preserving call-site lines,
+  source filenames, nesting, returns and subshell isolation. Unsupported options
+  and invalid numeric arguments fail visibly.
+- Fatal nounset expansion exits the command-string shell with 127 and isolated
+  subshells with 1. Function, eval, source, group and loop unwinds preserve output
+  and reach the existing EXIT-trap boundary instead of continuing the script.
+- `times` prints two pairs of fixed zero virtual CPU counters. Its help explicitly
+  distinguishes them from actual CPU measurements; wall time is never substituted.
+  Native Bash fixtures cover syntax, output shape and exits, alongside source
+  tests for host architecture injection and the virtual-counter contract.
+- Reuse the existing `hash -r` and `printf %(...)T` implementations after native
+  comparison. Optional `coproc`/`select` parsing remains outside this change.
+
 ## Build, validation and future upgrades
 
 Use Node 22.19.0 and the root `packageManager` pnpm 10.33.2 with the frozen lockfile.
