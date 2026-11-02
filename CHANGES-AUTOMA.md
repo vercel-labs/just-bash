@@ -385,3 +385,11 @@ branch before rebasing. Record upstream PR links here when they exist.
   so copying over a process substitution descriptor invalidates its output credit.
 - Bound od formatting by both the configured loop and traversal limits before
   charging its shared work budget.
+
+## Readable library distribution
+
+- Emit the browser ESM bundle and the split Node ESM library without
+  minification. Name library chunks from package-relative input modules and
+  rewrite their generated import specifiers so an edit to one command leaves
+  unrelated importers unchanged. The extension's production build handles
+  final browser minification.
