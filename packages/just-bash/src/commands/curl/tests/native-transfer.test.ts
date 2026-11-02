@@ -101,4 +101,30 @@ describe("curl native transfer differential", () => {
       await shell().exec(`curl -s -w '%{http_code}' ${base}/redirect`),
     ).toMatchObject({ stdout: "302", stderr: "", exitCode: 0 });
   });
+  it("failed write-out times only the last attempt, excluding retry sleep", async () => {
+    const format = "%{http_code}|%{size_download}|%{time_total}";
+    const [reference, candidate] = await Promise.all([
+      native([
+        "-s",
+        "--retry",
+        "1",
+        "-m",
+        "0.02",
+        "-w",
+        format,
+        `${base}/native/slow`,
+      ]),
+      shell().exec(
+        `curl -s --retry 1 -m 0.02 -w '${format}' ${base}/candidate/slow`,
+      ),
+    ]);
+    for (const result of [reference, candidate]) {
+      expect(result.exitCode).toBe(28);
+      expect(result.stderr).toBe("");
+      const parts = result.stdout.split("|");
+      expect(parts.slice(0, 2)).toEqual(["000", "0"]);
+      expect(Number(parts[2])).toBeGreaterThanOrEqual(0.01);
+      expect(Number(parts[2])).toBeLessThan(0.5);
+    }
+  });
 });

@@ -16,7 +16,7 @@ import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { fromBuffer, toBuffer } from "../../fs/encoding.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
-import { _Headers, _performanceNow } from "../../security/trusted-globals.js";
+import { _Headers } from "../../security/trusted-globals.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -234,8 +234,6 @@ async function saveCookies(
   if (options.cookieJar === undefined) return "";
   if (typeof jar !== "string")
     throw new Error("Cookie jar export is not supported by this transport");
-  const size = utf8ByteLength(jar);
-  ctx.executionScope?.consumeInput(size, "curl cookie jar");
   const lease = ctx.executionScope?.reserveBytes(
     jar.length * 2,
     "curl cookie jar",
@@ -350,7 +348,6 @@ export const curlCommand: RuntimeCommand = {
     // Normalize URL - add https:// if no protocol
     let url = options.url;
     let dumpedHeaders = "";
-    const started = _performanceNow();
     let metrics = {
       status: 0,
       headers: Object.create(null) as Record<string, string>,
@@ -361,6 +358,7 @@ export const curlCommand: RuntimeCommand = {
     if (!url.match(/^https?:\/\//)) {
       url = `https://${url}`;
     }
+    metrics.url = url;
 
     try {
       // Resolve -d/--data* payloads (reading any @file references) once, then
@@ -375,6 +373,7 @@ export const curlCommand: RuntimeCommand = {
             : resolvedData,
         );
       }
+      metrics.url = url;
 
       // Prepare body and headers
       const { body, contentType } = await prepareRequestBody(
@@ -404,6 +403,9 @@ export const curlCommand: RuntimeCommand = {
         },
         options,
         ctx,
+        (time) => {
+          metrics.timeTotal = time;
+        },
       );
 
       // Save cookies if requested
@@ -416,7 +418,10 @@ export const curlCommand: RuntimeCommand = {
       };
       const cookieOutput = await saveCookies(options, result.cookieJar, ctx);
       const writeOut = options.writeOut
-        ? applyWriteOut(options.writeOut, metrics)
+        ? fromBuffer(
+            requestDataEncoder.encode(applyWriteOut(options.writeOut, metrics)),
+            "binary",
+          )
         : "";
 
       const finalHeaderBlock = formatHeaderBlock(
@@ -501,8 +506,8 @@ export const curlCommand: RuntimeCommand = {
       }
 
       // The response body is a latin1-shaped byte buffer (see
-      // `fetchBodyToStdoutString`); any prepended headers / verbose markers are
-      // ASCII, so the whole stream is byte-shaped and must be marked "bytes".
+      // `fetchBodyToStdoutString`); write-out text is UTF-8 encoded separately
+      // so non-ASCII format text and effective URLs survive byte composition.
       return {
         stdout: output + writeOut + cookieOutput,
         stderr: "",
@@ -547,14 +552,16 @@ export const curlCommand: RuntimeCommand = {
         stdout:
           dumpedHeaders +
           (options.writeOut
-            ? applyWriteOut(options.writeOut, {
-                ...metrics,
-                timeTotal: (_performanceNow() - started) / 1000,
-              })
+            ? fromBuffer(
+                requestDataEncoder.encode(
+                  applyWriteOut(options.writeOut, metrics),
+                ),
+                "binary",
+              )
             : ""),
         stderr,
         exitCode,
-        stdoutKind: dumpedHeaders ? "bytes" : undefined,
+        stdoutKind: "bytes",
       };
     }
   },

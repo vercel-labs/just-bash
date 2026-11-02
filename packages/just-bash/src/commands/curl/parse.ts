@@ -9,6 +9,32 @@ import { unknownOption } from "../help.js";
 import { encodeFormData, parseFormField } from "./form.js";
 import type { CurlOptions } from "./types.js";
 
+const valueOptions = new Set([
+  "-X",
+  "--request",
+  "-H",
+  "--header",
+  "-d",
+  "--data",
+  "--data-raw",
+  "--data-binary",
+  "--data-urlencode",
+  "-F",
+  "--form",
+  "-u",
+  "--user",
+  "-A",
+  "--user-agent",
+  "-e",
+  "--referer",
+  "-T",
+  "--upload-file",
+  "-o",
+  "--output",
+  "-w",
+  "--write-out",
+]);
+
 /**
  * Push a `-d`/`--data`/`--data-binary`/`--data-raw` value as a data part.
  *
@@ -98,6 +124,12 @@ export function parseOptions(args: string[]): CurlOptions | ExecResult {
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+    if (valueOptions.has(arg) && i + 1 === args.length)
+      return {
+        stdout: "",
+        stderr: `curl: option ${arg}: requires parameter\n`,
+        exitCode: 2,
+      };
 
     if (arg === "-X" || arg === "--request") {
       options.method = args[++i] ?? "GET";

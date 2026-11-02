@@ -265,3 +265,15 @@ branch before rebasing. Record upstream PR links here when they exist.
   continue subsequent inputs, and ordered output segments preserve redirects.
 - Add frozen native coreutils 9.7 comparisons for all four new commands plus
   binary vectors, shared budget and cancellation regressions for the full family.
+
+## N7 transfer review
+
+- Charge retransmitted request bytes and discarded response/cookie bytes to the
+  same input budget; permission, resource and cookie-export errors cannot retry.
+- Preserve UTF-8 write-out text alongside binary bodies and exported jars, and
+  substitute response metadata literally without interpreting it as format syntax.
+- On transport failure, report the actual normalized GET query and last-attempt
+  duration, excluding retry delay and local file work. The current fetch error
+  contract supplies no partial response metadata; do not invent status or bytes.
+- Reject missing values for existing parameter options before network dispatch.
+  Add source regressions and a local native-curl failure-timing comparison.

@@ -49,21 +49,25 @@ export function applyWriteOut(
     timeTotal?: number;
   },
 ): string {
-  let output = format;
-  output = output.replace(
-    /%\{http_code\}/g,
-    String(result.status).padStart(3, "0"),
+  // A single callback pass treats response values literally: "$&", "\\n"
+  // or another %{variable} in a URL/header must not become format syntax.
+  return format.replace(
+    /%\{(http_code|content_type|url_effective|size_download|time_total)\}|\\n/g,
+    (match, key: string) => {
+      switch (key) {
+        case "http_code":
+          return String(result.status).padStart(3, "0");
+        case "content_type":
+          return result.headers["content-type"] || "";
+        case "url_effective":
+          return result.url;
+        case "size_download":
+          return String(result.bodyLength);
+        case "time_total":
+          return (result.timeTotal ?? 0).toFixed(6);
+        default:
+          return match === "\\n" ? "\n" : match;
+      }
+    },
   );
-  output = output.replace(
-    /%\{content_type\}/g,
-    result.headers["content-type"] || "",
-  );
-  output = output.replace(/%\{url_effective\}/g, result.url);
-  output = output.replace(/%\{size_download\}/g, String(result.bodyLength));
-  output = output.replace(
-    /%\{time_total\}/g,
-    (result.timeTotal ?? 0).toFixed(6),
-  );
-  output = output.replace(/\\n/g, "\n");
-  return output;
 }
