@@ -155,7 +155,10 @@ type RedirectionTransactionState = {
 };
 
 export type RedirectionTransaction = {
-  prepare: (inheritedStdin?: string) => Promise<PreparedRedirections>;
+  prepare: (
+    inheritedStdin?: string,
+    stdinProvided?: boolean,
+  ) => Promise<PreparedRedirections>;
   finish: () => void;
 };
 
@@ -348,13 +351,19 @@ async function prepareRedirectionsWithState(
   redirections: RedirectionNode[],
   inheritedStdin: string,
   transaction: RedirectionTransactionState,
+  stdinProvided = false,
 ): Promise<PreparedRedirections> {
   const standardRoute = (fd: number, fallback: FdEntry): FdEntry =>
     ctx.state.closedStandardFds?.has(fd)
       ? { kind: "closed" }
       : (getFdEntry(ctx, fd) ?? fallback);
   const standardRoutes = new Map<number, FdEntry>([
-    [0, standardRoute(0, { kind: "dup-in", sourceFd: 0 })],
+    [
+      0,
+      stdinProvided
+        ? { kind: "input", content: inheritedStdin }
+        : standardRoute(0, { kind: "dup-in", sourceFd: 0 }),
+    ],
     [1, standardRoute(1, { kind: "dup-out", sourceFd: 1 })],
     [2, standardRoute(2, { kind: "dup-out", sourceFd: 2 })],
   ]);
@@ -398,7 +407,7 @@ async function prepareRedirectionsWithState(
   const initialStdin = standardRoutes.get(0);
   if (initialStdin?.kind === "input") {
     stdin = initialStdin.content;
-    stdinSourceFd = 0;
+    stdinSourceFd = stdinProvided ? -1 : 0;
     stdinUnavailable = initialStdin.device === true;
   } else if (initialStdin?.kind === "readwrite") {
     stdin = initialStdin.content.slice(initialStdin.position);
@@ -488,6 +497,10 @@ async function prepareRedirectionsWithState(
     ctx.state.closedStandardFds?.delete(fd);
     setFdEntry(ctx, fd, entry);
   };
+  if (stdinProvided && ctx.state.fdInputSessions !== undefined) {
+    bindTemporaryStandard(0, { kind: "input", content: inheritedStdin });
+    stdinSourceFd = 0;
+  }
   const getPreparedDupSource = (
     sourceFd: number,
     input: boolean,
@@ -706,10 +719,17 @@ async function prepareRedirectionsWithState(
         entry = opened.entry;
       }
 
-      if (duplicate && duplicate.sourceFd >= FIRST_USER_FD) {
+      const duplicateInputFd =
+        duplicate?.sourceFd === 0 ? stdinSourceFd : duplicate?.sourceFd;
+      if (
+        duplicate &&
+        duplicateInputFd !== undefined &&
+        (duplicate.sourceFd >= FIRST_USER_FD || duplicate.sourceFd === 0) &&
+        isFdOpen(ctx, duplicateInputFd)
+      ) {
         const duplicated = duplicate.move
-          ? moveFd(ctx, fd, duplicate.sourceFd)
-          : dupFd(ctx, fd, duplicate.sourceFd);
+          ? moveFd(ctx, fd, duplicateInputFd)
+          : dupFd(ctx, fd, duplicateInputFd);
         if (!duplicated) {
           return fail(
             makeResult(
@@ -796,12 +816,19 @@ async function prepareRedirectionsWithState(
             index,
           );
         }
-        if (parsed.sourceFd < FIRST_USER_FD) {
+        const duplicateInputFd =
+          parsed.sourceFd === 0 && stdinSourceFd >= 0
+            ? stdinSourceFd
+            : parsed.sourceFd;
+        if (
+          parsed.sourceFd < FIRST_USER_FD &&
+          (parsed.sourceFd !== 0 || stdinSourceFd < 0)
+        ) {
           setFdEntry(ctx, fd, source.entry);
         } else if (
           !(parsed.move
-            ? moveFd(ctx, fd, parsed.sourceFd)
-            : dupFd(ctx, fd, parsed.sourceFd))
+            ? moveFd(ctx, fd, duplicateInputFd)
+            : dupFd(ctx, fd, duplicateInputFd))
         ) {
           return fail(
             makeResult(
@@ -907,13 +934,16 @@ async function prepareRedirectionsWithState(
           : parsed.sourceFd === 2
             ? outputRoutes.stderr
             : descriptorSink(source, effectiveFd === 2 ? 2 : 1);
+      const duplicateInputFd =
+        parsed.sourceFd === 0 ? stdinSourceFd : parsed.sourceFd;
       if (
         transaction.policy === "persistent" &&
         effectiveFd !== null &&
         effectiveFd < FIRST_USER_FD &&
-        parsed.sourceFd >= FIRST_USER_FD
+        (parsed.sourceFd >= FIRST_USER_FD ||
+          (parsed.sourceFd === 0 && duplicateInputFd >= 0))
       ) {
-        if (!dupFd(ctx, effectiveFd, parsed.sourceFd)) {
+        if (!dupFd(ctx, effectiveFd, duplicateInputFd)) {
           return fail(
             makeResult(
               "",
@@ -938,14 +968,15 @@ async function prepareRedirectionsWithState(
           source.entry.kind === "readwrite"
         ) {
           const readable =
-            parsed.sourceFd < FIRST_USER_FD && !isFdOpen(ctx, parsed.sourceFd)
+            parsed.sourceFd < FIRST_USER_FD &&
+            (duplicateInputFd < 0 || !isFdOpen(ctx, duplicateInputFd))
               ? {
                   content:
                     source.entry.kind === "input"
                       ? source.entry.content
                       : source.entry.content.slice(source.entry.position),
                 }
-              : readFd(ctx, parsed.sourceFd);
+              : readFd(ctx, duplicateInputFd);
           if ("error" in readable) {
             return fail(
               makeResult(
@@ -957,7 +988,9 @@ async function prepareRedirectionsWithState(
             );
           }
           stdin = readable.content;
-          stdinSourceFd = isFdOpen(ctx, parsed.sourceFd) ? parsed.sourceFd : -1;
+          stdinSourceFd = isFdOpen(ctx, duplicateInputFd)
+            ? duplicateInputFd
+            : -1;
           stdinReplaced = true;
           stdinUnavailable = source.entry.device === true;
         } else {
@@ -1080,8 +1113,14 @@ export function createRedirectionTransaction(
   };
   let finished = false;
   return {
-    prepare: (inheritedStdin = "") =>
-      prepareRedirectionsWithState(ctx, redirections, inheritedStdin, state),
+    prepare: (inheritedStdin = "", stdinProvided = false) =>
+      prepareRedirectionsWithState(
+        ctx,
+        redirections,
+        inheritedStdin,
+        state,
+        stdinProvided,
+      ),
     finish: () => {
       if (finished) return;
       finished = true;
@@ -1159,6 +1198,7 @@ export async function withPreparedRedirections(
   redirections: RedirectionNode[],
   inheritedStdin: string,
   run: (prepared: PreparedRedirections) => Promise<ExecResult>,
+  stdinProvided = false,
 ): Promise<ExecResult> {
   const transaction = createRedirectionTransaction(
     ctx,
@@ -1166,9 +1206,27 @@ export async function withPreparedRedirections(
     SIMPLE_REDIRECTION_POLICY,
   );
   let prepared: PreparedRedirections | undefined;
+  const inputSnapshot: FdSnapshot = new Map();
   try {
-    prepared = await transaction.prepare(inheritedStdin);
+    prepared = await transaction.prepare(inheritedStdin, stdinProvided);
     if (prepared.error) return preparedRedirectionError(prepared);
+    // A compound command's replacement input hides the inherited description
+    // for its entire body. Restore the binding, not the consumed shared cursor.
+    if (
+      ctx.state.fdInputSessions !== undefined &&
+      prepared.stdin !== undefined &&
+      prepared.stdinSourceFd !== 0
+    ) {
+      rememberFd(ctx, inputSnapshot, 0);
+      if (prepared.stdinSourceFd >= 0) dupFd(ctx, 0, prepared.stdinSourceFd);
+      else
+        setFdEntry(ctx, 0, {
+          kind: "input",
+          content: prepared.stdin,
+          device: prepared.stdinUnavailable,
+        });
+      prepared.stdinSourceFd = 0;
+    }
     const savedGroupStdin = ctx.state.groupStdin;
     const savedGroupStdinSourceFd = ctx.state.groupStdinSourceFd;
     if (prepared.stdin !== undefined) {
@@ -1194,6 +1252,7 @@ export async function withPreparedRedirections(
     await routeControlFlowError(ctx, error, redirections, prepared);
     throw error;
   } finally {
+    restoreFds(ctx, inputSnapshot);
     transaction.finish();
   }
 }

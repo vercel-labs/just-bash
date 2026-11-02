@@ -55,6 +55,7 @@ import {
   type InterpreterOptions,
   type InterpreterState,
 } from "./interpreter/index.js";
+import type { SharedInputSession } from "./interpreter/types.js";
 import {
   type ExecutionLimitProfile,
   type ExecutionLimits,
@@ -700,6 +701,7 @@ export class Bash {
     stdinAlreadyAccounted = false,
     shouldLogResult = true,
     callerState?: InterpreterState,
+    inputSession?: SharedInputSession,
   ): Promise<BashExecResult> {
     const finishResult = (result: BashExecResult): BashExecResult =>
       shouldLogResult ? this.logResult(result) : result;
@@ -911,7 +913,13 @@ export class Bash {
             commands: this.commands,
             limits: this.limits,
             executionScope,
-            exec: (script, childOptions, childStdinAlreadyAccounted = false) =>
+            inputSession,
+            exec: (
+              script,
+              childOptions,
+              childStdinAlreadyAccounted = false,
+              childInputSession,
+            ) =>
               this.execInScope(
                 script,
                 childOptions,
@@ -921,6 +929,7 @@ export class Bash {
                 childStdinAlreadyAccounted,
                 true,
                 execState,
+                childInputSession,
               ),
             fetch: this.secureFetch,
             sleep: this.sleepFn,

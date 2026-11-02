@@ -79,7 +79,7 @@ import {
   handleCommandV as handleCommandVHelper,
   handleType as handleTypeHelper,
 } from "./type-command.js";
-import type { InterpreterContext } from "./types.js";
+import type { InterpreterContext, SharedInputSession } from "./types.js";
 
 /**
  * Type for the function that runs a command recursively
@@ -870,6 +870,7 @@ export async function executeExternalCommand(
     commandStdinProvided ? stdin : ctx.state.groupStdin || "",
   );
   let stdinAccessed = false;
+  let inheritedInputSession: SharedInputSession | undefined;
 
   // Build exported environment for commands that need it (printenv, env, etc.)
   // Most builtins need access to the full env to modify state
@@ -943,16 +944,10 @@ export async function executeExternalCommand(
       ? createCommandExecutionBudget(ctx.executionScope)
       : ctx.executionScope,
     exec: (script, options) => ctx.execFn(script, options, false),
-    execWithInheritedStdin: (script, options) =>
-      ctx.execFn(
-        script,
-        {
-          ...options,
-          stdin: latin1FromBytes(effectiveStdin),
-          stdinKind: "bytes",
-        },
-        true,
-      ),
+    execWithInheritedStdin: (script, options) => {
+      inheritedInputSession ??= { remaining: latin1FromBytes(effectiveStdin) };
+      return ctx.execFn(script, options, true, inheritedInputSession);
+    },
     fetch: ctx.fetch,
     getRegisteredCommands: () => Array.from(ctx.commands.keys()),
     sleep: ctx.sleep,
@@ -1033,7 +1028,13 @@ export async function executeExternalCommand(
       ...commandResult,
       internalStdinConsumed:
         commandResult.internalStdinConsumed ??
-        (stdinAccessed ? stdin.length : 0),
+        Math.max(
+          stdinAccessed ? stdin.length : 0,
+          inheritedInputSession
+            ? latin1FromBytes(effectiveStdin).length -
+                inheritedInputSession.remaining.length
+            : 0,
+        ),
     };
   } catch (error) {
     // ExecutionLimitError must propagate - these are safety limits

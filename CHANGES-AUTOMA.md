@@ -123,10 +123,12 @@ changes keep the existing resource thresholds and public package interfaces.
   Remove the parallel buffering branch and the false-success executor fallback.
 - Match GNU regular-file `wc` column widths using total byte sizes rather than a
   fixed three-column minimum; remove the redundant per-column map/spread passes.
+- Give argument-file children one private stdin description with a shared read
+  cursor. Partial `head`/`read` consumption, descriptor duplicates, nested shells,
+  redirected groups and pipelines preserve their own bindings without replaying
+  the original input. Keep the public command context and Harness unchanged.
 - Add separate native findutils 4.10.0/coreutils 9.7 fixtures and resource/action
-  regressions. The next stdin-session change closes argument-file forwarding
-  across multiple input-consuming child invocations; this entry does not claim
-  that the previous fixed-string inherited-input helper supplies a shared cursor.
+  regressions, including multiple children sharing an argument-file input stream.
 
 ## Build, validation and future upgrades
 

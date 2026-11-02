@@ -313,10 +313,12 @@ export interface ProcessState {
 // - Here-documents
 // - Compound command stdin piping
 
-/**
- * Tracks file descriptors and stdin content for I/O operations.
- * Used for process substitution, here-documents, and compound command stdin.
- */
+/** Private input description shared by nested command invocations. */
+export interface SharedInputSession {
+  remaining: string;
+}
+
+/** File descriptors and stdin for substitutions and compound commands. */
 export interface IOState {
   /** Stdin available for commands in compound commands (groups, subshells, while loops with piped input) */
   groupStdin?: string;
@@ -332,6 +334,8 @@ export interface IOState {
    * for one. Maintained exclusively by `fd-table.ts`.
    */
   inputFds?: Set<number>;
+  /** Internal open-input identities; clones retain the shared read position. */
+  fdInputSessions?: Map<number, SharedInputSession>;
   /** Character-device metadata kept separate from public descriptor content. */
   deviceFds?: Set<number>;
   /**
@@ -491,6 +495,7 @@ export interface InterpreterContext {
     script: string,
     options?: InterpreterExecOptions,
     stdinAlreadyAccounted?: boolean,
+    inputSession?: SharedInputSession,
   ) => Promise<ExecResult>;
   executeScript: (node: ScriptNode) => Promise<ExecResult>;
   executeStatement: (node: StatementNode) => Promise<ExecResult>;

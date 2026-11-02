@@ -85,7 +85,7 @@ import {
   ReturnError,
 } from "./errors.js";
 import { expandWord, expandWordWithGlob } from "./expansion.js";
-import { advanceFd } from "./fd-table.js";
+import { advanceFd, attachInputSession } from "./fd-table.js";
 import { executeFunctionDef } from "./functions.js";
 import { failure, OK, result, testResult } from "./helpers/result.js";
 import { isPosixSpecialBuiltin } from "./helpers/shell-constants.js";
@@ -118,6 +118,7 @@ import type {
   InterpreterContext,
   InterpreterExecOptions,
   InterpreterState,
+  SharedInputSession,
 } from "./types.js";
 
 function unsupportedCommandNode(node: never): never {
@@ -135,7 +136,9 @@ export interface InterpreterOptions {
     script: string,
     options?: InterpreterExecOptions,
     stdinAlreadyAccounted?: boolean,
+    inputSession?: SharedInputSession,
   ) => Promise<ExecResult>;
+  inputSession?: SharedInputSession;
   /** Optional secure fetch function for network-enabled commands */
   fetch?: SecureFetch;
   /** Optional sleep function for testing with mock clocks */
@@ -180,6 +183,8 @@ export class Interpreter {
       jsBootstrapCode: options.jsBootstrapCode,
       invokeTool: options.invokeTool,
     };
+    if (options.inputSession)
+      attachInputSession(this.ctx, options.inputSession);
   }
 
   /**
@@ -670,9 +675,9 @@ export class Interpreter {
       case "CStyleFor":
         return executeCStyleFor(this.ctx, node);
       case "While":
-        return executeWhile(this.ctx, node, stdin);
+        return executeWhile(this.ctx, node, stdin, stdinOwned);
       case "Until":
-        return executeUntil(this.ctx, node, stdin);
+        return executeUntil(this.ctx, node, stdin, stdinOwned);
       case "Case":
         return executeCase(this.ctx, node);
       case "Subshell":
@@ -791,7 +796,10 @@ export class Interpreter {
           BARE_REDIRECTION_POLICY,
         );
         onTransaction(transaction);
-        const preparedRedirections = await transaction.prepare(stdin);
+        const preparedRedirections = await transaction.prepare(
+          stdin,
+          stdinProvided,
+        );
         if (preparedRedirections.error) {
           restoreTempAssignments();
           if (!preparedRedirections.errorCause) {
@@ -956,7 +964,10 @@ export class Interpreter {
         : SIMPLE_REDIRECTION_POLICY,
     );
     onTransaction(transaction);
-    const preparedRedirections = await transaction.prepare(stdin);
+    const preparedRedirections = await transaction.prepare(
+      stdin,
+      stdinProvided,
+    );
     if (preparedRedirections.error) {
       restoreTempAssignments();
       if (!preparedRedirections.errorCause) {
@@ -973,7 +984,10 @@ export class Interpreter {
     // still differs from bash after an empty persistent `exec <` (bash: EOF).
     const stdinRedirected = preparedRedirections.stdin !== undefined;
     const directStdinProvided =
-      stdinProvided || preparedRedirections.stdinReplaced;
+      stdinProvided ||
+      preparedRedirections.stdinReplaced ||
+      (stdinSourceFd >= 0 &&
+        this.ctx.state.fdInputSessions?.has(stdinSourceFd) === true);
     if (preparedRedirections.stdin !== undefined) {
       stdin = preparedRedirections.stdin;
     }

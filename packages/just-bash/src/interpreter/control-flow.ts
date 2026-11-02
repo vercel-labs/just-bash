@@ -442,9 +442,14 @@ export async function executeWhile(
   ctx: InterpreterContext,
   node: WhileNode,
   stdin = "",
+  stdinProvided = false,
 ): Promise<ExecResult> {
-  return withPreparedRedirections(ctx, node.redirections, stdin, (prepared) =>
-    executeWhileBody(ctx, node, stdin, prepared),
+  return withPreparedRedirections(
+    ctx,
+    node.redirections,
+    stdin,
+    (prepared) => executeWhileBody(ctx, node, stdin, prepared),
+    stdinProvided,
   );
 }
 
@@ -594,9 +599,14 @@ export async function executeUntil(
   ctx: InterpreterContext,
   node: UntilNode,
   stdin = "",
+  stdinProvided = false,
 ): Promise<ExecResult> {
-  return withPreparedRedirections(ctx, node.redirections, stdin, (prepared) =>
-    executeUntilBody(ctx, node, stdin, prepared),
+  return withPreparedRedirections(
+    ctx,
+    node.redirections,
+    stdin,
+    (prepared) => executeUntilBody(ctx, node, stdin, prepared),
+    stdinProvided,
   );
 }
 

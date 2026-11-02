@@ -58,6 +58,7 @@ export async function executeSubshell(
   stdinOwned = false,
 ): Promise<ExecResult> {
   const parentLoopDepth = ctx.state.loopDepth;
+  const sharedParentInputs = new Set(ctx.state.fdInputSessions?.keys());
   const parentDescriptors = new Map<number, FdEntry>();
   for (const fd of ctx.state.fileDescriptors?.keys() ?? []) {
     const entry = getFdEntry(ctx, fd);
@@ -85,10 +86,13 @@ export async function executeSubshell(
             ),
           "subshell",
         ),
+      stdinOwned,
     );
   } finally {
     const consumedDescriptors = new Map<number, number>();
     for (const [fd, parentEntry] of parentDescriptors) {
+      // Shared descriptions have already advanced through the child table.
+      if (sharedParentInputs.has(fd)) continue;
       const childEntry = getFdEntry(ctx, fd);
       const consumed =
         parentEntry.kind === "input" && childEntry?.kind === "input"
@@ -207,8 +211,20 @@ export async function executeGroup(
    */
   stdinOwned = false,
 ): Promise<ExecResult> {
-  return withPreparedRedirections(ctx, node.redirections, stdin, (prepared) =>
-    executeGroupBody(ctx, node, stdin, executeStatement, stdinOwned, prepared),
+  return withPreparedRedirections(
+    ctx,
+    node.redirections,
+    stdin,
+    (prepared) =>
+      executeGroupBody(
+        ctx,
+        node,
+        stdin,
+        executeStatement,
+        stdinOwned,
+        prepared,
+      ),
+    stdinOwned,
   );
 }
 
