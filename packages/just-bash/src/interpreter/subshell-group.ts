@@ -31,6 +31,7 @@ import {
   getFdEntry,
 } from "./fd-table.js";
 import { getErrorMessage } from "./helpers/errors.js";
+import { replacePositionalParams } from "./helpers/positional.js";
 import { failure, result } from "./helpers/result.js";
 import {
   type PreparedRedirections,
@@ -361,14 +362,7 @@ export async function executeUserScript(
   }
   ctx.state.currentSource = scriptPath;
 
-  // Set positional parameters ($1, $2, etc.) from args
-  // $0 should be the script path
-  const oldPositionalCount = Number.parseInt(ctx.state.env.get("#") ?? "0", 10);
-  const positionalExtent = Math.max(args.length, oldPositionalCount, 9);
-  for (let i = 0; i < positionalExtent; i++) {
-    if (i < args.length) ctx.state.env.set(String(i + 1), args[i]);
-    else ctx.state.env.delete(String(i + 1));
-  }
+  replacePositionalParams(ctx.state.env, args);
   ctx.state.env.set("0", scriptPath);
   ctx.state.env.set("#", String(args.length));
   ctx.state.env.set("@", args.join(" "));

@@ -11,6 +11,7 @@ import type { ExecResult } from "../types.js";
 import { clearLocalVarStackForScope } from "./builtins/variable-assignment.js";
 import { ControlFlowError, ExitError, ReturnError } from "./errors.js";
 import { cloneArray } from "./helpers/array.js";
+import { replacePositionalParams } from "./helpers/positional.js";
 import { OK, result, throwExecutionLimit } from "./helpers/result.js";
 import { POSIX_SPECIAL_BUILTINS } from "./helpers/shell-constants.js";
 import {
@@ -90,15 +91,7 @@ export async function callFunction(
   }
   ctx.state.localExportedVars.push(new Set());
 
-  const savedPositional = new Map<string, string | undefined>();
-  const oldPositionalCount = Number.parseInt(ctx.state.env.get("#") ?? "0", 10);
-  const positionalExtent = Math.max(args.length, oldPositionalCount);
-  for (let i = 0; i < positionalExtent; i++) {
-    const key = String(i + 1);
-    savedPositional.set(key, ctx.state.env.get(key));
-    if (i < args.length) ctx.state.env.set(key, args[i]);
-    else ctx.state.env.delete(key);
-  }
+  const savedPositional = replacePositionalParams(ctx.state.env, args);
   savedPositional.set("@", ctx.state.env.get("@"));
   savedPositional.set("#", ctx.state.env.get("#"));
   ctx.state.env.set("@", args.join(" "));

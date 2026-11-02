@@ -5,6 +5,7 @@
 import { type ParseException, parse } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { ExecutionLimitError, ExitError, ReturnError } from "../errors.js";
+import { replacePositionalParams } from "../helpers/positional.js";
 import { failure, result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -73,20 +74,10 @@ export async function handleSource(
   }
 
   // Save and set positional parameters from additional args
-  const savedPositional = new Map<string, string | undefined>();
+  let savedPositional = new Map<string, string | undefined>();
   if (sourceArgs.length > 1) {
     const scriptArgs = sourceArgs.slice(1);
-    const oldPositionalCount = Number.parseInt(
-      ctx.state.env.get("#") ?? "0",
-      10,
-    );
-    const positionalExtent = Math.max(scriptArgs.length, oldPositionalCount, 9);
-    for (let i = 0; i < positionalExtent; i++) {
-      const key = String(i + 1);
-      savedPositional.set(key, ctx.state.env.get(key));
-      if (i < scriptArgs.length) ctx.state.env.set(key, scriptArgs[i]);
-      else ctx.state.env.delete(key);
-    }
+    savedPositional = replacePositionalParams(ctx.state.env, scriptArgs);
     savedPositional.set("#", ctx.state.env.get("#"));
     savedPositional.set("@", ctx.state.env.get("@"));
     ctx.state.env.set("#", String(scriptArgs.length));
