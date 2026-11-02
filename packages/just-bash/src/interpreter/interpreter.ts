@@ -991,6 +991,9 @@ export class Interpreter {
       }
       return preparedRedirectionError(preparedRedirections);
     }
+    this.ctx.executionScope.automaOutput?.setCommandRoutes(
+      preparedRedirections.outputRoutes,
+    );
     const stdinSourceFd = preparedRedirections.stdinSourceFd;
     // Builtins (eval, functions, wrappers) treat any fd-0 route as ownership,
     // including one a persistent `exec <` set up earlier. External commands

@@ -393,3 +393,11 @@ branch before rebasing. Record upstream PR links here when they exist.
   rewrite their generated import specifiers so an edit to one command leaves
   unrelated importers unchanged. The extension's production build handles
   final browser minification.
+
+## Streaming custom commands
+
+An interpreter command may await `ctx.writeOutput(text, stream)` before it
+finishes. Each write consumes the shared output budget and belongs to the
+command's descriptors. The command returns any remaining output and its exit
+code. Pipes, redirects and substitutions retain their own output until the
+existing shell routing resolves them. The capability expires with the command.

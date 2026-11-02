@@ -11,6 +11,12 @@ import type { InterpreterContext } from "./interpreter/types.js";
 import type { ExecResult } from "./types.js";
 
 type Stream = "stdout" | "stderr";
+interface OutputFrame {
+  parts: Part[];
+  depth: number;
+  hidden: Record<Stream, boolean>;
+  routes?: Record<Stream, { kind: string }>;
+}
 interface Part {
   text: string;
   stream: Stream;
@@ -92,7 +98,7 @@ export function createOutputSink(
     await publish(decode(text.slice(0, end)), stream);
   }
   let mask = { stdout: false, stderr: false };
-  let current: { parts: Part[]; depth: number } | undefined;
+  let current: OutputFrame | undefined;
   let bufferedBatches = 0;
   function complete(parts: Part[], result: ExecResult) {
     if (!parts.length)
@@ -136,9 +142,10 @@ export function createOutputSink(
     }
     return parts;
   }
-  async function emit(part: Part) {
-    const { text, stream } = part;
-    if (!text || part.emitted || mask[stream] || scope.signal?.aborted) return;
+  async function emit(part: Part, hidden = mask, stream = part.stream) {
+    const { text } = part;
+    if (!text || part.emitted || hidden[stream] || scope.signal?.aborted)
+      return;
     part.emitted = true;
     counts[stream] += text.length;
     if (part.kind === "bytes") await write(text, stream);
@@ -148,6 +155,24 @@ export function createOutputSink(
     }
   }
   return {
+    setCommandRoutes(routes: Record<Stream, { kind: string }>): void {
+      if (current && !bufferedBatches) current.routes = routes;
+    },
+    /** Keep the original descriptor for final routing, publish only to a known live destination. */
+    commandWriter():
+      | ((text: string, stream: Stream) => Promise<void>)
+      | undefined {
+      if (!current?.routes || bufferedBatches) return undefined;
+      const frame = current;
+      const routes = current.routes;
+      return async (text: string, stream: Stream) => {
+        const part: Part = { text, stream, kind: "text" };
+        frame.parts.push(part);
+        const target = routes[stream].kind;
+        if (target === "live-stdout") await emit(part, frame.hidden, "stdout");
+        if (target === "live-stderr") await emit(part, frame.hidden, "stderr");
+      };
+    },
     async capture(
       ctx: InterpreterContext,
       command: CommandNode,
@@ -156,9 +181,11 @@ export function createOutputSink(
       if (bufferedBatches) return execute();
       const previous = mask;
       const parent = current;
-      const frame: { parts: Part[]; depth: number } = {
+      const depth = ctx.substitutionDepth ?? 0;
+      const frame: OutputFrame = {
         parts: [],
-        depth: ctx.substitutionDepth ?? 0,
+        depth,
+        hidden: depth > 0 ? { stdout: true, stderr: true } : previous,
       };
       current = frame;
       // Compound redirects are resolved after the buffered body. Hold its

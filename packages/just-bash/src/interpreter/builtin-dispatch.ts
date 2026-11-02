@@ -9,6 +9,7 @@ import { automaTrapBuiltin } from "./traps.js";
 import { isBrowserExcludedCommand } from "../commands/browser-excluded.js";
 import { isSafeKey } from "../commands/query-engine/safe-object.js";
 import { latin1FromBytes, unsafeBytesFromLatin1 } from "../encoding.js";
+import { ExecutionOutputAccumulator } from "../execution-output.js";
 import {
   createCommandExecutionBudget,
   type ExecutionScope,
@@ -323,6 +324,7 @@ function createRevocableCommandContext(
     coverage: dataDescriptor(
       context.coverage ? wrapCapability(context.coverage) : undefined,
     ),
+    writeOutput: dataDescriptor(wrapFunction(context.writeOutput)),
     assignShellVariable: dataDescriptor(
       wrapFunction(context.assignShellVariable),
     ),
@@ -893,7 +895,36 @@ export async function executeExternalCommand(
   // Give extensions one stable, revocable descriptor capability even when
   // this invocation has not created any extra descriptors yet.
   ctx.state.fileDescriptors ??= new Map();
+  const observeWrite = ctx.executionScope.automaOutput?.commandWriter();
+  let streamed: ExecutionOutputAccumulator | undefined;
+  const finishOutput = (result: ExecResult): ExecResult => {
+    if (!streamed) return result;
+    streamed.appendResult(result);
+    return { ...result, ...streamed.build(result.exitCode) };
+  };
   const cmdCtx: RuntimeCommandContext = {
+    writeOutput: async (text, stream) => {
+      if (
+        typeof text !== "string" ||
+        (stream !== "stdout" && stream !== "stderr")
+      )
+        throw new TypeError(
+          "writeOutput requires text and a stdout or stderr stream",
+        );
+      if (!text) return;
+      ctx.executionScope.consumeLimited(
+        "output chunks",
+        1,
+        ctx.limits.maxArrayElements,
+        commandName,
+      );
+      streamed ??= new ExecutionOutputAccumulator(
+        ctx.executionScope,
+        commandName,
+      );
+      streamed.append(stream, text);
+      await observeWrite?.(text, stream);
+    },
     fs: ctx.fs,
     fsIdentity: ctx.fsIdentity ?? getFileSystemIdentity(ctx.fs),
     fileCreationMask: ctx.state.fileCreationMask ?? 0o022,
@@ -1042,7 +1073,7 @@ export async function executeExternalCommand(
         await DefenseInDepthBox.runTrustedAsync(runBoundedCommand)
       : await runBoundedCommand();
     return {
-      ...commandResult,
+      ...finishOutput(commandResult),
       internalStdinConsumed:
         commandResult.internalStdinConsumed ??
         Math.max(
@@ -1054,6 +1085,7 @@ export async function executeExternalCommand(
         ),
     };
   } catch (error) {
+    streamed?.prependTo(error);
     // ExecutionLimitError must propagate - these are safety limits
     if (error instanceof ExecutionLimitError) {
       throw error;
@@ -1065,8 +1097,10 @@ export async function executeExternalCommand(
     if (error instanceof SecurityViolationError) {
       throw error;
     }
-    return failure(
-      `${commandName}: ${sanitizeErrorMessage(getErrorMessage(error))}\n`,
+    return finishOutput(
+      failure(
+        `${commandName}: ${sanitizeErrorMessage(getErrorMessage(error))}\n`,
+      ),
     );
   }
 }
