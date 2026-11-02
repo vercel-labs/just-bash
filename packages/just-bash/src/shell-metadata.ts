@@ -9,7 +9,12 @@
 /**
  * Simulated bash version string
  */
-export const BASH_VERSION = "5.1.0(1)-release";
+export const BASH_VERSION = "5.2.37(1)-release";
+
+/** Compatibility target; architecture comes from the embedding host. */
+export function bashVersionInfo(arch = "x86_64"): string[] {
+  return ["5", "2", "37", "1", "release", `${arch}-pc-linux-gnu`];
+}
 
 /**
  * Simulated kernel version for /proc/version

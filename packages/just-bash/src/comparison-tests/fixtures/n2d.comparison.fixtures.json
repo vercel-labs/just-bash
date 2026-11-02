@@ -1,0 +1,1190 @@
+{
+  "03750a8fb25f872f": {
+    "command": "du -d1 ./a | sort",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "20\t./a\n8\t./a/sub\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "047bf24e176444f9": {
+    "command": "printf '%s' aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa | od -tx1",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "0000000 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61\n*\n0000060\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1111bdb0c156742f": {
+    "command": "du -c a b | sort",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "20\ta\n20\tb\n40\ttotal\n8\ta/sub\n8\tb/sub\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "137dd248569c8f3e": {
+    "command": "diff -q missing f; echo $?",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "2\n",
+    "stderr": "diff: missing: No such file or directory\n",
+    "exitCode": 0
+  },
+  "16e0cda2b517cbe5": {
+    "command": "diff -U-1 f s; echo $?",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "2\n",
+    "stderr": "diff: invalid context length '-1'\ndiff: Try 'diff --help' for more information.\n",
+    "exitCode": 0
+  },
+  "18d20d7752abbf78": {
+    "command": "od -N0 f",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "0000000\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "19482d203da2bc0f": {
+    "command": "diff f - < f",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1b2a9ba93371410a": {
+    "command": "printf AB | od",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "0000000 041101\n0000002\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2262ed8f2f4c018c": {
+    "command": "du -hc a b | sort",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "20K\ta\n20K\tb\n40K\ttotal\n8.0K\ta/sub\n8.0K\tb/sub\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "25eac0efdd4f8e49": {
+    "command": "uniq -c words",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "      2 a\n      1 b\n      2 c\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "26eba0bf597d09c3": {
+    "command": "diff -U 2 --label a --label b f s",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "--- a\n+++ b\n@@ -1,5 +1,5 @@\n a\n b\n-c\n+C\n d\n e\n",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "273a53298da624af": {
+    "command": "uniq -cd words",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "      2 a\n      2 c\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2d946148c3d63249": {
+    "command": "printf abc | od -An -tx2 -tc",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "    6261    0063\n   a   b   c\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "308002738bb96ad7": {
+    "command": "printf abc | od -An -to1",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": " 141 142 143\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "352538eac234ce91": {
+    "command": "diff --brief f s",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "Files f and s differ\n",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "365fff840a5bfd49": {
+    "command": "du -kh a | sort",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "20K\ta\n8.0K\ta/sub\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "36999a23d3455f9a": {
+    "command": "printf abc | od -tx1",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "0000000 61 62 63\n0000003\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "372fb48cac67fdd0": {
+    "command": "od -tx1 empty",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "0000000\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3a0dec7df04d55e6": {
+    "command": "du -hk a | sort",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "20\ta\n8\ta/sub\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3a40437ab73bd0af": {
+    "command": "diff --label a --label b -u f s",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "--- a\n+++ b\n@@ -1,5 +1,5 @@\n a\n b\n-c\n+C\n d\n e\n",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "3a4b90f527494faa": {
+    "command": "printf hi | od -c",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "0000000   h   i\n0000002\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4216db9cfb32b904": {
+    "command": "printf A | od -An",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": " 000101\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "48e39402008c94fe": {
+    "command": "diff f s extra; echo $?",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "2\n",
+    "stderr": "diff: extra operand 'extra'\ndiff: Try 'diff --help' for more information.\n",
+    "exitCode": 0
+  },
+  "513da6ac103d320c": {
+    "command": "diff --brief --recursive a b",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "Only in a: only\nOnly in b: other\nFiles a/sub/f and b/sub/f differ\n",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "52a1fd7f57e7bd4e": {
+    "command": "diff -r a b",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "Only in a: only\nOnly in b: other\ndiff -r a/sub/f b/sub/f\n1c1\n< old\n---\n> new\n",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "53739a3f244dfa75": {
+    "command": "du -sh a",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "20K\ta\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "53ff9bf71ffe4e7c": {
+    "command": "printf A > x; printf B > y; printf X | od x - y",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "0000000 054101 000102\n0000003\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5615116e8ce65ba3": {
+    "command": "od -j012 -N3 -tx1 f s",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "0000012 61 0a 62\n0000015\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "576f2a539fa5b2af": {
+    "command": "diff --label='old file' --label='new file' -U0 f s",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "--- old file\n+++ new file\n@@ -3 +3 @@\n-c\n+C\n",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "5995b5f3aa8085a7": {
+    "command": "du -ah --max-depth=1 a | sort",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "20K\ta\n4.0K\ta/only\n4.0K\ta/same\n8.0K\ta/sub\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5b3387b04db6770f": {
+    "command": "printf abc | od -Ad -tu1",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "0000000  97  98  99\n0000003\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5f07fdd6312d24c7": {
+    "command": "printf '%s' aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa | od -v -tx1",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "0000000 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61\n0000020 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61\n0000040 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61\n0000060\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5f58ff6823a48424": {
+    "command": "diff --label a --label b --unified=1 f s",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "--- a\n+++ b\n@@ -2,3 +2,3 @@\n b\n-c\n+C\n d\n",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "601ecb974f51798d": {
+    "command": "du -s a",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "20\ta\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "640a9af940c3d01c": {
+    "command": "printf 'a\\000b\\t\\177' | od -An -tc",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "   a  \\0   b  \\t 177\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "661a3b2d9c4d6aa9": {
+    "command": "printf abc | od -An -tx1c",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "  61  62  63\n   a   b   c\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6665e8382c578ef4": {
+    "command": "printf abc | od -An -tu2",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": " 25185    99\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "68593f1650621c48": {
+    "command": "du -s -d1 a; echo $?",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "1\n",
+    "stderr": "du: warning: summarizing conflicts with --max-depth=1\nTry 'du --help' for more information.\n",
+    "exitCode": 0
+  },
+  "6885c39fa6d6600b": {
+    "command": "od -j999 f; echo $?",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "1\n",
+    "stderr": "od: cannot skip past end of combined input\n",
+    "exitCode": 0
+  },
+  "6bc7efd544283413": {
+    "command": "diff -rN a b",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "diff -rN a/only b/only\n1d0\n< only\ndiff -rN a/other b/other\n0a1\n> other\ndiff -rN a/sub/f b/sub/f\n1c1\n< old\n---\n> new\n",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "6fc9e16b9df75f54": {
+    "command": "diff -qr a a",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7a5964b7e3a63883": {
+    "command": "du -s empty f",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "0\tempty\n4\tf\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7a8cec1616aa5a92": {
+    "command": "od -j2 -N4 -tx1 f",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "0000002 62 0a 63 0a\n0000006\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "899a9777bbe746c7": {
+    "command": "diff -N empty missing",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8c03a5ffb44a8f7a": {
+    "command": "diff --new-file missing f",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "0a1,5\n> a\n> b\n> c\n> d\n> e\n",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "8c27bef50df995ec": {
+    "command": "du -d 0 a",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "20\ta\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "910999b2e4baf145": {
+    "command": "diff -qrN a b",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "Files a/only and b/only differ\nFiles a/other and b/other differ\nFiles a/sub/f and b/sub/f differ\n",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "98063f2df12d1707": {
+    "command": "printf test | od",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "0000000 062564 072163\n0000004\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9ef574ad207a44ac": {
+    "command": "diff -i f s",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b80e21c47216d525": {
+    "command": "ln -s a alias; diff -qr alias a",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c6b0bd16b8950148": {
+    "command": "printf 'hello\\n' | od -c",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "0000000   h   e   l   l   o  \\n\n0000006\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c9e9cbfb2aee15bd": {
+    "command": "printf abc | od -An -tx1 -tu1",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "  61  62  63\n  97  98  99\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d6ff1fd5365879ca": {
+    "command": "du -h --max-depth=1 a | sort",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "20K\ta\n8.0K\ta/sub\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d796451d325a7c07": {
+    "command": "diff -z f s; echo $?",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "2\n",
+    "stderr": "diff: invalid option -- 'z'\ndiff: Try 'diff --help' for more information.\n",
+    "exitCode": 0
+  },
+  "dad1d48435e09813": {
+    "command": "du -d0 .",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "56\t.\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "dbafbf7d0a7d60d8": {
+    "command": "printf A > x; printf B > y; od x y",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "0000000 041101\n0000002\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e22c6f086bf25f91": {
+    "command": "ln -s f link; du link",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "0\tlink\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e562463a7484b1a5": {
+    "command": "diff -rq a b",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "Only in a: only\nOnly in b: other\nFiles a/sub/f and b/sub/f differ\n",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "e5d0c7af7b30cec7": {
+    "command": "du -d1 -k a | sort",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "20\ta\n8\ta/sub\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e6ea95867dc0a86e": {
+    "command": "diff --unknown f s; echo $?",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "2\n",
+    "stderr": "diff: unrecognized option '--unknown'\ndiff: Try 'diff --help' for more information.\n",
+    "exitCode": 0
+  },
+  "e8497858d4f3539e": {
+    "command": "od --skip-bytes=2 --read-bytes=4 --format=x1 --address-radix=n f",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": " 62 0a 63 0a\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e85039bbb7bf30ed": {
+    "command": "diff a b",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "Only in a: only\nOnly in b: other\nCommon subdirectories: a/sub and b/sub\n",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "eb589a3689977a2b": {
+    "command": "diff -r -s a a",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f24c86eb46016ea2": {
+    "command": "uniq -cu words",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "      1 b\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f89280377ec07177": {
+    "command": "od -j0x2 -N0x3 -tx1 f",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "0000002 62 0a 63\n0000005\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fbce8b8af89f6bea": {
+    "command": "printf abc | od -Ax -tx2",
+    "files": {
+      "f": "a\nb\nc\nd\ne\n",
+      "s": "a\nb\nC\nd\ne\n",
+      "empty": "",
+      "a/same": "same\n",
+      "b/same": "same\n",
+      "a/sub/f": "old\n",
+      "b/sub/f": "new\n",
+      "a/only": "only\n",
+      "b/other": "other\n",
+      "words": "a\na\nb\nc\nc\n"
+    },
+    "stdout": "000000 6261 0063\n000003\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

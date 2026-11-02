@@ -15,6 +15,10 @@ import type { AwkValue } from "./types.js";
  */
 export function getVariable(ctx: AwkRuntimeContext, name: string): AwkValue {
   switch (name) {
+    case "RS":
+      return ctx.RS;
+    case "RT":
+      return ctx.RT;
     case "FS":
       return ctx.FS;
     case "OFS":
@@ -53,6 +57,12 @@ export function setVariable(
   value: AwkValue,
 ): void {
   switch (name) {
+    case "RS":
+      ctx.RS = toAwkString(value);
+      return;
+    case "RT":
+      ctx.RT = toAwkString(value);
+      return;
     case "FS":
       setFieldSeparator(ctx, toAwkString(value));
       return;

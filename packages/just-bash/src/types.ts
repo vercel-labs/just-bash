@@ -12,7 +12,16 @@ export interface FeatureCoverageWriter {
   hit(feature: string): void;
 }
 
+// Automa modifications: preserve ordered output and typed host failures.
+export type OutputSegment = ["stdout" | "stderr", string, ("text" | "bytes")?];
 export interface ExecResult {
+  output?: string;
+  internalOutputSegments?: OutputSegment[];
+  executionFailure?: {
+    kind: "resource-limit";
+    limitType: string;
+    message: string;
+  };
   stdout: string;
   stderr: string;
   exitCode: number;
@@ -154,7 +163,38 @@ export interface TraceEvent {
  */
 export type TraceCallback = (event: TraceEvent) => void;
 
+/** Host facts explicitly provided by the embedding application. */
+export interface EnvironmentInfo {
+  readonly arch?: string;
+  readonly timeZone?: string;
+}
+
+/** Optional display metadata for filesystems without POSIX identities/blocks. */
+export interface VirtualFileMetadata {
+  readonly uid?: number;
+  readonly gid?: number;
+  readonly user?: string;
+  readonly group?: string;
+  readonly nlink?: number;
+  readonly directorySize?: number;
+  readonly allocationBlockSize?: number;
+}
+
 export interface RuntimeCommandContext {
+  /**
+   * Write text or a Latin1-shaped byte string to stdout or stderr. Await each
+   * write for ordered delivery. The shell retains the original bytes for
+   * redirects and pipes; return only additional output in ExecResult.
+   */
+  writeOutput?(
+    text: string,
+    stream: "stdout" | "stderr",
+    kind?: "text" | "bytes",
+  ): Promise<void>;
+  /** Shell creation mask for commands that request source-derived modes. */
+  fileCreationMask?: number;
+  environmentInfo?: EnvironmentInfo;
+  virtualFileMetadata?: VirtualFileMetadata;
   /** Virtual filesystem interface for file operations */
   fs: IFileSystem;
   /** Stable identity of the underlying filesystem across defense wrappers. */

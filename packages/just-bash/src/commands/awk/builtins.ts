@@ -1,3 +1,4 @@
+import { arrayLength, countCharacters, setCaptures } from "./records.js";
 /**
  * AWK Built-in Functions
  *
@@ -174,6 +175,10 @@ async function awkLength(
 ): Promise<number> {
   if (args.length === 0) {
     return ctx.line.length;
+  }
+  if (args[0].type === "variable") {
+    const size = arrayLength(ctx, args[0].name);
+    if (size !== undefined) return size;
   }
   const str = toAwkString(await evaluator.evalExpr(args[0]));
   return str.length;
@@ -361,24 +366,15 @@ async function awkMatch(
     return 0;
   }
 
+  if (args.length > 3 || (args[2] && args[2].type !== "variable"))
+    throw new Error("match() third argument must be an array variable");
   const str = toAwkString(await evaluator.evalExpr(args[0]));
   const pattern = await extractPatternArg(args[1], evaluator);
-
-  try {
-    const regex = createUserRegex(pattern);
-    const match = regex.exec(str);
-    if (match) {
-      ctx.RSTART = match.index + 1;
-      ctx.RLENGTH = match[0].length;
-      return ctx.RSTART;
-    }
-  } catch {
-    // Invalid regex
-  }
-
-  ctx.RSTART = 0;
-  ctx.RLENGTH = -1;
-  return 0;
+  const match = createUserRegex(pattern).exec(str, !!args[2]);
+  if (args[2]?.type === "variable") setCaptures(ctx, args[2].name, match, str);
+  ctx.RSTART = match ? countCharacters(str, match.index) + 1 : 0;
+  ctx.RLENGTH = match ? countCharacters(match[0]) : -1;
+  return ctx.RSTART;
 }
 
 async function awkGensub(
@@ -1043,7 +1039,19 @@ export const awkBuiltins: Map<string, AwkBuiltinFn> = new Map([
   ],
   // close() and fflush() are no-ops in our environment (no real file handles)
   // Return 0 for success to allow programs that use them to work
-  ["close", () => 0],
+  [
+    "close",
+    async (args, ctx, evaluator) => {
+      if (!args.length) return -1;
+      const key = String(await evaluator.evalExpr(args[0]));
+      let closed = ctx.getlineCommandStreams.delete(key);
+      if (ctx.fs && ctx.cwd)
+        closed =
+          ctx.getlineFileStreams.delete(ctx.fs.resolvePath(ctx.cwd, key)) ||
+          closed;
+      return closed ? 0 : -1;
+    },
+  ],
   ["fflush", () => 0],
 
   // Unimplemented functions

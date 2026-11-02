@@ -22,7 +22,9 @@ describe("JQ Execution Limits", () => {
       const result = await env.exec(`jq -n '"12345678" * 9'`);
 
       expect(result.stdout).toBe("");
-      expect(result.stderr).toBe("jq: string size limit exceeded (64 bytes)\n");
+      expect(result.stderr).toBe(
+        "bash: string size limit exceeded (64 bytes)\n",
+      );
       expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     });
 
@@ -69,7 +71,7 @@ describe("JQ Execution Limits", () => {
       const rejected = await over.exec(`jq -nr '"é"'`);
       expect(rejected.stdout).toBe("");
       expect(rejected.stderr).toBe(
-        "bash: pipeline: total output size exceeded (>2 bytes), increase executionLimits.maxOutputSize\n",
+        "bash: output size limit exceeded (1 bytes)\n",
       );
       expect(rejected.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     });
@@ -170,7 +172,7 @@ describe("JQ Execution Limits", () => {
       });
 
       expect(result.exitCode).toBe(126);
-      expect(result.stderr).toBe("jq: query depth limit exceeded (50)\n");
+      expect(result.stderr).toBe("bash: query depth limit exceeded (50)\n");
     });
   });
 

@@ -1,0 +1,214 @@
+{
+  "0093a5dacc12e5c6": {
+    "command": "(BASH_VERSINFO[0]=9) 2>/dev/null; echo $?; unset BASH_VERSINFO 2>/dev/null; echo $?; echo \"${BASH_VERSINFO[0]}\"",
+    "files": {},
+    "stdout": "1\n1\n5\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "00afac6418b96b8f": {
+    "command": "declare -ar a=(x y); declare -p a; declare -a empty=(); readonly empty; declare -p empty",
+    "files": {},
+    "stdout": "declare -ar a=([0]=\"x\" [1]=\"y\")\ndeclare -ar empty=()\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "033b52c859073c5d": {
+    "command": "inner() { caller +0; caller 00; caller -- -1; echo \"negative:$?\"; caller 0x0; echo \"hex:$?\"; caller 999999999999999999999; echo \"overflow:$?\"; }\nouter() { inner; }\nouter",
+    "files": {},
+    "stdout": "2 outer environment\n2 outer environment\nnegative:1\nhex:2\noverflow:2\n",
+    "stderr": "environment: line 1: caller: 0x0: invalid hex number\ncaller: usage: caller [expr]\nenvironment: line 1: caller: 999999999999999999999: invalid number\ncaller: usage: caller [expr]\n",
+    "exitCode": 0,
+    "locked": true
+  },
+  "08c8f3c9e89371f5": {
+    "command": "set -u; (echo \"$AUTOMA_UNSET_N8\"); echo \"subshell:$?\"",
+    "files": {},
+    "stdout": "subshell:1\n",
+    "stderr": "/bin/bash: line 1: AUTOMA_UNSET_N8: unbound variable\n",
+    "exitCode": 0,
+    "locked": true
+  },
+  "10c01d5036e1807f": {
+    "command": "times | sed -E 's/[0-9]+m[0-9]+\\.[0-9]+s/TIME/g'",
+    "files": {},
+    "stdout": "TIME TIME\nTIME TIME\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "264de2261b24f37c": {
+    "command": "BASH_VERSION=custom; export BASH_VERSION; bash -c 'declare -p BASH_VERSION BASH_VERSINFO'; env -i bash -c 'echo \"$BASH_VERSION:${BASH_VERSINFO[0]}\"'",
+    "files": {},
+    "stdout": "declare -x BASH_VERSION=\"5.2.37(1)-release\"\ndeclare -ar BASH_VERSINFO=([0]=\"5\" [1]=\"2\" [2]=\"37\" [3]=\"1\" [4]=\"release\" [5]=\"x86_64-pc-linux-gnu\")\n5.2.37(1)-release:5\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "2919e140311d4c33": {
+    "command": "set -u; v=$(echo \"$AUTOMA_UNSET_N8\"); echo \"substitution:$?\"",
+    "files": {},
+    "stdout": "substitution:1\n",
+    "stderr": "/bin/bash: line 1: AUTOMA_UNSET_N8: unbound variable\n",
+    "exitCode": 0,
+    "locked": true
+  },
+  "2d6789f4d8663ef3": {
+    "command": "declare -p BASH_VERSION BASH_VERSINFO",
+    "files": {},
+    "stdout": "declare -- BASH_VERSION=\"5.2.37(1)-release\"\ndeclare -ar BASH_VERSINFO=([0]=\"5\" [1]=\"2\" [2]=\"37\" [3]=\"1\" [4]=\"release\" [5]=\"x86_64-pc-linux-gnu\")\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "2e4acf5c0b8a6e24": {
+    "command": "f() { caller nope; echo \"invalid:$?\"; caller -1; echo \"negative:$?\"; caller 0 extra; echo \"extra:$?\"; caller --; echo \"dash:$?\"; }\nf",
+    "files": {},
+    "stdout": "invalid:2\nnegative:2\nextra:1\n2 NULL\ndash:0\n",
+    "stderr": "environment: line 1: caller: nope: invalid number\ncaller: usage: caller [expr]\nenvironment: line 1: caller: -1: invalid option\ncaller: usage: caller [expr]\n",
+    "exitCode": 0,
+    "locked": true
+  },
+  "3ae9524a791291a3": {
+    "command": "trap 'echo \"exit:$?\"' EXIT; set -u; echo \"$AUTOMA_UNSET_N8\"; echo after",
+    "files": {},
+    "stdout": "exit:127\n",
+    "stderr": "/bin/bash: line 1: AUTOMA_UNSET_N8: unbound variable\n",
+    "exitCode": 127,
+    "locked": true
+  },
+  "57d82f85d3fbf14f": {
+    "command": "hash -p /synthetic/tool example; hash -t example; hash -r; hash -t example 2>/dev/null; echo \"status:$?\"",
+    "files": {},
+    "stdout": "/synthetic/tool\nstatus:1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "580eb63daf736511": {
+    "command": "set -u; echo before; echo \"$AUTOMA_UNSET_N8\"; echo after",
+    "files": {},
+    "stdout": "before\n",
+    "stderr": "/bin/bash: line 1: AUTOMA_UNSET_N8: unbound variable\n",
+    "exitCode": 127,
+    "locked": true
+  },
+  "9d2953cfa3a89fb7": {
+    "command": ". ./outer.sh",
+    "files": {
+      "outer.sh": "f() { caller; caller 0; caller 1; }\n. ./inner.sh\n",
+      "inner.sh": "caller; caller 0; f\n"
+    },
+    "stdout": "2 ./outer.sh\n2 source ./outer.sh\n1 ./inner.sh\n1 source ./inner.sh\n2 source ./outer.sh\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "a52958e66181693e": {
+    "command": "TZ=UTC printf '%(%Y)T\\n' 0",
+    "files": {},
+    "stdout": "1970\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "a8b3ab36752c651c": {
+    "command": "inner() { caller; caller 0; caller 1; caller 2; echo \"end:$?\"; }\nouter() { inner; }\nouter",
+    "files": {},
+    "stdout": "2 environment\n2 outer environment\nend:1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "ac0a4a21c52ce465": {
+    "command": "set -eu; echo before; echo \"$AUTOMA_UNSET_N8\"; echo after",
+    "files": {},
+    "stdout": "before\n",
+    "stderr": "/bin/bash: line 1: AUTOMA_UNSET_N8: unbound variable\n",
+    "exitCode": 1
+  },
+  "ac2d89129b62cbaf": {
+    "command": "bash -c 'set -u; echo \"$AUTOMA_UNSET_N8\"; echo after'; echo \"child:$?\"",
+    "files": {},
+    "stdout": "child:127\n",
+    "stderr": "bash: line 1: AUTOMA_UNSET_N8: unbound variable\n",
+    "exitCode": 0,
+    "locked": true
+  },
+  "b3486942bf574da0": {
+    "command": "times -- extra | sed -E 's/[0-9]+m[0-9]+\\.[0-9]+s/TIME/g'; times -z 2>/dev/null; echo status:$?",
+    "files": {},
+    "stdout": "TIME TIME\nTIME TIME\nstatus:2\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "b5d19c03df597b63": {
+    "command": "printf \"%s\\n\" \"${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}\" \"${BASH_VERSINFO[@]}\"",
+    "files": {},
+    "stdout": "5.2\n5\n2\n37\n1\nrelease\nx86_64-pc-linux-gnu\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "bc8ddae435c83247": {
+    "command": "set -u; eval 'echo \"$AUTOMA_UNSET_N8\"'; echo after",
+    "files": {},
+    "stdout": "",
+    "stderr": "/bin/bash: line 1: AUTOMA_UNSET_N8: unbound variable\n",
+    "exitCode": 127,
+    "locked": true
+  },
+  "cb41815d75b8c1a5": {
+    "command": "set -u; . ./unset.sh; echo after-source",
+    "files": {
+      "unset.sh": "echo \"$AUTOMA_UNSET_N8\"; echo after-file\n"
+    },
+    "stdout": "",
+    "stderr": "./unset.sh: line 1: AUTOMA_UNSET_N8: unbound variable\n",
+    "exitCode": 127,
+    "locked": true
+  },
+  "d3eea6aeea8abd66": {
+    "command": "set -u; ({ echo before; echo \"$AUTOMA_UNSET_N8\"; }; echo after); echo \"subshell:$?\"",
+    "files": {},
+    "stdout": "before\nsubshell:1\n",
+    "stderr": "/bin/bash: line 1: AUTOMA_UNSET_N8: unbound variable\n",
+    "exitCode": 0,
+    "locked": true
+  },
+  "d507a050c5597732": {
+    "command": "caller; echo \"empty:$?\"; caller 0; echo \"zero:$?\"; caller 99; echo \"range:$?\"",
+    "files": {},
+    "stdout": "empty:1\nzero:1\nrange:1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "e35e16c51b210ff0": {
+    "command": "BASH_VERSION=custom; declare -p BASH_VERSION; unset BASH_VERSION; echo \"${BASH_VERSION-unset}\"",
+    "files": {},
+    "stdout": "declare -- BASH_VERSION=\"custom\"\nunset\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "f84614b062fdbade": {
+    "command": "set -u; for x in one two; do { echo before; echo \"$AUTOMA_UNSET_N8\"; }; done; echo after",
+    "files": {},
+    "stdout": "before\n",
+    "stderr": "/bin/bash: line 1: AUTOMA_UNSET_N8: unbound variable\n",
+    "exitCode": 127,
+    "locked": true
+  },
+  "f995ed761bddac5e": {
+    "command": "set -u; f() { echo \"$AUTOMA_UNSET_N8\"; }; f; echo after",
+    "files": {},
+    "stdout": "",
+    "stderr": "environment: line 1: AUTOMA_UNSET_N8: unbound variable\n",
+    "exitCode": 127,
+    "locked": true
+  }
+}

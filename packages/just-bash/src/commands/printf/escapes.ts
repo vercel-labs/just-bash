@@ -1,3 +1,9 @@
+// Automa: escape bytes remain bytes until the shell text boundary.
+function byteText(text: string): string {
+  return latin1FromBytes(encodeUtf8ToBytes(text));
+}
+
+import { encodeUtf8ToBytes, latin1FromBytes } from "../../encoding.js";
 /**
  * Shared escape sequence and formatting utilities
  * Used by printf command and find -printf
@@ -141,6 +147,7 @@ export function parseWidthPrecision(
 export function processEscapes(
   str: string,
   maxBytes: number = DEFAULT_MAX_FORMAT_BYTES,
+  byteMode = false,
 ): string {
   if (utf8ByteLength(str) > maxBytes) {
     throw new ExecutionLimitError(
@@ -208,7 +215,9 @@ export function processEscapes(
             octal += str[j];
             j++;
           }
-          result += String.fromCharCode(parseInt(octal, 8));
+          result += String.fromCharCode(
+            parseInt(octal, 8) & (byteMode ? 255 : 65535),
+          );
           i = j;
           break;
         }
@@ -230,8 +239,13 @@ export function processEscapes(
           if (bytes.length > 0) {
             // Try to decode the bytes as UTF-8
             try {
-              const decoder = new TextDecoder("utf-8", { fatal: true });
-              result += decoder.decode(new Uint8Array(bytes));
+              const decoder = new TextDecoder("utf-8", {
+                fatal: true,
+                ignoreBOM: true,
+              });
+              result += byteMode
+                ? bytes.map((byte) => String.fromCharCode(byte)).join("")
+                : decoder.decode(new Uint8Array(bytes));
             } catch {
               // If not valid UTF-8, fall back to Latin-1 (1:1 byte to codepoint)
               for (const byte of bytes) {
@@ -241,8 +255,9 @@ export function processEscapes(
             i = j;
           } else {
             // No valid hex escape, keep the backslash
-            result += str[i];
-            i++;
+            const literal = String.fromCodePoint(str.codePointAt(i) ?? 0);
+            result += byteMode ? byteText(literal) : str[i];
+            i += byteMode ? literal.length : 1;
           }
           break;
         }
@@ -255,7 +270,9 @@ export function processEscapes(
             j++;
           }
           if (hex) {
-            result += String.fromCodePoint(parseInt(hex, 16));
+            result += byteMode
+              ? byteText(String.fromCodePoint(parseInt(hex, 16)))
+              : String.fromCodePoint(parseInt(hex, 16));
             i = j;
           } else {
             result += "\\u";
@@ -272,7 +289,9 @@ export function processEscapes(
             j++;
           }
           if (hex) {
-            result += String.fromCodePoint(parseInt(hex, 16));
+            result += byteMode
+              ? byteText(String.fromCodePoint(parseInt(hex, 16)))
+              : String.fromCodePoint(parseInt(hex, 16));
             i = j;
           } else {
             result += "\\U";
@@ -280,13 +299,16 @@ export function processEscapes(
           }
           break;
         }
-        default:
-          result += str[i];
-          i++;
+        default: {
+          const literal = String.fromCodePoint(str.codePointAt(i) ?? 0);
+          result += byteMode ? byteText(literal) : str[i];
+          i += byteMode ? literal.length : 1;
+        }
       }
     } else {
-      result += str[i];
-      i++;
+      const literal = String.fromCodePoint(str.codePointAt(i) ?? 0);
+      result += byteMode ? byteText(literal) : str[i];
+      i += byteMode ? literal.length : 1;
     }
   }
 

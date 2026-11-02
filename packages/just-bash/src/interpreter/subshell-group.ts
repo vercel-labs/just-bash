@@ -1,3 +1,4 @@
+import { automaTrapChild } from "./traps.js";
 /**
  * Subshell, Group, and Script Execution
  *
@@ -21,6 +22,7 @@ import {
   ExecutionLimitError,
   ExitError,
   isScopeExitError,
+  NounsetError,
   ReturnError,
   SubshellExitError,
 } from "./errors.js";
@@ -57,6 +59,7 @@ export async function executeSubshell(
   stdinOwned = false,
 ): Promise<ExecResult> {
   const parentLoopDepth = ctx.state.loopDepth;
+  const sharedParentInputs = new Set(ctx.state.fdInputSessions?.keys());
   const parentDescriptors = new Map<number, FdEntry>();
   for (const fd of ctx.state.fileDescriptors?.keys() ?? []) {
     const entry = getFdEntry(ctx, fd);
@@ -72,17 +75,25 @@ export async function executeSubshell(
       node.redirections,
       stdin,
       (prepared) =>
-        executeSubshellBody(
+        automaTrapChild(
           ctx,
-          node,
-          prepared.stdin ?? stdin,
-          executeStatement,
-          stdinOwned || prepared.stdin !== undefined,
+          () =>
+            executeSubshellBody(
+              ctx,
+              node,
+              prepared.stdin ?? stdin,
+              executeStatement,
+              stdinOwned || prepared.stdin !== undefined,
+            ),
+          "subshell",
         ),
+      stdinOwned,
     );
   } finally {
     const consumedDescriptors = new Map<number, number>();
     for (const [fd, parentEntry] of parentDescriptors) {
+      // Shared descriptions have already advanced through the child table.
+      if (sharedParentInputs.has(fd)) continue;
       const childEntry = getFdEntry(ctx, fd);
       const consumed =
         parentEntry.kind === "input" && childEntry?.kind === "input"
@@ -136,76 +147,50 @@ async function executeSubshellBody(
     // SubshellExitError means break/continue was called when parent had loop context
     // This exits the subshell cleanly with exit code 0
     if (error instanceof SubshellExitError) {
-      output.append(
-        "stdout",
-        error.stdout,
-        error.internalOutputAccounting.stdout,
-      );
-      output.append(
-        "stderr",
-        error.stderr,
-        error.internalOutputAccounting.stderr,
-      );
+      output.appendResult({
+        ...error,
+        exitCode: "exitCode" in error ? Number(error.exitCode) : 0,
+      });
       return output.build(0);
     }
     // BreakError/ContinueError should NOT propagate out of subshell
     // They only affect loops within the subshell
     if (error instanceof BreakError || error instanceof ContinueError) {
-      output.append(
-        "stdout",
-        error.stdout,
-        error.internalOutputAccounting.stdout,
-      );
-      output.append(
-        "stderr",
-        error.stderr,
-        error.internalOutputAccounting.stderr,
-      );
+      output.appendResult({
+        ...error,
+        exitCode: "exitCode" in error ? Number(error.exitCode) : 0,
+      });
       return output.build(0);
     }
     // ExitError in subshell should NOT propagate - just return the exit code
     // (subshells are like separate processes)
     if (error instanceof ExitError) {
-      output.append(
-        "stdout",
-        error.stdout,
-        error.internalOutputAccounting.stdout,
-      );
-      output.append(
-        "stderr",
-        error.stderr,
-        error.internalOutputAccounting.stderr,
-      );
+      output.appendResult({
+        ...error,
+        exitCode: "exitCode" in error ? Number(error.exitCode) : 0,
+      });
       return output.build(error.exitCode);
     }
     // ReturnError in subshell (e.g., f() ( return 42; )) should also just exit
     // with the given code, since subshells are like separate processes
     if (error instanceof ReturnError) {
-      output.append(
-        "stdout",
-        error.stdout,
-        error.internalOutputAccounting.stdout,
-      );
-      output.append(
-        "stderr",
-        error.stderr,
-        error.internalOutputAccounting.stderr,
-      );
+      output.appendResult({
+        ...error,
+        exitCode: "exitCode" in error ? Number(error.exitCode) : 0,
+      });
       return output.build(error.exitCode);
     }
     if (error instanceof ErrexitError) {
       // Apply output redirections before propagating
-      output.append(
-        "stdout",
-        error.stdout,
-        error.internalOutputAccounting.stdout,
-      );
-      output.append(
-        "stderr",
-        error.stderr,
-        error.internalOutputAccounting.stderr,
-      );
+      output.appendResult({
+        ...error,
+        exitCode: "exitCode" in error ? Number(error.exitCode) : 0,
+      });
       return output.build(error.exitCode);
+    }
+    if (error instanceof NounsetError) {
+      output.appendResult({ ...error, exitCode: 1 });
+      return output.build(1);
     }
     // Apply output redirections before returning
     output.append("stderr", `${getErrorMessage(error)}\n`);
@@ -231,8 +216,20 @@ export async function executeGroup(
    */
   stdinOwned = false,
 ): Promise<ExecResult> {
-  return withPreparedRedirections(ctx, node.redirections, stdin, (prepared) =>
-    executeGroupBody(ctx, node, stdin, executeStatement, stdinOwned, prepared),
+  return withPreparedRedirections(
+    ctx,
+    node.redirections,
+    stdin,
+    (prepared) =>
+      executeGroupBody(
+        ctx,
+        node,
+        stdin,
+        executeStatement,
+        stdinOwned,
+        prepared,
+      ),
+    stdinOwned,
   );
 }
 
@@ -299,10 +296,11 @@ async function executeGroupBody(
     }
     if (
       isScopeExitError(error) ||
+      error instanceof NounsetError ||
       error instanceof ErrexitError ||
       error instanceof ExitError
     ) {
-      error.prependOutput(output.stdout, output.stderr);
+      output.prependTo(error);
       throw error;
     }
     output.append("stderr", `${getErrorMessage(error)}\n`);
@@ -378,7 +376,11 @@ export async function executeUserScript(
   try {
     const parser = new Parser();
     const ast = parser.parse(content);
-    const execResult = await executeScript(ast);
+    const execResult = await automaTrapChild(
+      ctx,
+      () => executeScript(ast),
+      "script",
+    );
     cleanup();
     return execResult;
   } catch (error) {
@@ -387,7 +389,11 @@ export async function executeUserScript(
     // Executable scripts run in a subshell-like environment, so exit only
     // ends the script and returns its status to the surrounding command list.
     if (error instanceof ExitError) {
-      return result(error.stdout, error.stderr, error.exitCode);
+      return {
+        ...result(error.stdout, error.stderr, error.exitCode),
+        internalOutputSegments: error.internalOutputSegments,
+        internalOutputAccounting: error.internalOutputAccounting,
+      };
     }
 
     // ExecutionLimitError must always propagate

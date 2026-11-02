@@ -1,3 +1,4 @@
+// Automa modifications: N00b C ordering and comparator-based uniqueness.
 // Comparator functions for sort command
 
 import type { KeySpec, SortOptions } from "./types.js";
@@ -164,6 +165,7 @@ function extractKeyValue(
 }
 
 interface CompareOptions {
+  cLocale?: boolean;
   numeric?: boolean;
   ignoreCase?: boolean;
   humanNumeric?: boolean;
@@ -175,6 +177,20 @@ interface CompareOptions {
 /**
  * Compare two values, handling various sort modes
  */
+function compareText(a: string, b: string, cLocale?: boolean): number {
+  if (!cLocale) return a.localeCompare(b);
+  let i = 0,
+    j = 0;
+  while (i < a.length && j < b.length) {
+    const x = a.codePointAt(i) ?? 0,
+      y = b.codePointAt(j) ?? 0;
+    if (x !== y) return x < y ? -1 : 1;
+    i += x > 65535 ? 2 : 1;
+    j += y > 65535 ? 2 : 1;
+  }
+  return i < a.length ? 1 : j < b.length ? -1 : 0;
+}
+
 function compareValues(a: string, b: string, opts: CompareOptions): number {
   let valA = a;
   let valB = b;
@@ -187,8 +203,12 @@ function compareValues(a: string, b: string, opts: CompareOptions): number {
 
   // Apply case folding
   if (opts.ignoreCase) {
-    valA = valA.toLowerCase();
-    valB = valB.toLowerCase();
+    const fold = (value: string) =>
+      opts.cLocale
+        ? value.replace(/[a-z]/g, (char) => char.toUpperCase())
+        : value.toLowerCase();
+    valA = fold(valA);
+    valB = fold(valB);
   }
 
   // Month sort
@@ -218,7 +238,7 @@ function compareValues(a: string, b: string, opts: CompareOptions): number {
   }
 
   // String comparison
-  return valA.localeCompare(valB);
+  return compareText(valA, valB, opts.cLocale);
 }
 
 /**
@@ -254,6 +274,7 @@ export function createComparator(
     // If no keys specified, compare whole lines
     if (keys.length === 0) {
       const opts: CompareOptions = {
+        cLocale: options.cLocale,
         numeric: globalNumeric,
         ignoreCase: globalIgnoreCase,
         humanNumeric: globalHumanNumeric,
@@ -269,8 +290,8 @@ export function createComparator(
       }
 
       // Tiebreaker: use original lines unless stable sort
-      if (!globalStable) {
-        const tiebreaker = a.localeCompare(b);
+      if (!globalStable && !options.unique) {
+        const tiebreaker = compareText(a, b, options.cLocale);
         return globalReverse ? -tiebreaker : tiebreaker;
       }
       return 0;
@@ -289,6 +310,7 @@ export function createComparator(
 
       // Use per-key modifiers or fall back to global options
       const opts: CompareOptions = {
+        cLocale: options.cLocale,
         numeric: key.numeric ?? globalNumeric,
         ignoreCase: key.ignoreCase ?? globalIgnoreCase,
         humanNumeric: key.humanNumeric ?? globalHumanNumeric,
@@ -306,8 +328,8 @@ export function createComparator(
     }
 
     // All keys equal, compare whole lines as tiebreaker unless stable
-    if (!globalStable) {
-      const tiebreaker = a.localeCompare(b);
+    if (!globalStable && !options.unique) {
+      const tiebreaker = compareText(a, b, options.cLocale);
       return globalReverse ? -tiebreaker : tiebreaker;
     }
     return 0;
@@ -318,31 +340,8 @@ export function createComparator(
  * Filter unique lines based on key values or whole line
  */
 export function filterUnique(lines: string[], options: SortOptions): string[] {
-  if (options.keys.length === 0) {
-    // No keys - use whole line for uniqueness
-    if (options.ignoreCase) {
-      const seen = new Set<string>();
-      return lines.filter((line) => {
-        const key = line.toLowerCase();
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-    }
-    return [...new Set(lines)];
-  }
-
-  // Use first key for uniqueness comparison
-  const key = options.keys[0];
-  const seen = new Set<string>();
-
-  return lines.filter((line) => {
-    let keyVal = extractKeyValue(line, key, options.fieldDelimiter);
-    if (key.ignoreCase ?? options.ignoreCase) {
-      keyVal = keyVal.toLowerCase();
-    }
-    if (seen.has(keyVal)) return false;
-    seen.add(keyVal);
-    return true;
-  });
+  const compare = createComparator({ ...options, stable: true });
+  return lines.filter(
+    (line, index) => index === 0 || compare(lines[index - 1], line) !== 0,
+  );
 }

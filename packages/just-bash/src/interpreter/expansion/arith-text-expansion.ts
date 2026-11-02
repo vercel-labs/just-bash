@@ -1,3 +1,4 @@
+import { commandSubstitutionText } from "../../execution-output.js";
 /**
  * Arithmetic Text Expansion
  *
@@ -174,7 +175,7 @@ export async function expandSubscriptForAssocArray(
             signal: ctx.state.signal,
           });
           // Strip trailing newlines like command substitution does
-          result += cmdResult.stdout.replace(/\n+$/, "");
+          result += commandSubstitutionText(cmdResult).replace(/\n+$/, "");
           // Forward stderr to expansion stderr
           if (cmdResult.stderr) {
             ctx.state.expansionStderr =
@@ -222,7 +223,7 @@ export async function expandSubscriptForAssocArray(
         const cmdResult = await ctx.execFn(cmdStr, {
           signal: ctx.state.signal,
         });
-        result += cmdResult.stdout.replace(/\n+$/, "");
+        result += commandSubstitutionText(cmdResult).replace(/\n+$/, "");
         if (cmdResult.stderr) {
           ctx.state.expansionStderr =
             (ctx.state.expansionStderr || "") + cmdResult.stderr;

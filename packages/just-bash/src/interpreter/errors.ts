@@ -11,13 +11,16 @@
  * All control flow errors carry stdout/stderr to accumulate output
  * as they propagate through the execution stack.
  */
+
 import { utf8ByteLength } from "../encoding.js";
+import type { OutputSegment } from "../types.js";
 
 /**
  * Base class for all control flow errors.
  * Carries stdout/stderr to preserve output during propagation.
  */
 export abstract class ControlFlowError extends Error {
+  internalOutputSegments?: OutputSegment[];
   internalOutputAccounting = { stdout: 0, stderr: 0 };
   constructor(
     message: string,
@@ -214,6 +217,7 @@ export class ExecutionLimitError extends ControlFlowError {
       | "glob_operations"
       | "substitution_depth"
       | "output_size"
+      | "input_composition"
       | "array_elements"
       | "file_descriptors",
     stdout: string = "",

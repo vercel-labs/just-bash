@@ -493,7 +493,7 @@ describe("AGENTS.npm.md Bash examples", () => {
         "/data/users.yaml":
           "users:\n  - name: alice\n    role: admin\n  - name: bob\n    role: user\n",
         "/data/data.xml":
-          '<root><users><user><name>alice</name></user></users><item id="123">test</item></root>',
+          '<root><users><user><name>alice</name></user><user><name>bob</name></user></users><item id="123">test</item></root>',
         "/data/config.ini": "[database]\nhost=localhost\nport=5432\n",
         "/data/page.html": "<h1>Title</h1><p>Some text content</p>",
         // TOML files

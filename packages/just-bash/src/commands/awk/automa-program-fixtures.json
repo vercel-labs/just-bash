@@ -1,0 +1,199 @@
+{
+  "provenance": "Automa modifications: N00b just-bash-awk-program-files.test.mjs native POSIX awk fixtures; GNU awk 5.2.1",
+  "files": {
+    "rows.txt": "alpha 2\nbeta 3\n",
+    "fields.txt": "alpha:2\nbeta:3\n",
+    "program.awk": "{print $1 \":\" $2}\n",
+    "begin.awk": "BEGIN {print \"begin\"} # boundary comment",
+    "end.awk": "END {print \"end\"}\n",
+    "vars.awk": "BEGIN{print tag,FS} {print $2}\n",
+    "argv.awk": "BEGIN{for(i=0;i<ARGC;i++) print ARGV[i]}\n",
+    "empty.awk": "",
+    "-program.awk": "{print $1}\n",
+    "space program.awk": "{print $1}\n",
+    "nested/program.awk": "{print NR, $1}\n",
+    "array.txt": "{\"id\":1111111111,\"value\":1111111111,\"name\":\"Directory\",\"label\":\"Directory\",\"children\":[{\"item\":\"neutral\"}]}\n"
+  },
+  "cases": [
+    {
+      "label": "file",
+      "command": "awk -f program.awk rows.txt",
+      "expected": {
+        "stdout": "alpha:2\nbeta:3\n",
+        "exitCode": 0,
+        "hasStderr": false
+      }
+    },
+    {
+      "label": "attached file",
+      "command": "awk -fprogram.awk rows.txt",
+      "expected": {
+        "stdout": "alpha:2\nbeta:3\n",
+        "exitCode": 0,
+        "hasStderr": false
+      }
+    },
+    {
+      "label": "long file",
+      "command": "awk --file program.awk rows.txt",
+      "expected": {
+        "stdout": "alpha:2\nbeta:3\n",
+        "exitCode": 0,
+        "hasStderr": false
+      }
+    },
+    {
+      "label": "long equals file",
+      "command": "awk --file=program.awk rows.txt",
+      "expected": {
+        "stdout": "alpha:2\nbeta:3\n",
+        "exitCode": 0,
+        "hasStderr": false
+      }
+    },
+    {
+      "label": "multiple sources",
+      "command": "awk -f begin.awk -f program.awk -f end.awk rows.txt",
+      "expected": {
+        "stdout": "begin\nalpha:2\nbeta:3\nend\n",
+        "exitCode": 0,
+        "hasStderr": false
+      }
+    },
+    {
+      "label": "same source twice",
+      "command": "awk -f program.awk -f program.awk rows.txt",
+      "expected": {
+        "stdout": "alpha:2\nalpha:2\nbeta:3\nbeta:3\n",
+        "exitCode": 0,
+        "hasStderr": false
+      }
+    },
+    {
+      "label": "variables and separators",
+      "command": "awk -v tag=ready -f vars.awk -F: fields.txt",
+      "expected": {
+        "stdout": "ready :\n2\n3\n",
+        "exitCode": 0,
+        "hasStderr": false
+      }
+    },
+    {
+      "label": "argv excludes program files",
+      "command": "awk -f argv.awk rows.txt fields.txt",
+      "expected": {
+        "stdout": "awk\nrows.txt\nfields.txt\n",
+        "exitCode": 0,
+        "hasStderr": false
+      }
+    },
+    {
+      "label": "quoted script name",
+      "command": "awk -f 'space program.awk' rows.txt",
+      "expected": {
+        "stdout": "alpha\nbeta\n",
+        "exitCode": 0,
+        "hasStderr": false
+      }
+    },
+    {
+      "label": "dash script name",
+      "command": "awk -f -program.awk rows.txt",
+      "expected": {
+        "stdout": "alpha\nbeta\n",
+        "exitCode": 0,
+        "hasStderr": false
+      }
+    },
+    {
+      "label": "relative script",
+      "command": "awk -f nested/program.awk rows.txt",
+      "expected": {
+        "stdout": "1 alpha\n2 beta\n",
+        "exitCode": 0,
+        "hasStderr": false
+      }
+    },
+    {
+      "label": "empty program",
+      "command": "awk -f empty.awk rows.txt",
+      "expected": {
+        "stdout": "",
+        "exitCode": 0,
+        "hasStderr": false
+      }
+    },
+    {
+      "label": "stdin data",
+      "command": "printf 'gamma 4\\n' | awk -f program.awk",
+      "expected": {
+        "stdout": "gamma:4\n",
+        "exitCode": 0,
+        "hasStderr": false
+      }
+    },
+    {
+      "label": "explicit stdin data",
+      "command": "printf 'gamma 4\\n' | awk -f program.awk -",
+      "expected": {
+        "stdout": "gamma:4\n",
+        "exitCode": 0,
+        "hasStderr": false
+      }
+    },
+    {
+      "label": "stdin program",
+      "command": "printf 'BEGIN{print 7}\\n' | awk -f -",
+      "expected": {
+        "stdout": "7\n",
+        "exitCode": 0,
+        "hasStderr": false
+      }
+    },
+    {
+      "label": "stdin program plus data file",
+      "command": "printf '{print $1}\\n' | awk -f - rows.txt",
+      "expected": {
+        "stdout": "alpha\nbeta\n",
+        "exitCode": 0,
+        "hasStderr": false
+      }
+    },
+    {
+      "label": "stdin program consumed once",
+      "command": "printf 'BEGIN{print 7}\\n' | awk -f - -f -",
+      "expected": {
+        "stdout": "7\n",
+        "exitCode": 0,
+        "hasStderr": false
+      }
+    },
+    {
+      "label": "end options",
+      "command": "awk -f program.awk -- rows.txt",
+      "expected": {
+        "stdout": "alpha:2\nbeta:3\n",
+        "exitCode": 0,
+        "hasStderr": false
+      }
+    },
+    {
+      "label": "missing program file",
+      "command": "awk -f missing.awk rows.txt",
+      "expected": {
+        "stdout": "",
+        "exitCode": 2,
+        "hasStderr": true
+      }
+    },
+    {
+      "label": "missing f operand",
+      "command": "awk -f",
+      "expected": {
+        "stdout": "",
+        "exitCode": 2,
+        "hasStderr": true
+      }
+    }
+  ]
+}

@@ -8,7 +8,9 @@ export type Expression =
   | { type: "type"; fileType: "f" | "d" }
   | { type: "empty" }
   | { type: "mtime"; days: number; comparison: "exact" | "more" | "less" }
+  | { type: "mmin"; minutes: number; comparison: "exact" | "more" | "less" }
   | { type: "newer"; refPath: string }
+  | { type: "newermt"; time: number } // reference time in ms since the epoch
   | {
       type: "size";
       value: number;
@@ -34,7 +36,8 @@ export type FindAction =
   | { type: "print" }
   | { type: "print0" }
   | { type: "printf"; format: string }
-  | { type: "delete" };
+  | { type: "delete" }
+  | { type: "quit" };
 
 // Evaluation context for file matching
 export interface EvalContext {
@@ -47,6 +50,7 @@ export interface EvalContext {
   size: number; // file size in bytes
   mode: number; // file permission mode
   newerRefTimes: Map<string, number>; // reference file mtimes for -newer
+  now: number; // when the command started, the reference for -mtime and -mmin
   depth?: number; // depth in directory tree (for -printf %d)
   startingPoint?: string; // starting search path (for -printf %P)
 }
@@ -54,6 +58,7 @@ export interface EvalContext {
 // Evaluation result including prune and print flags
 export interface EvalResult {
   matches: boolean;
+  quit?: boolean; // Stop the whole traversal when -quit is reached.
   pruned: boolean; // Set to true if -prune was evaluated and matched
   printed: boolean; // Kept for the prune-only fast path
   actions?: FindAction[]; // Actions reached while evaluating this entry

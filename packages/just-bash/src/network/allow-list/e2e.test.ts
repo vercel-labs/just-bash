@@ -1,3 +1,4 @@
+// Automa modification: opt into redirects so the original per-hop security assertions execute.
 /**
  * E2E tests for allow-list enforcement via bash execution
  *
@@ -259,7 +260,7 @@ function runAllowListTests(name: string, createAdapter: AdapterFactory) {
           network: { allowedUrlPrefixes: ["https://api.example.com"] },
         });
         const result = await env.exec(
-          "curl https://api.example.com/redirect-to-evil",
+          "curl -L https://api.example.com/redirect-to-evil",
         );
         expect(result.exitCode).toBe(47);
         expect(result.stdout).toBe("");
@@ -273,7 +274,7 @@ function runAllowListTests(name: string, createAdapter: AdapterFactory) {
           network: { allowedUrlPrefixes: ["https://api.example.com"] },
         });
         const result = await env.exec(
-          "curl https://api.example.com/redirect-to-allowed",
+          "curl -L https://api.example.com/redirect-to-allowed",
         );
         expect(result.exitCode).toBe(0);
         expect(result.stdout).toBe(MOCK_SUCCESS_BODY);
@@ -285,7 +286,7 @@ function runAllowListTests(name: string, createAdapter: AdapterFactory) {
           network: { allowedUrlPrefixes: ["https://api.example.com"] },
         });
         const result = await env.exec(
-          "curl https://api.example.com/redirect-chain",
+          "curl -L https://api.example.com/redirect-chain",
         );
         expect(result.exitCode).toBe(0);
         expect(result.stdout).toBe(MOCK_SUCCESS_BODY);
@@ -378,7 +379,7 @@ function runAllowListTests(name: string, createAdapter: AdapterFactory) {
         });
 
         const result = await env.exec(
-          "curl https://api.example.com/redirect-to-evil",
+          "curl -L https://api.example.com/redirect-to-evil",
         );
         expect(result.exitCode).toBe(0);
         expect(result.stdout).toBe(MOCK_EVIL_BODY);

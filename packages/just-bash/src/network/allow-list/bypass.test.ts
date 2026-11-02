@@ -1,3 +1,4 @@
+// Automa modification: opt into redirects so the original per-hop security assertions execute.
 /**
  * Adversarial tests attempting to bypass allow-list security
  *
@@ -480,7 +481,7 @@ describe("allow-list bypass attempts", () => {
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
       const result = await env.exec(
-        'curl "https://api.example.com/redirect-to-evil"',
+        'curl -L "https://api.example.com/redirect-to-evil"',
       );
       expect(result.exitCode).toBe(47);
       expect(result.stdout).toBe("");
@@ -495,7 +496,7 @@ describe("allow-list bypass attempts", () => {
         network: { allowedUrlPrefixes: ["https://api.example.com"] },
       });
 
-      await env.exec('curl "https://api.example.com/redirect-to-evil"');
+      await env.exec('curl -L "https://api.example.com/redirect-to-evil"');
 
       // Verify fetch was called for allowed URL but NOT for evil URL
       const calledUrls = mockFetch.mock.calls.map((c) => c[0]);

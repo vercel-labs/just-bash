@@ -1,0 +1,216 @@
+diff --git a/build/index.cjs.cjs b/build/index.cjs.cjs
+index 87104420007d601690fd97577eeda9692ed6d593..a750e52a3e4a267903478f6d391466dfe23a1a10 100644
+--- a/build/index.cjs.cjs
++++ b/build/index.cjs.cjs
+@@ -2985,7 +2985,60 @@ class Compiler {
+     }
+     return f;
+   }
+-  compile(re) {
++  // Automa: preserve RE2 fragment order without recursive JS stack growth.
++  compile(root) {
++    const frames = [{ node: root, index: 0, fragment: null, opened: null }];
++    let result;
++    while (frames.length) {
++      const frame = frames[frames.length - 1], node = frame.node;
++      switch (node.op) {
++        case Regexp.Op.CAPTURE:
++          if (frame.index === 0) {
++            frame.opened = this.cap(node.cap << 1);
++            frame.index = 1;
++            frames.push({ node: node.subs[0], index: 0, fragment: null, opened: null });
++            continue;
++          }
++          result = this.cat(this.cat(frame.opened, result), this.cap(node.cap << 1 | 1));
++          frames.pop();
++          break;
++        case Regexp.Op.STAR:
++        case Regexp.Op.PLUS:
++        case Regexp.Op.QUEST:
++          if (frame.index === 0) {
++            frame.index = 1;
++            frames.push({ node: node.subs[0], index: 0, fragment: null, opened: null });
++            continue;
++          }
++          result = node.op === Regexp.Op.STAR
++            ? this.star(result, (node.flags & RE2Flags.NON_GREEDY) !== 0)
++            : node.op === Regexp.Op.PLUS
++              ? this.plus(result, (node.flags & RE2Flags.NON_GREEDY) !== 0)
++              : this.quest(result, (node.flags & RE2Flags.NON_GREEDY) !== 0);
++          frames.pop();
++          break;
++        case Regexp.Op.CONCAT:
++        case Regexp.Op.ALTERNATE:
++          if (frame.index > 0) {
++            frame.fragment = frame.fragment === null ? result
++              : node.op === Regexp.Op.CONCAT ? this.cat(frame.fragment, result)
++              : this.alt(frame.fragment, result);
++          }
++          if (frame.index < node.subs.length) {
++            frames.push({ node: node.subs[frame.index++], index: 0, fragment: null, opened: null });
++            continue;
++          }
++          result = frame.fragment === null ? this.nop() : frame.fragment;
++          frames.pop();
++          break;
++        default:
++          result = this.compileLeaf(node);
++          frames.pop();
++      }
++    }
++    return result;
++  }
++  compileLeaf(re) {
+     switch (re.op) {
+       case Regexp.Op.NO_MATCH:
+         return this.fail();
+@@ -6495,4 +6548,4 @@ exports.RE2JSException = RE2JSException;
+ exports.RE2JSFlagsException = RE2JSFlagsException;
+ exports.RE2JSGroupException = RE2JSGroupException;
+ exports.RE2JSSyntaxException = RE2JSSyntaxException;
+-//# sourceMappingURL=index.cjs.cjs.map
++
+diff --git a/build/index.esm.js b/build/index.esm.js
+index dac1f704caf1d5ca62f02c93f7f6b62dbc6aabfc..ea657d3ca39bdd025e9d5b77146de2c39d62cab7 100644
+--- a/build/index.esm.js
++++ b/build/index.esm.js
+@@ -2983,7 +2983,60 @@ class Compiler {
+     }
+     return f;
+   }
+-  compile(re) {
++  // Automa: preserve RE2 fragment order without recursive JS stack growth.
++  compile(root) {
++    const frames = [{ node: root, index: 0, fragment: null, opened: null }];
++    let result;
++    while (frames.length) {
++      const frame = frames[frames.length - 1], node = frame.node;
++      switch (node.op) {
++        case Regexp.Op.CAPTURE:
++          if (frame.index === 0) {
++            frame.opened = this.cap(node.cap << 1);
++            frame.index = 1;
++            frames.push({ node: node.subs[0], index: 0, fragment: null, opened: null });
++            continue;
++          }
++          result = this.cat(this.cat(frame.opened, result), this.cap(node.cap << 1 | 1));
++          frames.pop();
++          break;
++        case Regexp.Op.STAR:
++        case Regexp.Op.PLUS:
++        case Regexp.Op.QUEST:
++          if (frame.index === 0) {
++            frame.index = 1;
++            frames.push({ node: node.subs[0], index: 0, fragment: null, opened: null });
++            continue;
++          }
++          result = node.op === Regexp.Op.STAR
++            ? this.star(result, (node.flags & RE2Flags.NON_GREEDY) !== 0)
++            : node.op === Regexp.Op.PLUS
++              ? this.plus(result, (node.flags & RE2Flags.NON_GREEDY) !== 0)
++              : this.quest(result, (node.flags & RE2Flags.NON_GREEDY) !== 0);
++          frames.pop();
++          break;
++        case Regexp.Op.CONCAT:
++        case Regexp.Op.ALTERNATE:
++          if (frame.index > 0) {
++            frame.fragment = frame.fragment === null ? result
++              : node.op === Regexp.Op.CONCAT ? this.cat(frame.fragment, result)
++              : this.alt(frame.fragment, result);
++          }
++          if (frame.index < node.subs.length) {
++            frames.push({ node: node.subs[frame.index++], index: 0, fragment: null, opened: null });
++            continue;
++          }
++          result = frame.fragment === null ? this.nop() : frame.fragment;
++          frames.pop();
++          break;
++        default:
++          result = this.compileLeaf(node);
++          frames.pop();
++      }
++    }
++    return result;
++  }
++  compileLeaf(re) {
+     switch (re.op) {
+       case Regexp.Op.NO_MATCH:
+         return this.fail();
+@@ -6487,4 +6540,4 @@ class RE2JS {
+ }
+ 
+ export { Matcher, RE2JS, RE2JSCompileException, RE2JSException, RE2JSFlagsException, RE2JSGroupException, RE2JSSyntaxException };
+-//# sourceMappingURL=index.esm.js.map
++
+diff --git a/build/index.umd.js b/build/index.umd.js
+index 3158d91b98f1c0b5c2764aee48f36f7351e22b58..f9657728026b379278f9e502f53d1bce239b9034 100644
+--- a/build/index.umd.js
++++ b/build/index.umd.js
+@@ -2989,7 +2989,60 @@
+       }
+       return f;
+     }
+-    compile(re) {
++    // Automa: preserve RE2 fragment order without recursive JS stack growth.
++  compile(root) {
++    const frames = [{ node: root, index: 0, fragment: null, opened: null }];
++    let result;
++    while (frames.length) {
++      const frame = frames[frames.length - 1], node = frame.node;
++      switch (node.op) {
++        case Regexp.Op.CAPTURE:
++          if (frame.index === 0) {
++            frame.opened = this.cap(node.cap << 1);
++            frame.index = 1;
++            frames.push({ node: node.subs[0], index: 0, fragment: null, opened: null });
++            continue;
++          }
++          result = this.cat(this.cat(frame.opened, result), this.cap(node.cap << 1 | 1));
++          frames.pop();
++          break;
++        case Regexp.Op.STAR:
++        case Regexp.Op.PLUS:
++        case Regexp.Op.QUEST:
++          if (frame.index === 0) {
++            frame.index = 1;
++            frames.push({ node: node.subs[0], index: 0, fragment: null, opened: null });
++            continue;
++          }
++          result = node.op === Regexp.Op.STAR
++            ? this.star(result, (node.flags & RE2Flags.NON_GREEDY) !== 0)
++            : node.op === Regexp.Op.PLUS
++              ? this.plus(result, (node.flags & RE2Flags.NON_GREEDY) !== 0)
++              : this.quest(result, (node.flags & RE2Flags.NON_GREEDY) !== 0);
++          frames.pop();
++          break;
++        case Regexp.Op.CONCAT:
++        case Regexp.Op.ALTERNATE:
++          if (frame.index > 0) {
++            frame.fragment = frame.fragment === null ? result
++              : node.op === Regexp.Op.CONCAT ? this.cat(frame.fragment, result)
++              : this.alt(frame.fragment, result);
++          }
++          if (frame.index < node.subs.length) {
++            frames.push({ node: node.subs[frame.index++], index: 0, fragment: null, opened: null });
++            continue;
++          }
++          result = frame.fragment === null ? this.nop() : frame.fragment;
++          frames.pop();
++          break;
++        default:
++          result = this.compileLeaf(node);
++          frames.pop();
++      }
++    }
++    return result;
++  }
++  compileLeaf(re) {
+       switch (re.op) {
+         case Regexp.Op.NO_MATCH:
+           return this.fail();
+@@ -6501,4 +6554,4 @@
+   exports.RE2JSSyntaxException = RE2JSSyntaxException;
+ 
+ }));
+-//# sourceMappingURL=index.umd.js.map
++

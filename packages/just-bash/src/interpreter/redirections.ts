@@ -1,3 +1,5 @@
+import { outputSegments, outputSize } from "../execution-output.js";
+import type { OutputSegment } from "../types.js";
 /**
  * Redirection Handling
  *
@@ -15,7 +17,6 @@ import {
   encodeUtf8ToBytes,
   latin1FromBytes,
   readBytesFrom,
-  utf8ByteLength,
 } from "../encoding.js";
 import type { ExecResult } from "../types.js";
 import {
@@ -93,31 +94,6 @@ const CHARACTER_DEVICES = new Set([
   "/dev/urandom",
 ]);
 
-/**
- * Determine the encoding to use for file I/O.
- * If all character codes are <= 127 (ASCII), use binary encoding (byte data).
- * Otherwise, use UTF-8 encoding (text with non-ASCII characters).
- * For performance, only check the first 8KB of large strings.
- *
- * Characters in the 128-255 range (e.g. Latin-1: Ü Ö Ä é è) need UTF-8
- * encoding because their multi-byte UTF-8 representation would be lost
- * if stored as single bytes via binary encoding.
- */
-function getFileEncoding(content: string): "binary" | "utf8" {
-  const SAMPLE_SIZE = 8192; // 8KB
-
-  // For large strings, only check the first 8KB
-  // This is sufficient since UTF-8 files typically have Unicode chars early
-  const checkLength = Math.min(content.length, SAMPLE_SIZE);
-
-  for (let i = 0; i < checkLength; i++) {
-    if (content.charCodeAt(i) > 127) {
-      return "utf8";
-    }
-  }
-  return "binary";
-}
-
 type PreparedDupSource = {
   kind: "entry";
   entry: FdEntry;
@@ -179,7 +155,10 @@ type RedirectionTransactionState = {
 };
 
 export type RedirectionTransaction = {
-  prepare: (inheritedStdin?: string) => Promise<PreparedRedirections>;
+  prepare: (
+    inheritedStdin?: string,
+    stdinProvided?: boolean,
+  ) => Promise<PreparedRedirections>;
   finish: () => void;
 };
 
@@ -232,6 +211,10 @@ const getDupSource = (
 const PATH_ERROR_REASONS = new Map([
   ["ENOENT", "No such file or directory"],
   ["ENOTDIR", "Not a directory"],
+  ["EISDIR", "Is a directory"],
+  ["ELOOP", "Too many levels of symbolic links"],
+  ["ENOTSUP", "Operation not supported"],
+  ["ENOSYS", "Function not implemented"],
 ]);
 
 async function openOutputEntry(
@@ -268,7 +251,10 @@ async function openOutputEntry(
     else await ctx.fs.writeFile(filePath, "", "binary");
   } catch (error) {
     const code = getErrorCode(error);
-    const reason = code && PATH_ERROR_REASONS.get(code);
+    const reason =
+      !(error instanceof Error && error.name === "AbortError") &&
+      code &&
+      PATH_ERROR_REASONS.get(code);
     if (reason)
       return { error: makeResult("", `bash: ${target}: ${reason}\n`, 1) };
     if (!handleWriteError) throw error;
@@ -368,13 +354,19 @@ async function prepareRedirectionsWithState(
   redirections: RedirectionNode[],
   inheritedStdin: string,
   transaction: RedirectionTransactionState,
+  stdinProvided = false,
 ): Promise<PreparedRedirections> {
   const standardRoute = (fd: number, fallback: FdEntry): FdEntry =>
     ctx.state.closedStandardFds?.has(fd)
       ? { kind: "closed" }
       : (getFdEntry(ctx, fd) ?? fallback);
   const standardRoutes = new Map<number, FdEntry>([
-    [0, standardRoute(0, { kind: "dup-in", sourceFd: 0 })],
+    [
+      0,
+      stdinProvided
+        ? { kind: "input", content: inheritedStdin }
+        : standardRoute(0, { kind: "dup-in", sourceFd: 0 }),
+    ],
     [1, standardRoute(1, { kind: "dup-out", sourceFd: 1 })],
     [2, standardRoute(2, { kind: "dup-out", sourceFd: 2 })],
   ]);
@@ -418,7 +410,7 @@ async function prepareRedirectionsWithState(
   const initialStdin = standardRoutes.get(0);
   if (initialStdin?.kind === "input") {
     stdin = initialStdin.content;
-    stdinSourceFd = 0;
+    stdinSourceFd = stdinProvided ? -1 : 0;
     stdinUnavailable = initialStdin.device === true;
   } else if (initialStdin?.kind === "readwrite") {
     stdin = initialStdin.content.slice(initialStdin.position);
@@ -508,6 +500,10 @@ async function prepareRedirectionsWithState(
     ctx.state.closedStandardFds?.delete(fd);
     setFdEntry(ctx, fd, entry);
   };
+  if (stdinProvided && ctx.state.fdInputSessions !== undefined) {
+    bindTemporaryStandard(0, { kind: "input", content: inheritedStdin });
+    stdinSourceFd = 0;
+  }
   const getPreparedDupSource = (
     sourceFd: number,
     input: boolean,
@@ -726,10 +722,17 @@ async function prepareRedirectionsWithState(
         entry = opened.entry;
       }
 
-      if (duplicate && duplicate.sourceFd >= FIRST_USER_FD) {
+      const duplicateInputFd =
+        duplicate?.sourceFd === 0 ? stdinSourceFd : duplicate?.sourceFd;
+      if (
+        duplicate &&
+        duplicateInputFd !== undefined &&
+        (duplicate.sourceFd >= FIRST_USER_FD || duplicate.sourceFd === 0) &&
+        isFdOpen(ctx, duplicateInputFd)
+      ) {
         const duplicated = duplicate.move
-          ? moveFd(ctx, fd, duplicate.sourceFd)
-          : dupFd(ctx, fd, duplicate.sourceFd);
+          ? moveFd(ctx, fd, duplicateInputFd)
+          : dupFd(ctx, fd, duplicateInputFd);
         if (!duplicated) {
           return fail(
             makeResult(
@@ -816,12 +819,19 @@ async function prepareRedirectionsWithState(
             index,
           );
         }
-        if (parsed.sourceFd < FIRST_USER_FD) {
+        const duplicateInputFd =
+          parsed.sourceFd === 0 && stdinSourceFd >= 0
+            ? stdinSourceFd
+            : parsed.sourceFd;
+        if (
+          parsed.sourceFd < FIRST_USER_FD &&
+          (parsed.sourceFd !== 0 || stdinSourceFd < 0)
+        ) {
           setFdEntry(ctx, fd, source.entry);
         } else if (
           !(parsed.move
-            ? moveFd(ctx, fd, parsed.sourceFd)
-            : dupFd(ctx, fd, parsed.sourceFd))
+            ? moveFd(ctx, fd, duplicateInputFd)
+            : dupFd(ctx, fd, duplicateInputFd))
         ) {
           return fail(
             makeResult(
@@ -927,13 +937,16 @@ async function prepareRedirectionsWithState(
           : parsed.sourceFd === 2
             ? outputRoutes.stderr
             : descriptorSink(source, effectiveFd === 2 ? 2 : 1);
+      const duplicateInputFd =
+        parsed.sourceFd === 0 ? stdinSourceFd : parsed.sourceFd;
       if (
         transaction.policy === "persistent" &&
         effectiveFd !== null &&
         effectiveFd < FIRST_USER_FD &&
-        parsed.sourceFd >= FIRST_USER_FD
+        (parsed.sourceFd >= FIRST_USER_FD ||
+          (parsed.sourceFd === 0 && duplicateInputFd >= 0))
       ) {
-        if (!dupFd(ctx, effectiveFd, parsed.sourceFd)) {
+        if (!dupFd(ctx, effectiveFd, duplicateInputFd)) {
           return fail(
             makeResult(
               "",
@@ -958,14 +971,15 @@ async function prepareRedirectionsWithState(
           source.entry.kind === "readwrite"
         ) {
           const readable =
-            parsed.sourceFd < FIRST_USER_FD && !isFdOpen(ctx, parsed.sourceFd)
+            parsed.sourceFd < FIRST_USER_FD &&
+            (duplicateInputFd < 0 || !isFdOpen(ctx, duplicateInputFd))
               ? {
                   content:
                     source.entry.kind === "input"
                       ? source.entry.content
                       : source.entry.content.slice(source.entry.position),
                 }
-              : readFd(ctx, parsed.sourceFd);
+              : readFd(ctx, duplicateInputFd);
           if ("error" in readable) {
             return fail(
               makeResult(
@@ -977,7 +991,9 @@ async function prepareRedirectionsWithState(
             );
           }
           stdin = readable.content;
-          stdinSourceFd = isFdOpen(ctx, parsed.sourceFd) ? parsed.sourceFd : -1;
+          stdinSourceFd = isFdOpen(ctx, duplicateInputFd)
+            ? duplicateInputFd
+            : -1;
           stdinReplaced = true;
           stdinUnavailable = source.entry.device === true;
         } else {
@@ -1100,8 +1116,14 @@ export function createRedirectionTransaction(
   };
   let finished = false;
   return {
-    prepare: (inheritedStdin = "") =>
-      prepareRedirectionsWithState(ctx, redirections, inheritedStdin, state),
+    prepare: (inheritedStdin = "", stdinProvided = false) =>
+      prepareRedirectionsWithState(
+        ctx,
+        redirections,
+        inheritedStdin,
+        state,
+        stdinProvided,
+      ),
     finish: () => {
       if (finished) return;
       finished = true;
@@ -1159,16 +1181,19 @@ export async function routeControlFlowError(
         : 0;
   const routed = await applyRedirections(
     ctx,
-    makeResult(error.stdout, error.stderr, exitCode),
+    {
+      ...makeResult(error.stdout, error.stderr, exitCode),
+      internalOutputSegments: error.internalOutputSegments,
+      internalOutputAccounting: error.internalOutputAccounting,
+    },
     redirections.length > 0,
     prepared.outputRoutes,
   );
   error.stdout = routed.stdout;
   error.stderr = routed.stderr;
-  error.internalOutputAccounting = routed.internalOutputAccounting ?? {
-    stdout: utf8ByteLength(routed.stdout),
-    stderr: utf8ByteLength(routed.stderr),
-  };
+  error.internalOutputSegments = routed.internalOutputSegments;
+  error.internalOutputAccounting =
+    routed.internalOutputAccounting ?? error.internalOutputAccounting;
 }
 
 export async function withPreparedRedirections(
@@ -1176,6 +1201,7 @@ export async function withPreparedRedirections(
   redirections: RedirectionNode[],
   inheritedStdin: string,
   run: (prepared: PreparedRedirections) => Promise<ExecResult>,
+  stdinProvided = false,
 ): Promise<ExecResult> {
   const transaction = createRedirectionTransaction(
     ctx,
@@ -1183,9 +1209,27 @@ export async function withPreparedRedirections(
     SIMPLE_REDIRECTION_POLICY,
   );
   let prepared: PreparedRedirections | undefined;
+  const inputSnapshot: FdSnapshot = new Map();
   try {
-    prepared = await transaction.prepare(inheritedStdin);
+    prepared = await transaction.prepare(inheritedStdin, stdinProvided);
     if (prepared.error) return preparedRedirectionError(prepared);
+    // A compound command's replacement input hides the inherited description
+    // for its entire body. Restore the binding, not the consumed shared cursor.
+    if (
+      ctx.state.fdInputSessions !== undefined &&
+      prepared.stdin !== undefined &&
+      prepared.stdinSourceFd !== 0
+    ) {
+      rememberFd(ctx, inputSnapshot, 0);
+      if (prepared.stdinSourceFd >= 0) dupFd(ctx, 0, prepared.stdinSourceFd);
+      else
+        setFdEntry(ctx, 0, {
+          kind: "input",
+          content: prepared.stdin,
+          device: prepared.stdinUnavailable,
+        });
+      prepared.stdinSourceFd = 0;
+    }
     const savedGroupStdin = ctx.state.groupStdin;
     const savedGroupStdinSourceFd = ctx.state.groupStdinSourceFd;
     if (prepared.stdin !== undefined) {
@@ -1211,6 +1255,7 @@ export async function withPreparedRedirections(
     await routeControlFlowError(ctx, error, redirections, prepared);
     throw error;
   } finally {
+    restoreFds(ctx, inputSnapshot);
     transaction.finish();
   }
 }
@@ -1223,12 +1268,39 @@ export async function applyRedirections(
   writeErrorCommand = "bash",
   omitShellPrefix = false,
 ): Promise<ExecResult> {
+  const captureEntries = ctx.state.processSubstitutions?.filter(
+    (entry) => entry.automaCaptureAccounting,
+  );
+  const captureFor = async (sink: RedirectSink) => {
+    const path =
+      sink.kind === "file"
+        ? sink.path
+        : sink.kind === "descriptor" &&
+            (sink.source.entry.kind === "output" ||
+              sink.source.entry.kind === "readwrite")
+          ? sink.source.entry.path
+          : undefined;
+    if (!path) return undefined;
+    const resolved = await ctx.fs.realpath(path).catch(() => path);
+    return captureEntries?.find(
+      (entry) =>
+        entry.automaCaptureAccounting?.paths.has(path) ||
+        entry.automaCaptureAccounting?.paths.has(resolved),
+    )?.automaCaptureAccounting;
+  };
+  const captures = captureEntries?.length
+    ? {
+        stdout: await captureFor(outputRoutes.stdout),
+        stderr: await captureFor(outputRoutes.stderr),
+      }
+    : undefined;
   // Output redirected away from the caller still consumes the shared budget.
   // Unredirected pipeline output is charged once at the pipeline boundary.
-  if (hasRedirections) {
+  if (hasRedirections || captures?.stdout || captures?.stderr) {
     result = ctx.executionScope.accountResult(result, "redirection");
   }
   let { stdout, stderr, exitCode } = result;
+  const routed: OutputSegment[] = [];
 
   // Determine encoding for stdout writes from the producer's explicit
   // shape rather than guessing at the bytes:
@@ -1243,15 +1315,6 @@ export async function applyRedirections(
   // mostly-ASCII output that happens to have its first non-ASCII char
   // past the window, picking binary and truncating downstream codepoints
   // to their low byte.
-  const stdoutIsBytes =
-    result.stdoutKind === "bytes" ||
-    (result.stdoutKind === undefined && result.stdoutEncoding === "binary");
-  const stdoutFileEncoding: "binary" | "utf8" = stdoutIsBytes
-    ? "binary"
-    : "utf8";
-  const getStdoutEncoding = (_content: string): "binary" | "utf8" =>
-    stdoutFileEncoding;
-
   const { stdout: fd1Sink, stderr: fd2Sink } = outputRoutes;
 
   // Deliver content still held in the streams to each fd's final sink.
@@ -1289,70 +1352,58 @@ export async function applyRedirections(
         await ctx.fs.writeFile(sink.path, content, encoding);
       }
     };
-    if (
-      fd1Sink === fd2Sink &&
-      (fd1Sink.kind === "file" || fd1Sink.kind === "descriptor")
-    ) {
-      // stdout-then-stderr order, not the command's temporal write order:
-      // ExecResult accumulates the two streams separately, so interleaving
-      // is not recorded anywhere in the interpreter. This matches the
-      // convention of the live-stream merge (`stdout += stderr`) used for a
-      // bare `2>&1`.
-      const combined = pendingStdout + pendingStderr;
-      if (combined !== "") {
-        if (fd1Sink.kind === "file") {
-          await deliverToFile(fd1Sink, combined, getStdoutEncoding(combined));
-        } else {
-          await writeFdEntry(
-            ctx,
-            fd1Sink.source.entry,
-            fd1Sink.source.descriptors,
-            combined,
-            getStdoutEncoding(combined),
-          );
-        }
-      }
-    } else {
-      for (const [content, sink, isStdout] of [
-        [pendingStdout, fd1Sink, true],
-        [pendingStderr, fd2Sink, false],
-      ] as const) {
-        if (content === "") {
-          continue;
-        }
+    // Automa: route each original text/byte segment through the resolved fd sinks.
+    const written = new Set<object>();
+    for (const [stream, content, kind] of outputSegments({
+      ...result,
+      stdout: pendingStdout,
+      stderr: pendingStderr,
+    })) {
+      const sink = stream === "stdout" ? fd1Sink : fd2Sink;
+      const encoding = kind === "bytes" ? "binary" : "utf8";
+      if (!content) continue;
+      const capture = captures?.[stream];
+      if (capture) capture.routing++;
+      try {
         switch (sink.kind) {
           case "live-stdout":
             stdout += content;
+            routed.push(["stdout", content, kind]);
             break;
           case "live-stderr":
             stderr += content;
+            routed.push(["stderr", content, kind]);
             break;
           case "file":
-            await deliverToFile(
-              sink,
-              content,
-              isStdout ? getStdoutEncoding(content) : getFileEncoding(content),
-            );
+            if (written.has(sink))
+              await ctx.fs.appendFile(sink.path, content, encoding);
+            else await deliverToFile(sink, content, encoding);
+            written.add(sink);
             break;
-          case "descriptor":
-            await writeFdEntry(
+          case "descriptor": {
+            const updatedEntry = await writeFdEntry(
               ctx,
               sink.source.entry,
               sink.source.descriptors,
               content,
-              isStdout ? getStdoutEncoding(content) : getFileEncoding(content),
+              encoding,
             );
+            if (updatedEntry) sink.source.entry = updatedEntry;
             break;
+          }
           case "invalid-output":
-            break;
           case "discard":
             break;
         }
+      } finally {
+        if (capture) capture.routing--;
       }
     }
   }
 
   const finalResult = makeResult(stdout, stderr, exitCode);
+  ctx.executionScope.automaOutput?.route(result, fd1Sink, fd2Sink);
+  finalResult.internalOutputSegments = routed;
   // Preserve the upstream's stdout shape through the redirection layer so
   // the next stage (pipeline glue, output boundary) can tell bytes-shaped
   // output from text-shaped output. Both the new `stdoutKind` field and
@@ -1374,8 +1425,8 @@ export async function applyRedirections(
     const priorTotal =
       (result.internalOutputAccounting?.stdout ?? 0) +
       (result.internalOutputAccounting?.stderr ?? 0);
-    const finalStdoutBytes = utf8ByteLength(finalResult.stdout);
-    const finalStderrBytes = utf8ByteLength(finalResult.stderr);
+    const finalStdoutBytes = outputSize(finalResult, "stdout");
+    const finalStderrBytes = outputSize(finalResult, "stderr");
     const inheritedStdout = Math.min(finalStdoutBytes, priorTotal);
     finalResult.internalOutputAccounting = {
       stdout: inheritedStdout,

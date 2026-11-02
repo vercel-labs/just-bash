@@ -319,14 +319,14 @@ describe("jq", () => {
       const env = new Bash();
       const result = await env.exec("jq --unknown '.'");
       expect(result.stderr).toBe("jq: unrecognized option '--unknown'\n");
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(2);
     });
 
     it("should error on unknown short option", async () => {
       const env = new Bash();
       const result = await env.exec("jq -x '.'");
       expect(result.stderr).toBe("jq: invalid option -- 'x'\n");
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(2);
     });
   });
 

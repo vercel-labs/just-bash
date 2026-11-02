@@ -14,6 +14,7 @@ export type {
   JavaScriptConfig,
 } from "./Bash.js";
 export { Bash } from "./Bash.js";
+export { parseFileMode } from "./commands/file-mode.js";
 export type {
   AllCommandName,
   CommandName,
@@ -138,7 +139,9 @@ export type {
   BashExecResult,
   Command,
   CommandContext,
+  EnvironmentInfo,
   ExecResult,
   IFileSystem,
   ResolvedCommandContext,
+  VirtualFileMetadata,
 } from "./types.js";

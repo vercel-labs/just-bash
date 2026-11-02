@@ -1,3 +1,4 @@
+// Automa modification: assert byte-preserving multipart and file upload bodies.
 /**
  * Tests for curl form data options
  */
@@ -124,8 +125,12 @@ describe("curl form data", () => {
       expect(headers.get("Content-Type")).toMatch(
         /^multipart\/form-data; boundary=/,
       );
-      expect(lastRequest?.options.body).toContain('name="name"');
-      expect(lastRequest?.options.body).toContain("John");
+      expect(
+        new TextDecoder().decode(lastRequest?.options.body as Uint8Array),
+      ).toContain('name="name"');
+      expect(
+        new TextDecoder().decode(lastRequest?.options.body as Uint8Array),
+      ).toContain("John");
     });
 
     it("sends multiple form fields", async () => {
@@ -139,7 +144,9 @@ describe("curl form data", () => {
         "curl -F 'first=John' -F 'last=Doe' https://api.example.com/upload",
       );
 
-      const body = lastRequest?.options.body as string;
+      const body = new TextDecoder().decode(
+        lastRequest?.options.body as Uint8Array,
+      );
       expect(body).toContain('name="first"');
       expect(body).toContain("John");
       expect(body).toContain('name="last"');
@@ -158,7 +165,9 @@ describe("curl form data", () => {
         "curl -F 'file=@/data.txt' https://api.example.com/upload",
       );
 
-      const body = lastRequest?.options.body as string;
+      const body = new TextDecoder().decode(
+        lastRequest?.options.body as Uint8Array,
+      );
       expect(body).toContain('name="file"');
       expect(body).toContain('filename="data.txt"');
       expect(body).toContain("file contents here");
@@ -176,7 +185,9 @@ describe("curl form data", () => {
         "curl -F 'data=@/doc.json;type=application/json' https://api.example.com/upload",
       );
 
-      const body = lastRequest?.options.body as string;
+      const body = new TextDecoder().decode(
+        lastRequest?.options.body as Uint8Array,
+      );
       expect(body).toContain("Content-Type: application/json");
     });
   });

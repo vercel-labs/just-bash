@@ -1,0 +1,626 @@
+{
+  "05e87c2f545e4149": {
+    "command": "stat --format='%F' missing f.txt",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "regular file\n",
+    "stderr": "stat: cannot statx 'missing': No such file or directory\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "1465b4b6ff06cab6": {
+    "command": "TZ=Asia/Shanghai date -d 2020-01-01 '+%s %F %T %z'",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1577808000 2020-01-01 00:00:00 +0800\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "14b8768b205ed2e3": {
+    "command": "TZ=UTC touch -d '2020-01-01T00:00:00.125Z' f.txt; TZ=UTC stat --format='%Y|%y' f.txt",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1577836800|2020-01-01 00:00:00.125000000 +0000\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "1a2d337213ca3d5f": {
+    "command": "stat --printf='\\377\\0%n' f.txt | od -An -t x1",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": " ff 00 66 2e 74 78 74\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "1b574ceafb312e3d": {
+    "command": "TZ=UTC date -d @0 +",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "251e57fc2fa6c336": {
+    "command": "TZ=Asia/Shanghai date -d @0 --iso-8601",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1970-01-01\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "25ec697d28707154": {
+    "command": "stat --printf='[%n]' --format='%s' f.txt",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "8\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "277c546cf093f0e8": {
+    "command": "TZ=Asia/Shanghai date -u -d 2020-01-01 '+%s %F %T %z'",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1577836800 2020-01-01 00:00:00 +0000\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "32ef531ba7fa9ab7": {
+    "command": "TZ=UTC date -d @0 --iso-8601",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1970-01-01\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "35962c8b98533efa": {
+    "command": "TZ=UTC date -d @0.125 --iso-8601=ns",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1970-01-01T00:00:00,125000000+00:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "3cebf976a941d7f4": {
+    "command": "TZ=UTC date -d @0 -I",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1970-01-01\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "4754a0054428018d": {
+    "command": "TZ=UTC date -u -d 2020-01-01 '+%s %F %T %z'",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1577836800 2020-01-01 00:00:00 +0000\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "4a23d992e07eea90": {
+    "command": "stat --format='%F' d",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "directory\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "5980b3f726ee905b": {
+    "command": "ln -s f.txt link; stat -L --format='%F|%s' link",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "regular file|8\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "69c040abfc5b604b": {
+    "command": "TZ=Asia/Shanghai date -d @-0.5 '+%s %N'",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "-1 500000000\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "7196fdcb3ad1509d": {
+    "command": "chmod 4751 f.txt; stat --format='%a|%A' f.txt",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "4751|-rwsr-x--x\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "71ce248d01de7dda": {
+    "command": "TZ=UTC touch -d '2020-01-01T00:00:00.125Z' f.txt; TZ=Asia/Shanghai stat --printf='%Y|%y\\n' f.txt",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1577836800|2020-01-01 08:00:00.125000000 +0800\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "77c9671667d3c101": {
+    "command": "date -r missing +%Y",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "",
+    "stderr": "date: missing: No such file or directory\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "787aa3540465b077": {
+    "command": "TZ=Asia/Shanghai date -d @-1 '+%s %F %T'",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "-1 1970-01-01 07:59:59\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "7c004e22269e7cf1": {
+    "command": "TZ=Asia/Shanghai date -d @0 --iso-8601=minutes",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1970-01-01T08:00+08:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "7dd796fa32327719": {
+    "command": "touch -d '2020-01-01T00:00:00.125Z' f.txt; TZ=Asia/Shanghai date --reference=f.txt '+%Y-%m-%d %H:%M:%S.%N %z'",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "2020-01-01 08:00:00.125000000 +0800\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "833b6723846152a4": {
+    "command": "TZ=Asia/Shanghai date -d @0 -Iseconds",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1970-01-01T08:00:00+08:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "86a0c6df6e9d1b2c": {
+    "command": "TZ=UTC date -d @0 '+%Y-%m-%d %H:%M:%S %z'",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1970-01-01 00:00:00 +0000\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "8c3262e49c8befe1": {
+    "command": "stat --printf='' f.txt",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "934ba920e64a8dfc": {
+    "command": "stat --printf='%n\\t%s\\n' f.txt s.txt",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "f.txt\t8\ns.txt\t4\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "95a0159c2ef5be8e": {
+    "command": "TZ=Asia/Shanghai date -d @0 +",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "96bf61122c74357d": {
+    "command": "TZ=UTC date -d @0 -R",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "Thu, 01 Jan 1970 00:00:00 +0000\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "a7120ef66b1d5e60": {
+    "command": "TZ=UTC date -d @0 -Iseconds",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1970-01-01T00:00:00+00:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "af1e3491f46d2fb3": {
+    "command": "stat --format='' f.txt",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "b3ea512458529fd9": {
+    "command": "TZ=UTC date -d 2020-02-30 +%s",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "",
+    "stderr": "date: invalid date '2020-02-30'\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "b73c965370841449": {
+    "command": "TZ=UTC date -d @0 --iso-8601=hours",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1970-01-01T00+00:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "b77ee99690524679": {
+    "command": "TZ=UTC date -d @-1 '+%s %F %T'",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "-1 1969-12-31 23:59:59\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "b7f878a26d1e500c": {
+    "command": "stat --format '%F|%a|%A|%s|%n|%h' f.txt",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "regular file|644|-rw-r--r--|8|f.txt|1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "bfb7b0db4d828e84": {
+    "command": "ln -s f.txt link; stat --format='%F|%A|%h' link",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "symbolic link|lrwxrwxrwx|1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "c128c530e60d2ae4": {
+    "command": "TZ=Asia/Shanghai date -d @0 '+%Y-%m-%d %H:%M:%S %z'",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1970-01-01 08:00:00 +0800\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "c487f4dce224b7a2": {
+    "command": "TZ=Asia/Shanghai date -d @0.125 --iso-8601=ns",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1970-01-01T08:00:00,125000000+08:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "cb9d67771914ccd5": {
+    "command": "TZ=Asia/Shanghai date -d @0 -I",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1970-01-01\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "cd1d3f47ddf07f94": {
+    "command": "stat --printf='%F|%a|%A|%s|%n|%h\\n' f.txt s.txt empty",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "regular file|644|-rw-r--r--|8|f.txt|1\nregular file|644|-rw-r--r--|4|s.txt|1\nregular empty file|644|-rw-r--r--|0|empty|1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "cd6761e80bf0a3f0": {
+    "command": "touch -d '2020-01-01T00:00:00Z' f.txt; TZ=UTC date -r f.txt +%Y",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "2020\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "d1a0e535cbaceff7": {
+    "command": "TZ=UTC date -d 2020-01-01 '+%s %F %T %z'",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1577836800 2020-01-01 00:00:00 +0000\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "d4eee4f8320c00e4": {
+    "command": "stat --format='%% %n %q' f.txt",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "% f.txt ?\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "d657f200c23c1ea1": {
+    "command": "TZ=Asia/Shanghai date -d 2020-02-30 +%s",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "",
+    "stderr": "date: invalid date '2020-02-30'\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "d7cc46be9673b189": {
+    "command": "TZ=Asia/Shanghai date -d @0 --iso-8601=hours",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1970-01-01T08+08:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "dac47aee4c292e94": {
+    "command": "stat --printf='%n\\0' f.txt | od -An -t x1",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": " 66 2e 74 78 74 00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "e00f32409252db6d": {
+    "command": "TZ=Asia/Shanghai date -d @0 -R",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "Thu, 01 Jan 1970 08:00:00 +0800\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "e48e8c8a9f2487eb": {
+    "command": "stat --format='%s' --printf='[%n]' f.txt",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "[f.txt]",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "eee1c0ac8633af9e": {
+    "command": "TZ=UTC date -d @0 --iso-8601=minutes",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "1970-01-01T00:00+00:00\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "fdd12029ad118573": {
+    "command": "TZ=UTC date -d @-0.5 '+%s %N'",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "empty": "",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "-1 500000000\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}

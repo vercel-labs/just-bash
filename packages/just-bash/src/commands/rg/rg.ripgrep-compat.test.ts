@@ -750,7 +750,7 @@ describe("rg ripgrep-compat: vimgrep format (--vimgrep)", () => {
     expect(result.exitCode).toBe(0);
     // Each match on separate line (line 1 appears twice for Watson and Sherlock)
     expect(result.stdout).toBe(
-      "1:16:For the Doctor Watsons of this world, as opposed to the Sherlock\n1:57:For the Doctor Watsons of this world, as opposed to the Sherlock\n3:49:be, to a very large extent, the result of luck. Sherlock Holmes\n5:12:but Doctor Watson has to have it taken out for him and dusted,\n",
+      "sherlock:1:16:For the Doctor Watsons of this world, as opposed to the Sherlock\nsherlock:1:57:For the Doctor Watsons of this world, as opposed to the Sherlock\nsherlock:3:49:be, to a very large extent, the result of luck. Sherlock Holmes\nsherlock:5:12:but Doctor Watson has to have it taken out for him and dusted,\n",
     );
   });
 });

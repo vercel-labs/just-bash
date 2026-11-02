@@ -18,6 +18,7 @@
  */
 
 import * as Diff from "diff";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 
 const NO_NEWLINE = "\\ No newline at end of file\n";
 
@@ -70,11 +71,21 @@ export function computeChanges(
   oldFile: FileLines,
   newFile: FileLines,
   ignoreCase: boolean,
+  maxEditLength?: number,
 ): Change[] {
   const parts = Diff.diffArrays(
     tokenize(oldFile, ignoreCase),
     tokenize(newFile, ignoreCase),
+    {
+      maxEditLength:
+        maxEditLength ?? oldFile.lines.length + newFile.lines.length,
+    },
   );
+  if (!parts)
+    throw new ExecutionLimitError(
+      "diff: comparison work limit exceeded",
+      "iterations",
+    );
 
   const changes: Change[] = [];
   let oldIdx = 0;
@@ -249,10 +260,11 @@ export function formatUnified(
   newFile: FileLines,
   changes: Change[],
   context: number,
+  labels: readonly string[] = [],
 ): string {
   const out: string[] = [
-    `--- ${quoteFilename(oldName)}\n`,
-    `+++ ${quoteFilename(newName)}\n`,
+    `--- ${labels[0] ?? quoteFilename(oldName)}\n`,
+    `+++ ${labels[1] ?? quoteFilename(newName)}\n`,
   ];
   for (const hunk of groupIntoHunks(changes, context)) {
     const b = hunkBounds(hunk, oldFile, newFile, context);
@@ -331,10 +343,11 @@ export function formatContext(
   newFile: FileLines,
   changes: Change[],
   context: number,
+  labels: readonly string[] = [],
 ): string {
   const out: string[] = [
-    `*** ${quoteFilename(oldName)}\n`,
-    `--- ${quoteFilename(newName)}\n`,
+    `*** ${labels[0] ?? quoteFilename(oldName)}\n`,
+    `--- ${labels[1] ?? quoteFilename(newName)}\n`,
   ];
   for (const hunk of groupIntoHunks(changes, context)) {
     const b = hunkBounds(hunk, oldFile, newFile, context);

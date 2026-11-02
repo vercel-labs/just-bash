@@ -27,7 +27,51 @@ export function isTruthy(v: QueryValue): boolean {
  * Deep equality check for query values.
  */
 export function deepEqual(a: QueryValue, b: QueryValue): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  // Automa modifications: compare iteratively without serializing object key order.
+  const stack: Array<{
+    a: QueryValue;
+    b: QueryValue;
+    keys?: (string | number)[];
+    index: number;
+  }> = [{ a, b, index: 0 }];
+  while (stack.length) {
+    const frame = stack[stack.length - 1];
+    if (!frame.keys) {
+      if (frame.a === frame.b) {
+        stack.pop();
+        continue;
+      }
+      if (
+        frame.a === null ||
+        frame.b === null ||
+        typeof frame.a !== "object" ||
+        typeof frame.b !== "object"
+      )
+        return false;
+      const array = Array.isArray(frame.a);
+      if (array !== Array.isArray(frame.b)) return false;
+      frame.keys = array
+        ? Array.from({ length: (frame.a as QueryValue[]).length }, (_, i) => i)
+        : Object.keys(frame.a);
+      if (
+        frame.keys.length !==
+        (array ? (frame.b as QueryValue[]).length : Object.keys(frame.b).length)
+      )
+        return false;
+    }
+    if (frame.index === frame.keys.length) {
+      stack.pop();
+      continue;
+    }
+    const key = frame.keys[frame.index++];
+    if (!Object.hasOwn(frame.b as object, key)) return false;
+    stack.push({
+      a: (frame.a as Record<string | number, QueryValue>)[key],
+      b: (frame.b as Record<string | number, QueryValue>)[key],
+      index: 0,
+    });
+  }
+  return true;
 }
 
 /**

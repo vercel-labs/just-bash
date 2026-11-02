@@ -528,7 +528,7 @@ describe("awk parsing", () => {
     it("should error on missing file", async () => {
       const env = new Bash();
       const result = await env.exec(`awk '{print}' /nonexistent.txt`);
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(2);
       expect(result.stderr).toContain("No such file");
     });
   });

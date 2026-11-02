@@ -92,7 +92,19 @@ export const stdoutStderrCommand: Command = defineCommand(
   "stdout_stderr.py",
   async (args) => {
     const stdout = args.length > 0 ? `${args[0]}\n` : "STDOUT\n";
-    return { stdout, stderr: "STDERR\n", exitCode: 0 };
+    // Automa: the original Python helper leaves stdout pipe-buffered while
+    // stderr is flushed first; the imported |& fixture records STDERR then STDOUT.
+    // Preserve that observed delivery order explicitly instead of relying on the
+    // interpreter's former stderr-before-stdout concatenation.
+    return {
+      stdout,
+      stderr: "STDERR\n",
+      exitCode: 0,
+      internalOutputSegments: [
+        ["stderr", "STDERR\n", "text"],
+        ["stdout", stdout, "text"],
+      ],
+    };
   },
 );
 

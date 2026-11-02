@@ -249,7 +249,7 @@ describe("date", () => {
     it("should output ISO format with -I", async () => {
       const env = new Bash();
       const result = await env.exec("date -I");
-      expect(result.stdout).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+      expect(result.stdout).toMatch(/^\d{4}-\d{2}-\d{2}\n$/);
       expect(result.exitCode).toBe(0);
     });
 
@@ -276,11 +276,11 @@ describe("date", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it("should output +0000 in -I format with -u", async () => {
+    it("should output +00:00 in -Iseconds format with -u", async () => {
       const env = new Bash();
-      const result = await env.exec("date -u -I");
+      const result = await env.exec("date -u -Iseconds");
       expect(result.stdout.trim()).toMatch(
-        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+0000$/,
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$/,
       );
       expect(result.exitCode).toBe(0);
     });

@@ -1,3 +1,5 @@
+import { commandSubstitutionText } from "../../execution-output.js";
+import { automaTrapChild } from "../traps.js";
 /**
  * Pattern Expansion
  *
@@ -126,7 +128,11 @@ async function executeCommandSubstitutionFromString(
   ctx.state.suppressVerbose = true;
 
   try {
-    const result = await ctx.executeScript(ast);
+    const result = await automaTrapChild(
+      ctx,
+      () => ctx.executeScript(ast),
+      "command",
+    );
     // Restore environment but preserve exit code
     const exitCode = result.exitCode;
     ctx.state.env = savedEnv;
@@ -139,7 +145,7 @@ async function executeCommandSubstitutionFromString(
         (ctx.state.expansionStderr || "") + result.stderr;
     }
     ctx.state.bashPid = savedBashPid;
-    return result.stdout.replace(/\n+$/, "");
+    return commandSubstitutionText(result).replace(/\n+$/, "");
   } catch (error) {
     ctx.state.env = savedEnv;
     ctx.state.arrays = savedArrays;
@@ -151,7 +157,7 @@ async function executeCommandSubstitutionFromString(
     }
     if (error instanceof ExitError) {
       recordSubstitutionExit(ctx.state, error.exitCode);
-      return error.stdout?.replace(/\n+$/, "") ?? "";
+      return commandSubstitutionText(error).replace(/\n+$/, "") ?? "";
     }
     return "";
   }

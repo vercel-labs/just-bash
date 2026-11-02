@@ -1,3 +1,5 @@
+import { commandSubstitutionText } from "../execution-output.js";
+import { automaTrapChild } from "./traps.js";
 /**
  * Word Expansion
  *
@@ -826,7 +828,11 @@ async function expandPart(
       const savedSuppressVerbose = ctx.state.suppressVerbose;
       ctx.state.suppressVerbose = true;
       try {
-        const result = await ctx.executeScript(part.body);
+        const result = await automaTrapChild(
+          ctx,
+          () => ctx.executeScript(part.body),
+          "command",
+        );
         // Restore environment but preserve exit code
         const exitCode = result.exitCode;
         ctx.state.env = savedEnv;
@@ -843,7 +849,7 @@ async function expandPart(
         }
         ctx.state.bashPid = savedBashPid;
         ctx.substitutionDepth = savedDepth;
-        const output = result.stdout.replace(/\n+$/, "");
+        const output = commandSubstitutionText(result).replace(/\n+$/, "");
         // Check string length limit for command substitution output
         checkStringLength(
           output,
@@ -871,7 +877,7 @@ async function expandPart(
             ctx.state.expansionStderr =
               (ctx.state.expansionStderr || "") + error.stderr;
           }
-          const exitOutput = error.stdout.replace(/\n+$/, "");
+          const exitOutput = commandSubstitutionText(error).replace(/\n+$/, "");
           // Check string length limit for command substitution output
           checkStringLength(
             exitOutput,

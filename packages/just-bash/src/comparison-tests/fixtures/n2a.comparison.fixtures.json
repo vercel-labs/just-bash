@@ -1,0 +1,662 @@
+{
+  "0888c819d157c652": {
+    "command": "printf 'hello world:foo bar:test\\n' | xargs -d : -n1 echo",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "hello world\nfoo bar\ntest\n\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "099f030f63b92fff": {
+    "command": "printf 'a b' | xargs -P0 -n1 echo",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "a\nb\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "0a7aaa16cd6134bb": {
+    "command": "printf 'x:y:z\\n' | xargs -d : -I{} echo 'item: {}'",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "item: x\nitem: y\nitem: z\n\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "0b8aef6fea5816af": {
+    "command": "wc -c f.txt s.txt",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": " 8 f.txt\n 4 s.txt\n12 total\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "18cba0ccc25f08de": {
+    "command": "printf 'a b' | xargs -P2 -n1 false",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 123,
+    "locked": true
+  },
+  "223e960bda035528": {
+    "command": "printf 'a\\0\\0b\\0' | xargs -0 -n1 printf '<%s>\\n'",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "<a>\n<>\n<b>\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "26b06a1bc665dffb": {
+    "command": "find . -mmin -60 -type f -name f.txt",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "./f.txt\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "2f6c65518e260fc0": {
+    "command": "printf 'a:b:c:d:e\\n' | xargs -d : -n2 echo",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "a b\nc d\ne\n\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "31f6fd2921cddc3e": {
+    "command": "printf 'f.txt' | xargs -t wc -l 2>&1",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "wc -l f.txt\n2 f.txt\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "37cddb74b0e6e1c3": {
+    "command": "wc -l f.txt s.txt",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": " 2 f.txt\n 1 s.txt\n 3 total\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "3a1345ced9c30a2d": {
+    "command": "find . missing -quit",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "4922bda4e01ae8d5": {
+    "command": "touch -d 2000-01-01 f.txt; find f.txt s.txt -newer f.txt",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "s.txt\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "49c3f7841910dbb2": {
+    "command": "xargs --arg-file args echo",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "f.txt s.txt\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "61513fe96dac6b5c": {
+    "command": "printf 'a b' | xargs -n1 false",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 123,
+    "locked": true
+  },
+  "63416d435a1bf485": {
+    "command": "find f.txt s.txt -printf '%p|%s|%f|%h|%y|%m\\n'",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "f.txt|8|f.txt|.|f|644\ns.txt|4|s.txt|.|f|644\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "6aca81a8aa434d90": {
+    "command": "touch -d '2020-01-01T00:00:00Z' f.txt; TZ=Asia/Shanghai find f.txt -newermt '2020-01-01 08:00:00'",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "76e03e854765028c": {
+    "command": "find . -mtime 0 -type f -name f.txt",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "./f.txt\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "7c125455742c294d": {
+    "command": "TZ=UTC touch -d '2020-01-01T00:00:00Z' f.txt; TZ=UTC find f.txt -printf '%T@|%TY-%Tm-%Td\\n'",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "1577836800.0000000000|2020-01-01\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "82b42b130f1141c6": {
+    "command": "printf 'a b c' | xargs -n2",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "a b\nc\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "8a3a08220fafdc5d": {
+    "command": "printf '' | xargs",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "914576d4e9e9b105": {
+    "command": "find . -name f.txt -quit -print",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "9285180e8d232c04": {
+    "command": "find d -depth -name g.ts -print -quit",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "d/g.ts\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "93ee4ad517b33f37": {
+    "command": "xargs -a args echo",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "f.txt s.txt\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "966b98f3f892557e": {
+    "command": "printf 'a b' | xargs -n1 bash -c 'exit 255'",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "",
+    "stderr": "xargs: bash: exited with status 255; aborting\n",
+    "exitCode": 124,
+    "locked": true
+  },
+  "9cafb71c3f88e339": {
+    "command": "find . -mindepth 1 -not -ipath '*.TS' -type f | sort",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "./args\n./d/e\n./f.txt\n./s.txt\n./stdin-args\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "a034d063308d78ca": {
+    "command": "find . ! -quit -print",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "a2eaffdd1e596825": {
+    "command": "printf 'a::b\\n' | xargs -d : echo",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "a  b\n\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "a452272009fe8cac": {
+    "command": "find . -mindepth 1 ! -ipath '*.TS' -type f | sort",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "./args\n./d/e\n./f.txt\n./s.txt\n./stdin-args\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "aae5dcc5b44b3ae2": {
+    "command": "printf 'a b' | xargs -a - echo",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "a b\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "ae7b459691c65dd1": {
+    "command": "touch -d 2000-01-01 f.txt; find f.txt s.txt -newermt 2000-01-02",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "s.txt\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "b8c7f9615d07edc7": {
+    "command": "touch -d '2020-01-01T00:00:00Z' f.txt; TZ=Asia/Shanghai find f.txt -newermt '2020-01-01 07:59:59'",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "f.txt\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "bf6cab8a2bb532ac": {
+    "command": "wc -lm f.txt s.txt",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": " 2  8 f.txt\n 1  4 s.txt\n 3 12 total\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "ce6fd6f756f73428": {
+    "command": "find . -quit -o -print",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "d08f3878b5f972da": {
+    "command": "printf '' | xargs -r echo suppressed",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "d86f2d6a2863e0e8": {
+    "command": "printf 'a:b:c\\n' | xargs -d : echo",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "a b c\n\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "dbe72dd6eae7b114": {
+    "command": "find . -print -quit",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": ".\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "e6e8b67b7c3f8b65": {
+    "command": "printf 'f.txt\\0s.txt\\0' | xargs -0 wc -c | tail -1",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "12 total\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "e8035ddf939ac496": {
+    "command": "wc f.txt s.txt",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": " 2  2  8 f.txt\n 1  2  4 s.txt\n 3  4 12 total\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "e889f0126ac50465": {
+    "command": "find f.txt s.txt -exec echo {} + -quit",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "f.txt\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "e9bf796bdd2aac0d": {
+    "command": "xargs -aargs -n1 echo",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "f.txt\ns.txt\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "ec5ff4913b7543f5": {
+    "command": "ln -s f.txt link; find link d -maxdepth 0 -printf '%p|%y\\n'",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "link|l\nd|d\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "ee7d8ef400af9a98": {
+    "command": "printf ignored | xargs -a args echo",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "f.txt s.txt\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "f0362489b7596de7": {
+    "command": "xargs --arg-file=args echo",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "f.txt s.txt\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "fabada8556161493": {
+    "command": "printf payload | xargs -a stdin-args -n1 cat",
+    "files": {
+      "f.txt": "one\ntwo\n",
+      "s.txt": "x y\n",
+      "d/g.ts": "type\n",
+      "d/e": "a\n",
+      "args": "f.txt s.txt\n",
+      "stdin-args": "-\n"
+    },
+    "stdout": "payload",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}

@@ -7,7 +7,7 @@ describe("nounset with a whole-word quoted parameter expansion", () => {
     const result = await env.exec('set -u\necho "${#JB_UNSET}"\necho reached');
     expect(result.stderr).toBe("bash: JB_UNSET: unbound variable\n");
     expect(result.stdout).toBe("");
-    expect(result.exitCode).toBe(1);
+    expect(result.exitCode).toBe(127);
   });
 
   it("still fires for a bare ${var} as a whole double-quoted word", async () => {
@@ -15,6 +15,6 @@ describe("nounset with a whole-word quoted parameter expansion", () => {
     const result = await env.exec('set -u\necho "${JB_UNSET}"\necho reached');
     expect(result.stderr).toBe("bash: JB_UNSET: unbound variable\n");
     expect(result.stdout).toBe("");
-    expect(result.exitCode).toBe(1);
+    expect(result.exitCode).toBe(127);
   });
 });

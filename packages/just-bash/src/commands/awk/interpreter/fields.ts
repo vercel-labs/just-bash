@@ -1,3 +1,4 @@
+import { countCharacters } from "../records.js";
 /**
  * AWK Field Operations
  *
@@ -32,7 +33,11 @@ export function splitFields(ctx: AwkRuntimeContext, line: string): string[] {
           .trim()
           .split(/\s+/, limit)
           .filter(Boolean)
-      : ctx.fieldSep.split(line, limit);
+      : ctx.RS === "" && countCharacters(ctx.FS) === 1
+        ? createUserRegex(
+            `(?:${ctx.FS.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}|\n)`,
+          ).split(line, limit)
+        : ctx.fieldSep.split(line, limit);
   if (fields.length > max) {
     throw new ExecutionLimitError(
       `field count limit exceeded (${max})`,
@@ -147,6 +152,8 @@ export function setFieldSeparator(ctx: AwkRuntimeContext, fs: string): void {
   if (fs === " ") {
     ctx.fieldSep = new ConstantRegex(/\s+/);
   } else {
+    if (countCharacters(fs) === 1)
+      fs = fs.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     try {
       ctx.fieldSep = createUserRegex(fs);
     } catch {

@@ -1,3 +1,4 @@
+import type { InputMetadata, InputPolicy, InputState } from "./input-state.js";
 /**
  * Query expression evaluator
  *
@@ -25,6 +26,7 @@ import {
   evalStringBuiltin,
   evalTypeBuiltin,
 } from "./builtins/index.js";
+import { formatJsonValue } from "./json-output.js";
 import type { AstNode, DestructurePattern } from "./parser.js";
 import { deletePath, setPath } from "./path-operations.js";
 import {
@@ -118,7 +120,22 @@ export interface QueryExecutionLimits {
 
 export type ResolvedQueryExecutionLimits = Required<QueryExecutionLimits>;
 
+// Automa modifications: lexical values and deferred filter arguments are distinct.
+interface QueryFunction {
+  params: string[];
+  body: AstNode;
+  closure?: Map<string, QueryFunction>;
+  vars?: Map<string, QueryValue>;
+  filter?: boolean;
+}
+
+export class UndefinedQueryFunctionError extends Error {}
+
 export interface EvalContext {
+  /** Automa modifications: shared input cursor and source identity. */
+  inputMetadata?: InputMetadata;
+  inputState?: InputState;
+  inputPolicy?: InputPolicy;
   vars: Map<string, QueryValue>;
   limits: ResolvedQueryExecutionLimits;
   env?: Map<string, string>;
@@ -132,10 +149,7 @@ export interface EvalContext {
   root?: QueryValue;
   /** Current path from root for parent navigation */
   currentPath?: (string | number)[];
-  funcs?: Map<
-    string,
-    { params: string[]; body: AstNode; closure?: Map<string, unknown> }
-  >;
+  funcs?: Map<string, QueryFunction>;
   labels?: Set<string>;
   /** Feature coverage writer for fuzzing instrumentation */
   coverage?: FeatureCoverageWriter;
@@ -195,7 +209,9 @@ function appendQueryResults(
   values: readonly QueryValue[],
 ): void {
   assertQueryResultCapacity(ctx, target.length, values.length);
+  const offset = target.length;
   for (const value of values) target.push(value);
+  ctx.inputState?.append(target, values, offset);
 }
 
 function boundedFlatMap(
@@ -204,8 +220,10 @@ function boundedFlatMap(
   mapper: (value: QueryValue) => QueryValue[],
 ): QueryValue[] {
   const results: QueryValue[] = [];
+  let ordinal = 0;
   for (const value of values) {
     chargeQueryWork(ctx);
+    ctx.inputState?.beforeEach(values, ordinal++);
     const mapped = mapper(value);
     appendQueryResults(ctx, results, mapped);
   }
@@ -236,6 +254,9 @@ function createContext(options?: EvaluateOptions): EvalContext {
     namedArgs: options?.namedArgs,
     positionalArgs: options?.positionalArgs,
     coverage: options?.coverage,
+    inputMetadata: options?.inputMetadata,
+    inputState: options?.inputState,
+    inputPolicy: options?.inputPolicy,
     requireDefenseContext: options?.requireDefenseContext,
     defenseContextChecked: false,
     budget: options?.budget ?? { operations: 0, callDepth: 0 },
@@ -262,6 +283,9 @@ function withVar(
     funcs: ctx.funcs,
     labels: ctx.labels,
     coverage: ctx.coverage,
+    inputMetadata: ctx.inputMetadata,
+    inputState: ctx.inputState,
+    inputPolicy: ctx.inputPolicy,
     budget: ctx.budget,
   };
 }
@@ -456,6 +480,10 @@ function applyPathTransform(
 }
 
 export interface EvaluateOptions {
+  /** Automa modifications: shared input cursor and source identity. */
+  inputMetadata?: InputMetadata;
+  inputState?: InputState;
+  inputPolicy?: InputPolicy;
   limits?: QueryExecutionLimits;
   env?: Map<string, string>;
   /** Named arguments (bare names) bound to $NAME and exposed via $ARGS.named */
@@ -540,6 +568,7 @@ export function evaluate(
   }
 
   try {
+    ctx = ctx.inputState?.context(ctx, ast) ?? ctx;
     const results = evaluateNode(value, ast, ctx);
     // Enforce the public evaluator contract as well as individual builders.
     // Direct nodes such as `.[]` can otherwise return an attacker-owned array
@@ -593,6 +622,18 @@ function evaluateNode(
       const bases = ast.base ? evaluate(value, ast.base, ctx) : [value];
       return boundedFlatMap(ctx, indices, (idx) =>
         boundedFlatMap(ctx, bases, (v) => {
+          // Automa modifications: incompatible scalar indexes must not return null.
+          if (
+            (typeof idx === "number" && v !== null && !Array.isArray(v)) ||
+            (typeof idx === "string" &&
+              v !== null &&
+              (typeof v !== "object" || Array.isArray(v))) ||
+            idx === null ||
+            typeof idx === "boolean"
+          )
+            throw new Error(
+              `Cannot index ${Array.isArray(v) ? "array" : v === null ? "null" : typeof v} with ${idx === null ? "null" : typeof idx}`,
+            );
           if (typeof idx === "number" && Array.isArray(v)) {
             // Handle NaN - return null for NaN index
             if (Number.isNaN(idx)) {
@@ -662,20 +703,28 @@ function evaluateNode(
     }
 
     case "Pipe": {
+      const inputBefore = ctx.inputState?.readCount ?? 0;
       const leftResults = evaluate(value, ast.left, ctx);
       const leftPath = extractPathFromAst(ast.left);
       const pipeResults: QueryValue[] = [];
+      let ordinal = 0;
       for (const v of leftResults) {
         try {
+          ctx.inputState?.beforeEach(leftResults, ordinal++);
+          const rightContext =
+            leftResults.length > 1 &&
+            (ctx.inputState?.readCount ?? 0) > inputBefore
+              ? { ...ctx, inputPolicy: "multi-result input pipeline" }
+              : ctx;
           if (leftPath !== null) {
             const newCtx = {
-              ...ctx,
+              ...rightContext,
               currentPath: [...(ctx.currentPath ?? []), ...leftPath],
             };
             const next = evaluate(v, ast.right, newCtx);
             appendQueryResults(ctx, pipeResults, next);
           } else {
-            const next = evaluate(v, ast.right, ctx);
+            const next = evaluate(v, ast.right, rightContext);
             appendQueryResults(ctx, pipeResults, next);
           }
         } catch (e) {
@@ -689,9 +738,13 @@ function evaluateNode(
     }
     case "Comma": {
       const leftResults = evaluate(value, ast.left, ctx);
+      ctx.inputState?.stamp(leftResults);
       const rightResults = evaluate(value, ast.right, ctx);
       assertQueryResultCapacity(ctx, leftResults.length, rightResults.length);
-      return [...leftResults, ...rightResults];
+      const result = [...leftResults, ...rightResults];
+      return (
+        ctx.inputState?.concat(result, leftResults, rightResults) ?? result
+      );
     }
 
     case "Literal":
@@ -739,10 +792,13 @@ function evaluateNode(
               }
               continue;
             }
+            let ordinal = 0;
             for (const v of values) {
+              ctx.inputState?.beforeEach(values, ordinal++);
               const newObj = nullPrototypeCopy(obj);
               safeSet(newObj, k, v);
               newResults.push(newObj);
+              ctx.inputState?.pushRecord(newResults);
             }
           }
         }
@@ -1053,6 +1109,7 @@ function evaluateNode(
       const funcKey = `${ast.name}/${ast.params.length}`;
       // Capture the current funcs map as the closure for this function
       newFuncs.set(funcKey, {
+        vars: new Map(ctx.vars),
         params: ast.params,
         body: ast.funcBody,
         closure: new Map(ctx.funcs ?? []),
@@ -1306,13 +1363,27 @@ function applyUpdate(
         return applyToContainer(val);
       }
 
-      case "Pipe": {
-        const leftResult = updateRecursive(val, path.left, (x) => x);
-        return updateRecursive(leftResult, path.right, transform);
+      // Automa modifications: keep the root while traversing filtered update paths.
+      case "Paren":
+        return updateRecursive(val, path.expr, transform);
+      case "Call": {
+        if (path.name === "select" && path.args.length === 1) {
+          const decisions = evaluate(val, path.args[0], ctx);
+          if (decisions.length <= 1)
+            return decisions.some(isTruthy) ? transform(val) : val;
+        }
+        throw new Error(
+          "Unsupported jq assignment path; use field/index/iteration/select paths",
+        );
       }
-
+      case "Pipe":
+        return updateRecursive(val, path.left, (item) =>
+          updateRecursive(item, path.right, transform),
+        );
       default:
-        return transform(val);
+        throw new Error(
+          "Unsupported jq assignment path; use field/index/iteration/select paths",
+        );
     }
   }
 
@@ -1661,8 +1732,28 @@ function evalBinaryOp(
         case "-":
           if (typeof l === "number" && typeof r === "number") return l - r;
           if (Array.isArray(l) && Array.isArray(r)) {
-            const rSet = new Set(r.map((x) => JSON.stringify(x)));
-            return l.filter((x) => !rSet.has(JSON.stringify(x)));
+            // Automa modifications: equality is independent of object insertion order.
+            const buckets = new Map<string, QueryValue[]>();
+            const key = (value: QueryValue) => {
+              chargeQueryWork(ctx);
+              return formatJsonValue(value, ctx.limits.maxStringLength, {
+                compact: true,
+                sortKeys: true,
+              });
+            };
+            for (const value of r) {
+              const hash = key(value);
+              const bucket = buckets.get(hash);
+              if (bucket) bucket.push(value);
+              else buckets.set(hash, [value]);
+            }
+            return l.filter(
+              (value) =>
+                !(buckets.get(key(value)) ?? []).some((candidate) => {
+                  chargeQueryWork(ctx);
+                  return deepEqual(value, candidate);
+                }),
+            );
           }
           if (typeof l === "string" && typeof r === "string") {
             // jq: strings cannot be subtracted - format truncates long strings
@@ -1765,7 +1856,72 @@ function evalBuiltin(
   args: AstNode[],
   ctx: EvalContext,
 ): QueryValue[] {
+  // Automa modifications: lexical definitions shadow builtins by name and arity.
+  const key = `${name}/${args.length}`;
+  const definition = ctx.funcs?.get(key);
+  if (definition) {
+    if (definition.filter)
+      return evaluate(value, definition.body, {
+        ...ctx,
+        funcs: definition.closure,
+        vars: definition.vars ?? ctx.vars,
+        inputPolicy: ctx.inputState
+          ? "custom filter argument"
+          : ctx.inputPolicy,
+      });
+    const funcs = new Map(definition.closure ?? ctx.funcs ?? []);
+    funcs.set(key, definition);
+    let contexts: EvalContext[] = [
+      { ...ctx, funcs, vars: new Map(definition.vars ?? ctx.vars) },
+    ];
+    for (let i = 0; i < definition.params.length; i++) {
+      if (contexts.length === 0) break;
+      const parameter = definition.params[i];
+      const argument = args[i];
+      if (parameter.startsWith("$")) {
+        const values = evaluate(
+          value,
+          argument,
+          ctx.inputState
+            ? { ...ctx, inputPolicy: "custom filter argument" }
+            : ctx,
+        );
+        const next: EvalContext[] = [];
+        for (const parent of contexts) {
+          chargeQueryWork(ctx);
+          for (const item of values) {
+            chargeQueryWork(ctx);
+            assertQueryResultCapacity(ctx, next.length);
+            const vars = new Map(parent.vars);
+            vars.set(parameter, item);
+            next.push({ ...parent, vars });
+          }
+        }
+        contexts = next;
+      } else
+        funcs.set(`${parameter}/0`, {
+          params: [],
+          body: argument,
+          closure: new Map(ctx.funcs ?? []),
+          vars: new Map(ctx.vars),
+          filter: true,
+        });
+    }
+    const output: QueryValue[] = [];
+    for (const context of contexts)
+      appendQueryResults(
+        ctx,
+        output,
+        evaluate(value, definition.body, context),
+      );
+    return output;
+  }
   // Handle simple single-argument math functions via lookup table
+  if (args.length === 0) {
+    if (name === "input_filename") return [ctx.inputMetadata?.filename ?? null];
+    if (name === "input_line_number") return [ctx.inputMetadata?.line ?? 0];
+    if (name === "input" && ctx.inputState) return ctx.inputState.read(ctx);
+  }
   const simpleMathFn = SIMPLE_MATH_FUNCTIONS.get(name);
   if (simpleMathFn) {
     if (typeof value === "number") return [simpleMathFn(value)];
@@ -2059,59 +2215,7 @@ function evalBuiltin(
     // IN, INDEX, JOIN handled by evalSqlBuiltin
 
     default: {
-      // Check for user-defined function by name/arity
-      const funcKey = `${name}/${args.length}`;
-      const userFunc = ctx.funcs?.get(funcKey) as
-        | { params: string[]; body: AstNode; closure?: Map<string, unknown> }
-        | undefined;
-      if (userFunc) {
-        // User-defined function: bind parameters
-        // In jq, parameters are "filters" that can produce multiple values.
-        // We evaluate them in the calling context and store as literal values.
-        //
-        // Use the function's closure for lexical scoping, not the current context's funcs.
-        // This ensures that functions capture the scope at definition time.
-        const baseFuncs = (userFunc.closure ?? ctx.funcs ?? new Map()) as Map<
-          string,
-          { params: string[]; body: AstNode; closure?: Map<string, unknown> }
-        >;
-        const newFuncs = new Map(baseFuncs);
-        // Also add the current function itself so recursion works
-        newFuncs.set(funcKey, userFunc);
-        for (let i = 0; i < userFunc.params.length; i++) {
-          const paramName = userFunc.params[i];
-          const argExpr = args[i];
-          if (argExpr) {
-            // Evaluate the argument in the calling context, then store as a literal
-            // This implements call-by-value semantics
-            const argVals = evaluate(value, argExpr, ctx);
-            // Store as a function that returns all the values
-            let bodyNode: AstNode;
-            if (argVals.length === 0) {
-              bodyNode = { type: "Call", name: "empty", args: [] };
-            } else if (argVals.length === 1) {
-              bodyNode = { type: "Literal", value: argVals[0] };
-            } else {
-              // Multiple values - build a right-associative Comma chain
-              bodyNode = {
-                type: "Literal",
-                value: argVals[argVals.length - 1],
-              };
-              for (let j = argVals.length - 2; j >= 0; j--) {
-                bodyNode = {
-                  type: "Comma",
-                  left: { type: "Literal", value: argVals[j] },
-                  right: bodyNode,
-                };
-              }
-            }
-            newFuncs.set(`${paramName}/0`, { params: [], body: bodyNode });
-          }
-        }
-        const newCtx: EvalContext = { ...ctx, funcs: newFuncs };
-        return evaluate(value, userFunc.body, newCtx);
-      }
-      throw new Error(`Unknown function: ${name}`);
+      throw new UndefinedQueryFunctionError(`Unknown function: ${name}`);
     }
   }
 }

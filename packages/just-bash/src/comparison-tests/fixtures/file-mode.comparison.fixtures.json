@@ -1,0 +1,123 @@
+{
+  "0aa2acc9edcee4c2": {
+    "command": "chmod 644 f; chmod a+X f; stat -c %a f",
+    "files": {
+      "f": "old\n",
+      "d/a": "x"
+    },
+    "stdout": "644\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "14dc3983b4c998a8": {
+    "command": "chmod 755 f; chmod a-x,a+X f; stat -c %a f",
+    "files": {
+      "f": "old\n",
+      "d/a": "x"
+    },
+    "stdout": "644\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "28c3dd7220336b7f": {
+    "command": "chmod 744 f; chmod a+X f; stat -c %a f",
+    "files": {
+      "f": "old\n",
+      "d/a": "x"
+    },
+    "stdout": "755\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "50577067044d4e5d": {
+    "command": "chmod 644 d; chmod +X d; stat -c %a d",
+    "files": {
+      "f": "old\n",
+      "d/a": "x"
+    },
+    "stdout": "755\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "748e7506596f87ea": {
+    "command": "chmod 750 f; sed -i s/old/new/ f; stat -c %a f",
+    "files": {
+      "f": "old\n",
+      "d/a": "x"
+    },
+    "stdout": "750\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "75a23842ab518fda": {
+    "command": "chmod 644 f; chmod o+t f; stat -c %a f",
+    "files": {
+      "f": "old\n",
+      "d/a": "x"
+    },
+    "stdout": "1644\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "83653fb24d09fbc0": {
+    "command": "chmod 777 f; chmod u=rw,g=r,o= f; stat -c %a f",
+    "files": {
+      "f": "old\n",
+      "d/a": "x"
+    },
+    "stdout": "640\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "c52703cd585c1daf": {
+    "command": "chmod 644 f; chmod u+t f; stat -c %a f",
+    "files": {
+      "f": "old\n",
+      "d/a": "x"
+    },
+    "stdout": "644\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "e42143b0bb618f63": {
+    "command": "chmod 600 f; : >f; stat -c %a f",
+    "files": {
+      "f": "old\n",
+      "d/a": "x"
+    },
+    "stdout": "600\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "f119ea8d7b3f598d": {
+    "command": "chmod 644 f; chmod au+x f; stat -c %a f",
+    "files": {
+      "f": "old\n",
+      "d/a": "x"
+    },
+    "stdout": "755\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "f1a3b08166542c1b": {
+    "command": "chmod 640 f; printf new >f; stat -c %a f",
+    "files": {
+      "f": "old\n",
+      "d/a": "x"
+    },
+    "stdout": "640\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}

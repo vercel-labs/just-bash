@@ -70,6 +70,8 @@ export interface Token {
   type: TokenType;
   value?: string | number;
   pos: number;
+  /** Automa modifications: decoded offsets of actual source interpolation escapes. */
+  interpolationOffsets?: number[];
 }
 
 // ============================================================================

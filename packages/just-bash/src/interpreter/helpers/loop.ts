@@ -1,3 +1,6 @@
+import { outputSegments, prependOutputFrom } from "../../execution-output.js";
+import type { OutputSegment } from "../../types.js";
+import { ControlFlowError } from "../errors.js";
 /**
  * Loop Error Handling Helpers
  *
@@ -11,6 +14,7 @@ import {
   ErrexitError,
   ExecutionLimitError,
   ExitError,
+  NounsetError,
   ReturnError,
 } from "../errors.js";
 import type { InterpreterContext } from "../types.js";
@@ -19,6 +23,7 @@ import { getErrorMessage } from "./errors.js";
 export type LoopAction = "break" | "continue" | "rethrow" | "error";
 
 export interface LoopErrorResult {
+  internalOutputSegments?: OutputSegment[];
   action: LoopAction;
   stdout: string;
   stderr: string;
@@ -75,48 +80,61 @@ export function adoptLoopStatus(
  * @param loopDepth - Current loop nesting depth from ctx.state.loopDepth
  * @returns Result indicating what action the loop should take
  */
-export function handleLoopError(
+function handleLoopErrorInner(
   error: unknown,
   stdout: string,
   stderr: string,
   loopDepth: number,
+  parts?: OutputSegment[],
 ): LoopErrorResult {
   if (error instanceof BreakError) {
-    stdout += error.stdout;
-    stderr += error.stderr;
     // Only propagate if levels > 1 AND we're not at the outermost loop
     // Per bash docs: "If n is greater than the number of enclosing loops,
     // the last enclosing loop is exited"
     if (error.levels > 1 && loopDepth > 1) {
       error.levels--;
-      error.stdout = stdout;
-      error.stderr = stderr;
-      return { action: "rethrow", stdout, stderr, error };
+      prependOutputFrom(error, {
+        stdout,
+        stderr,
+        internalOutputSegments: parts,
+      });
+      return {
+        action: "rethrow",
+        stdout: error.stdout,
+        stderr: error.stderr,
+        error,
+      };
     }
     return {
       action: "break",
-      stdout,
-      stderr,
+      stdout: stdout + error.stdout,
+      stderr: stderr + error.stderr,
       exitCode: BREAK_CONTINUE_STATUS,
     };
   }
 
   if (error instanceof ContinueError) {
-    stdout += error.stdout;
-    stderr += error.stderr;
     // Only propagate if levels > 1 AND we're not at the outermost loop
     // Per bash docs: "If n is greater than the number of enclosing loops,
     // the last enclosing loop is resumed"
     if (error.levels > 1 && loopDepth > 1) {
       error.levels--;
-      error.stdout = stdout;
-      error.stderr = stderr;
-      return { action: "rethrow", stdout, stderr, error };
+      prependOutputFrom(error, {
+        stdout,
+        stderr,
+        internalOutputSegments: parts,
+      });
+      return {
+        action: "rethrow",
+        stdout: error.stdout,
+        stderr: error.stderr,
+        error,
+      };
     }
     return {
       action: "continue",
-      stdout,
-      stderr,
+      stdout: stdout + error.stdout,
+      stderr: stderr + error.stderr,
       exitCode: BREAK_CONTINUE_STATUS,
     };
   }
@@ -125,9 +143,10 @@ export function handleLoopError(
     error instanceof ReturnError ||
     error instanceof ErrexitError ||
     error instanceof ExitError ||
+    error instanceof NounsetError ||
     error instanceof ExecutionLimitError
   ) {
-    error.prependOutput(stdout, stderr);
+    prependOutputFrom(error, { stdout, stderr, internalOutputSegments: parts });
     return { action: "rethrow", stdout, stderr, error };
   }
 
@@ -139,4 +158,23 @@ export function handleLoopError(
     stderr: `${stderr}${message}\n`,
     exitCode: 1,
   };
+}
+
+// Automa: preserve temporal ordering through break/continue/return unwinds.
+export function handleLoopError(
+  error: unknown,
+  stdout: string,
+  stderr: string,
+  loopDepth: number,
+  parts?: OutputSegment[],
+): LoopErrorResult {
+  const combined = [
+    ...outputSegments({ stdout, stderr, internalOutputSegments: parts }),
+    ...(error instanceof ControlFlowError ? outputSegments(error) : []),
+  ];
+  const result = handleLoopErrorInner(error, stdout, stderr, loopDepth, parts);
+  result.internalOutputSegments = combined;
+  if (result.error instanceof ControlFlowError)
+    result.error.internalOutputSegments = combined;
+  return result;
 }

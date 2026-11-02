@@ -1,4 +1,15 @@
+// Automa: escape bytes remain bytes until the shell text boundary.
+function byteText(text: string): string {
+  return latin1FromBytes(encodeUtf8ToBytes(text));
+}
+
 import { sprintf } from "sprintf-js";
+import {
+  decodeBytesToUtf8,
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+  unsafeBytesFromLatin1,
+} from "../../encoding.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import type {
@@ -232,7 +243,7 @@ export const printfCommand: RuntimeCommand = {
       );
 
       // First, process escape sequences in the format string.
-      const processedFormat = processEscapes(format, maxOutputBytes);
+      const processedFormat = processEscapes(format, maxOutputBytes, true);
 
       // Format and handle argument reuse (bash loops through format until all args consumed)
       let output = "";
@@ -251,8 +262,9 @@ export const printfCommand: RuntimeCommand = {
           argPos,
           tz,
           maxOutputBytes - outputBytes,
+          true,
         );
-        const resultBytes = utf8ByteLength(result);
+        const resultBytes = result.length;
         if (resultBytes > maxOutputBytes - outputBytes) {
           throw new ExecutionLimitError(
             `printf: output size limit exceeded (${maxOutputBytes} bytes)`,
@@ -279,6 +291,7 @@ export const printfCommand: RuntimeCommand = {
 
       // If -v was specified, store in variable instead of printing
       if (targetVar) {
+        output = decodeBytesToUtf8(unsafeBytesFromLatin1(output));
         // Check for array subscript syntax: name[key] or name["key"] or name['key']
         const arrayMatch = targetVar.match(
           /^([a-zA-Z_][a-zA-Z0-9_]*)\[(['"]?)(.+?)\2\]$/,
@@ -317,6 +330,7 @@ export const printfCommand: RuntimeCommand = {
 
       return {
         stdout: output,
+        stdoutKind: "bytes",
         stderr: errorMessage,
         exitCode: hadError ? 1 : 0,
         internalStdinConsumed: 0,
@@ -351,6 +365,7 @@ function formatOnce(
   argPos: number,
   tz?: string,
   maxOutputBytes = 10 * 1024 * 1024,
+  byteMode = false,
 ): {
   result: string;
   argsConsumed: number;
@@ -366,7 +381,7 @@ function formatOnce(
   let resultBytes = 0;
 
   const append = (value: string): void => {
-    const valueBytes = utf8ByteLength(value);
+    const valueBytes = byteMode ? value.length : utf8ByteLength(value);
     if (valueBytes > maxOutputBytes - resultBytes) {
       throw new ExecutionLimitError(
         `printf: output size limit exceeded (${maxOutputBytes} bytes)`,
@@ -512,6 +527,7 @@ function formatOnce(
         specifier,
         arg,
         maxOutputBytes - resultBytes,
+        byteMode,
       );
       append(value);
       if (parseError) {
@@ -539,6 +555,7 @@ function formatValue(
   specifier: string,
   arg: string,
   maxOutputBytes: number,
+  byteMode = false,
 ): {
   value: string;
   parseError: boolean;
@@ -613,21 +630,25 @@ function formatValue(
     }
     case "s":
       return {
-        value: formatString(spec, arg, maxOutputBytes),
+        value: byteMode
+          ? byteText(formatString(spec, arg, maxOutputBytes))
+          : formatString(spec, arg, maxOutputBytes),
         parseError: false,
         parseErrMsg: "",
       };
     case "q":
       // Shell quoting with width support
       return {
-        value: formatQuoted(spec, arg, maxOutputBytes),
+        value: byteMode
+          ? byteText(formatQuoted(spec, arg, maxOutputBytes))
+          : formatQuoted(spec, arg, maxOutputBytes),
         parseError: false,
         parseErrMsg: "",
       };
     case "b": {
       // Interpret escape sequences in arg
       // Returns {value, stopped} - if stopped is true, \c was encountered
-      const bResult = processBEscapes(arg, maxOutputBytes);
+      const bResult = processBEscapes(arg, maxOutputBytes, byteMode);
       return {
         value: bResult.value,
         parseError: false,
@@ -1118,6 +1139,7 @@ function formatFloat(spec: string, specifier: string, num: number): string {
 function processBEscapes(
   str: string,
   maxOutputBytes: number,
+  byteMode = false,
 ): { value: string; stopped: boolean } {
   if (utf8ByteLength(str) > maxOutputBytes) {
     throw new ExecutionLimitError(
@@ -1189,7 +1211,9 @@ function processBEscapes(
 
           if (bytes.length > 0) {
             // Decode bytes as UTF-8 with error recovery
-            result += decodeUtf8WithRecovery(bytes);
+            result += byteMode
+              ? bytes.map((byte) => String.fromCharCode(byte)).join("")
+              : decodeUtf8WithRecovery(bytes);
             i = j;
           } else {
             result += "\\x";
@@ -1206,7 +1230,9 @@ function processBEscapes(
             j++;
           }
           if (hex) {
-            result += String.fromCodePoint(parseInt(hex, 16));
+            result += byteMode
+              ? byteText(String.fromCodePoint(parseInt(hex, 16)))
+              : String.fromCodePoint(parseInt(hex, 16));
             i = j;
           } else {
             result += "\\u";
@@ -1223,7 +1249,9 @@ function processBEscapes(
             j++;
           }
           if (octal) {
-            result += String.fromCharCode(parseInt(octal, 8));
+            result += String.fromCharCode(
+              parseInt(octal, 8) & (byteMode ? 255 : 65535),
+            );
           } else {
             result += "\0"; // Just \0 is NUL
           }
@@ -1244,18 +1272,23 @@ function processBEscapes(
             octal += str[j];
             j++;
           }
-          result += String.fromCharCode(parseInt(octal, 8));
+          result += String.fromCharCode(
+            parseInt(octal, 8) & (byteMode ? 255 : 65535),
+          );
           i = j;
           break;
         }
-        default:
+        default: {
           // Unknown escape, keep as-is
-          result += str[i];
-          i++;
+          const literal = String.fromCodePoint(str.codePointAt(i) ?? 0);
+          result += byteMode ? byteText(literal) : str[i];
+          i += byteMode ? literal.length : 1;
+        }
       }
     } else {
-      result += str[i];
-      i++;
+      const literal = String.fromCodePoint(str.codePointAt(i) ?? 0);
+      result += byteMode ? byteText(literal) : str[i];
+      i += byteMode ? literal.length : 1;
     }
   }
 

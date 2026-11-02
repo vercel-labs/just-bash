@@ -1,0 +1,563 @@
+{
+  "provenance": "Automa modifications: N00b just-bash-fromjson.test.mjs and Unicode whitespace differential; jq-1.7",
+  "cases": [
+    {
+      "input": "\"null\"",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "null\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"false\"",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "false\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"true\"",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "true\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"0\"",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "0\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"-1.5\"",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "-1.5\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"\\\"literal\\\"\"",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "\"literal\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"\\\"a\\\\nb\\\"\"",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "\"a\\nb\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"[]\"",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "[]\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"{}\"",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "{}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"[1,{\\\"a\\\":2}]\"",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "[1,{\"a\":2}]\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"{\\\"ok\\\":true}\"",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "{\"ok\":true}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"  [ 1, 2 ]  \"",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "[1,2]\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "null",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "null",
+      "command": "jq -c -e 'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "null",
+      "command": "jq -c  'try fromjson catch {caught:true,errorType:type}'",
+      "expected": {
+        "stdout": "{\"caught\":true,\"errorType\":\"string\"}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "false",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "false",
+      "command": "jq -c -e 'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "false",
+      "command": "jq -c  'try fromjson catch {caught:true,errorType:type}'",
+      "expected": {
+        "stdout": "{\"caught\":true,\"errorType\":\"string\"}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "true",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "true",
+      "command": "jq -c -e 'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "true",
+      "command": "jq -c  'try fromjson catch {caught:true,errorType:type}'",
+      "expected": {
+        "stdout": "{\"caught\":true,\"errorType\":\"string\"}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "0",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "0",
+      "command": "jq -c -e 'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "0",
+      "command": "jq -c  'try fromjson catch {caught:true,errorType:type}'",
+      "expected": {
+        "stdout": "{\"caught\":true,\"errorType\":\"string\"}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "-1",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "-1",
+      "command": "jq -c -e 'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "-1",
+      "command": "jq -c  'try fromjson catch {caught:true,errorType:type}'",
+      "expected": {
+        "stdout": "{\"caught\":true,\"errorType\":\"string\"}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "1.5",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "1.5",
+      "command": "jq -c -e 'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "1.5",
+      "command": "jq -c  'try fromjson catch {caught:true,errorType:type}'",
+      "expected": {
+        "stdout": "{\"caught\":true,\"errorType\":\"string\"}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "[]",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "[]",
+      "command": "jq -c -e 'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "[]",
+      "command": "jq -c  'try fromjson catch {caught:true,errorType:type}'",
+      "expected": {
+        "stdout": "{\"caught\":true,\"errorType\":\"string\"}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "[1]",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "[1]",
+      "command": "jq -c -e 'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "[1]",
+      "command": "jq -c  'try fromjson catch {caught:true,errorType:type}'",
+      "expected": {
+        "stdout": "{\"caught\":true,\"errorType\":\"string\"}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "{}",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "{}",
+      "command": "jq -c -e 'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "{}",
+      "command": "jq -c  'try fromjson catch {caught:true,errorType:type}'",
+      "expected": {
+        "stdout": "{\"caught\":true,\"errorType\":\"string\"}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "{\"a\":1}",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "{\"a\":1}",
+      "command": "jq -c -e 'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "{\"a\":1}",
+      "command": "jq -c  'try fromjson catch {caught:true,errorType:type}'",
+      "expected": {
+        "stdout": "{\"caught\":true,\"errorType\":\"string\"}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"\"",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "\"\"",
+      "command": "jq -c  'try fromjson catch {caught:true,errorType:type}'",
+      "expected": {
+        "stdout": "{\"caught\":true,\"errorType\":\"string\"}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"{\"",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "\"{\"",
+      "command": "jq -c  'try fromjson catch {caught:true,errorType:type}'",
+      "expected": {
+        "stdout": "{\"caught\":true,\"errorType\":\"string\"}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"not json\"",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "\"not json\"",
+      "command": "jq -c  'try fromjson catch {caught:true,errorType:type}'",
+      "expected": {
+        "stdout": "{\"caught\":true,\"errorType\":\"string\"}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"true false\"",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "\"true false\"",
+      "command": "jq -c  'try fromjson catch {caught:true,errorType:type}'",
+      "expected": {
+        "stdout": "{\"caught\":true,\"errorType\":\"string\"}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"undefined\"",
+      "command": "jq -c  'fromjson'",
+      "expected": {
+        "stdout": "",
+        "exitCode": 5,
+        "hasError": true
+      }
+    },
+    {
+      "input": "\"undefined\"",
+      "command": "jq -c  'try fromjson catch {caught:true,errorType:type}'",
+      "expected": {
+        "stdout": "{\"caught\":true,\"errorType\":\"string\"}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"null\"",
+      "command": "jq -c -e 'fromjson'",
+      "expected": {
+        "stdout": "null\n",
+        "exitCode": 1,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"false\"",
+      "command": "jq -c -e 'fromjson'",
+      "expected": {
+        "stdout": "false\n",
+        "exitCode": 1,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"true\"",
+      "command": "jq -c -e 'fromjson'",
+      "expected": {
+        "stdout": "true\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"0\"",
+      "command": "jq -c -e 'fromjson'",
+      "expected": {
+        "stdout": "0\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"\\\"\\\"\"",
+      "command": "jq -c -e 'fromjson'",
+      "expected": {
+        "stdout": "\"\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"[]\"",
+      "command": "jq -c -e 'fromjson'",
+      "expected": {
+        "stdout": "[]\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"{}\"",
+      "command": "jq -c -e 'fromjson'",
+      "expected": {
+        "stdout": "{}\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"Fixture F0 San Francisco, CA, USA\"",
+      "command": "jq -c  'gsub(\"[ \\t\\r\\n\\u00a0]+\"; \" \") | sub(\"^ \"; \"\") | sub(\" $\"; \"\")'",
+      "expected": {
+        "stdout": "\"Fixture F0 San Francisco, CA, USA\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"  au0\\ttext\\r\\n tail  \"",
+      "command": "jq -c  'gsub(\"[ \\t\\r\\n\\u00a0]+\"; \" \") | sub(\"^ \"; \"\") | sub(\" $\"; \"\")'",
+      "expected": {
+        "stdout": "\"au0 text tail\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    },
+    {
+      "input": "\"a u 0 a u 0\"",
+      "command": "jq -c  'gsub(\"[ \\t\\r\\n\\u00a0]+\"; \" \") | sub(\"^ \"; \"\") | sub(\" $\"; \"\")'",
+      "expected": {
+        "stdout": "\"a u 0 a u 0\"\n",
+        "exitCode": 0,
+        "hasError": false
+      }
+    }
+  ]
+}

@@ -282,7 +282,7 @@ export class UserRegex implements RegexLike {
    * Execute the pattern against the input string.
    * Returns match array with capture groups, or null if no match.
    */
-  exec(input: string): RegExpExecArray | null {
+  exec(input: string, captureIndices = false): RegExpExecArray | null {
     const matcher = this.acquireMatcher(input);
 
     // For global regex, start from lastIndex
@@ -311,6 +311,14 @@ export class UserRegex implements RegexLike {
     const execResult = result as unknown as RegExpExecArray;
     execResult.index = matcher.start(0);
     execResult.input = input;
+    // Automa modifications: exact RE2 capture positions for awk match arrays.
+    if (captureIndices) {
+      this.assertResultCount(execResult.length);
+      execResult.indices = [];
+      for (let i = 0; i < execResult.length; i++) {
+        execResult.indices.push([matcher.start(i), matcher.end(i)]);
+      }
+    }
 
     // Add named groups if any
     const namedGroups = this._re2.namedGroups();

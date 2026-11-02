@@ -1,10 +1,10 @@
+import { awkLimitWithOutput } from "../execution-error.js";
 /**
  * AWK Statement Execution
  *
  * Async statement executor supporting file I/O operations.
  */
 
-import { ExecutionLimitError } from "../../../interpreter/errors.js";
 import {
   assertDefenseContext,
   awaitWithDefenseContext,
@@ -26,10 +26,10 @@ setBlockExecutor(executeBlock);
  */
 function checkAwkOutputSize(ctx: AwkRuntimeContext): void {
   if (ctx.maxOutputSize > 0 && ctx.output.length > ctx.maxOutputSize) {
-    throw new ExecutionLimitError(
+    throw awkLimitWithOutput(
+      ctx,
       `awk: output size limit exceeded (${ctx.maxOutputSize} bytes)`,
       "string_length",
-      ctx.output,
     );
   }
 }
@@ -371,10 +371,10 @@ async function executeWhile(
   ) {
     iterations++;
     if (iterations > ctx.maxIterations) {
-      throw new ExecutionLimitError(
+      throw awkLimitWithOutput(
+        ctx,
         `awk: while loop exceeded maximum iterations (${ctx.maxIterations})`,
         "iterations",
-        ctx.output,
       );
     }
 
@@ -406,10 +406,10 @@ async function executeDoWhile(
   do {
     iterations++;
     if (iterations > ctx.maxIterations) {
-      throw new ExecutionLimitError(
+      throw awkLimitWithOutput(
+        ctx,
         `awk: do-while loop exceeded maximum iterations (${ctx.maxIterations})`,
         "iterations",
-        ctx.output,
       );
     }
 
@@ -469,10 +469,10 @@ async function executeFor(
   ) {
     iterations++;
     if (iterations > ctx.maxIterations) {
-      throw new ExecutionLimitError(
+      throw awkLimitWithOutput(
+        ctx,
         `awk: for loop exceeded maximum iterations (${ctx.maxIterations})`,
         "iterations",
-        ctx.output,
       );
     }
 

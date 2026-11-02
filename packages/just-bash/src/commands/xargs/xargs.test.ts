@@ -24,7 +24,7 @@ describe("xargs command", () => {
     it("should handle empty input", async () => {
       const env = new Bash();
       const result = await env.exec('echo "" | xargs');
-      expect(result.stdout).toBe("");
+      expect(result.stdout).toBe("\n");
       expect(result.exitCode).toBe(0);
     });
   });
@@ -94,7 +94,7 @@ describe("xargs command", () => {
     it("should split on custom delimiter", async () => {
       const env = new Bash();
       const result = await env.exec('echo "a:b:c" | xargs -d : echo');
-      expect(result.stdout).toBe("a b c\n");
+      expect(result.stdout).toBe("a b c\n\n");
       expect(result.exitCode).toBe(0);
     });
 
@@ -119,7 +119,7 @@ describe("xargs command", () => {
     it("should work with -n option for batching", async () => {
       const env = new Bash();
       const result = await env.exec('echo "a:b:c:d:e" | xargs -d : -n 2 echo');
-      expect(result.stdout).toBe("a b\nc d\ne\n");
+      expect(result.stdout).toBe("a b\nc d\ne\n\n");
       expect(result.exitCode).toBe(0);
     });
 
@@ -128,7 +128,7 @@ describe("xargs command", () => {
       const result = await env.exec(
         'echo "x:y:z" | xargs -d : -I {} echo "item: {}"',
       );
-      expect(result.stdout).toBe("item: x\nitem: y\nitem: z\n");
+      expect(result.stdout).toBe("item: x\nitem: y\nitem: z\n\n");
       expect(result.exitCode).toBe(0);
     });
 
@@ -137,15 +137,15 @@ describe("xargs command", () => {
       const result = await env.exec(
         'echo "hello world:foo bar:test" | xargs -d : -n 1 echo',
       );
-      expect(result.stdout).toBe("hello world\nfoo bar\ntest\n");
+      expect(result.stdout).toBe("hello world\nfoo bar\ntest\n\n");
       expect(result.exitCode).toBe(0);
     });
 
     it("should handle empty items", async () => {
       const env = new Bash();
       const result = await env.exec('echo "a::b" | xargs -d : echo');
-      // Empty items are filtered out
-      expect(result.stdout).toBe("a b\n");
+      // GNU -d preserves empty fields and a newline that is not the delimiter.
+      expect(result.stdout).toBe("a  b\n\n");
       expect(result.exitCode).toBe(0);
     });
 
@@ -154,7 +154,7 @@ describe("xargs command", () => {
       const result = await env.exec(
         "echo \"a\\\\b\\\\c\" | xargs -d '\\\\' echo",
       );
-      expect(result.stdout).toBe("a b c\n");
+      expect(result.stdout).toBe("a b c\n\n");
       expect(result.exitCode).toBe(0);
     });
 
@@ -167,7 +167,7 @@ describe("xargs command", () => {
         },
       });
       const result = await env.exec(
-        'echo "/data/file1.txt:/data/file2.txt:/data/file3.txt" | xargs -d : cat',
+        'printf %s "/data/file1.txt:/data/file2.txt:/data/file3.txt" | xargs -d : cat',
       );
       expect(result.stdout).toBe("content1content2content3");
       expect(result.exitCode).toBe(0);
@@ -336,7 +336,7 @@ describe("xargs command", () => {
     it("should propagate command failure exit code", async () => {
       const env = new Bash();
       const result = await env.exec('echo "missing.txt" | xargs cat');
-      expect(result.exitCode).toBe(1);
+      expect(result.exitCode).toBe(123);
       expect(result.stderr).toContain("No such file");
     });
   });

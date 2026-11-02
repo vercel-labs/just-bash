@@ -1,3 +1,4 @@
+import { automaTrapFunction } from "./traps.js";
 /**
  * Function Handling
  *
@@ -34,10 +35,10 @@ export function executeFunctionDef(
     throw new ExitError(2, "", stderr);
   }
   // Store the source file where this function is defined (for BASH_SOURCE)
-  // Use currentSource from state, or the node's sourceFile, or "main" as default
+  // Use currentSource from state, or the node's sourceFile, or "environment" for command-string definitions
   const funcWithSource: FunctionDefNode = {
     ...node,
-    sourceFile: node.sourceFile ?? ctx.state.currentSource ?? "main",
+    sourceFile: node.sourceFile ?? ctx.state.currentSource ?? "environment",
   };
   ctx.state.functions.set(node.name, funcWithSource);
   return OK;
@@ -51,6 +52,26 @@ export async function callFunction(
   callLine?: number,
   /** A redirection on the call site (`f < file`) gave the function its own fd 0. */
   stdinRedirected = false,
+): Promise<ExecResult> {
+  const execute = () =>
+    callFunctionBody(ctx, func, args, stdin, callLine, stdinRedirected);
+  // Automa: definition redirects are not on the call's SimpleCommand. Hold
+  // descendant chunks until the existing function FD transaction has routed them.
+  return automaTrapFunction(ctx, () => {
+    const sink = ctx.executionScope.automaOutput;
+    return func.redirections.length && sink
+      ? sink.capture(ctx, func, execute)
+      : execute();
+  });
+}
+
+async function callFunctionBody(
+  ctx: InterpreterContext,
+  func: FunctionDefNode,
+  args: string[],
+  stdin: string,
+  callLine: number | undefined,
+  stdinRedirected: boolean,
 ): Promise<ExecResult> {
   ctx.state.callDepth++;
   if (ctx.state.callDepth > ctx.limits.maxCallDepth) {
@@ -78,7 +99,16 @@ export async function callFunction(
   // Use provided callLine, or fall back to currentLine
   ctx.state.callLineStack.unshift(callLine ?? ctx.state.currentLine);
   // Push the source file where this function was defined (for BASH_SOURCE)
-  ctx.state.sourceStack.unshift(func.sourceFile ?? "main");
+  ctx.state.sourceStack.unshift(func.sourceFile ?? "environment");
+  const callerFrames = ctx.state.callerFrames;
+  ctx.state.callerFrames = [
+    {
+      name: func.name,
+      source: func.sourceFile ?? "environment",
+      line: callLine ?? ctx.state.currentLine,
+    },
+    ...(callerFrames ?? []),
+  ];
 
   ctx.state.localScopes.push(new Map());
   ctx.state.localArrayScopes ??= [];
@@ -176,6 +206,7 @@ export async function callFunction(
     ctx.state.funcNameStack?.shift();
     ctx.state.callLineStack?.shift();
     ctx.state.sourceStack?.shift();
+    ctx.state.callerFrames = callerFrames;
 
     ctx.state.callDepth--;
   };
@@ -213,7 +244,11 @@ export async function callFunction(
     if (error instanceof ControlFlowError && prepared) {
       await routeControlFlowError(ctx, error, func.redirections, prepared);
       if (error instanceof ReturnError) {
-        return result(error.stdout, error.stderr, error.exitCode);
+        return {
+          ...result(error.stdout, error.stderr, error.exitCode),
+          internalOutputSegments: error.internalOutputSegments,
+          internalOutputAccounting: error.internalOutputAccounting,
+        };
       }
     }
     throw error;

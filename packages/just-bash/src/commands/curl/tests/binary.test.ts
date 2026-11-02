@@ -1,3 +1,4 @@
+// Automa modification: assert byte-preserving multipart and file upload bodies.
 /**
  * Tests for curl binary data handling
  */
@@ -138,7 +139,9 @@ describe("curl binary data", () => {
       });
       await env.exec("curl -T /data.bin https://api.example.com/upload");
 
-      expect(lastRequest?.options.body).toBe(binaryContent);
+      expect(lastRequest?.options.body).toEqual(
+        new TextEncoder().encode(binaryContent),
+      );
     });
 
     it("uploads file with binary content in form field", async () => {
@@ -159,7 +162,9 @@ describe("curl binary data", () => {
         "curl -F 'file=@/upload.bin' https://api.example.com/upload",
       );
 
-      const body = lastRequest?.options.body as string;
+      const body = new TextDecoder().decode(
+        lastRequest?.options.body as Uint8Array,
+      );
       expect(body).toContain(binaryContent);
     });
   });
@@ -184,7 +189,9 @@ describe("curl binary data", () => {
       });
       await env.exec("curl -T /binary.bin https://api.example.com/upload");
 
-      expect(lastRequest?.options.body).toBe("Hello\0World");
+      expect(lastRequest?.options.body).toEqual(
+        new TextEncoder().encode("Hello\0World"),
+      );
     });
   });
 });

@@ -1,3 +1,6 @@
+import { outputSegments } from "../execution-output.js";
+import { automaTrapEligible, automaTrapRun, automaTrapShell } from "./traps.js";
+
 /**
  * Interpreter - AST Execution Engine
  *
@@ -23,11 +26,13 @@ import type {
 } from "../ast/types.js";
 import {
   decodedTextFromResult,
+  encodeUtf8ToBytes,
   latin1FromBytes,
   stdoutAsBytes,
 } from "../encoding.js";
 import { ExecutionOutputAccumulator } from "../execution-output.js";
 import type { ExecutionScope } from "../execution-scope.js";
+import { getFileSystemIdentity } from "../fs/identity.js";
 import type { IFileSystem } from "../fs/interface.js";
 import { mapToRecord } from "../helpers/env.js";
 import type { ExecutionLimits } from "../limits.js";
@@ -41,6 +46,7 @@ import type {
   CommandRegistry,
   ExecResult,
   FeatureCoverageWriter,
+  OutputSegment,
   TraceCallback,
 } from "../types.js";
 import { expandAlias as expandAliasHelper } from "./alias-expansion.js";
@@ -70,6 +76,7 @@ import {
   BraceExpansionError,
   BreakError,
   ContinueError,
+  ControlFlowError,
   ErrexitError,
   ExecutionAbortedError,
   ExecutionLimitError,
@@ -80,7 +87,7 @@ import {
   ReturnError,
 } from "./errors.js";
 import { expandWord, expandWordWithGlob } from "./expansion.js";
-import { advanceFd } from "./fd-table.js";
+import { advanceFd, attachInputSession } from "./fd-table.js";
 import { executeFunctionDef } from "./functions.js";
 import { failure, OK, result, testResult } from "./helpers/result.js";
 import { isPosixSpecialBuiltin } from "./helpers/shell-constants.js";
@@ -90,6 +97,7 @@ import { traceSimpleCommand } from "./helpers/xtrace.js";
 import { executePipeline as executePipelineHelper } from "./pipeline-execution.js";
 import {
   markProcessSubstitutions,
+  type ProcessSubstitutionWriterOutput,
   releaseProcessSubstitutions,
 } from "./process-substitution.js";
 import {
@@ -112,7 +120,9 @@ import type {
   InterpreterContext,
   InterpreterExecOptions,
   InterpreterState,
+  SharedInputSession,
 } from "./types.js";
+import { withUmaskFileSystem } from "./umask-fs.js";
 
 function unsupportedCommandNode(node: never): never {
   throw new TypeError(`Unsupported command node: ${JSON.stringify(node)}`);
@@ -121,6 +131,8 @@ function unsupportedCommandNode(node: never): never {
 export type { InterpreterContext, InterpreterState } from "./types.js";
 
 export interface InterpreterOptions {
+  environmentInfo?: InterpreterContext["environmentInfo"];
+  virtualFileMetadata?: InterpreterContext["virtualFileMetadata"];
   fs: IFileSystem;
   commands: CommandRegistry;
   limits: Required<ExecutionLimits>;
@@ -129,7 +141,9 @@ export interface InterpreterOptions {
     script: string,
     options?: InterpreterExecOptions,
     stdinAlreadyAccounted?: boolean,
+    inputSession?: SharedInputSession,
   ) => Promise<ExecResult>;
+  inputSession?: SharedInputSession;
   /** Optional secure fetch function for network-enabled commands */
   fetch?: SecureFetch;
   /** Optional sleep function for testing with mock clocks */
@@ -157,8 +171,16 @@ export class Interpreter {
 
   constructor(options: InterpreterOptions, state: InterpreterState) {
     this.ctx = {
+      environmentInfo: options.environmentInfo,
+      virtualFileMetadata: options.virtualFileMetadata,
       state,
-      fs: options.fs,
+      fs: withUmaskFileSystem(
+        options.fs,
+        state,
+        options.limits,
+        options.executionScope,
+      ),
+      fsIdentity: getFileSystemIdentity(options.fs),
       commands: options.commands,
       limits: options.limits,
       executionScope: options.executionScope,
@@ -174,6 +196,8 @@ export class Interpreter {
       jsBootstrapCode: options.jsBootstrapCode,
       invokeTool: options.invokeTool,
     };
+    if (options.inputSession)
+      attachInputSession(this.ctx, options.inputSession);
   }
 
   /**
@@ -235,6 +259,19 @@ export class Interpreter {
   }
 
   async executeScript(node: ScriptNode): Promise<ExecResult> {
+    const state = this.ctx.state;
+    const root = !state.automaTrapScriptDepth;
+    state.automaTrapScriptDepth = (state.automaTrapScriptDepth ?? 0) + 1;
+    try {
+      return root
+        ? await automaTrapShell(this.ctx, () => this.executeScriptBody(node))
+        : await this.executeScriptBody(node);
+    } finally {
+      state.automaTrapScriptDepth--;
+    }
+  }
+
+  private async executeScriptBody(node: ScriptNode): Promise<ExecResult> {
     this.assertDefenseContext("execution");
 
     let exitCode = 0;
@@ -260,22 +297,16 @@ export class Interpreter {
         // ExitError always propagates up to terminate the script
         // This allows 'eval exit 42' and 'source exit.sh' to exit properly
         if (error instanceof ExitError) {
-          error.prependOutput(output.stdout, output.stderr);
+          output.prependTo(error);
           throw error;
         }
         // PosixFatalError terminates the script in POSIX mode
         // POSIX 2.8.1: special builtins cause shell to exit on error
         if (error instanceof PosixFatalError) {
-          output.append(
-            "stdout",
-            error.stdout,
-            error.internalOutputAccounting.stdout,
-          );
-          output.append(
-            "stderr",
-            error.stderr,
-            error.internalOutputAccounting.stderr,
-          );
+          output.appendResult({
+            ...error,
+            exitCode: "exitCode" in error ? Number(error.exitCode) : 0,
+          });
           exitCode = error.exitCode;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -290,17 +321,18 @@ export class Interpreter {
           output.prependTo(error);
           throw error;
         }
+        if (
+          error instanceof ErrexitError &&
+          (this.ctx.state.automaTrapScriptDepth ?? 0) > 1
+        ) {
+          output.prependTo(error);
+          throw error;
+        }
         if (error instanceof ErrexitError) {
-          output.append(
-            "stdout",
-            error.stdout,
-            error.internalOutputAccounting.stdout,
-          );
-          output.append(
-            "stderr",
-            error.stderr,
-            error.internalOutputAccounting.stderr,
-          );
+          output.appendResult({
+            ...error,
+            exitCode: "exitCode" in error ? Number(error.exitCode) : 0,
+          });
           exitCode = error.exitCode;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -311,36 +343,26 @@ export class Interpreter {
           };
         }
         if (error instanceof NounsetError) {
-          output.append(
-            "stdout",
+          // Fatal in this shell, including function/eval/source scripts. Bash
+          // uses 1 under errexit or in an isolated subshell, otherwise 127.
+          output.prependTo(error);
+          const fatal = new ExitError(
+            this.ctx.state.options.errexit ||
+              this.ctx.state.bashPid !== this.ctx.state.virtualPid
+              ? 1
+              : 127,
             error.stdout,
-            error.internalOutputAccounting.stdout,
-          );
-          output.append(
-            "stderr",
             error.stderr,
-            error.internalOutputAccounting.stderr,
           );
-          exitCode = 1;
-          this.ctx.state.lastExitCode = exitCode;
-          this.ctx.state.env.set("?", String(exitCode));
-          return {
-            ...output.build(exitCode),
-            exitCode,
-            env: mapToRecord(this.ctx.state.env),
-          };
+          fatal.internalOutputSegments = error.internalOutputSegments;
+          fatal.internalOutputAccounting = error.internalOutputAccounting;
+          throw fatal;
         }
         if (error instanceof BadSubstitutionError) {
-          output.append(
-            "stdout",
-            error.stdout,
-            error.internalOutputAccounting.stdout,
-          );
-          output.append(
-            "stderr",
-            error.stderr,
-            error.internalOutputAccounting.stderr,
-          );
+          output.appendResult({
+            ...error,
+            exitCode: "exitCode" in error ? Number(error.exitCode) : 0,
+          });
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -353,16 +375,10 @@ export class Interpreter {
         // ArithmeticError in expansion (e.g., echo $((42x))) - the command fails
         // but the script continues execution. This matches bash behavior.
         if (error instanceof ArithmeticError) {
-          output.append(
-            "stdout",
-            error.stdout,
-            error.internalOutputAccounting.stdout,
-          );
-          output.append(
-            "stderr",
-            error.stderr,
-            error.internalOutputAccounting.stderr,
-          );
+          output.appendResult({
+            ...error,
+            exitCode: "exitCode" in error ? Number(error.exitCode) : 0,
+          });
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -372,16 +388,10 @@ export class Interpreter {
         // BraceExpansionError for invalid ranges (e.g., {z..A} mixed case) - the command fails
         // but the script continues execution. This matches bash behavior.
         if (error instanceof BraceExpansionError) {
-          output.append(
-            "stdout",
-            error.stdout,
-            error.internalOutputAccounting.stdout,
-          );
-          output.append(
-            "stderr",
-            error.stderr,
-            error.internalOutputAccounting.stderr,
-          );
+          output.appendResult({
+            ...error,
+            exitCode: "exitCode" in error ? Number(error.exitCode) : 0,
+          });
           exitCode = 1;
           this.ctx.state.lastExitCode = exitCode;
           this.ctx.state.env.set("?", String(exitCode));
@@ -392,7 +402,7 @@ export class Interpreter {
         if (error instanceof BreakError || error instanceof ContinueError) {
           // If we're inside a loop, propagate the error up (for eval/source inside loops)
           if (this.ctx.state.loopDepth > 0) {
-            error.prependOutput(output.stdout, output.stderr);
+            output.prependTo(error);
             throw error;
           }
           // Outside loops (level exceeded loop depth), silently continue with next statement
@@ -402,7 +412,7 @@ export class Interpreter {
         }
         // Handle return - prepend accumulated output before propagating
         if (error instanceof ReturnError) {
-          error.prependOutput(output.stdout, output.stderr);
+          output.prependTo(error);
           throw error;
         }
         throw error;
@@ -479,7 +489,15 @@ export class Interpreter {
         if (operator === "&&" && exitCode !== 0) continue;
         if (operator === "||" && exitCode === 0) continue;
 
-        const result = await this.executePipeline(pipeline);
+        let result: ExecResult;
+        const condition = this.ctx.state.inCondition;
+        this.ctx.state.inCondition =
+          condition || i < node.pipelines.length - 1 || pipeline.negated;
+        try {
+          result = await this.executePipeline(pipeline);
+        } finally {
+          this.ctx.state.inCondition = condition;
+        }
         // Decode each pipeline's stdout to text via its explicit `stdoutKind`
         // before concatenating, so a statement that joins text-shaped and
         // byte-shaped pipelines with && / || does not interleave raw byte and
@@ -504,6 +522,22 @@ export class Interpreter {
     const wasShortCircuited = lastExecutedIndex < node.pipelines.length - 1;
     // Preserve errexitSafe if it was set by an inner compound command
     const innerWasSafe = this.ctx.state.errexitSafe;
+    if (
+      exitCode !== 0 &&
+      lastExecutedIndex === node.pipelines.length - 1 &&
+      !lastPipelineNegated &&
+      !this.ctx.state.inCondition &&
+      !innerWasSafe &&
+      automaTrapEligible(node.pipelines[lastExecutedIndex])
+    ) {
+      try {
+        const trap = await automaTrapRun(this.ctx, "ERR", exitCode);
+        if (trap) statementOutput.appendResult(trap);
+      } catch (error) {
+        statementOutput.prependTo(error);
+        throw error;
+      }
+    }
     this.ctx.state.errexitSafe =
       wasShortCircuited || lastPipelineNegated || innerWasSafe;
 
@@ -522,7 +556,7 @@ export class Interpreter {
       !innerWasSafe
     ) {
       const error = new ErrexitError(exitCode);
-      error.prependOutput(statementOutput.stdout, statementOutput.stderr);
+      statementOutput.prependTo(error);
       throw error;
     }
 
@@ -546,17 +580,62 @@ export class Interpreter {
     stdin: string,
     stdinOwned = false,
   ): Promise<ExecResult> {
+    const execute = () =>
+      this.executeCommandWithSubstitutions(node, stdin, stdinOwned);
+    return this.ctx.executionScope.automaOutput
+      ? this.ctx.executionScope.automaOutput.capture(this.ctx, node, execute)
+      : execute();
+  }
+
+  private async executeCommandWithSubstitutions(
+    node: CommandNode,
+    stdin: string,
+    stdinOwned: boolean,
+  ): Promise<ExecResult> {
     const procSubMark = markProcessSubstitutions(this.ctx);
     let result: ExecResult;
     try {
       result = await this.executeCommandInner(node, stdin, stdinOwned);
     } catch (error) {
-      await releaseProcessSubstitutions(this.ctx, procSubMark).catch(
-        () => undefined,
-      );
+      let writer: ProcessSubstitutionWriterOutput;
+      try {
+        writer = await releaseProcessSubstitutions(this.ctx, procSubMark);
+      } catch (writerError) {
+        // Preserve an admitted fatal failure even if writer cleanup also fails.
+        if (
+          error instanceof ExecutionLimitError ||
+          error instanceof ExecutionAbortedError
+        )
+          throw error;
+        throw writerError;
+      }
+      if (error instanceof ControlFlowError) {
+        const combined = this.appendProcessWriterOutput(
+          {
+            stdout: error.stdout,
+            stderr: error.stderr,
+            exitCode: 0,
+            internalOutputAccounting: error.internalOutputAccounting,
+            internalOutputSegments: error.internalOutputSegments,
+          },
+          writer,
+        );
+        error.stdout = combined.stdout;
+        error.stderr = combined.stderr;
+        error.internalOutputAccounting =
+          combined.internalOutputAccounting ?? error.internalOutputAccounting;
+        error.internalOutputSegments = combined.internalOutputSegments;
+      }
       throw error;
     }
     const writer = await releaseProcessSubstitutions(this.ctx, procSubMark);
+    return this.appendProcessWriterOutput(result, writer);
+  }
+
+  private appendProcessWriterOutput(
+    result: ExecResult,
+    writer: ProcessSubstitutionWriterOutput,
+  ): ExecResult {
     if (!writer.stdout && !writer.stderr) return result;
     // A `>(cmd)` writer shares the shell's stdout and stderr in bash; append
     // what it produced once the outer command has finished writing to it.
@@ -567,6 +646,29 @@ export class Interpreter {
         : result.stdout,
       stdoutKind: writer.stdout ? "bytes" : result.stdoutKind,
       stderr: result.stderr + writer.stderr,
+      internalOutputAccounting: {
+        stdout:
+          (result.internalOutputAccounting?.stdout ?? 0) +
+          (writer.internalOutputAccounting?.stdout ?? 0),
+        stderr:
+          (result.internalOutputAccounting?.stderr ?? 0) +
+          (writer.internalOutputAccounting?.stderr ?? 0),
+      },
+      internalOutputSegments: [
+        ...outputSegments(result).map(
+          ([stream, text, kind]): OutputSegment =>
+            writer.stdout && stream === "stdout"
+              ? [
+                  stream,
+                  kind === "bytes"
+                    ? text
+                    : latin1FromBytes(encodeUtf8ToBytes(text)),
+                  "bytes",
+                ]
+              : [stream, text, kind],
+        ),
+        ...outputSegments({ ...writer, stdoutKind: "bytes" }),
+      ],
     };
   }
 
@@ -588,9 +690,9 @@ export class Interpreter {
       case "CStyleFor":
         return executeCStyleFor(this.ctx, node);
       case "While":
-        return executeWhile(this.ctx, node, stdin);
+        return executeWhile(this.ctx, node, stdin, stdinOwned);
       case "Until":
-        return executeUntil(this.ctx, node, stdin);
+        return executeUntil(this.ctx, node, stdin, stdinOwned);
       case "Case":
         return executeCase(this.ctx, node);
       case "Subshell":
@@ -709,7 +811,10 @@ export class Interpreter {
           BARE_REDIRECTION_POLICY,
         );
         onTransaction(transaction);
-        const preparedRedirections = await transaction.prepare(stdin);
+        const preparedRedirections = await transaction.prepare(
+          stdin,
+          stdinProvided,
+        );
         if (preparedRedirections.error) {
           restoreTempAssignments();
           if (!preparedRedirections.errorCause) {
@@ -874,7 +979,10 @@ export class Interpreter {
         : SIMPLE_REDIRECTION_POLICY,
     );
     onTransaction(transaction);
-    const preparedRedirections = await transaction.prepare(stdin);
+    const preparedRedirections = await transaction.prepare(
+      stdin,
+      stdinProvided,
+    );
     if (preparedRedirections.error) {
       restoreTempAssignments();
       if (!preparedRedirections.errorCause) {
@@ -883,6 +991,9 @@ export class Interpreter {
       }
       return preparedRedirectionError(preparedRedirections);
     }
+    this.ctx.executionScope.automaOutput?.setCommandRoutes(
+      preparedRedirections.outputRoutes,
+    );
     const stdinSourceFd = preparedRedirections.stdinSourceFd;
     // Builtins (eval, functions, wrappers) treat any fd-0 route as ownership,
     // including one a persistent `exec <` set up earlier. External commands
@@ -891,7 +1002,10 @@ export class Interpreter {
     // still differs from bash after an empty persistent `exec <` (bash: EOF).
     const stdinRedirected = preparedRedirections.stdin !== undefined;
     const directStdinProvided =
-      stdinProvided || preparedRedirections.stdinReplaced;
+      stdinProvided ||
+      preparedRedirections.stdinReplaced ||
+      (stdinSourceFd >= 0 &&
+        this.ctx.state.fdInputSessions?.has(stdinSourceFd) === true);
     if (preparedRedirections.stdin !== undefined) {
       stdin = preparedRedirections.stdin;
     }
@@ -1162,13 +1276,30 @@ export class Interpreter {
     stdin = "",
     stdinOwned = false,
   ): Promise<ExecResult> {
-    return executeSubshellHelper(
+    const negate =
+      node.body.length === 1 &&
+      node.body[0].pipelines.length === 1 &&
+      node.body[0].pipelines[0].negated;
+    if (negate)
+      node = {
+        ...node,
+        body: [
+          {
+            ...node.body[0],
+            pipelines: [{ ...node.body[0].pipelines[0], negated: false }],
+          },
+        ],
+      };
+    const result = await executeSubshellHelper(
       this.ctx,
       node,
       stdin,
       (stmt) => this.executeStatement(stmt),
       stdinOwned,
     );
+    return negate
+      ? { ...result, exitCode: result.exitCode === 0 ? 1 : 0 }
+      : result;
   }
 
   private async executeGroup(

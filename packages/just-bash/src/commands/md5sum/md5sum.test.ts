@@ -1,3 +1,4 @@
+// Automa modification: missing operands report on stderr.
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
@@ -65,7 +66,9 @@ describe("md5sum", () => {
       );
       const result = await env.exec("md5sum -c /tmp/sums.txt");
       expect(result.stdout).toContain("/tmp/wrong.txt: FAILED");
-      expect(result.stdout).toContain("WARNING");
+      expect(result.stderr).toBe(
+        "md5sum: WARNING: 1 computed checksum did NOT match\n",
+      );
       expect(result.exitCode).toBe(1);
     });
   });
@@ -74,7 +77,10 @@ describe("md5sum", () => {
     it("should error on missing file", async () => {
       const env = new Bash();
       const result = await env.exec("md5sum /tmp/nonexistent");
-      expect(result.stdout).toContain("No such file or directory");
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "md5sum: /tmp/nonexistent: No such file or directory\n",
+      );
       expect(result.exitCode).toBe(1);
     });
   });

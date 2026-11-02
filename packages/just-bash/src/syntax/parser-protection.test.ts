@@ -221,10 +221,10 @@ describe("Parser Protection", () => {
       const env = new Bash();
       const result = await env.exec("echo {1..100000}");
 
-      // Range expansion should be limited
-      expect(result.exitCode).toBe(0);
-      // Output should be truncated or limited
-      expect(result.stdout.length).toBeLessThan(1_000_000);
+      // Automa: never execute a silently truncated expansion.
+      expect(result.exitCode).toBe(126);
+      expect(result.executionFailure?.kind).toBe("resource-limit");
+      expect(result.stdout).toBe("");
     });
   });
 });
