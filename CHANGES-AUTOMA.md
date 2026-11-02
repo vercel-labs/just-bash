@@ -206,3 +206,21 @@ changes already covered upstream. Preserve the original public contracts and
 Automa's cancellation/partial-write boundaries. Never force-push away a commit
 already referenced by a released `VENDOR.json`; retain it with a tag or another
 branch before rebasing. Record upstream PR links here when they exist.
+
+## N5b cryptographic checksum family
+
+- Register SHA-224/384/512 and BLAKE2b-512 commands through the shared checksum
+  verifier. SHA-1/256/384/512 retain one WebCrypto digest call site, allowing
+  Automa's existing private digest broker to supply the capability.
+- Add exact `@noble/hashes@2.4.0` (MIT) for incremental SHA-224/BLAKE2b and replace
+  the duplicate synchronous MD5 implementation with its incremental MD5. Retain
+  the license in the package's `THIRD_PARTY_NOTICES.md` and distributable inventory.
+- Reserve file/hash/manifest memory prospectively, charge cumulative input and
+  work, yield CPU hashing for cancellation, and release temporary reservations.
+  Keep fatal resource/cancellation failures distinct from ordinary file errors.
+- Match GNU binary markers and escaped filenames; consume stdin once, reject
+  empty/all-malformed manifests, and reject manifests read from stdin that also
+  name stdin as a data source. Verification warnings use stderr, file failures
+  continue subsequent inputs, and ordered output segments preserve redirects.
+- Add frozen native coreutils 9.7 comparisons for all four new commands plus
+  binary vectors, shared budget and cancellation regressions for the full family.

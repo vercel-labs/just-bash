@@ -66,7 +66,9 @@ describe("md5sum", () => {
       );
       const result = await env.exec("md5sum -c /tmp/sums.txt");
       expect(result.stdout).toContain("/tmp/wrong.txt: FAILED");
-      expect(result.stdout).toContain("WARNING");
+      expect(result.stderr).toBe(
+        "md5sum: WARNING: 1 computed checksum did NOT match\n",
+      );
       expect(result.exitCode).toBe(1);
     });
   });

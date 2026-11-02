@@ -52,7 +52,8 @@
     "vendor/cpython-emscripten/",
     "README.md",
     "CHANGELOG.md",
-    "dist/AGENTS.md"
+    "dist/AGENTS.md",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "bin": {
     "just-bash": "./dist/bin/just-bash.js",
@@ -110,6 +111,7 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "@noble/hashes": "2.4.0",
     "diff": "^8.0.4",
     "fast-xml-parser": "^5.10.1",
     "file-type": "^21.3.4",

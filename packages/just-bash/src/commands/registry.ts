@@ -87,6 +87,10 @@ export type CommandName =
   | "md5sum"
   | "sha1sum"
   | "sha256sum"
+  | "sha224sum"
+  | "sha384sum"
+  | "sha512sum"
+  | "b2sum"
   | "file"
   | "html-to-markdown"
   | "help"
@@ -426,6 +430,24 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   {
     name: "sha256sum",
     load: async () => (await import("./md5sum/sha256sum.js")).sha256sumCommand,
+  },
+
+  // Automa N5b: reuse the same bounded checksum/verification implementation.
+  {
+    name: "sha224sum",
+    load: async () => (await import("./md5sum/sha224sum.js")).sha224sumCommand,
+  },
+  {
+    name: "sha384sum",
+    load: async () => (await import("./md5sum/sha384sum.js")).sha384sumCommand,
+  },
+  {
+    name: "sha512sum",
+    load: async () => (await import("./md5sum/sha512sum.js")).sha512sumCommand,
+  },
+  {
+    name: "b2sum",
+    load: async () => (await import("./md5sum/b2sum.js")).b2sumCommand,
   },
 
   // File type detection
