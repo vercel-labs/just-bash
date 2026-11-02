@@ -163,7 +163,26 @@ export interface TraceEvent {
  */
 export type TraceCallback = (event: TraceEvent) => void;
 
+/** Host facts explicitly provided by the embedding application. */
+export interface EnvironmentInfo {
+  readonly arch?: string;
+  readonly timeZone?: string;
+}
+
+/** Optional display metadata for filesystems without POSIX identities/blocks. */
+export interface VirtualFileMetadata {
+  readonly uid?: number;
+  readonly gid?: number;
+  readonly user?: string;
+  readonly group?: string;
+  readonly nlink?: number;
+  readonly directorySize?: number;
+  readonly allocationBlockSize?: number;
+}
+
 export interface RuntimeCommandContext {
+  environmentInfo?: EnvironmentInfo;
+  virtualFileMetadata?: VirtualFileMetadata;
   /** Virtual filesystem interface for file operations */
   fs: IFileSystem;
   /** Stable identity of the underlying filesystem across defense wrappers. */

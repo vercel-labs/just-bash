@@ -933,6 +933,8 @@ export async function executeExternalCommand(
       }
     },
     exportedEnv,
+    environmentInfo: ctx.environmentInfo,
+    virtualFileMetadata: ctx.virtualFileMetadata,
     get stdin() {
       stdinAccessed = true;
       return effectiveStdin;

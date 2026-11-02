@@ -130,6 +130,29 @@ changes keep the existing resource thresholds and public package interfaces.
 - Add separate native findutils 4.10.0/coreutils 9.7 fixtures and resource/action
   regressions, including multiple children sharing an argument-file input stream.
 
+## N2b stat, date and explicit environment facts
+
+- Add `stat --format`/`--printf` (last option wins), byte-preserving escapes,
+  `%Y`/`%y`/`%h`/`%i`, and symlink-aware type/mode formatting. Formatting checks
+  output and operation budgets while appending. Reuse the shared escape and
+  strftime implementations; remove the old allocating replacement pass.
+- Add `date -r`/`--reference`, native ISO precision controls (`-I` is date-only,
+  `-Iseconds` includes a colon offset), RFC formatting, and millisecond timestamp
+  fractions. Validate ISO calendar/DST gaps instead of silently normalizing them.
+  Existing `-u` now controls parsing as well as display. Reference-file errors
+  and cancellation remain visible.
+- Optional `environmentInfo` supplies an explicit host arch/timezone snapshot;
+  no `TZ` entry is created. Explicit `TZ` (including empty) and `-u` take
+  precedence. Without an adapter the fork keeps its UTC display default.
+  `find -newermt` reuses the same timezone resolution.
+- Optional `virtualFileMetadata` supplies display-only user/group, uid/gid,
+  link count, directory size and allocation-unit estimates for a virtual FS.
+  Absent backend inode identity is shown as `0`, never a fabricated stable inode.
+  The option defaults preserve the fork's existing identity/block values.
+- Frozen coreutils 9.7 comparisons cover UTC and Asia/Shanghai without globally
+  normalizing timestamps, modes or output. Owning tests cover explicit host
+  defaults, binary escapes, unsupported resources and cancellation.
+
 ## Build, validation and future upgrades
 
 Use Node 22.19.0 and the root `packageManager` pnpm 10.33.2 with the frozen lockfile.

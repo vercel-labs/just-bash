@@ -77,7 +77,7 @@ function emitTraceSummary(
   });
 }
 
-import { isValidTimezone } from "../date/date.js";
+import { commandTimeZone } from "../date/date.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 import {
   applyWidth,
@@ -217,9 +217,8 @@ export const findCommand: RuntimeCommand = {
     // Parse the complete expression before any filesystem access or action.
     // A bare -newermt date is read in $TZ when it names a zone, and in UTC
     // otherwise, the same contract `date` keeps.
-    const tz = ctx.env.get("TZ");
     const { expr, error } = parseExpressions(args, expressionStart, {
-      tz: tz && isValidTimezone(tz) ? tz : undefined,
+      tz: commandTimeZone(ctx),
     });
 
     // Return error for unknown predicates

@@ -15,9 +15,11 @@ import type { SecureFetch } from "../network/index.js";
 import type {
   CommandExecOptions,
   CommandRegistry,
+  EnvironmentInfo,
   ExecResult,
   FeatureCoverageWriter,
   TraceCallback,
+  VirtualFileMetadata,
 } from "../types.js";
 import type { ProcessSubstitutionEntry } from "./process-substitution.js";
 
@@ -484,6 +486,8 @@ export interface ShellArray {
 }
 
 export interface InterpreterContext {
+  environmentInfo?: EnvironmentInfo;
+  virtualFileMetadata?: VirtualFileMetadata;
   state: InterpreterState;
   fs: IFileSystem;
   commands: CommandRegistry;

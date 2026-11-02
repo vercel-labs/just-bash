@@ -128,6 +128,8 @@ function unsupportedCommandNode(node: never): never {
 export type { InterpreterContext, InterpreterState } from "./types.js";
 
 export interface InterpreterOptions {
+  environmentInfo?: InterpreterContext["environmentInfo"];
+  virtualFileMetadata?: InterpreterContext["virtualFileMetadata"];
   fs: IFileSystem;
   commands: CommandRegistry;
   limits: Required<ExecutionLimits>;
@@ -166,6 +168,8 @@ export class Interpreter {
 
   constructor(options: InterpreterOptions, state: InterpreterState) {
     this.ctx = {
+      environmentInfo: options.environmentInfo,
+      virtualFileMetadata: options.virtualFileMetadata,
       state,
       fs: options.fs,
       commands: options.commands,

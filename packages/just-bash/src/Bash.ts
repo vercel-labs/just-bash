@@ -83,9 +83,11 @@ import type {
   BashExecResult,
   Command,
   CommandRegistry,
+  EnvironmentInfo,
   FeatureCoverageWriter,
   RuntimeCommand,
   TraceCallback,
+  VirtualFileMetadata,
 } from "./types.js";
 
 export type { ExecutionLimitProfile, ExecutionLimits } from "./limits.js";
@@ -144,6 +146,8 @@ export interface JavaScriptConfig {
 }
 
 export interface BashOptions {
+  environmentInfo?: EnvironmentInfo;
+  virtualFileMetadata?: VirtualFileMetadata;
   files?: InitialFiles;
   env?: Record<string, string>;
   cwd?: string;
@@ -335,6 +339,8 @@ export interface ExecOptions {
 }
 
 export class Bash {
+  private environmentInfo?: EnvironmentInfo;
+  private virtualFileMetadata?: VirtualFileMetadata;
   readonly fs: IFileSystem;
   private commands: CommandRegistry = new Map();
   private useDefaultLayout: boolean = false;
@@ -358,6 +364,11 @@ export class Bash {
   private state: InterpreterState;
 
   constructor(options: BashOptions = {}) {
+    this.environmentInfo =
+      options.environmentInfo && Object.freeze({ ...options.environmentInfo });
+    this.virtualFileMetadata =
+      options.virtualFileMetadata &&
+      Object.freeze({ ...options.virtualFileMetadata });
     // Resolve limits before constructing the default filesystem so retained
     // virtual storage follows the same host-selected policy as execution.
     this.limits = resolveLimits(
@@ -914,6 +925,8 @@ export class Bash {
             limits: this.limits,
             executionScope,
             inputSession,
+            environmentInfo: this.environmentInfo,
+            virtualFileMetadata: this.virtualFileMetadata,
             exec: (
               script,
               childOptions,

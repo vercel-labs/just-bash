@@ -138,7 +138,9 @@ export type {
   BashExecResult,
   Command,
   CommandContext,
+  EnvironmentInfo,
   ExecResult,
   IFileSystem,
   ResolvedCommandContext,
+  VirtualFileMetadata,
 } from "./types.js";
