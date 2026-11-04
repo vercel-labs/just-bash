@@ -200,20 +200,19 @@ describe("shift builtin", () => {
       const env = new Bash({ env: { "#": "1000000000", "1": "a", "2": "b" } });
       const result = await env.exec(`
         shift
-        echo "rc=$? count=$# [$1] [$2]"
+        echo "rc=$? count=$# [$1] [\${2-U}]"
       `);
-      expect(result.stdout).toBe("rc=0 count=999999999 [b] []\n");
+      expect(result.stdout).toBe("rc=0 count=999999999 [b] [U]\n");
       expect(result.stderr).toBe("");
     });
 
-    it("should still count down when $# is seeded above the set parameters", async () => {
-      const env = new Bash({ env: { "#": "3" } });
+    it("should fill empty slots when $# is seeded above the set parameters", async () => {
+      const env = new Bash({ env: { "#": "3", "1": "a" } });
       const result = await env.exec(`
-        n=0
-        while [ $# -gt 0 ]; do n=$((n+1)); shift; done
-        echo "iters=$n"
+        while [ $# -gt 0 ]; do printf "%s," "\${1-U}"; shift; done
+        echo
       `);
-      expect(result.stdout).toBe("iters=3\n");
+      expect(result.stdout).toBe("a,,,\n");
       expect(result.stderr).toBe("");
     });
 
@@ -221,18 +220,22 @@ describe("shift builtin", () => {
       const env = new Bash({ env: { "#": "4", "1": "a", "2": "b", "4": "d" } });
       const result = await env.exec(`
         shift
-        echo "count=$# [$1] [$2] [$3] [$4]"
+        echo "count=$# [$1] [\${2-U}] [$3] [\${4-U}]"
+        [ -v 2 ] && echo v2
       `);
-      expect(result.stdout).toBe("count=3 [b] [] [d] []\n");
+      expect(result.stdout).toBe("count=3 [b] [] [d] [U]\nv2\n");
       expect(result.stderr).toBe("");
     });
 
-    it("should keep the count for a sourced file with more than nine arguments", async () => {
+    it("should keep every slot for a sourced file with more than nine arguments", async () => {
       const env = new Bash({
-        files: { "/s.sh": 'shift; echo "$#"; shift 9; echo "rc=$? $#"' },
+        files: {
+          "/s.sh":
+            'shift; echo "$#"; [ -v 9 ] && echo v9; echo "${10+set}"; shift 9; echo "rc=$? $#"',
+        },
       });
       const result = await env.exec("source /s.sh a b c d e f g h i j k");
-      expect(result.stdout).toBe("10\nrc=0 1\n");
+      expect(result.stdout).toBe("10\nv9\nset\nrc=0 1\n");
       expect(result.stderr).toBe("");
     });
   });
