@@ -5,6 +5,7 @@ import {
   getHostFunctionContext,
   RunAbortedError,
   RunBridgeLimitError,
+  RunCpuTimeoutError,
   RunError,
   type RunModuleLoader,
   RunTimeoutError,
@@ -1159,7 +1160,9 @@ ${bootstrap}
     ),
   );
   // run currently requires a finite 32-bit timeout. Preserve Infinity as
-  // its longest practical value (~24.9 days).
+  // its longest practical value (~24.9 days). The same value bounds guest
+  // CPU time through cpuTimeoutMs: without it, run stops a CPU-bound guest
+  // at its own default CPU limit regardless of maxJsTimeoutMs.
   const runTimeoutMs =
     deadline === Number.POSITIVE_INFINITY
       ? RUN_MAX_LIMIT_VALUE
@@ -1172,6 +1175,7 @@ ${bootstrap}
         runPromise = runner.run({
           abortSignal,
           limits: {
+            cpuTimeoutMs: runTimeoutMs,
             maxBridgeRequests: Math.min(
               Math.max(
                 1,
@@ -1222,16 +1226,27 @@ ${bootstrap}
       );
     } else if (
       error instanceof RunTimeoutError ||
+      error instanceof RunCpuTimeoutError ||
       error instanceof RunAbortedError
     ) {
       output.exitCode = 124;
       appendDiagnostic(
-        `js-exec: ${error instanceof RunTimeoutError || deadlineSignal.aborted ? `Execution timeout: exceeded ${ctx.limits.maxJsTimeoutMs}ms limit` : "Execution aborted"}\n`,
+        `js-exec: ${
+          error instanceof RunTimeoutError ||
+          error instanceof RunCpuTimeoutError ||
+          deadlineSignal.aborted
+            ? `Execution timeout: exceeded ${ctx.limits.maxJsTimeoutMs}ms limit`
+            : "Execution aborted"
+        }\n`,
       );
     } else {
       output.exitCode = 1;
+      // run 2.1.8 renamed the guest-error code from RUN_ERROR to
+      // RUN_USER_SOURCE_ERROR; accept both so guest errors keep their
+      // source attribution.
       const isGuestError =
-        RunError.isInstance(error) && error.code === "RUN_ERROR";
+        RunError.isInstance(error) &&
+        (error.code === "RUN_ERROR" || error.code === "RUN_USER_SOURCE_ERROR");
       const guestMessage = isGuestError
         ? formatGuestError(error, options, sourceLineOffset)
         : sanitizeHostErrorMessage(message);

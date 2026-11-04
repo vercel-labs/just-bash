@@ -189,8 +189,8 @@ importers:
         specifier: ^1.3.3
         version: 1.3.3
       run:
-        specifier: 2.1.3
-        version: 2.1.3(typescript@5.9.3)
+        specifier: 2.1.8
+        version: 2.1.8(typescript@5.9.3)
       seek-bzip:
         specifier: ^2.0.0
         version: 2.0.0
@@ -4069,8 +4069,8 @@ packages:
   run-parallel@1.2.0:
     resolution: {integrity: sha512-5l4VyZR86LZ/lDxZTR6jqL8AFE2S0IFLMP26AbjsLVADxHdhB/c0GUsH+y39UfCi3dzz8OlQuPmnaJOMoDHQBA==}
 
-  run@2.1.3:
-    resolution: {integrity: sha512-KUurW05zgjtZ2su0cBURC1q2RG/Uq0uzV3qURDsXqiKh03p9IXABQK4Qem56cFMqjT8TdQ2iTWsePrMprQWIRA==}
+  run@2.1.8:
+    resolution: {integrity: sha512-B+N1a8grWUEmQwS8QL+o0yoB0sjPitphQ/PaION9j0m/msDxA9j1fxgX6VC4m604/OzT3IAMAZIw7kn8zn1R0A==}
     engines: {node: '>=20.19.0'}
     peerDependencies:
       typescript: '>=5.1.6 <7'
@@ -8607,7 +8607,7 @@ snapshots:
     dependencies:
       queue-microtask: 1.2.3
 
-  run@2.1.3(typescript@5.9.3):
+  run@2.1.8(typescript@5.9.3):
     optionalDependencies:
       typescript: 5.9.3
 
