@@ -21,16 +21,10 @@ export function handleShift(
     n = parsed;
   }
 
-  const declared = Number.parseInt(ctx.state.env.get("#") || "0", 10);
-  const params: string[] = [];
-  while (
-    params.length < declared &&
-    ctx.state.env.has(String(params.length + 1))
-  ) {
-    params.push(ctx.state.env.get(String(params.length + 1)) ?? "");
-  }
+  const env = ctx.state.env;
+  const count = Number.parseInt(env.get("#") || "0", 10);
 
-  if (n > params.length) {
+  if (n > count) {
     const errorMsg = "bash: shift: shift count out of range\n";
     if (ctx.state.options.posix) {
       throw new PosixFatalError(1, "", errorMsg);
@@ -42,18 +36,27 @@ export function handleShift(
     return OK;
   }
 
-  const newParams = params.slice(n);
-
-  for (let i = 1; i <= params.length; i++) {
-    ctx.state.env.delete(String(i));
+  const keys =
+    count <= env.size
+      ? Array.from({ length: count }, (_, i) => String(i + 1))
+      : [...env.keys()];
+  const kept: [number, string][] = [];
+  for (const key of keys) {
+    const index = Number(key);
+    const value = env.get(key);
+    if (value === undefined || String(index) !== key) continue;
+    if (!(index >= 1 && index <= count)) continue;
+    env.delete(key);
+    if (index > n) kept.push([index - n, value]);
   }
 
-  for (let i = 0; i < newParams.length; i++) {
-    ctx.state.env.set(String(i + 1), newParams[i]);
+  kept.sort((a, b) => a[0] - b[0]);
+  for (const [index, value] of kept) {
+    env.set(String(index), value);
   }
 
-  ctx.state.env.set("#", String(newParams.length));
-  ctx.state.env.set("@", newParams.join(" "));
+  env.set("#", String(Number.isNaN(count) ? 0 : count - n));
+  env.set("@", kept.map(([, value]) => value).join(" "));
 
   return OK;
 }

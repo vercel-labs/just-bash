@@ -2,6 +2,6 @@
 "just-bash": patch
 ---
 
-shift: walk only the positional parameters that are set
+shift: move only the positional parameters that are set
 
-`shift` read every slot up to `$#`, so a `$#` seeded through the environment (for example `new Bash({ env: { "#": "1000000000" } })`) made it build and rewrite a billion parameters until the process ran out of map space. It now stops at the first parameter that is not set, so the work follows the parameters that really exist.
+`shift` built an array with one slot per `$#` before moving anything, so a `$#` seeded through the environment (for example `new Bash({ env: { "#": "1000000000" } })`) kept it busy for seconds and then failed with `Invalid array length`. It now moves only the numbered parameters that exist, so the work no longer grows with `$#`. The count, the out of range check and the resulting `$#` are unchanged.

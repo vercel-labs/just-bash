@@ -196,26 +196,44 @@ describe("shift builtin", () => {
       expect(result.stdout).toBe("before: only\nafter: \n");
     });
 
-    it("should only walk parameters that are set when $# is seeded high", async () => {
+    it("should not build every slot when $# is seeded high", async () => {
       const env = new Bash({ env: { "#": "1000000000", "1": "a", "2": "b" } });
       const result = await env.exec(`
         shift
-        echo "rc=$? count=$# first=$1"
-        shift 2
-        echo "rc=$? count=$#"
+        echo "rc=$? count=$# [$1] [$2]"
       `);
-      expect(result.stdout).toBe("rc=0 count=1 first=b\nrc=1 count=1\n");
-      expect(result.stderr).toBe("bash: shift: shift count out of range\n");
+      expect(result.stdout).toBe("rc=0 count=999999999 [b] []\n");
+      expect(result.stderr).toBe("");
     });
 
-    it("should treat a non numeric $# as no parameters", async () => {
-      const env = new Bash({ env: { "#": "abc", "1": "a" } });
+    it("should still count down when $# is seeded above the set parameters", async () => {
+      const env = new Bash({ env: { "#": "3" } });
+      const result = await env.exec(`
+        n=0
+        while [ $# -gt 0 ]; do n=$((n+1)); shift; done
+        echo "iters=$n"
+      `);
+      expect(result.stdout).toBe("iters=3\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should move later parameters down across an unset one", async () => {
+      const env = new Bash({ env: { "#": "4", "1": "a", "2": "b", "4": "d" } });
       const result = await env.exec(`
         shift
-        echo "rc=$? first=$1"
+        echo "count=$# [$1] [$2] [$3] [$4]"
       `);
-      expect(result.stdout).toBe("rc=1 first=a\n");
-      expect(result.stderr).toBe("bash: shift: shift count out of range\n");
+      expect(result.stdout).toBe("count=3 [b] [] [d] []\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should keep the count for a sourced file with more than nine arguments", async () => {
+      const env = new Bash({
+        files: { "/s.sh": 'shift; echo "$#"; shift 9; echo "rc=$? $#"' },
+      });
+      const result = await env.exec("source /s.sh a b c d e f g h i j k");
+      expect(result.stdout).toBe("10\nrc=0 1\n");
+      expect(result.stderr).toBe("");
     });
   });
 });
