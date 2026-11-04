@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
-import { exceedsHostLimits } from "./shift.js";
 
 describe("shift builtin", () => {
   describe("basic shift", () => {
@@ -242,29 +241,19 @@ describe("shift builtin", () => {
   });
 
   describe("host limits", () => {
-    it("should fill empty slots even above maxArrayElements", async () => {
+    it("should move only stored parameters above maxArrayElements", async () => {
       const env = new Bash({
         env: { "#": "5000", "1": "a", "2": "b" },
         executionLimits: { maxArrayElements: 10 },
       });
+      const start = Date.now();
       const result = await env.exec(`
         shift
-        echo "count=$# [\${2-U}]"
-        [ -v 3 ] && echo v3
+        echo "count=$# [$1] [\${2-U}]"
       `);
-      expect(result.stdout).toBe("count=4999 []\nv3\n");
+      expect(result.stdout).toBe("count=4999 [b] [U]\n");
       expect(result.stderr).toBe("");
-    });
-
-    it("should switch exactly where the full walk would overflow", () => {
-      const env = new Map([
-        ["#", "x"],
-        ["1", "a"],
-      ]);
-      expect(exceedsHostLimits(env, 2 ** 24 - 1, 1)).toBe(false);
-      expect(exceedsHostLimits(env, 2 ** 24, 1)).toBe(true);
-      expect(exceedsHostLimits(env, 2 ** 27, 2 ** 27)).toBe(false);
-      expect(exceedsHostLimits(env, 2 ** 27 + 1, 2 ** 27 + 1)).toBe(true);
+      expect(Date.now() - start).toBeLessThan(1000);
     });
   });
 });

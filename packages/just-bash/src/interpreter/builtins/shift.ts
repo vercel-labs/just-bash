@@ -3,9 +3,6 @@ import { PosixFatalError } from "../errors.js";
 import { failure, OK } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
-const MAX_ARRAY_LENGTH = 2 ** 27;
-const MAX_MAP_SIZE = 2 ** 24;
-
 export function handleShift(
   ctx: InterpreterContext,
   args: string[],
@@ -39,7 +36,7 @@ export function handleShift(
     return OK;
   }
 
-  if (exceedsHostLimits(env, count, n)) {
+  if (count > Math.max(env.size, ctx.limits.maxArrayElements)) {
     shiftStoredParams(env, count, n);
     return OK;
   }
@@ -65,39 +62,16 @@ export function handleShift(
   return OK;
 }
 
-export function exceedsHostLimits(
-  env: Map<string, string>,
-  count: number,
-  n: number,
-): boolean {
-  if (count > MAX_ARRAY_LENGTH) return true;
-  const size = env.size + count - n + (env.has("@") ? 0 : 1);
-  if (!(size > MAX_MAP_SIZE)) return false;
-  return size - storedParams(env, count).length > MAX_MAP_SIZE;
-}
-
-function storedParams(
-  env: Map<string, string>,
-  count: number,
-): [number, string][] {
-  const stored: [number, string][] = [];
-  for (const [key, value] of env) {
-    const index = Number(key);
-    if (String(index) === key && index >= 1 && index <= count) {
-      stored.push([index, value]);
-    }
-  }
-  return stored;
-}
-
 function shiftStoredParams(
   env: Map<string, string>,
   count: number,
   n: number,
 ): void {
   const kept: [number, string][] = [];
-  for (const [index, value] of storedParams(env, count)) {
-    env.delete(String(index));
+  for (const [key, value] of [...env]) {
+    const index = Number(key);
+    if (String(index) !== key || !(index >= 1 && index <= count)) continue;
+    env.delete(key);
     if (index > n) kept.push([index - n, value]);
   }
 
