@@ -4,4 +4,4 @@
 
 shift: stop a seeded `$#` from crashing it
 
-Before, a `$#` seeded far above the stored parameters (for example `new Bash({ env: { "#": "1000000000" } })`) made `shift` build one slot per `$#` and fail after seconds with `Invalid array length`. Now, when `$#` is larger than both the environment and `maxArrayElements`, `shift` moves only the parameters that are stored and leaves the missing ones unset, and every other case behaves exactly as before.
+Before, a `$#` seeded so high that filling every slot would pass the JavaScript limits (`Invalid array length` or `Map maximum size exceeded`) made `shift` run for seconds and then fail. Now, only in that case, `shift` moves just the stored parameters and counts `$#` down exactly, and every case that worked before gives the same result.
