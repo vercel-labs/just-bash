@@ -276,6 +276,18 @@ describe("shift builtin", () => {
       expect(fromLargeEnv.stdout).toBe("count=19 []\n");
     });
 
+    it("should leave stored keys past $# alone", async () => {
+      const env = new Bash({
+        env: { "#": " +1000", "1": "a", "1001": "X" },
+        executionLimits: { maxArrayElements: 10 },
+      });
+      const result = await env.exec(
+        'shift; v=$@; echo "$# [${1-U}] [${1000-U}] [${1001-U}] [$v]"',
+      );
+      expect(result.stdout).toBe("999 [U] [U] [X] []\n");
+      expect(result.stderr).toBe("");
+    });
+
     it("should stay exact past 2 ** 53", async () => {
       const env = new Bash({
         env: {
