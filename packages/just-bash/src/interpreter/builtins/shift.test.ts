@@ -195,5 +195,27 @@ describe("shift builtin", () => {
       `);
       expect(result.stdout).toBe("before: only\nafter: \n");
     });
+
+    it("should only walk parameters that are set when $# is seeded high", async () => {
+      const env = new Bash({ env: { "#": "1000000000", "1": "a", "2": "b" } });
+      const result = await env.exec(`
+        shift
+        echo "rc=$? count=$# first=$1"
+        shift 2
+        echo "rc=$? count=$#"
+      `);
+      expect(result.stdout).toBe("rc=0 count=1 first=b\nrc=1 count=1\n");
+      expect(result.stderr).toBe("bash: shift: shift count out of range\n");
+    });
+
+    it("should treat a non numeric $# as no parameters", async () => {
+      const env = new Bash({ env: { "#": "abc", "1": "a" } });
+      const result = await env.exec(`
+        shift
+        echo "rc=$? first=$1"
+      `);
+      expect(result.stdout).toBe("rc=1 first=a\n");
+      expect(result.stderr).toBe("bash: shift: shift count out of range\n");
+    });
   });
 });
