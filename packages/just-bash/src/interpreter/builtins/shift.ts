@@ -22,22 +22,22 @@ export function handleShift(
   }
 
   const env = ctx.state.env;
-  const count = Number.parseInt(env.get("#") || "0", 10);
+  const declared = env.get("#") || "0";
+  const count = Number.parseInt(declared, 10);
+
+  if (count > Math.max(env.size, ctx.limits.maxArrayElements)) {
+    return shiftStoredParams(
+      ctx,
+      leadingInteger(declared),
+      args.length > 0 ? leadingInteger(args[0]) : 1n,
+    );
+  }
 
   if (n > count) {
-    const errorMsg = "bash: shift: shift count out of range\n";
-    if (ctx.state.options.posix) {
-      throw new PosixFatalError(1, "", errorMsg);
-    }
-    return failure(errorMsg);
+    return outOfRange(ctx);
   }
 
   if (n === 0) {
-    return OK;
-  }
-
-  if (count > Math.max(env.size, ctx.limits.maxArrayElements)) {
-    shiftStoredParams(env, count, n);
     return OK;
   }
 
@@ -62,25 +62,48 @@ export function handleShift(
   return OK;
 }
 
+function outOfRange(ctx: InterpreterContext): ExecResult {
+  const errorMsg = "bash: shift: shift count out of range\n";
+  if (ctx.state.options.posix) {
+    throw new PosixFatalError(1, "", errorMsg);
+  }
+  return failure(errorMsg);
+}
+
+function leadingInteger(text: string): bigint {
+  return BigInt(/^\s*[+-]?(\d+)/.exec(text)?.[1] ?? "0");
+}
+
 function shiftStoredParams(
-  env: Map<string, string>,
-  count: number,
-  n: number,
-): void {
-  const kept: [number, string][] = [];
+  ctx: InterpreterContext,
+  count: bigint,
+  n: bigint,
+): ExecResult {
+  if (n > count) {
+    return outOfRange(ctx);
+  }
+
+  if (n === 0n) {
+    return OK;
+  }
+
+  const env = ctx.state.env;
+  const kept: [bigint, string][] = [];
   for (const [key, value] of [...env]) {
-    const index = Number(key);
-    if (String(index) !== key || !(index >= 1 && index <= count)) continue;
+    if (!/^[1-9]\d*$/.test(key)) continue;
+    const index = BigInt(key);
+    if (index > count) continue;
     env.delete(key);
     if (index > n) kept.push([index - n, value]);
   }
 
-  kept.sort((a, b) => a[0] - b[0]);
+  kept.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   for (const [index, value] of kept) {
     env.set(String(index), value);
   }
 
-  const digits = /\d+/.exec(env.get("#") ?? "")?.[0] ?? "0";
-  env.set("#", String(BigInt(digits) - BigInt(n)));
+  env.set("#", String(count - n));
   env.set("@", kept.map(([, value]) => value).join(" "));
+
+  return OK;
 }
