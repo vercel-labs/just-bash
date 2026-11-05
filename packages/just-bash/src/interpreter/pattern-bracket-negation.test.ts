@@ -69,4 +69,16 @@ describe("bracket negation in case and [[ == ]] patterns", () => {
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);
   });
+
+  it("keeps apostrophes that come from an expansion as literal set members", async () => {
+    const result = await run(
+      'p="[\'a\']"; [[ "\'" == $p ]] && echo quote-matches; case a in $p) echo a-matches;; esac; q="[\'\']"; case "\'" in $q) echo empty-pair-matches;; esac',
+    );
+
+    expect(result.stdout).toBe(
+      "quote-matches\na-matches\nempty-pair-matches\n",
+    );
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
 });

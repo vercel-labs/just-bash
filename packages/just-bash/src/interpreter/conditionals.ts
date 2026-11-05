@@ -17,13 +17,13 @@ import { createUserRegex } from "../regex/index.js";
 import type { ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
 import { ExecutionLimitError } from "./errors.js";
+import { convertCharClass, findCharClassEnd } from "./expansion/pattern.js";
 import {
   escapeRegexChars,
   expandWord,
   expandWordForPattern,
   expandWordForRegex,
 } from "./expansion.js";
-import { convertCharClass, findCharClassEnd } from "./expansion/pattern.js";
 import { clearArray, setArrayElement } from "./helpers/array.js";
 import {
   evaluateBinaryFileTest,
@@ -659,9 +659,9 @@ function patternToRegexStr(pattern: string, extglob: boolean): string {
     } else if (char === "?") {
       regex += ".";
     } else if (char === "[") {
-      const closeIdx = findCharClassEnd(pattern, i);
+      const closeIdx = findCharClassEnd(pattern, i, false);
       if (closeIdx !== -1) {
-        regex += convertCharClass(pattern.slice(i + 1, closeIdx));
+        regex += convertCharClass(pattern.slice(i + 1, closeIdx), false);
         i = closeIdx;
       } else {
         regex += "\\[";
