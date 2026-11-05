@@ -17,6 +17,7 @@ import { createUserRegex } from "../regex/index.js";
 import type { ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
 import { ExecutionLimitError } from "./errors.js";
+import { convertCharClass, findCharClassEnd } from "./expansion/pattern.js";
 import {
   escapeRegexChars,
   expandWord,
@@ -658,9 +659,9 @@ function patternToRegexStr(pattern: string, extglob: boolean): string {
     } else if (char === "?") {
       regex += ".";
     } else if (char === "[") {
-      const closeIdx = pattern.indexOf("]", i + 1);
+      const closeIdx = findCharClassEnd(pattern, i, false);
       if (closeIdx !== -1) {
-        regex += pattern.slice(i, closeIdx + 1);
+        regex += convertCharClass(pattern.slice(i + 1, closeIdx), false);
         i = closeIdx;
       } else {
         regex += "\\[";
