@@ -554,6 +554,16 @@ describe("date", () => {
       expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
     });
+
+    it("-u reads the -d input as UTC, not in $TZ", async () => {
+      const env = new Bash({ env: { TZ: "Europe/Berlin" } });
+      const result = await env.exec(
+        "date -u -d 2026-03-03 +%FT%T; date -u -d '2026-03-03T12:00:00' +%s",
+      );
+      expect(result.stdout).toBe("2026-03-03T00:00:00\n1772539200\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
   });
 });
 
