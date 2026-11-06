@@ -172,8 +172,9 @@ export const dateCommand: RuntimeCommand = {
     //                          time parts).
     // parseTz keeps its raw value (undefined when unset) so timezone-naive -d
     // strings without $TZ fall through to JS `new Date(s)` — do NOT propagate
-    // the UTC display default into parsing.
-    let parseTz = ctx.env.get("TZ");
+    // the UTC display default into parsing. `-u` is different: like GNU
+    // date, it makes the input be read as UTC too, not only the output.
+    let parseTz = utc ? "UTC" : ctx.env.get("TZ");
     if (parseTz && !isValidTimezone(parseTz)) parseTz = undefined;
     const displayTz = utc ? "UTC" : (parseTz ?? "UTC");
 
