@@ -564,6 +564,33 @@ describe("date", () => {
       expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
     });
+
+    it("-u reads fractional-second and minute-only -d input as UTC", async () => {
+      const env = new Bash({ env: { TZ: "Asia/Kolkata" } });
+      const result = await env.exec(
+        [
+          "date -u -d '2026-03-03T12:00:00.500' +%s",
+          "date -u -d '2026-03-03T12:00:00,5' +%s",
+          "date -u -d '2026-03-03T12:00' +%s",
+          "date -u -d '2026-03-03 12:00' +%s",
+        ].join("; "),
+      );
+      expect(result.stdout).toBe(
+        "1772539200\n1772539200\n1772539200\n1772539200\n",
+      );
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("reads fractional-second -d input in $TZ", async () => {
+      const env = new Bash({ env: { TZ: "America/New_York" } });
+      const result = await env.exec(
+        "date -d '2026-03-03T12:00:00.250' +%s; date -d '2026-03-03T12:00:00.250Z' +%s",
+      );
+      expect(result.stdout).toBe("1772557200\n1772539200\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
   });
 });
 
