@@ -29,6 +29,7 @@ import {
 } from "../helpers/array.js";
 import { getIfsSeparator } from "../helpers/ifs.js";
 import { isNameref, resolveNameref } from "../helpers/nameref.js";
+import { leadingInteger, positionalCount } from "../helpers/stored-params.js";
 import type { InterpreterContext } from "../types.js";
 
 /**
@@ -413,7 +414,7 @@ export async function getVariable(
       value === undefined &&
       checkNounset &&
       ctx.state.options.nounset &&
-      !(Number(name) <= Number.parseInt(ctx.state.env.get("#") || "0", 10))
+      !((leadingInteger(name) ?? 0n) <= positionalCount(ctx.state.env))
     ) {
       throw new NounsetError(name);
     }

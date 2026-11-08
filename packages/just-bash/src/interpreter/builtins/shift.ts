@@ -1,10 +1,12 @@
 import type { ExecResult } from "../../types.js";
 import { PosixFatalError } from "../errors.js";
 import { failure, OK } from "../helpers/result.js";
+import {
+  INTMAX_MAX,
+  leadingInteger,
+  moveStoredParams,
+} from "../helpers/stored-params.js";
 import type { InterpreterContext } from "../types.js";
-
-const INTMAX_MAX = 2n ** 63n - 1n;
-const INTMAX_DIGITS = String(INTMAX_MAX).length;
 
 export function handleShift(
   ctx: InterpreterContext,
@@ -25,6 +27,12 @@ export function handleShift(
     return OK;
   }
 
+  if (count > INTMAX_MAX) {
+    return n === 0n
+      ? OK
+      : fail(ctx, "$#: positional parameter count out of range");
+  }
+
   if (n > count) {
     return fail(ctx, "shift count out of range");
   }
@@ -33,14 +41,7 @@ export function handleShift(
     return OK;
   }
 
-  if (count > INTMAX_MAX) {
-    return fail(ctx, "$#: positional parameter count out of range");
-  }
-
-  const kept =
-    count <= BigInt(env.size)
-      ? shiftWalked(env, Number(count), Number(n))
-      : shiftScanned(env, count, n);
+  const kept = moveStoredParams(env, count, n);
   env.set("#", String(count - n));
   env.set("@", kept.join(" "));
 
@@ -53,59 +54,4 @@ function fail(ctx: InterpreterContext, message: string): ExecResult {
     throw new PosixFatalError(1, "", errorMsg);
   }
   return failure(errorMsg);
-}
-
-function leadingInteger(text: string): bigint | undefined {
-  const match = /^\s*([+-]?)0*(\d+)/.exec(text);
-  if (!match) return undefined;
-  const [, sign, digits] = match;
-  const magnitude =
-    digits.length > INTMAX_DIGITS ? INTMAX_MAX + 1n : BigInt(digits);
-  return sign === "-" ? -magnitude : magnitude;
-}
-
-function shiftWalked(
-  env: Map<string, string>,
-  count: number,
-  n: number,
-): string[] {
-  const kept: string[] = [];
-  for (let i = 1; i <= count; i++) {
-    const key = String(i);
-    const value = env.get(key);
-    if (value === undefined) continue;
-    env.delete(key);
-    if (i > n) {
-      env.set(String(i - n), value);
-      kept.push(value);
-    }
-  }
-  return kept;
-}
-
-function shiftScanned(
-  env: Map<string, string>,
-  count: bigint,
-  n: bigint,
-): string[] {
-  const last = String(count);
-  const stored = [...env]
-    .filter(
-      ([key]) =>
-        key.length <= last.length &&
-        /^[1-9]\d*$/.test(key) &&
-        BigInt(key) <= count,
-    )
-    .map(([key, value]): [bigint, string] => [BigInt(key), value])
-    .sort(([a], [b]) => (a < b ? -1 : 1));
-
-  for (const [index] of stored) {
-    env.delete(String(index));
-  }
-
-  const kept = stored.filter(([index]) => index > n);
-  for (const [index, value] of kept) {
-    env.set(String(index - n), value);
-  }
-  return kept.map(([, value]) => value);
 }

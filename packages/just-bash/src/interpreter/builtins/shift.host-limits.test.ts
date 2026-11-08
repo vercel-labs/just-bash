@@ -3,10 +3,9 @@ import { Bash } from "../../Bash.js";
 
 describe("shift builtin", () => {
   describe("host limits", () => {
-    it("should move only stored parameters above maxArrayElements", async () => {
+    it("should move only the stored parameters when $# is seeded high", async () => {
       const env = new Bash({
         env: { "#": "5000", "1": "a", "2": "b" },
-        executionLimits: { maxArrayElements: 10 },
       });
       const result = await env.exec(`
         shift
@@ -24,7 +23,6 @@ describe("shift builtin", () => {
       for (const extra of [{}, vars]) {
         const env = new Bash({
           env: { ...extra, "#": "20", "1": "a" },
-          executionLimits: { maxArrayElements: 10 },
         });
         const result = await env.exec(script);
         expect(result.stdout).toBe("count=19 [U]\nunset\n");
@@ -35,7 +33,7 @@ describe("shift builtin", () => {
       expect(fromDefaults.stdout).toBe("count=499 [U]\nunset\n");
     });
 
-    it("should not walk every slot when $# is seeded at maxArrayElements", async () => {
+    it("should not walk every slot when $# is seeded at a million", async () => {
       const env = new Bash({
         env: { "#": "1000000", "1": "a", "2": "b" },
         executionLimits: { maxExecutionTimeMs: 10_000 },
@@ -52,7 +50,6 @@ describe("shift builtin", () => {
     it("should leave stored keys past $# alone", async () => {
       const env = new Bash({
         env: { "#": " +1000", "1": "a", "1001": "X" },
-        executionLimits: { maxArrayElements: 10 },
       });
       const result = await env.exec(
         'shift; v=$@; echo "$# [${1-U}] [${1000-U}] [${1001-U}] [$v]"',
@@ -133,10 +130,14 @@ describe("shift builtin", () => {
 
       for (const count of ["9223372036854775808", "9999999999999999999"]) {
         const aboveMax = new Bash({ env: { "#": count, "1": "a" } });
-        const fromAbove = await aboveMax.exec('shift; echo "rc=$? $# [$1]"');
-        expect(fromAbove.stdout).toBe(`rc=1 ${count} [a]\n`);
+        const fromAbove = await aboveMax.exec(
+          'shift 0; echo "rc=$?"; shift; echo "rc=$? $# [$1]"; shift 9223372036854775809; echo "rc=$?"',
+        );
+        expect(fromAbove.stdout).toBe(`rc=0\nrc=1 ${count} [a]\nrc=1\n`);
         expect(fromAbove.stderr).toBe(
-          "bash: shift: $#: positional parameter count out of range\n",
+          "bash: shift: $#: positional parameter count out of range\n".repeat(
+            2,
+          ),
         );
       }
     });

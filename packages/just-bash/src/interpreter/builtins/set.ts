@@ -21,6 +21,7 @@ import {
 } from "../helpers/quoting.js";
 import { failure, OK, success } from "../helpers/result.js";
 import { updateShellopts } from "../helpers/shellopts.js";
+import { moveStoredParams, positionalCount } from "../helpers/stored-params.js";
 import type { InterpreterContext, ShellOptions } from "../types.js";
 
 const SET_USAGE = `set: usage: set [-eux] [+eux] [-o option] [+o option]
@@ -516,6 +517,8 @@ function setPositionalParameters(
   params: string[],
 ): void {
   // Clear existing positional parameters
+  const count = positionalCount(ctx.state.env);
+  moveStoredParams(ctx.state.env, count, count);
   let i = 1;
   while (ctx.state.env.has(String(i))) {
     ctx.state.env.delete(String(i));
