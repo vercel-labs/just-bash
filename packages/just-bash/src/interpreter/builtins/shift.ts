@@ -1,10 +1,10 @@
 import type { ExecResult } from "../../types.js";
-import { ExecutionLimitError, PosixFatalError } from "../errors.js";
+import { PosixFatalError } from "../errors.js";
 import { failure, OK } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
-const INTMAX_DIGITS = 19;
-const TOO_LARGE = 10n ** BigInt(INTMAX_DIGITS);
+const INTMAX_MAX = 2n ** 63n - 1n;
+const INTMAX_DIGITS = String(INTMAX_MAX).length;
 
 export function handleShift(
   ctx: InterpreterContext,
@@ -12,11 +12,7 @@ export function handleShift(
 ): ExecResult {
   const n = args.length > 0 ? leadingInteger(args[0]) : 1n;
   if (n === undefined || n < 0n) {
-    const errorMsg = `bash: shift: ${args[0]}: numeric argument required\n`;
-    if (ctx.state.options.posix) {
-      throw new PosixFatalError(1, "", errorMsg);
-    }
-    return failure(errorMsg);
+    return fail(ctx, `${args[0]}: numeric argument required`);
   }
 
   const env = ctx.state.env;
@@ -28,39 +24,31 @@ export function handleShift(
     }
     return OK;
   }
-  if (count >= TOO_LARGE) {
-    throw new ExecutionLimitError(
-      `shift: positional parameter count limit exceeded (${INTMAX_DIGITS} digits)`,
-      "array_elements",
-    );
-  }
 
   if (n > count) {
-    return outOfRange(ctx);
+    return fail(ctx, "shift count out of range");
   }
 
   if (n === 0n) {
     return OK;
   }
 
-  const params = storedParams(env, count);
-  for (const [index] of params) {
-    env.delete(String(index));
+  if (count > INTMAX_MAX) {
+    return fail(ctx, "$#: positional parameter count out of range");
   }
 
-  const kept = params.filter(([index]) => index > n);
-  for (const [index, value] of kept) {
-    env.set(String(index - n), value);
-  }
-
+  const kept =
+    count <= BigInt(env.size)
+      ? shiftWalked(env, Number(count), Number(n))
+      : shiftScanned(env, count, n);
   env.set("#", String(count - n));
-  env.set("@", kept.map(([, value]) => value).join(" "));
+  env.set("@", kept.join(" "));
 
   return OK;
 }
 
-function outOfRange(ctx: InterpreterContext): ExecResult {
-  const errorMsg = "bash: shift: shift count out of range\n";
+function fail(ctx: InterpreterContext, message: string): ExecResult {
+  const errorMsg = `bash: shift: ${message}\n`;
   if (ctx.state.options.posix) {
     throw new PosixFatalError(1, "", errorMsg);
   }
@@ -71,25 +59,37 @@ function leadingInteger(text: string): bigint | undefined {
   const match = /^\s*([+-]?)0*(\d+)/.exec(text);
   if (!match) return undefined;
   const [, sign, digits] = match;
-  const magnitude = digits.length > INTMAX_DIGITS ? TOO_LARGE : BigInt(digits);
+  const magnitude =
+    digits.length > INTMAX_DIGITS ? INTMAX_MAX + 1n : BigInt(digits);
   return sign === "-" ? -magnitude : magnitude;
 }
 
-function storedParams(
+function shiftWalked(
+  env: Map<string, string>,
+  count: number,
+  n: number,
+): string[] {
+  const kept: string[] = [];
+  for (let i = 1; i <= count; i++) {
+    const key = String(i);
+    const value = env.get(key);
+    if (value === undefined) continue;
+    env.delete(key);
+    if (i > n) {
+      env.set(String(i - n), value);
+      kept.push(value);
+    }
+  }
+  return kept;
+}
+
+function shiftScanned(
   env: Map<string, string>,
   count: bigint,
-): [bigint, string][] {
-  if (count <= BigInt(env.size)) {
-    const params: [bigint, string][] = [];
-    for (let i = 1n; i <= count; i++) {
-      const value = env.get(String(i));
-      if (value !== undefined) params.push([i, value]);
-    }
-    return params;
-  }
-
+  n: bigint,
+): string[] {
   const last = String(count);
-  return [...env]
+  const stored = [...env]
     .filter(
       ([key]) =>
         key.length <= last.length &&
@@ -98,4 +98,14 @@ function storedParams(
     )
     .map(([key, value]): [bigint, string] => [BigInt(key), value])
     .sort(([a], [b]) => (a < b ? -1 : 1));
+
+  for (const [index] of stored) {
+    env.delete(String(index));
+  }
+
+  const kept = stored.filter(([index]) => index > n);
+  for (const [index, value] of kept) {
+    env.set(String(index - n), value);
+  }
+  return kept.map(([, value]) => value);
 }
