@@ -240,14 +240,14 @@ describe("shift builtin", () => {
     });
 
     it("should treat slots up to $# as set under set -u after a shift", async () => {
-      const sourced = new Bash({
-        files: { "/s.sh": 'shift; echo "[$8] [$9] [${10}]"' },
+      const gap = new Bash({
+        env: { "#": "4", "1": "a", "2": "b", "4": "d" },
       });
-      const fromSource = await sourced.exec(
-        "set -u; source /s.sh a b c d e f g h i j k",
+      const fromGap = await gap.exec(
+        'set -u; shift; echo "[$1] [$2] [$3] [${2-U}]"',
       );
-      expect(fromSource.stdout).toBe("[i] [] []\n");
-      expect(fromSource.stderr).toBe("");
+      expect(fromGap.stdout).toBe("[b] [] [d] [U]\n");
+      expect(fromGap.stderr).toBe("");
 
       const seeded = new Bash({ env: { "#": "3", "1": "a" } });
       const fromSeeded = await seeded.exec(
@@ -281,6 +281,33 @@ describe("shift builtin", () => {
       const env = new Bash({ env: { "#": "1", "1": "a", "2": "b" } });
       const result = await env.exec('set -- x; echo "$# [$1] [${2-U}]"');
       expect(result.stdout).toBe("1 [x] [U]\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should keep set -u strict when $# is not a usable count", async () => {
+      for (const count of ["abc", "9223372036854775808"]) {
+        const env = new Bash({ env: { "#": count, "1": "a" } });
+        const result = await env.exec('set -u; echo "[$1]"; echo "$2"');
+        expect(result.stdout).toBe("[a]\n");
+        expect(result.stderr).toBe("bash: 2: unbound variable\n");
+      }
+    });
+
+    it("should clear stored keys on set -- when a seeded $# is above env.size", async () => {
+      const env = new Bash({
+        env: {
+          "#": "1000000",
+          "1": "a",
+          "3": "c",
+          "999999": "y",
+          "1000001": "w",
+          "1000003": "z",
+        },
+      });
+      const result = await env.exec(
+        'set -- x; echo "$# [$1] [${3-U}] [${999999-U}] [${1000001-U}] [${1000003-U}]"',
+      );
+      expect(result.stdout).toBe("1 [x] [U] [U] [U] [z]\n");
       expect(result.stderr).toBe("");
     });
   });
