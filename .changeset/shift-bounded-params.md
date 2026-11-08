@@ -2,4 +2,4 @@
 "just-bash": patch
 ---
 
-shift: when a host seeded `$#` exceeds both the number of stored variables and `maxArrayElements`, move only the parameters that are set, leaving empty slots unset and keeping `$#` exact; below that bound nothing changes.
+shift: move only the positional parameters that are set, so the work no longer grows with a host seeded `$#`. Slots with nothing behind them stay unset, and the result no longer depends on how many other variables exist.

@@ -206,13 +206,13 @@ describe("shift builtin", () => {
       expect(result.stderr).toBe("");
     });
 
-    it("should fill empty slots when $# is seeded above the set parameters", async () => {
+    it("should leave empty slots unset when $# is seeded above the set parameters", async () => {
       const env = new Bash({ env: { "#": "3", "1": "a" } });
       const result = await env.exec(`
         while [ $# -gt 0 ]; do printf "%s," "\${1-U}"; shift; done
         echo
       `);
-      expect(result.stdout).toBe("a,,,\n");
+      expect(result.stdout).toBe("a,U,U,\n");
       expect(result.stderr).toBe("");
     });
 
@@ -223,19 +223,19 @@ describe("shift builtin", () => {
         echo "count=$# [$1] [\${2-U}] [$3] [\${4-U}]"
         [ -v 2 ] && echo v2
       `);
-      expect(result.stdout).toBe("count=3 [b] [] [d] [U]\nv2\n");
+      expect(result.stdout).toBe("count=3 [b] [U] [d] [U]\n");
       expect(result.stderr).toBe("");
     });
 
-    it("should keep every slot for a sourced file with more than nine arguments", async () => {
+    it("should keep each slot set or unset for a sourced file with more than nine arguments", async () => {
       const env = new Bash({
         files: {
           "/s.sh":
-            'shift; echo "$#"; [ -v 9 ] && echo v9; echo "${10+set}"; shift 9; echo "rc=$? $#"',
+            'a="${9+set} ${10+set} ${11+set}"; shift; b="${8+set} ${9+set} ${10+set}"; [ "$a" = "$b" ] && echo same; echo "$#"; shift 9; echo "rc=$? $#"',
         },
       });
       const result = await env.exec("source /s.sh a b c d e f g h i j k");
-      expect(result.stdout).toBe("10\nv9\nset\nrc=0 1\n");
+      expect(result.stdout).toBe("same\n10\nrc=0 1\n");
       expect(result.stderr).toBe("");
     });
   });

@@ -7,57 +7,45 @@ export function handleShift(
   ctx: InterpreterContext,
   args: string[],
 ): ExecResult {
-  let n = 1;
-
-  if (args.length > 0) {
-    const parsed = Number.parseInt(args[0], 10);
-    if (Number.isNaN(parsed) || parsed < 0) {
-      const errorMsg = `bash: shift: ${args[0]}: numeric argument required\n`;
-      if (ctx.state.options.posix) {
-        throw new PosixFatalError(1, "", errorMsg);
-      }
-      return failure(errorMsg);
+  const n = args.length > 0 ? leadingInteger(args[0]) : 1n;
+  if (n === undefined || n < 0n) {
+    const errorMsg = `bash: shift: ${args[0]}: numeric argument required\n`;
+    if (ctx.state.options.posix) {
+      throw new PosixFatalError(1, "", errorMsg);
     }
-    n = parsed;
+    return failure(errorMsg);
   }
 
   const env = ctx.state.env;
-  const declared = env.get("#") || "0";
-  const count = Number.parseInt(declared, 10);
-
-  if (count > Math.max(env.size, ctx.limits.maxArrayElements)) {
-    return shiftStoredParams(
-      ctx,
-      leadingInteger(declared),
-      args.length > 0 ? leadingInteger(args[0]) : 1n,
-    );
+  const count = leadingInteger(env.get("#") || "0");
+  if (count === undefined) {
+    if (n > 0n) {
+      env.set("#", "0");
+      env.set("@", "");
+    }
+    return OK;
   }
 
   if (n > count) {
     return outOfRange(ctx);
   }
 
-  if (n === 0) {
+  if (n === 0n) {
     return OK;
   }
 
-  const params: string[] = [];
-  for (let i = 1; i <= count; i++) {
-    params.push(env.get(String(i)) || "");
+  const params = storedParams(env, count);
+  for (const [index] of params) {
+    env.delete(String(index));
   }
 
-  const newParams = params.slice(n);
-
-  for (let i = 1; i <= count; i++) {
-    env.delete(String(i));
+  const kept = params.filter(([index]) => index > n);
+  for (const [index, value] of kept) {
+    env.set(String(index - n), value);
   }
 
-  for (let i = 0; i < newParams.length; i++) {
-    env.set(String(i + 1), newParams[i]);
-  }
-
-  env.set("#", String(newParams.length));
-  env.set("@", newParams.join(" "));
+  env.set("#", String(count - n));
+  env.set("@", kept.map(([, value]) => value).join(" "));
 
   return OK;
 }
@@ -70,40 +58,29 @@ function outOfRange(ctx: InterpreterContext): ExecResult {
   return failure(errorMsg);
 }
 
-function leadingInteger(text: string): bigint {
-  return BigInt(/^\s*[+-]?(\d+)/.exec(text)?.[1] ?? "0");
+function leadingInteger(text: string): bigint | undefined {
+  const match = /^\s*([+-]?)0*(\d+)/.exec(text);
+  if (!match) return undefined;
+  const [, sign, digits] = match;
+  const magnitude = BigInt(digits);
+  return sign === "-" ? -magnitude : magnitude;
 }
 
-function shiftStoredParams(
-  ctx: InterpreterContext,
+function storedParams(
+  env: Map<string, string>,
   count: bigint,
-  n: bigint,
-): ExecResult {
-  if (n > count) {
-    return outOfRange(ctx);
+): [bigint, string][] {
+  if (count <= BigInt(env.size)) {
+    const params: [bigint, string][] = [];
+    for (let i = 1n; i <= count; i++) {
+      const value = env.get(String(i));
+      if (value !== undefined) params.push([i, value]);
+    }
+    return params;
   }
 
-  if (n === 0n) {
-    return OK;
-  }
-
-  const env = ctx.state.env;
-  const kept: [bigint, string][] = [];
-  for (const [key, value] of [...env]) {
-    if (!/^[1-9]\d*$/.test(key)) continue;
-    const index = BigInt(key);
-    if (index > count) continue;
-    env.delete(key);
-    if (index > n) kept.push([index - n, value]);
-  }
-
-  kept.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  for (const [index, value] of kept) {
-    env.set(String(index), value);
-  }
-
-  env.set("#", String(count - n));
-  env.set("@", kept.map(([, value]) => value).join(" "));
-
-  return OK;
+  return [...env]
+    .filter(([key]) => /^[1-9]\d*$/.test(key) && BigInt(key) <= count)
+    .map(([key, value]): [bigint, string] => [BigInt(key), value])
+    .sort(([a], [b]) => (a < b ? -1 : 1));
 }
