@@ -519,7 +519,7 @@ function setPositionalParameters(
   // Clear existing positional parameters
   const count = positionalCount(ctx.state.env);
   moveStoredParams(ctx.state.env, count, count);
-  let i = 1;
+  let i = count + 1n;
   while (ctx.state.env.has(String(i))) {
     ctx.state.env.delete(String(i));
     i++;

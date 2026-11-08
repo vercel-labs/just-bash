@@ -246,13 +246,7 @@ describe("shift builtin", () => {
       const fromSource = await sourced.exec(
         "set -u; source /s.sh a b c d e f g h i j k",
       );
-      const probe = new Bash({ files: { "/p.sh": 'echo "${10-U}"' } });
-      const storesTenth =
-        (await probe.exec("source /p.sh a b c d e f g h i j k")).stdout ===
-        "j\n";
-      expect(fromSource.stdout).toBe(
-        storesTenth ? "[i] [j] [k]\n" : "[i] [] []\n",
-      );
+      expect(fromSource.stdout).toBe("[i] [] []\n");
       expect(fromSource.stderr).toBe("");
 
       const seeded = new Bash({ env: { "#": "3", "1": "a" } });
@@ -269,6 +263,24 @@ describe("shift builtin", () => {
         'shift; set -- x; echo "$# [$1] [${2-U}] [${3-U}] [${4-U}]"',
       );
       expect(result.stdout).toBe("1 [x] [U] [U] [U]\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should clear the caller's parameters past $# on set -- in a sourced file", async () => {
+      const env = new Bash({
+        files: { "/f.sh": 'set -- x; echo "in:$# [${10-U}] [${11-U}]"' },
+      });
+      const result = await env.exec(
+        "set -- a b c d e f g h i j k; source /f.sh 1 2 3 4 5 6 7 8 9",
+      );
+      expect(result.stdout).toBe("in:1 [U] [U]\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should clear stored keys past a seeded $# on set --", async () => {
+      const env = new Bash({ env: { "#": "1", "1": "a", "2": "b" } });
+      const result = await env.exec('set -- x; echo "$# [$1] [${2-U}]"');
+      expect(result.stdout).toBe("1 [x] [U]\n");
       expect(result.stderr).toBe("");
     });
   });
