@@ -195,5 +195,120 @@ describe("shift builtin", () => {
       `);
       expect(result.stdout).toBe("before: only\nafter: \n");
     });
+
+    it("should not build every slot when $# is seeded high", async () => {
+      const env = new Bash({ env: { "#": "1000000000", "1": "a", "2": "b" } });
+      const result = await env.exec(`
+        shift
+        echo "rc=$? count=$# [$1] [\${2-U}]"
+      `);
+      expect(result.stdout).toBe("rc=0 count=999999999 [b] [U]\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should leave empty slots unset when $# is seeded above the set parameters", async () => {
+      const env = new Bash({ env: { "#": "3", "1": "a" } });
+      const result = await env.exec(`
+        while [ $# -gt 0 ]; do printf "%s," "\${1-U}"; shift; done
+        echo
+      `);
+      expect(result.stdout).toBe("a,U,U,\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should move later parameters down across an unset one", async () => {
+      const env = new Bash({ env: { "#": "4", "1": "a", "2": "b", "4": "d" } });
+      const result = await env.exec(`
+        shift
+        echo "count=$# [$1] [\${2-U}] [$3] [\${4-U}]"
+        [ -v 2 ] && echo v2
+      `);
+      expect(result.stdout).toBe("count=3 [b] [U] [d] [U]\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should keep each slot set or unset for a sourced file with more than nine arguments", async () => {
+      const env = new Bash({
+        files: {
+          "/s.sh":
+            'a="${9+set} ${10+set} ${11+set}"; shift; b="${8+set} ${9+set} ${10+set}"; [ "$a" = "$b" ] && echo same; echo "$# [$1] [$8]"; shift 9; echo "rc=$? $#"',
+        },
+      });
+      const result = await env.exec("source /s.sh a b c d e f g h i j k");
+      expect(result.stdout).toBe("same\n10 [b] [i]\nrc=0 1\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should treat slots up to $# as set under set -u after a shift", async () => {
+      const gap = new Bash({
+        env: { "#": "4", "1": "a", "2": "b", "4": "d" },
+      });
+      const fromGap = await gap.exec(
+        'set -u; shift; echo "[$1] [$2] [$3] [${2-U}]"',
+      );
+      expect(fromGap.stdout).toBe("[b] [] [d] [U]\n");
+      expect(fromGap.stderr).toBe("");
+
+      const seeded = new Bash({ env: { "#": "3", "1": "a" } });
+      const fromSeeded = await seeded.exec(
+        'set -u; shift; echo "[$1] [$2]"; echo "$3"',
+      );
+      expect(fromSeeded.stdout).toBe("[] []\n");
+      expect(fromSeeded.stderr).toBe("bash: 3: unbound variable\n");
+    });
+
+    it("should clear every old slot on set -- after a shift with gaps", async () => {
+      const env = new Bash({ env: { "#": "4", "1": "a", "2": "b", "4": "d" } });
+      const result = await env.exec(
+        'shift; set -- x; echo "$# [$1] [${2-U}] [${3-U}] [${4-U}]"',
+      );
+      expect(result.stdout).toBe("1 [x] [U] [U] [U]\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should clear the caller's parameters past $# on set -- in a sourced file", async () => {
+      const env = new Bash({
+        files: { "/f.sh": 'set -- x; echo "in:$# [${10-U}] [${11-U}]"' },
+      });
+      const result = await env.exec(
+        "set -- a b c d e f g h i j k; source /f.sh 1 2 3 4 5 6 7 8 9",
+      );
+      expect(result.stdout).toBe("in:1 [U] [U]\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should clear stored keys past a seeded $# on set --", async () => {
+      const env = new Bash({ env: { "#": "1", "1": "a", "2": "b" } });
+      const result = await env.exec('set -- x; echo "$# [$1] [${2-U}]"');
+      expect(result.stdout).toBe("1 [x] [U]\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should keep set -u strict when $# is not a usable count", async () => {
+      for (const count of ["abc", "9223372036854775808"]) {
+        const env = new Bash({ env: { "#": count, "1": "a" } });
+        const result = await env.exec('set -u; echo "[$1]"; echo "$2"');
+        expect(result.stdout).toBe("[a]\n");
+        expect(result.stderr).toBe("bash: 2: unbound variable\n");
+      }
+    });
+
+    it("should clear stored keys on set -- when a seeded $# is above env.size", async () => {
+      const env = new Bash({
+        env: {
+          "#": "1000000",
+          "1": "a",
+          "3": "c",
+          "999999": "y",
+          "1000001": "w",
+          "1000003": "z",
+        },
+      });
+      const result = await env.exec(
+        'set -- x; echo "$# [$1] [${3-U}] [${999999-U}] [${1000001-U}] [${1000003-U}]"',
+      );
+      expect(result.stdout).toBe("1 [x] [U] [U] [U] [z]\n");
+      expect(result.stderr).toBe("");
+    });
   });
 });
