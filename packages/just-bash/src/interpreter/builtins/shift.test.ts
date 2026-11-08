@@ -231,12 +231,30 @@ describe("shift builtin", () => {
       const env = new Bash({
         files: {
           "/s.sh":
-            'a="${9+set} ${10+set} ${11+set}"; shift; b="${8+set} ${9+set} ${10+set}"; [ "$a" = "$b" ] && echo same; echo "$#"; shift 9; echo "rc=$? $#"',
+            'a="${9+set} ${10+set} ${11+set}"; shift; b="${8+set} ${9+set} ${10+set}"; [ "$a" = "$b" ] && echo same; echo "$# [$1] [$8]"; shift 9; echo "rc=$? $#"',
         },
       });
       const result = await env.exec("source /s.sh a b c d e f g h i j k");
-      expect(result.stdout).toBe("same\n10\nrc=0 1\n");
+      expect(result.stdout).toBe("same\n10 [b] [i]\nrc=0 1\n");
       expect(result.stderr).toBe("");
+    });
+
+    it("should treat slots up to $# as set under set -u after a shift", async () => {
+      const sourced = new Bash({
+        files: { "/s.sh": 'shift; echo "[$8] [$9] [${10}]"' },
+      });
+      const fromSource = await sourced.exec(
+        "set -u; source /s.sh a b c d e f g h i j k",
+      );
+      expect(fromSource.stdout).toMatch(/^\[i\] \[(j)?\] \[(k)?\]\n$/);
+      expect(fromSource.stderr).toBe("");
+
+      const seeded = new Bash({ env: { "#": "3", "1": "a" } });
+      const fromSeeded = await seeded.exec(
+        'set -u; shift; echo "[$1] [$2]"; echo "$3"',
+      );
+      expect(fromSeeded.stdout).toBe("[] []\n");
+      expect(fromSeeded.stderr).toBe("bash: 3: unbound variable\n");
     });
   });
 });

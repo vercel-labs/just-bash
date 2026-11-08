@@ -409,7 +409,12 @@ export async function getVariable(
   // Positional parameters ($1, $2, etc.) - check nounset
   if (/^[1-9][0-9]*$/.test(name)) {
     const value = ctx.state.env.get(name);
-    if (value === undefined && checkNounset && ctx.state.options.nounset) {
+    if (
+      value === undefined &&
+      checkNounset &&
+      ctx.state.options.nounset &&
+      !(Number(name) <= Number.parseInt(ctx.state.env.get("#") || "0", 10))
+    ) {
       throw new NounsetError(name);
     }
     return value || "";
