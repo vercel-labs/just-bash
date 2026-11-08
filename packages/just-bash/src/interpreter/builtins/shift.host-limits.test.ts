@@ -86,6 +86,31 @@ describe("shift builtin", () => {
       expect(result.stderr).toBe("bash: shift: shift count out of range\n");
     });
 
+    it("should not parse long digit strings in $# or stored keys", async () => {
+      const digits = "9".repeat(1_000_000);
+      const env = new Bash({
+        env: { "#": "1000000000", "1": "a", [digits]: "x", N: digits },
+      });
+      const start = Date.now();
+      const result = await env.exec(`
+        i=0
+        while [ $i -lt 2000 ]; do shift; i=$((i + 1)); done
+        echo "count=$#"
+        shift $N
+        echo "rc=$? count=$#"
+      `);
+      expect(result.stdout).toBe("count=999998000\nrc=1 count=999998000\n");
+      expect(result.stderr).toBe("bash: shift: shift count out of range\n");
+
+      const longCount = new Bash({ env: { "#": digits, "1": "a" } });
+      const fromLongCount = await longCount.exec("shift; echo after");
+      expect(fromLongCount.stdout).toBe("");
+      expect(fromLongCount.stderr).toContain(
+        "positional parameter count limit exceeded",
+      );
+      expect(Date.now() - start).toBeLessThan(2000);
+    });
+
     it("should keep a non numeric $# as main does", async () => {
       const env = new Bash({ env: { "#": "abc", "1": "a" } });
       const result = await env.exec(

@@ -1,7 +1,10 @@
 import type { ExecResult } from "../../types.js";
-import { PosixFatalError } from "../errors.js";
+import { ExecutionLimitError, PosixFatalError } from "../errors.js";
 import { failure, OK } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
+
+const INTMAX_DIGITS = 19;
+const TOO_LARGE = 10n ** BigInt(INTMAX_DIGITS);
 
 export function handleShift(
   ctx: InterpreterContext,
@@ -24,6 +27,12 @@ export function handleShift(
       env.set("@", "");
     }
     return OK;
+  }
+  if (count >= TOO_LARGE) {
+    throw new ExecutionLimitError(
+      `shift: positional parameter count limit exceeded (${INTMAX_DIGITS} digits)`,
+      "array_elements",
+    );
   }
 
   if (n > count) {
@@ -62,7 +71,7 @@ function leadingInteger(text: string): bigint | undefined {
   const match = /^\s*([+-]?)0*(\d+)/.exec(text);
   if (!match) return undefined;
   const [, sign, digits] = match;
-  const magnitude = BigInt(digits);
+  const magnitude = digits.length > INTMAX_DIGITS ? TOO_LARGE : BigInt(digits);
   return sign === "-" ? -magnitude : magnitude;
 }
 
@@ -79,8 +88,14 @@ function storedParams(
     return params;
   }
 
+  const last = String(count);
   return [...env]
-    .filter(([key]) => /^[1-9]\d*$/.test(key) && BigInt(key) <= count)
+    .filter(
+      ([key]) =>
+        key.length <= last.length &&
+        /^[1-9]\d*$/.test(key) &&
+        BigInt(key) <= count,
+    )
     .map(([key, value]): [bigint, string] => [BigInt(key), value])
     .sort(([a], [b]) => (a < b ? -1 : 1));
 }
