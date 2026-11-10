@@ -31,7 +31,11 @@ export function isTruthy(v: QueryValue): boolean {
 export function canonicalJson(value: QueryValue): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   const record = asQueryRecord(value);
-  if (!record) return JSON.stringify(value) ?? "null";
+  // A value with toJSON (a TOML or YAML date) serializes as JSON.stringify
+  // would. Parsed JSON can't hold a function, so its objects take the path below.
+  if (!record || typeof record.toJSON === "function") {
+    return JSON.stringify(value) ?? "null";
+  }
   const members = Object.keys(record)
     .sort()
     .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`);
