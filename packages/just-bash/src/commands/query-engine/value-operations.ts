@@ -24,10 +24,25 @@ export function isTruthy(v: QueryValue): boolean {
 }
 
 /**
- * Deep equality check for query values.
+ * JSON text for a value with every object's keys sorted, so values jq treats
+ * as equal (objects that differ only in key order) get the same text. Use it
+ * wherever values are compared or deduplicated by their JSON.
+ */
+export function canonicalJson(value: QueryValue): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  const record = asQueryRecord(value);
+  if (!record) return JSON.stringify(value) ?? "null";
+  const members = Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`);
+  return `{${members.join(",")}}`;
+}
+
+/**
+ * Deep equality check for query values. Object key order does not matter.
  */
 export function deepEqual(a: QueryValue, b: QueryValue): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  return canonicalJson(a) === canonicalJson(b);
 }
 
 /**
