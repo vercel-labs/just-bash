@@ -114,7 +114,8 @@ describe("ReadWriteFs mutations outside the caller's execution", () => {
         await call;
         outcomes.set(label, "done");
       } catch (error) {
-        outcomes.set(label, (error as Error).name);
+        const { name, message } = error as Error;
+        outcomes.set(label, message.startsWith("ECANCELED") ? "ECANCELED" : name);
       }
     };
     // Live: the root is free, so each call runs as soon as it is made.
@@ -218,7 +219,7 @@ describe("ReadWriteFs mutations outside the caller's execution", () => {
               ? "TypeError"
               : phase === "live"
                 ? "done"
-                : "ExecutionAbortedError",
+                : "ECANCELED",
           ]),
         ),
       ),

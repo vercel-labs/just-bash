@@ -15,7 +15,6 @@ import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { type ByteString, unsafeBytesFromLatin1 } from "../../encoding.js";
-import { ExecutionAbortedError } from "../../interpreter/errors.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import {
   type FileContent,
@@ -448,8 +447,10 @@ export class ReadWriteFs implements IFileSystem {
     });
     try {
       // The caller's execution ended while this waited: do nothing for it.
+      // A plain fs error, not ExecutionAbortedError: cp and mv rethrow that,
+      // and nothing awaits a dead execution, so it would be unhandled.
       if (DefenseInDepthBox.hasCurrentExecutionEnded()) {
-        throw new ExecutionAbortedError("", "bash: execution aborted\n");
+        throw new Error("ECANCELED: operation canceled, its execution ended");
       }
       // Node's own fs promises settle each other through `.then`, which the
       // caller's execution context drops once it deactivates. Outside that

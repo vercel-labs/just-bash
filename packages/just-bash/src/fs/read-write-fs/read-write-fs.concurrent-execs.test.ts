@@ -12,7 +12,6 @@ import {
 } from "vitest";
 import { Bash } from "../../Bash.js";
 import { type CustomCommand, defineCommand } from "../../custom-commands.js";
-import { ExecutionAbortedError } from "../../interpreter/errors.js";
 import {
   DefenseInDepthBox,
   SecurityViolationError,
@@ -208,7 +207,9 @@ describe("ReadWriteFs mutations from concurrent executions", () => {
     expect(result.holder).toMatchObject(OK);
     expect(result.later).toMatchObject({ ...OK, stdout: "c\n" });
     // The queued mutation was dropped with its execution, not run for it.
-    expect(outcome).toEqual([expect.any(ExecutionAbortedError)]);
+    expect(outcome).toEqual([
+      expect.objectContaining({ message: expect.stringMatching(/^ECANCELED/) }),
+    ]);
     expect(untouched()).toBe(true);
     expect(rejections).toEqual([]);
   });
