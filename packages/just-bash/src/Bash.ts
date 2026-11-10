@@ -761,8 +761,9 @@ export class Bash {
       // full variable map and keep the caller's export set, including prefix
       // exports (`FOO=x time ...`).
       // The set is always copied so an `export` in one exec does not leak
-      // into later ones. Only valid names can be exported: nested sh/bash
-      // passes positional parameters ("0", "#", "1") through env.
+      // into later ones. Nested sh/bash passes positional parameters ("0",
+      // "#", "1") through env, so only that path filters shell identifiers.
+      // Explicit env assignments may use other names, such as "HTTP.PROXY".
       const exportsEnv = !callerState || replaceEnv;
       const exportedVars =
         replaceEnv && exportsEnv
@@ -775,7 +776,10 @@ export class Bash {
             : new Set(this.state.exportedVars);
       if (exportsEnv) {
         for (const key of Object.keys(effectiveOptions.env ?? {})) {
-          if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
+          if (
+            !effectiveOptions.newShell ||
+            /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)
+          ) {
             exportedVars.add(key);
           }
         }

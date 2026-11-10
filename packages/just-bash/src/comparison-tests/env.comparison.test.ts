@@ -21,6 +21,25 @@ describe("env command - Real Bash Comparison", () => {
 
   describe("exported environment", () => {
     it.each([
+      [
+        "dotted environment names",
+        "env 'HTTP.PROXY=value' printenv HTTP.PROXY",
+      ],
+      [
+        "dotted names in an empty environment",
+        "env -i 'foo.bar=value' printenv foo.bar",
+      ],
+      ["hyphenated environment names", "env 'A-B=value' printenv A-B"],
+      ["names starting with a digit", "env -i '1X=value' printenv 1X"],
+      ["numeric environment names", "env -i '1=value' printenv 1"],
+      [
+        "non-identifier names through nested env",
+        "env -i 'A.B=value' env printenv A.B",
+      ],
+      [
+        "nested shells do not export positional parameters",
+        "bash -c 'printenv 1' _ secret",
+      ],
       ["empty env stays empty", "env -i env"],
       ["empty printenv stays empty", "env -i printenv"],
       [

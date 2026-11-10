@@ -101,6 +101,21 @@ describe("printenv command", () => {
 
 describe("export visibility", () => {
   it.each([
+    "HTTP.PROXY",
+    "A-B",
+    "1X",
+    "1",
+  ])("preserves the explicit environment name %s", async (name) => {
+    const bash = new Bash();
+    const result = await bash.exec(`env -i '${name}=value' printenv '${name}'`);
+    expect(result).toMatchObject({
+      stdout: "value\n",
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
+  it.each([
     "constructor",
     "__proto__",
     "prototype",
