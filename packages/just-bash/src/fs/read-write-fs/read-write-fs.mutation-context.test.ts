@@ -68,6 +68,21 @@ describe("ReadWriteFs mutations outside the caller's execution", () => {
           return Reflect.getPrototypeOf(object);
         },
       });
+    // Genuine bytes with accessors of their own, which a copy must not read.
+    const hookedBytes = (label: string) => {
+      const bytes = new Uint8Array([98]);
+      const typedArray = Object.getPrototypeOf(Uint8Array.prototype);
+      for (const key of ["buffer", "byteLength", "byteOffset", "length"]) {
+        const read = Object.getOwnPropertyDescriptor(typedArray, key)?.get;
+        Object.defineProperty(bytes, key, {
+          get() {
+            probe(label);
+            return read?.call(bytes);
+          },
+        });
+      }
+      return bytes;
+    };
     // A fresh set of arguments per phase, each hook labelled by its call.
     const argumentsFor = (phase: string) => {
       const label = <T extends object>(call: string, target: T) =>
@@ -76,7 +91,7 @@ describe("ReadWriteFs mutations outside the caller's execution", () => {
         writePath: label("writeFile path", { toString: () => "/p" }) as never,
         text: label("writeFile content", { toString: () => "text" }) as never,
         encoding: label("writeFile options", { encoding: "utf8" as const }),
-        bytes: label("appendFile bytes", new Uint8Array([98])),
+        bytes: hookedBytes(`${phase} appendFile bytes`),
         mkdir: label("mkdir options", { recursive: true }),
         exclusive: label("createExclusive options", { mode: 0o600 }),
         cp: label("cp options", { recursive: true }),
@@ -115,7 +130,10 @@ describe("ReadWriteFs mutations outside the caller's execution", () => {
         outcomes.set(label, "done");
       } catch (error) {
         const { name, message } = error as Error;
-        outcomes.set(label, message.startsWith("ECANCELED") ? "ECANCELED" : name);
+        outcomes.set(
+          label,
+          message.startsWith("ECANCELED") ? "ECANCELED" : name,
+        );
       }
     };
     // Live: the root is free, so each call runs as soon as it is made.
@@ -184,14 +202,13 @@ describe("ReadWriteFs mutations outside the caller's execution", () => {
     expect(await settleWithin(settled.inFlight)).toBeUndefined();
 
     // Every hook ran at its call, where the sandbox blocked it, and none ran
-    // later. Paths, modes and times never reach a hook at all.
+    // later. Paths, content objects, modes and times never reach a hook, and
+    // neither do the accessors of the copied bytes.
     const hooksAtCall = [
-      "appendFile bytes",
       "cp options",
       "createExclusive options",
       "mkdir options",
       "rm options",
-      "writeFile content",
       "writeFile options",
     ];
     expect([...hookRuns].sort()).toEqual(
@@ -199,10 +216,12 @@ describe("ReadWriteFs mutations outside the caller's execution", () => {
         hooksAtCall.map((call) => `${phase} ${call}: blocked`),
       ),
     );
-    // Non-string paths, object modes and non-Date times are rejected at the
-    // call; everything else ran live, and was dropped once queued.
+    // Non-string paths, object content, object modes and non-Date times are
+    // rejected at the call; everything else ran live, and was dropped once
+    // queued.
     const rejectedAtCall = new Set([
       "writeFile path",
+      "writeFile content",
       "mv",
       "chmod",
       "symlink",
@@ -226,7 +245,7 @@ describe("ReadWriteFs mutations outside the caller's execution", () => {
     );
     // The owned copies kept the caller's values.
     expect(liveResults).toEqual({
-      w: "textb",
+      w: "b",
       o: "o",
       copied: true,
       removed: true,

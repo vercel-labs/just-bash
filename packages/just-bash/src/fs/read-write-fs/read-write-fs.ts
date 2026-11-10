@@ -14,6 +14,7 @@
 import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
+import { types } from "node:util";
 import { type ByteString, unsafeBytesFromLatin1 } from "../../encoding.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import {
@@ -55,8 +56,11 @@ const RW_PASSTHROUGH_ERRORS = [
 
 // Mutations run outside the caller's execution (see withFilesystemMutation),
 // so each public mutation first reduces its arguments to values the library
-// owns. Any coercion hook on a caller's object (toString, a getter, a Proxy
-// trap) runs then, while the caller is still sandboxed, and never later.
+// owns, of exactly the declared type. Any coercion hook on a caller's object
+// (toString, a getter, a Proxy trap) runs then, while the caller is still
+// sandboxed. An unexpected type is rejected rather than coerced: the
+// operation would otherwise inspect it again outside, where a getter the
+// caller planted on its prototype, or a Proxy trap, runs unsandboxed.
 
 function ownPath(path: string, operation: string): string {
   if (typeof path !== "string") {
@@ -65,35 +69,47 @@ function ownPath(path: string, operation: string): string {
   return path;
 }
 
-/** An option field or mode, which must be a primitive to copy by value. */
-function ownPrimitive<T>(value: T, what: string): T {
-  if (
-    (typeof value === "object" && value !== null) ||
-    typeof value === "function"
-  ) {
-    throw new TypeError(`${what} must be a primitive`);
+/** An optional flag such as `recursive`, `force` or `directory`. */
+function ownFlag(
+  value: boolean | undefined,
+  what: string,
+): boolean | undefined {
+  if (value !== undefined && typeof value !== "boolean") {
+    throw new TypeError(`${what} must be a boolean`);
   }
   return value;
+}
+
+function ownMode(mode: number, what: string): number {
+  if (typeof mode !== "number") {
+    throw new TypeError(`${what} must be a number`);
+  }
+  return mode;
 }
 
 function ownEncoding(
   options: WriteFileOptions | BufferEncoding | undefined,
   operation: string,
 ): BufferEncoding | undefined {
-  return ownPrimitive(getEncoding(options), `${operation}: encoding`);
+  const encoding: unknown = getEncoding(options);
+  if (encoding !== undefined && typeof encoding !== "string") {
+    throw new TypeError(`${operation}: encoding must be a string`);
+  }
+  return encoding as BufferEncoding | undefined;
 }
 
-/** A string as is, or bytes copied out of the caller's object. */
-function ownContent(
-  content: FileContent,
-  encoding: BufferEncoding | undefined,
-): FileContent {
+/** A string as is, or a copy of a Uint8Array's bytes. */
+function ownContent(content: FileContent, operation: string): FileContent {
   if (typeof content === "string") return content;
-  // A copy also leaves behind any accessor a Uint8Array subclass overrides,
-  // which Node and replaceFile would otherwise read later.
-  return content instanceof Uint8Array
-    ? new Uint8Array(content)
-    : toBuffer(content, encoding);
+  // A brand check, not `instanceof`: a Proxy answers the prototype lookup
+  // `instanceof` makes, but has no typed-array slot. The copy also leaves
+  // behind any accessor a subclass such as Buffer overrides.
+  if (!types.isUint8Array(content)) {
+    throw new TypeError(
+      `${operation}: content must be a string or a Uint8Array`,
+    );
+  }
+  return new Uint8Array(content);
 }
 
 const dateGetTime = Date.prototype.getTime;
@@ -280,7 +296,7 @@ export class ReadWriteFs implements IFileSystem {
   ): Promise<void> {
     const ownedPath = ownPath(path, "write");
     const encoding = ownEncoding(options, "write");
-    const data = ownContent(content, encoding);
+    const data = ownContent(content, "write");
     await this.withFilesystemMutation(() =>
       this.writeFileUnlocked(ownedPath, data, encoding),
     );
@@ -349,7 +365,7 @@ export class ReadWriteFs implements IFileSystem {
   ): Promise<void> {
     const ownedPath = ownPath(path, "append");
     const encoding = ownEncoding(options, "append");
-    const data = ownContent(content, encoding);
+    const data = ownContent(content, "append");
     await this.withFilesystemMutation(() =>
       this.appendFileUnlocked(ownedPath, data, encoding),
     );
@@ -728,7 +744,7 @@ export class ReadWriteFs implements IFileSystem {
   async mkdir(path: string, options?: MkdirOptions): Promise<void> {
     const ownedPath = ownPath(path, "mkdir");
     const owned = {
-      recursive: ownPrimitive(options?.recursive, "mkdir: recursive"),
+      recursive: ownFlag(options?.recursive, "mkdir: recursive"),
     };
     await this.withFilesystemMutation(() =>
       this.mkdirUnlocked(ownedPath, owned),
@@ -748,13 +764,10 @@ export class ReadWriteFs implements IFileSystem {
     path: string,
     options: CreateExclusiveOptions,
   ): Promise<void> {
-    const directory = ownPrimitive(
-      options.directory,
-      "createExclusive: directory",
-    );
+    const directory = ownFlag(options.directory, "createExclusive: directory");
     const syscall = directory ? "mkdir" : "open";
     const ownedPath = ownPath(path, syscall);
-    const mode = ownPrimitive(options.mode, `${syscall}: mode`);
+    const mode = ownMode(options.mode, `${syscall}: mode`);
     await this.withFilesystemMutation(() =>
       this.createExclusiveUnlocked(ownedPath, { mode, directory }),
     );
@@ -951,8 +964,8 @@ export class ReadWriteFs implements IFileSystem {
   async rm(path: string, options?: RmOptions): Promise<void> {
     const ownedPath = ownPath(path, "rm");
     const owned = {
-      recursive: ownPrimitive(options?.recursive, "rm: recursive"),
-      force: ownPrimitive(options?.force, "rm: force"),
+      recursive: ownFlag(options?.recursive, "rm: recursive"),
+      force: ownFlag(options?.force, "rm: force"),
     };
     await this.withFilesystemMutation(() => this.rmUnlocked(ownedPath, owned));
   }
@@ -991,7 +1004,7 @@ export class ReadWriteFs implements IFileSystem {
     const ownedSrc = ownPath(src, "cp");
     const ownedDest = ownPath(dest, "cp");
     const owned = {
-      recursive: ownPrimitive(options?.recursive, "cp: recursive"),
+      recursive: ownFlag(options?.recursive, "cp: recursive"),
     };
     await this.withFilesystemMutation(() =>
       this.cpUnlocked(ownedSrc, ownedDest, owned),
@@ -1668,7 +1681,7 @@ export class ReadWriteFs implements IFileSystem {
 
   async chmod(path: string, mode: number): Promise<void> {
     const ownedPath = ownPath(path, "chmod");
-    const ownedMode = ownPrimitive(mode, "chmod: mode");
+    const ownedMode = ownMode(mode, "chmod: mode");
     await this.withFilesystemMutation(() =>
       this.chmodUnlocked(ownedPath, ownedMode),
     );
