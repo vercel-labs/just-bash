@@ -797,6 +797,43 @@ export class DefenseInDepthBox {
   }
 
   /**
+   * Run library work, called from inside an execution, in a sandboxed
+   * execution of its own that ends when the work settles.
+   *
+   * The work is restricted like any untrusted execution, so nothing it runs
+   * gains the caller's trust, or any trust. Its lifetime is the work's, not
+   * the caller's: the promises it chains internally still settle if the
+   * caller's execution deactivates first, and the patches stay applied until
+   * it is done. Outside an execution, as for host code or with defense off,
+   * `fn` simply runs.
+   */
+  static async runInOwnExecution<T>(fn: () => Promise<T>): Promise<T> {
+    const box = DefenseInDepthBox.instance;
+    if (!box || executionContext?.getStore()?.sandboxActive !== true) {
+      return await fn();
+    }
+    const handle = box.activate();
+    try {
+      return await handle.run(fn);
+    } finally {
+      handle.deactivate();
+    }
+  }
+
+  /**
+   * Whether the current async context belongs to an execution whose handle
+   * has deactivated. Always false outside an execution.
+   */
+  static hasCurrentExecutionEnded(): boolean {
+    const store = executionContext?.getStore();
+    if (store?.sandboxActive !== true) return false;
+    return (
+      DefenseInDepthBox.instance?.isExecutionIdActive(store.executionId) !==
+      true
+    );
+  }
+
+  /**
    * Check if current context should be blocked.
    * Returns false in audit mode, browser environment, outside sandboxed context,
    * inside runTrusted(), or when the immediate caller is a Node.js bundled dep.
