@@ -276,9 +276,10 @@ export const jqCommand: RuntimeCommand = {
     let filterSet = false;
     let positionalMode: "none" | "args" | "jsonargs" = "none";
     const files: string[] = [];
+    // jq keeps the first binding of a name and skips later ones unread. A
+    // file binding takes its place here when parsed and is filled once read,
+    // so $ARGS.named keeps jq's order.
     const namedArgs = new Map<string, QueryValue>();
-    // jq keeps the first binding of a name and skips later ones unread.
-    const boundNames = new Set<string>();
     const positionalArgs: QueryValue[] = [];
     const fileBindings: {
       name: string;
@@ -315,10 +316,7 @@ export const jqCommand: RuntimeCommand = {
             "--arg takes two parameters (e.g. --arg varname value)",
           );
         }
-        if (!boundNames.has(name)) {
-          boundNames.add(name);
-          namedArgs.set(name, value);
-        }
+        if (!namedArgs.has(name)) namedArgs.set(name, value);
         i += 2;
       } else if (a === "--argjson") {
         const name = args[i + 1];
@@ -328,7 +326,7 @@ export const jqCommand: RuntimeCommand = {
             "--argjson takes two parameters (e.g. --argjson varname text)",
           );
         }
-        if (!boundNames.has(name)) {
+        if (!namedArgs.has(name)) {
           let parsed: unknown[];
           try {
             parsed = parseJsonStream(json.trim(), jsonLimits);
@@ -339,7 +337,6 @@ export const jqCommand: RuntimeCommand = {
             return jqArgError("invalid JSON text passed to --argjson");
           }
           namedArgs.set(name, parsed[0]);
-          boundNames.add(name);
         }
         i += 2;
       } else if (a === "--rawfile") {
@@ -350,8 +347,8 @@ export const jqCommand: RuntimeCommand = {
             "--rawfile takes two parameters (e.g. --rawfile varname filename)",
           );
         }
-        if (!boundNames.has(name)) {
-          boundNames.add(name);
+        if (!namedArgs.has(name)) {
+          namedArgs.set(name, null);
           fileBindings.push({ name, file, mode: "raw" });
         }
         i += 2;
@@ -363,8 +360,8 @@ export const jqCommand: RuntimeCommand = {
             "--slurpfile takes two parameters (e.g. --slurpfile varname filename)",
           );
         }
-        if (!boundNames.has(name)) {
-          boundNames.add(name);
+        if (!namedArgs.has(name)) {
+          namedArgs.set(name, null);
           fileBindings.push({ name, file, mode: "slurp" });
         }
         i += 2;
@@ -437,7 +434,7 @@ export const jqCommand: RuntimeCommand = {
       accountFileInput(ctx, latin1FromBytes(content).length, "jq");
       const text = decodeBytesToUtf8(content);
       if (mode === "raw") {
-        if (text.length > ctx.limits.maxStringLength) {
+        if (utf8ByteLength(text) > ctx.limits.maxStringLength) {
           throw new ExecutionLimitError(
             `jq: string length limit exceeded (${ctx.limits.maxStringLength} bytes)`,
             "string_length",

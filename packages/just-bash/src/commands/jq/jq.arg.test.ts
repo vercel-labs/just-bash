@@ -171,6 +171,28 @@ describe("jq named-argument flags", () => {
       expect(result.exitCode).toBe(126);
     });
 
+    it("measures a --rawfile value in UTF-8 bytes", async () => {
+      const env = new Bash({ executionLimits: { maxStringLength: 32 } });
+      const result = await env.exec(
+        "printf 'éééééééééé' > e.txt && printf 'éééééééééé' >> e.txt && jq -n --rawfile x e.txt 0",
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "bash: jq: string length limit exceeded (32 bytes)\n",
+      );
+      expect(result.exitCode).toBe(126);
+    });
+
+    it("keeps jq's order in $ARGS.named when a later binding is skipped", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "printf A > a && jq -cn --rawfile x a --arg x later --arg y y '$ARGS.named'",
+      );
+      expect(result.stdout).toBe('{"x":"A","y":"y"}\n');
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
     it.each([
       ["--arg x value --rawfile x -", '"value"'],
       ["--arg x first --arg x second", '"first"'],
