@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Bash } from "../Bash.js";
 import {
   cleanupTestDir,
+  compareOutputs,
   createTestDir,
   runRealBash,
   setupFiles,
@@ -16,6 +17,59 @@ describe("env command - Real Bash Comparison", () => {
 
   afterEach(async () => {
     await cleanupTestDir(testDir);
+  });
+
+  describe("exported environment", () => {
+    it.each([
+      ["empty env stays empty", "env -i env"],
+      ["empty printenv stays empty", "env -i printenv"],
+      [
+        "env excludes local variables",
+        "JB_LOCAL=local; export JB_EXPORTED=exported; env | grep '^JB_' | sort",
+      ],
+      [
+        "printenv excludes local variables",
+        "JB_LOCAL=local; printenv JB_LOCAL",
+      ],
+      [
+        "printenv lists only exported variables",
+        "JB_LOCAL=local; export JB_EXPORTED=exported; printenv | grep '^JB_' | sort",
+      ],
+      [
+        "printenv preserves missing-variable status",
+        "JB_LOCAL=local; export JB_EXPORTED=exported; printenv JB_LOCAL JB_EXPORTED",
+      ],
+      [
+        "prefix assignments are exported",
+        "JB_PREFIX=temporary env | grep '^JB_'",
+      ],
+      [
+        "unexported values stay local",
+        "export JB_REMOVED=value; export -n JB_REMOVED; printenv JB_REMOVED",
+      ],
+      [
+        "env command does not export local variables",
+        "JB_LOCAL=local; env bash -c 'echo \"[$JB_LOCAL]\"'",
+      ],
+      [
+        "empty environments export their assignments",
+        "env -i JB_ONLY=value printenv JB_ONLY",
+      ],
+      [
+        "nested empty environments stay empty",
+        "export JB_EXPORTED=value; env -i env printenv JB_EXPORTED",
+      ],
+    ])("%s", async (_name, command) => {
+      const env = await setupFiles(testDir, {});
+      await compareOutputs(
+        env,
+        testDir,
+        command,
+        undefined,
+        undefined,
+        import.meta.url,
+      );
+    });
   });
 
   describe("output format", () => {

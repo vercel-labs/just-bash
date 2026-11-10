@@ -756,14 +756,14 @@ export class Bash {
         execEnv.set("PWD", newPwd);
       }
 
-      // Decide which variables the new shell exports to its children. Only
-      // the host API and new shells treat `env` as the environment; internal
-      // callers such as `env` and `time` pass the full variable map and keep
-      // the caller's export set, including prefix exports (`FOO=x time ...`).
+      // The host API, replacement environments and new shells treat `env`
+      // as the environment. Other internal callers such as `time` pass the
+      // full variable map and keep the caller's export set, including prefix
+      // exports (`FOO=x time ...`).
       // The set is always copied so an `export` in one exec does not leak
       // into later ones. Only valid names can be exported: nested sh/bash
       // passes positional parameters ("0", "#", "1") through env.
-      const exportsEnv = !callerState || effectiveOptions.newShell;
+      const exportsEnv = !callerState || replaceEnv;
       const exportedVars =
         replaceEnv && exportsEnv
           ? new Set<string>()
@@ -779,7 +779,10 @@ export class Bash {
             exportedVars.add(key);
           }
         }
-        if (newPwd !== undefined) {
+        if (
+          newPwd !== undefined &&
+          (!callerState || effectiveOptions.newShell)
+        ) {
           exportedVars.add("PWD");
         }
       }
