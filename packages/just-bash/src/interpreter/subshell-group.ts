@@ -354,6 +354,11 @@ export async function executeUserScript(
   const cleanup = beginIsolatedShellState(ctx.state);
 
   const inheritedEnv = ctx.state.env;
+  ctx.state.exportedVars = new Set([
+    ...(ctx.state.exportedVars ?? []),
+    ...(ctx.state.tempExportedVars ?? []),
+  ]);
+  ctx.state.tempExportedVars = new Set();
   ctx.state.env = new Map<string, string>([
     ["PATH", "/usr/bin:/bin"],
     ["PWD", ctx.state.cwd],
@@ -365,13 +370,11 @@ export async function executeUserScript(
     ["BASHOPTS", buildBashopts(ctx.state.shoptOptions)],
   ]);
   for (const [name, value] of inheritedEnv) {
-    if (
-      ctx.state.exportedVars?.has(name) ||
-      ctx.state.tempExportedVars?.has(name)
-    ) {
+    if (ctx.state.exportedVars.has(name)) {
       ctx.state.env.set(name, value);
     }
   }
+  ctx.state.env.set("PWD", ctx.state.cwd);
   ctx.state.env.set("IFS", " \t\n");
   ctx.state.env.set("OPTIND", "1");
 

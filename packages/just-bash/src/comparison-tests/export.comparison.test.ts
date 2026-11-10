@@ -19,6 +19,35 @@ describe("export command - Real Bash Comparison", () => {
 
   describe("direct script inheritance", () => {
     it.each([
+      ["env assignments reach the script", "env JB_EXPORTED=value ./probe.sh"],
+      [
+        "env -i assignments reach the script",
+        "env -i JB_EXPORTED=value ./probe.sh",
+      ],
+      [
+        "env keeps parent locals hidden",
+        "JB_LOCAL=secret; env JB_EXPORTED=value ./probe.sh",
+      ],
+      [
+        "read respects allexport",
+        "set -a; read JB_EXPORTED <<<'value'; set +a; ./probe.sh",
+      ],
+      [
+        "read -N respects allexport",
+        "set -a; read -N 5 JB_EXPORTED <<<'value'; set +a; ./probe.sh",
+      ],
+      [
+        "read -n respects allexport",
+        "set -a; read -n 5 JB_EXPORTED <<<'value'; set +a; ./probe.sh",
+      ],
+      [
+        "for respects allexport",
+        "set -a; for JB_EXPORTED in value; do :; done; set +a; ./probe.sh",
+      ],
+      [
+        "allexport leaves older locals hidden",
+        "JB_LOCAL=secret; set -a; read JB_EXPORTED <<<'value'; set +a; ./probe.sh",
+      ],
       [
         "only exported variables reach the script",
         "JB_LOCAL=local; export JB_EXPORTED=exported; ./probe.sh",
@@ -53,6 +82,36 @@ describe("export command - Real Bash Comparison", () => {
         import.meta.url,
       );
     });
+  });
+
+  it("imports prefix assignments as ordinary exports", async () => {
+    const env = await setupFiles(testDir, {
+      "probe.sh":
+        "#!/bin/bash\nexport -p | grep -c ' JB_VALUE='\nexport -n JB_VALUE\nbash -c 'echo \"[$JB_VALUE]\"'\n",
+    });
+    await compareOutputs(
+      env,
+      testDir,
+      "chmod +x probe.sh; JB_VALUE=value ./probe.sh",
+      undefined,
+      undefined,
+      import.meta.url,
+    );
+  });
+
+  it("corrects an inherited PWD that does not match the working directory", async () => {
+    const env = await setupFiles(testDir, {
+      "probe.sh":
+        '#!/bin/bash\nif [ "$PWD" = "$(pwd)" ]; then echo same; else echo different; fi\n',
+    });
+    await compareOutputs(
+      env,
+      testDir,
+      "chmod +x probe.sh; PWD=/fake ./probe.sh",
+      undefined,
+      undefined,
+      import.meta.url,
+    );
   });
 
   describe("setting variables", () => {

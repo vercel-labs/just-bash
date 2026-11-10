@@ -263,6 +263,10 @@ async function executeForBody(
       }
 
       ctx.state.env.set(node.variable, value);
+      if (ctx.state.options.allexport) {
+        ctx.state.exportedVars ??= new Set();
+        ctx.state.exportedVars.add(node.variable);
+      }
 
       try {
         for (const stmt of node.body) {

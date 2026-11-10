@@ -24,6 +24,18 @@ describe("executable scripts", () => {
       stderr: "",
       exitCode: 0,
     });
+    for (const assignment of [
+      `read ${name} <<<'value'`,
+      `for ${name} in value; do :; done`,
+    ]) {
+      expect(
+        await env.exec(`set -a; ${assignment}; set +a; /probe.sh`),
+      ).toMatchObject({
+        stdout: "value\n",
+        stderr: "",
+        exitCode: 0,
+      });
+    }
     expect(Object.getOwnPropertyDescriptors(Object.prototype)).toEqual(
       prototype,
     );

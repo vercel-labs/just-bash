@@ -74,7 +74,7 @@ export const envCommand: RuntimeCommand = {
     if (ignoreEnv) {
       newEnv = new Map(setVars);
     } else {
-      newEnv = new Map(ctx.env);
+      newEnv = new Map(Object.entries(ctx.exportedEnv ?? Object.create(null)));
       // Unset variables
       for (const name of unsetVars) {
         newEnv.delete(name);
