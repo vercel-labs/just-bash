@@ -407,12 +407,13 @@ export const jqCommand: RuntimeCommand = {
 
     // Read files bound via --rawfile/--slurpfile through the shared file
     // reader so they get the same security posture as normal input files.
+    // jq opens these by name, so "-" is a file called "-", not stdin.
     if (fileBindings.length > 0) {
       const result = await withDefenseContext("arg file read", () =>
         readFiles(
           ctx,
           fileBindings.map((b) => b.file),
-          { cmdName: "jq", stopOnError: true },
+          { cmdName: "jq", stopOnError: true, allowStdinMarker: false },
         ),
       );
       if (result.exitCode !== 0) {

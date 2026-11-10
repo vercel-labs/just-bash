@@ -80,6 +80,16 @@ describe("jq named-argument flags", () => {
       expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
     });
+
+    it("reads a file named - rather than stdin", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "printf 'from file' > ./- && echo '{\"a\":1}' | jq -c --rawfile r - '[., $r]'",
+      );
+      expect(result.stdout).toBe('[{"a":1},"from file"]\n');
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("--slurpfile", () => {
@@ -97,6 +107,26 @@ describe("jq named-argument flags", () => {
       const env = new Bash();
       const result = await env.exec("jq -n --slurpfile s nope.json '$s'");
       expect(result.stdout).toBe("");
+      expect(result.exitCode).toBe(2);
+    });
+
+    it("reads a file named - rather than stdin", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo '[1]' > ./- && echo '{\"a\":1}' | jq -c --slurpfile s - '[., $s]'",
+      );
+      expect(result.stdout).toBe('[{"a":1},[[1]]]\n');
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("errors when no file named - exists", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo '{\"a\":1}' | jq -c --slurpfile s - '[., $s]'",
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("jq: -: No such file or directory\n");
       expect(result.exitCode).toBe(2);
     });
   });
