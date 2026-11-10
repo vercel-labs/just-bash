@@ -220,6 +220,24 @@ function jqArgError(message: string): ExecResult {
   return { stdout: "", stderr: `jq: ${message}\n`, exitCode: 2 };
 }
 
+function jqLimitError(error: ExecutionLimitError): ExecResult {
+  return {
+    stdout: "",
+    stderr: `jq: ${sanitizeErrorMessage(error.message)}\n`,
+    exitCode: ExecutionLimitError.EXIT_CODE,
+  };
+}
+
+/**
+ * A JSON-valued argument that failed to parse. A value over a limit is still
+ * valid JSON, so it is reported as that limit, as it would be as an input.
+ */
+function jqJsonArgError(error: unknown, option: string): ExecResult {
+  if (error instanceof SecurityViolationError) throw error;
+  if (error instanceof ExecutionLimitError) return jqLimitError(error);
+  return jqArgError(`invalid JSON text passed to ${option}`);
+}
+
 const jqHelp = {
   name: "jq",
   summary: "command-line JSON processor",
@@ -326,8 +344,8 @@ export const jqCommand: RuntimeCommand = {
         let parsed: unknown[];
         try {
           parsed = parseJsonStream(json.trim(), jsonLimits);
-        } catch {
-          return jqArgError("invalid JSON text passed to --argjson");
+        } catch (error) {
+          return jqJsonArgError(error, "--argjson");
         }
         if (parsed.length !== 1) {
           return jqArgError("invalid JSON text passed to --argjson");
@@ -393,8 +411,8 @@ export const jqCommand: RuntimeCommand = {
         let parsed: unknown[];
         try {
           parsed = parseJsonStream(a.trim(), jsonLimits);
-        } catch {
-          return jqArgError("invalid JSON text passed to --jsonargs");
+        } catch (error) {
+          return jqJsonArgError(error, "--jsonargs");
         }
         if (parsed.length !== 1) {
           return jqArgError("invalid JSON text passed to --jsonargs");
@@ -430,8 +448,8 @@ export const jqCommand: RuntimeCommand = {
               name,
               trimmed ? parseJsonStream(trimmed, jsonLimits) : [],
             );
-          } catch {
-            return jqArgError("invalid JSON text passed to --slurpfile");
+          } catch (error) {
+            return jqJsonArgError(error, "--slurpfile");
           }
         }
       }
@@ -625,14 +643,7 @@ export const jqCommand: RuntimeCommand = {
       if (e instanceof SecurityViolationError) {
         throw e;
       }
-      if (e instanceof ExecutionLimitError) {
-        const message = sanitizeErrorMessage(e.message);
-        return {
-          stdout: "",
-          stderr: `jq: ${message}\n`,
-          exitCode: ExecutionLimitError.EXIT_CODE,
-        };
-      }
+      if (e instanceof ExecutionLimitError) return jqLimitError(e);
       const msg = sanitizeErrorMessage((e as Error).message);
       if (msg.includes("Unknown function")) {
         return {
