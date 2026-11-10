@@ -77,7 +77,6 @@ function generateUUID(): string {
 
 type AsyncLocalStorageType<T> = {
   run<R>(store: T, callback: () => R): R;
-  exit<R>(callback: () => R): R;
   getStore(): T | undefined;
 };
 
@@ -798,20 +797,27 @@ export class DefenseInDepthBox {
   }
 
   /**
-   * Run library work outside the current execution's async context, so the
-   * promises it chains internally settle even if that execution deactivates
-   * first.
+   * Run library work, called from inside an execution, in a sandboxed
+   * execution of its own that ends when the work settles.
    *
-   * Unlike runTrustedAsync, this grants the execution nothing: only `fn`'s
-   * own async context leaves the sandbox, not the execution id. `fn` must
-   * therefore be library code that touches only library-owned values; reduce
-   * caller-supplied objects to primitives or copies before calling this.
+   * The work is restricted like any untrusted execution, so nothing it runs
+   * gains the caller's trust, or any trust. Its lifetime is the work's, not
+   * the caller's: the promises it chains internally still settle if the
+   * caller's execution deactivates first, and the patches stay applied until
+   * it is done. Outside an execution, as for host code or with defense off,
+   * `fn` simply runs.
    */
-  static runOutsideExecution<T>(fn: () => Promise<T>): Promise<T> {
-    // Hand back fn's own promise: wrapping it in an async function would
-    // settle through the patched Promise.prototype.then in the caller's
-    // context.
-    return executionContext ? executionContext.exit(fn) : fn();
+  static async runInOwnExecution<T>(fn: () => Promise<T>): Promise<T> {
+    const box = DefenseInDepthBox.instance;
+    if (!box || executionContext?.getStore()?.sandboxActive !== true) {
+      return await fn();
+    }
+    const handle = box.activate();
+    try {
+      return await handle.run(fn);
+    } finally {
+      handle.deactivate();
+    }
   }
 
   /**

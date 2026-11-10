@@ -14,9 +14,9 @@ import { ReadWriteFs } from "./read-write-fs.js";
 
 const OK = { stdout: "", stderr: "", exitCode: 0 };
 
-// A mutation runs outside its caller's execution, so an argument of an
-// unexpected type must be rejected at the call: the operation would otherwise
-// inspect it again out there, running caller code unsandboxed.
+// A mutation checks its arguments at the call, as a second layer behind the
+// sandboxed execution it runs in: an argument of an unexpected type is
+// rejected there, before the operation could inspect it again.
 describe("ReadWriteFs mutation argument types", () => {
   let root: string;
   const hookRuns: string[] = [];

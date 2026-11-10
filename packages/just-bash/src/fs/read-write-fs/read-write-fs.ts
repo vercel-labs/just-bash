@@ -54,13 +54,13 @@ const RW_PASSTHROUGH_ERRORS = [
   "ENOTSUP",
 ] as const;
 
-// Mutations run outside the caller's execution (see withFilesystemMutation),
-// so each public mutation first reduces its arguments to values the library
-// owns, of exactly the declared type. Any coercion hook on a caller's object
-// (toString, a getter, a Proxy trap) runs then, while the caller is still
-// sandboxed. An unexpected type is rejected rather than coerced: the
-// operation would otherwise inspect it again outside, where a getter the
-// caller planted on its prototype, or a Proxy trap, runs unsandboxed.
+// Mutations run in an execution of their own (see withFilesystemMutation), so
+// each public mutation first reduces its arguments to values the library owns,
+// of exactly the declared type. Any coercion hook on a caller's object
+// (toString, a getter, a Proxy trap) runs then, in the caller's execution, and
+// an unexpected type is rejected rather than coerced, so the operation never
+// inspects caller objects again. The operation's own execution is sandboxed
+// too; these checks are a second layer, and fix each value at the call.
 
 function ownPath(path: string, operation: string): string {
   if (typeof path !== "string") {
@@ -468,11 +468,12 @@ export class ReadWriteFs implements IFileSystem {
       if (DefenseInDepthBox.hasCurrentExecutionEnded()) {
         throw new Error("ECANCELED: operation canceled, its execution ended");
       }
-      // Node's own fs promises settle each other through `.then`, which the
-      // caller's execution context drops once it deactivates. Outside that
-      // context the operation always settles and releases the root. It runs
-      // only library code, on the arguments its public method made owned.
-      return await DefenseInDepthBox.runOutsideExecution(operation);
+      // Node's own fs promises settle each other through `.then`, which an
+      // execution's context drops once it deactivates. The operation runs in
+      // a sandboxed execution of its own that lasts until it settles, so it
+      // always releases the root, whatever happens to the caller's, and
+      // anything it reaches stays as restricted as the caller.
+      return await DefenseInDepthBox.runInOwnExecution(operation);
     } finally {
       ReadWriteFs.activeMutationRoots.delete(this.canonicalRoot);
       ReadWriteFs.drainMutationQueue();
@@ -526,8 +527,8 @@ export class ReadWriteFs implements IFileSystem {
    *
    * Every return awaits: returning the bare promise would settle this call
    * through `.then`, which defense-in-depth drops once a cancelled execution
-   * deactivates. Mutations already run outside the caller's execution; this
-   * keeps the open from stranding the root even if one did not.
+   * deactivates. Mutations already run in an execution that lasts until they
+   * settle; this keeps the open from stranding the root even if one did not.
    */
   private async openCopySource(
     canonical: string,

@@ -23,7 +23,7 @@ const ABORTED = {
   exitCode: 124,
 };
 
-describe("ReadWriteFs mutations outside the caller's execution", () => {
+describe("ReadWriteFs mutations that outlive the caller's execution", () => {
   let root: string;
 
   beforeEach(() => {
