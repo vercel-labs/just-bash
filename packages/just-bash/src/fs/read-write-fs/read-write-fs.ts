@@ -15,6 +15,7 @@ import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { type ByteString, unsafeBytesFromLatin1 } from "../../encoding.js";
+import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import {
   type FileContent,
   fromBuffer,
@@ -376,7 +377,11 @@ export class ReadWriteFs implements IFileSystem {
     return new Promise<T>((resolve, reject) => {
       ReadWriteFs.pendingMutations.push({
         root: this.canonicalRoot,
-        start: () => {
+        // Another execution's mutation may start this one from its own
+        // .finally. Binding keeps the callbacks registered here owned by the
+        // execution that queued the mutation, so they still run after the
+        // other execution deactivates.
+        start: DefenseInDepthBox.bindCurrentContext(() => {
           ReadWriteFs.activeMutationRoots.add(this.canonicalRoot);
           void operation()
             .then(resolve, reject)
@@ -384,7 +389,7 @@ export class ReadWriteFs implements IFileSystem {
               ReadWriteFs.activeMutationRoots.delete(this.canonicalRoot);
               ReadWriteFs.drainMutationQueue();
             });
-        },
+        }),
       });
       ReadWriteFs.drainMutationQueue();
     });
