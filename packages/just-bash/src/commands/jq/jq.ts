@@ -4,7 +4,7 @@
  * Full jq implementation with proper parser and evaluator.
  */
 
-import { decodeBytesToUtf8 } from "../../encoding.js";
+import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import {
@@ -17,7 +17,7 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
-import { readFiles } from "../../utils/file-reader.js";
+import { accountFileInput, readFiles } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import { utf8ByteLength } from "../printf/escapes.js";
 import {
@@ -277,6 +277,8 @@ export const jqCommand: RuntimeCommand = {
     let positionalMode: "none" | "args" | "jsonargs" = "none";
     const files: string[] = [];
     const namedArgs = new Map<string, QueryValue>();
+    // jq keeps the first binding of a name and skips later ones unread.
+    const boundNames = new Set<string>();
     const positionalArgs: QueryValue[] = [];
     const fileBindings: {
       name: string;
@@ -313,7 +315,10 @@ export const jqCommand: RuntimeCommand = {
             "--arg takes two parameters (e.g. --arg varname value)",
           );
         }
-        namedArgs.set(name, value);
+        if (!boundNames.has(name)) {
+          boundNames.add(name);
+          namedArgs.set(name, value);
+        }
         i += 2;
       } else if (a === "--argjson") {
         const name = args[i + 1];
@@ -323,16 +328,19 @@ export const jqCommand: RuntimeCommand = {
             "--argjson takes two parameters (e.g. --argjson varname text)",
           );
         }
-        let parsed: unknown[];
-        try {
-          parsed = parseJsonStream(json.trim(), jsonLimits);
-        } catch {
-          return jqArgError("invalid JSON text passed to --argjson");
+        if (!boundNames.has(name)) {
+          let parsed: unknown[];
+          try {
+            parsed = parseJsonStream(json.trim(), jsonLimits);
+          } catch {
+            return jqArgError("invalid JSON text passed to --argjson");
+          }
+          if (parsed.length !== 1) {
+            return jqArgError("invalid JSON text passed to --argjson");
+          }
+          namedArgs.set(name, parsed[0]);
+          boundNames.add(name);
         }
-        if (parsed.length !== 1) {
-          return jqArgError("invalid JSON text passed to --argjson");
-        }
-        namedArgs.set(name, parsed[0]);
         i += 2;
       } else if (a === "--rawfile") {
         const name = args[i + 1];
@@ -342,7 +350,10 @@ export const jqCommand: RuntimeCommand = {
             "--rawfile takes two parameters (e.g. --rawfile varname filename)",
           );
         }
-        fileBindings.push({ name, file, mode: "raw" });
+        if (!boundNames.has(name)) {
+          boundNames.add(name);
+          fileBindings.push({ name, file, mode: "raw" });
+        }
         i += 2;
       } else if (a === "--slurpfile") {
         const name = args[i + 1];
@@ -352,7 +363,10 @@ export const jqCommand: RuntimeCommand = {
             "--slurpfile takes two parameters (e.g. --slurpfile varname filename)",
           );
         }
-        fileBindings.push({ name, file, mode: "slurp" });
+        if (!boundNames.has(name)) {
+          boundNames.add(name);
+          fileBindings.push({ name, file, mode: "slurp" });
+        }
         i += 2;
       } else if (a === "--args") {
         // Remaining non-option tokens (after the filter) become string
@@ -405,35 +419,40 @@ export const jqCommand: RuntimeCommand = {
       }
     }
 
-    // Read files bound via --rawfile/--slurpfile through the shared file
-    // reader so they get the same security posture as normal input files.
+    // Read files bound via --rawfile/--slurpfile one at a time through the
+    // shared file reader, charging each to the input budget before keeping it.
     // jq opens these by name, so "-" is a file called "-", not stdin.
-    if (fileBindings.length > 0) {
+    for (const { name, file, mode } of fileBindings) {
       const result = await withDefenseContext("arg file read", () =>
-        readFiles(
-          ctx,
-          fileBindings.map((b) => b.file),
-          { cmdName: "jq", stopOnError: true, allowStdinMarker: false },
-        ),
+        readFiles(ctx, [file], {
+          cmdName: "jq",
+          stopOnError: true,
+          allowStdinMarker: false,
+        }),
       );
       if (result.exitCode !== 0) {
         return { stdout: "", stderr: result.stderr, exitCode: 2 };
       }
-      for (let b = 0; b < fileBindings.length; b++) {
-        const { name, mode } = fileBindings[b];
-        const text = decodeBytesToUtf8(result.files[b].content);
-        if (mode === "raw") {
-          namedArgs.set(name, text);
-        } else {
-          const trimmed = text.trim();
-          try {
-            namedArgs.set(
-              name,
-              trimmed ? parseJsonStream(trimmed, jsonLimits) : [],
-            );
-          } catch {
-            return jqArgError("invalid JSON text passed to --slurpfile");
-          }
+      const { content } = result.files[0];
+      accountFileInput(ctx, latin1FromBytes(content).length, "jq");
+      const text = decodeBytesToUtf8(content);
+      if (mode === "raw") {
+        if (text.length > ctx.limits.maxStringLength) {
+          throw new ExecutionLimitError(
+            `jq: string length limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+            "string_length",
+          );
+        }
+        namedArgs.set(name, text);
+      } else {
+        const trimmed = text.trim();
+        try {
+          namedArgs.set(
+            name,
+            trimmed ? parseJsonStream(trimmed, jsonLimits) : [],
+          );
+        } catch {
+          return jqArgError("invalid JSON text passed to --slurpfile");
         }
       }
     }
