@@ -114,6 +114,35 @@ describe("export command - Real Bash Comparison", () => {
     );
   });
 
+  describe("function-local auto-exports", () => {
+    it.each([
+      ["read", "JB_VALUE=outer", "read JB_VALUE <<<'inner'"],
+      ["for", "JB_VALUE=outer", "for JB_VALUE in inner; do :; done"],
+      [
+        "read with an exported outer variable",
+        "export JB_VALUE=outer",
+        "read JB_VALUE <<<'inner'",
+      ],
+      [
+        "for with an exported outer variable",
+        "export JB_VALUE=outer",
+        "for JB_VALUE in inner; do :; done",
+      ],
+    ])("%s restores the outer export status", async (_name, outer, assignment) => {
+      const env = await setupFiles(testDir, {
+        "probe.sh": '#!/bin/bash\nprintf "[%s]\\n" "$JB_VALUE"\n',
+      });
+      await compareOutputs(
+        env,
+        testDir,
+        `chmod +x probe.sh; ${outer}; f() { local JB_VALUE; set -a; ${assignment}; set +a; ./probe.sh; }; f; ./probe.sh; echo "$JB_VALUE"`,
+        undefined,
+        undefined,
+        import.meta.url,
+      );
+    });
+  });
+
   describe("setting variables", () => {
     it("should set and use a variable", async () => {
       const env = await setupFiles(testDir, {});

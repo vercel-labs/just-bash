@@ -12,7 +12,7 @@ import {
   splitByIfsForRead,
   stripTrailingIfsWhitespace,
 } from "../helpers/ifs.js";
-import { checkReadonlyError } from "../helpers/readonly.js";
+import { checkReadonlyError, markExported } from "../helpers/readonly.js";
 import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -23,8 +23,7 @@ function assignReadVariable(
 ): void {
   ctx.state.env.set(name, value);
   if (ctx.state.options.allexport) {
-    ctx.state.exportedVars ??= new Set();
-    ctx.state.exportedVars.add(name);
+    markExported(ctx, name);
   }
 }
 

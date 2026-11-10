@@ -1,10 +1,37 @@
 {
+  "0bd3ffbe22b73963": {
+    "command": "chmod +x probe.sh; JB_VALUE=outer; f() { local JB_VALUE; set -a; read JB_VALUE <<<'inner'; set +a; ./probe.sh; }; f; ./probe.sh; echo \"$JB_VALUE\"",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s]\\n\" \"$JB_VALUE\"\n"
+    },
+    "stdout": "[inner]\n[]\nouter\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1018a2aab7246277": {
+    "command": "chmod +x probe.sh; export JB_VALUE=outer; f() { local JB_VALUE; set -a; read JB_VALUE <<<'inner'; set +a; ./probe.sh; }; f; ./probe.sh; echo \"$JB_VALUE\"",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s]\\n\" \"$JB_VALUE\"\n"
+    },
+    "stdout": "[inner]\n[outer]\nouter\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "18894dbab9832dca": {
     "command": "chmod +x probe.sh; PWD=/fake ./probe.sh",
     "files": {
       "probe.sh": "#!/bin/bash\nif [ \"$PWD\" = \"$(pwd)\" ]; then echo same; else echo different; fi\n"
     },
     "stdout": "same\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "211c3813c1293b1c": {
+    "command": "chmod +x probe.sh; export JB_VALUE=outer; f() { local JB_VALUE; set -a; for JB_VALUE in inner; do :; done; set +a; ./probe.sh; }; f; ./probe.sh; echo \"$JB_VALUE\"",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s]\\n\" \"$JB_VALUE\"\n"
+    },
+    "stdout": "[inner]\n[outer]\nouter\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -85,6 +112,15 @@
       "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
     },
     "stdout": "[] [value]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a8a099bebf10550f": {
+    "command": "chmod +x probe.sh; JB_VALUE=outer; f() { local JB_VALUE; set -a; for JB_VALUE in inner; do :; done; set +a; ./probe.sh; }; f; ./probe.sh; echo \"$JB_VALUE\"",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s]\\n\" \"$JB_VALUE\"\n"
+    },
+    "stdout": "[inner]\n[]\nouter\n",
     "stderr": "",
     "exitCode": 0
   },
