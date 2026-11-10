@@ -15,6 +15,8 @@ import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { type ByteString, unsafeBytesFromLatin1 } from "../../encoding.js";
+import { ExecutionAbortedError } from "../../interpreter/errors.js";
+import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import {
   type FileContent,
   fromBuffer,
@@ -22,6 +24,7 @@ import {
   toBuffer,
 } from "../encoding.js";
 import type {
+  BufferEncoding,
   CpOptions,
   CreateExclusiveOptions,
   DirentEntry,
@@ -50,6 +53,63 @@ const RW_PASSTHROUGH_ERRORS = [
   "EFBIG",
   "ENOTSUP",
 ] as const;
+
+// Mutations run outside the caller's execution (see withFilesystemMutation),
+// so each public mutation first reduces its arguments to values the library
+// owns. Any coercion hook on a caller's object (toString, a getter, a Proxy
+// trap) runs then, while the caller is still sandboxed, and never later.
+
+function ownPath(path: string, operation: string): string {
+  if (typeof path !== "string") {
+    throw new TypeError(`${operation}: path must be a string`);
+  }
+  return path;
+}
+
+/** An option field or mode, which must be a primitive to copy by value. */
+function ownPrimitive<T>(value: T, what: string): T {
+  if (
+    (typeof value === "object" && value !== null) ||
+    typeof value === "function"
+  ) {
+    throw new TypeError(`${what} must be a primitive`);
+  }
+  return value;
+}
+
+function ownEncoding(
+  options: WriteFileOptions | BufferEncoding | undefined,
+  operation: string,
+): BufferEncoding | undefined {
+  return ownPrimitive(getEncoding(options), `${operation}: encoding`);
+}
+
+/** A string as is, or bytes copied out of the caller's object. */
+function ownContent(
+  content: FileContent,
+  encoding: BufferEncoding | undefined,
+): FileContent {
+  if (typeof content === "string") return content;
+  // A copy also leaves behind any accessor a Uint8Array subclass overrides,
+  // which Node and replaceFile would otherwise read later.
+  return content instanceof Uint8Array
+    ? new Uint8Array(content)
+    : toBuffer(content, encoding);
+}
+
+const dateGetTime = Date.prototype.getTime;
+
+/** A Date's time value; getTime's brand check rejects anything else. */
+function ownTime(time: Date, what: string): number {
+  let value: unknown;
+  try {
+    value = dateGetTime.call(time);
+  } catch {
+    // Not a Date.
+  }
+  if (typeof value !== "number") throw new TypeError(`${what} must be a Date`);
+  return value;
+}
 
 export interface ReadWriteFsOptions {
   /**
@@ -219,8 +279,11 @@ export class ReadWriteFs implements IFileSystem {
     content: FileContent,
     options?: WriteFileOptions | BufferEncoding,
   ): Promise<void> {
+    const ownedPath = ownPath(path, "write");
+    const encoding = ownEncoding(options, "write");
+    const data = ownContent(content, encoding);
     await this.withFilesystemMutation(() =>
-      this.writeFileUnlocked(path, content, options),
+      this.writeFileUnlocked(ownedPath, data, encoding),
     );
   }
 
@@ -285,8 +348,11 @@ export class ReadWriteFs implements IFileSystem {
     content: FileContent,
     options?: WriteFileOptions | BufferEncoding,
   ): Promise<void> {
+    const ownedPath = ownPath(path, "append");
+    const encoding = ownEncoding(options, "append");
+    const data = ownContent(content, encoding);
     await this.withFilesystemMutation(() =>
-      this.appendFileUnlocked(path, content, options),
+      this.appendFileUnlocked(ownedPath, data, encoding),
     );
   }
 
@@ -381,7 +447,15 @@ export class ReadWriteFs implements IFileSystem {
       ReadWriteFs.drainMutationQueue();
     });
     try {
-      return await operation();
+      // The caller's execution ended while this waited: do nothing for it.
+      if (DefenseInDepthBox.hasCurrentExecutionEnded()) {
+        throw new ExecutionAbortedError("", "bash: execution aborted\n");
+      }
+      // Node's own fs promises settle each other through `.then`, which the
+      // caller's execution context drops once it deactivates. Outside that
+      // context the operation always settles and releases the root. It runs
+      // only library code, on the arguments its public method made owned.
+      return await DefenseInDepthBox.runOutsideExecution(operation);
     } finally {
       ReadWriteFs.activeMutationRoots.delete(this.canonicalRoot);
       ReadWriteFs.drainMutationQueue();
@@ -435,7 +509,8 @@ export class ReadWriteFs implements IFileSystem {
    *
    * Every return awaits: returning the bare promise would settle this call
    * through `.then`, which defense-in-depth drops once a cancelled execution
-   * deactivates, stranding the mutation that holds the root.
+   * deactivates. Mutations already run outside the caller's execution; this
+   * keeps the open from stranding the root even if one did not.
    */
   private async openCopySource(
     canonical: string,
@@ -650,7 +725,13 @@ export class ReadWriteFs implements IFileSystem {
   }
 
   async mkdir(path: string, options?: MkdirOptions): Promise<void> {
-    await this.withFilesystemMutation(() => this.mkdirUnlocked(path, options));
+    const ownedPath = ownPath(path, "mkdir");
+    const owned = {
+      recursive: ownPrimitive(options?.recursive, "mkdir: recursive"),
+    };
+    await this.withFilesystemMutation(() =>
+      this.mkdirUnlocked(ownedPath, owned),
+    );
   }
 
   /**
@@ -666,8 +747,15 @@ export class ReadWriteFs implements IFileSystem {
     path: string,
     options: CreateExclusiveOptions,
   ): Promise<void> {
+    const directory = ownPrimitive(
+      options.directory,
+      "createExclusive: directory",
+    );
+    const syscall = directory ? "mkdir" : "open";
+    const ownedPath = ownPath(path, syscall);
+    const mode = ownPrimitive(options.mode, `${syscall}: mode`);
     await this.withFilesystemMutation(() =>
-      this.createExclusiveUnlocked(path, options),
+      this.createExclusiveUnlocked(ownedPath, { mode, directory }),
     );
   }
 
@@ -860,7 +948,12 @@ export class ReadWriteFs implements IFileSystem {
   }
 
   async rm(path: string, options?: RmOptions): Promise<void> {
-    await this.withFilesystemMutation(() => this.rmUnlocked(path, options));
+    const ownedPath = ownPath(path, "rm");
+    const owned = {
+      recursive: ownPrimitive(options?.recursive, "rm: recursive"),
+      force: ownPrimitive(options?.force, "rm: force"),
+    };
+    await this.withFilesystemMutation(() => this.rmUnlocked(ownedPath, owned));
   }
 
   private async rmUnlocked(path: string, options?: RmOptions): Promise<void> {
@@ -894,8 +987,13 @@ export class ReadWriteFs implements IFileSystem {
   }
 
   async cp(src: string, dest: string, options?: CpOptions): Promise<void> {
+    const ownedSrc = ownPath(src, "cp");
+    const ownedDest = ownPath(dest, "cp");
+    const owned = {
+      recursive: ownPrimitive(options?.recursive, "cp: recursive"),
+    };
     await this.withFilesystemMutation(() =>
-      this.cpUnlocked(src, dest, options),
+      this.cpUnlocked(ownedSrc, ownedDest, owned),
     );
   }
 
@@ -1242,7 +1340,11 @@ export class ReadWriteFs implements IFileSystem {
   }
 
   async mv(src: string, dest: string): Promise<void> {
-    await this.withFilesystemMutation(() => this.mvUnlocked(src, dest));
+    const ownedSrc = ownPath(src, "mv");
+    const ownedDest = ownPath(dest, "mv");
+    await this.withFilesystemMutation(() =>
+      this.mvUnlocked(ownedSrc, ownedDest),
+    );
   }
 
   private async mvUnlocked(src: string, dest: string): Promise<void> {
@@ -1564,7 +1666,11 @@ export class ReadWriteFs implements IFileSystem {
   }
 
   async chmod(path: string, mode: number): Promise<void> {
-    await this.withFilesystemMutation(() => this.chmodUnlocked(path, mode));
+    const ownedPath = ownPath(path, "chmod");
+    const ownedMode = ownPrimitive(mode, "chmod: mode");
+    await this.withFilesystemMutation(() =>
+      this.chmodUnlocked(ownedPath, ownedMode),
+    );
   }
 
   private async chmodUnlocked(path: string, mode: number): Promise<void> {
@@ -1626,8 +1732,10 @@ export class ReadWriteFs implements IFileSystem {
   }
 
   async symlink(target: string, linkPath: string): Promise<void> {
+    const ownedTarget = ownPath(target, "symlink");
+    const ownedLinkPath = ownPath(linkPath, "symlink");
     await this.withFilesystemMutation(() =>
-      this.symlinkUnlocked(target, linkPath),
+      this.symlinkUnlocked(ownedTarget, ownedLinkPath),
     );
   }
 
@@ -1679,8 +1787,10 @@ export class ReadWriteFs implements IFileSystem {
   }
 
   async link(existingPath: string, newPath: string): Promise<void> {
+    const ownedExisting = ownPath(existingPath, "link");
+    const ownedNew = ownPath(newPath, "link");
     await this.withFilesystemMutation(() =>
-      this.linkUnlocked(existingPath, newPath),
+      this.linkUnlocked(ownedExisting, ownedNew),
     );
   }
 
@@ -1838,8 +1948,11 @@ export class ReadWriteFs implements IFileSystem {
    * @param mtime - Modification time
    */
   async utimes(path: string, atime: Date, mtime: Date): Promise<void> {
+    const ownedPath = ownPath(path, "utimes");
+    const atimeMs = ownTime(atime, "utimes: atime");
+    const mtimeMs = ownTime(mtime, "utimes: mtime");
     await this.withFilesystemMutation(() =>
-      this.utimesUnlocked(path, atime, mtime),
+      this.utimesUnlocked(ownedPath, new Date(atimeMs), new Date(mtimeMs)),
     );
   }
 

@@ -77,6 +77,7 @@ function generateUUID(): string {
 
 type AsyncLocalStorageType<T> = {
   run<R>(store: T, callback: () => R): R;
+  exit<R>(callback: () => R): R;
   getStore(): T | undefined;
 };
 
@@ -793,6 +794,36 @@ export class DefenseInDepthBox {
     return executionContext.run(
       { ...current, trusted: false, forceUntrusted: true },
       fn,
+    );
+  }
+
+  /**
+   * Run library work outside the current execution's async context, so the
+   * promises it chains internally settle even if that execution deactivates
+   * first.
+   *
+   * Unlike runTrustedAsync, this grants the execution nothing: only `fn`'s
+   * own async context leaves the sandbox, not the execution id. `fn` must
+   * therefore be library code that touches only library-owned values; reduce
+   * caller-supplied objects to primitives or copies before calling this.
+   */
+  static runOutsideExecution<T>(fn: () => Promise<T>): Promise<T> {
+    // Hand back fn's own promise: wrapping it in an async function would
+    // settle through the patched Promise.prototype.then in the caller's
+    // context.
+    return executionContext ? executionContext.exit(fn) : fn();
+  }
+
+  /**
+   * Whether the current async context belongs to an execution whose handle
+   * has deactivated. Always false outside an execution.
+   */
+  static hasCurrentExecutionEnded(): boolean {
+    const store = executionContext?.getStore();
+    if (store?.sandboxActive !== true) return false;
+    return (
+      DefenseInDepthBox.instance?.isExecutionIdActive(store.executionId) !==
+      true
     );
   }
 
