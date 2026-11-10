@@ -15,7 +15,6 @@ import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { type ByteString, unsafeBytesFromLatin1 } from "../../encoding.js";
-import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import {
   type FileContent,
   fromBuffer,
@@ -374,16 +373,15 @@ export class ReadWriteFs implements IFileSystem {
   private async withFilesystemMutation<T>(
     operation: () => Promise<T>,
   ): Promise<T> {
-    // Defense-in-depth drops .then callbacks of an execution that has ended, and
-    // a root left active blocks every later mutation on it. So the queue waits
-    // and releases with await, and the operation runs trusted, so nothing it
-    // chains can be dropped if its execution is cancelled mid-write.
+    // Wait and release with await, never .then/.finally: defense-in-depth drops
+    // those callbacks once the execution that registered them deactivates, and
+    // a root left active blocks every later mutation on it.
     await new Promise<void>((start) => {
       ReadWriteFs.pendingMutations.push({ root: this.canonicalRoot, start });
       ReadWriteFs.drainMutationQueue();
     });
     try {
-      return await DefenseInDepthBox.runTrustedAsync(operation);
+      return await operation();
     } finally {
       ReadWriteFs.activeMutationRoots.delete(this.canonicalRoot);
       ReadWriteFs.drainMutationQueue();
@@ -432,7 +430,13 @@ export class ReadWriteFs implements IFileSystem {
     return randomBytes(16).toString("hex");
   }
 
-  /** Open a bounded copy source, avoiding atime updates where permitted. */
+  /**
+   * Open a bounded copy source, avoiding atime updates where permitted.
+   *
+   * Every return awaits: returning the bare promise would settle this call
+   * through `.then`, which defense-in-depth drops once a cancelled execution
+   * deactivates, stranding the mutation that holds the root.
+   */
   private async openCopySource(
     canonical: string,
   ): Promise<fs.promises.FileHandle> {
@@ -442,7 +446,7 @@ export class ReadWriteFs implements IFileSystem {
       fs.constants as typeof fs.constants & { O_NOATIME?: number }
     ).O_NOATIME;
     if (process.platform !== "linux" || noAtime === undefined) {
-      return fs.promises.open(canonical, flags);
+      return await fs.promises.open(canonical, flags);
     }
 
     // O_NOATIME can be exposed by a Node runtime, but the kernel rejects it
@@ -452,7 +456,7 @@ export class ReadWriteFs implements IFileSystem {
       return await fs.promises.open(canonical, flags | noAtime);
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EPERM") throw e;
-      return fs.promises.open(canonical, flags);
+      return await fs.promises.open(canonical, flags);
     }
   }
 

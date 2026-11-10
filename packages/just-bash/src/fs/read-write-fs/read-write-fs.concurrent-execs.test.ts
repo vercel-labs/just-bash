@@ -4,7 +4,10 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Bash } from "../../Bash.js";
 import { defineCommand } from "../../custom-commands.js";
-import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
+import {
+  DefenseInDepthBox,
+  SecurityViolationError,
+} from "../../security/defense-in-depth-box.js";
 import type { SecurityViolation } from "../../security/types.js";
 import { ReadWriteFs } from "./read-write-fs.js";
 
@@ -19,10 +22,9 @@ function settleWithin<T>(promise: Promise<T>): Promise<T | "hung"> {
   return Promise.race([promise, hung]).finally(() => clearTimeout(timer));
 }
 
-// Holds the first `count` staged writes open until each is released, so a test
-// can act while they are in flight. The held open resolves through `.then`, as
-// a host fs wrapper might.
-function holdStagedWrites(count: number) {
+// Holds the first `count` opens that match open until each is released, so a
+// test can act while they are in flight.
+function holdOpens(matches: (filePath: string) => boolean, count: number) {
   const originalOpen = fs.promises.open.bind(fs.promises);
   const gates = Array.from({ length: count }, () => {
     let release!: () => void;
@@ -35,21 +37,23 @@ function holdStagedWrites(count: number) {
     });
     return { inFlight, release, released, reached };
   });
-  let staged = 0;
+  let held = 0;
   vi.spyOn(fs.promises, "open").mockImplementation(
     async (filePath, flags, mode) => {
-      const gate = String(filePath).includes(".just-bash-write-")
-        ? gates[staged++]
-        : undefined;
+      const gate = matches(String(filePath)) ? gates[held++] : undefined;
       if (gate) {
         gate.reached();
         await gate.released;
       }
-      return originalOpen(filePath, flags, mode);
+      const handle = await originalOpen(filePath, flags, mode);
+      return handle;
     },
   );
   return gates;
 }
+
+const holdStagedWrites = (count: number) =>
+  holdOpens((filePath) => filePath.includes(".just-bash-write-"), count);
 
 function saveCommand(file: string, trusted: boolean) {
   return defineCommand(
@@ -183,7 +187,8 @@ describe("ReadWriteFs mutations from concurrent executions", () => {
         reached();
         await released;
       }
-      return originalMkdir(dir, options);
+      const made = await originalMkdir(dir, options);
+      return made;
     });
     const holder = new AbortController();
     const queued = new AbortController();
@@ -199,5 +204,68 @@ describe("ReadWriteFs mutations from concurrent executions", () => {
     holder.abort();
     await settleWithin(a);
     expect(c).toMatchObject({ ...OK, stdout: "made\n" });
+  });
+
+  it("releases the root when a command stops while it copies a file", async () => {
+    const copy = defineCommand(
+      "copy",
+      async (_args, ctx) => {
+        await ctx.fs.cp("/src.txt", "/dst.txt");
+        return OK;
+      },
+      { trusted: false },
+    );
+    const sandbox = () =>
+      new Bash({
+        fs: new ReadWriteFs({ root }),
+        customCommands: [copy],
+        defenseInDepth: { onViolation },
+      });
+    fs.writeFileSync(path.join(root, "src.txt"), "s");
+    const [source] = holdOpens((filePath) => filePath.endsWith("src.txt"), 1);
+    const holder = new AbortController();
+    const copier = new AbortController();
+
+    const a = sandbox().exec("sleep 5", { signal: holder.signal });
+    const stopped = sandbox().exec("copy", { signal: copier.signal });
+    await source.inFlight;
+    copier.abort();
+    expect(await settleWithin(stopped)).toMatchObject({ exitCode: 124 });
+    source.release();
+
+    const later = await settleWithin(sandbox().exec("echo b > /b && cat /b"));
+    holder.abort();
+    await settleWithin(a);
+    expect(later).toMatchObject({ ...OK, stdout: "b\n" });
+  });
+
+  it("keeps an untrusted command restricted while its write is pending", async () => {
+    const [write] = holdStagedWrites(1);
+    let blocked: unknown;
+    const probe = defineCommand(
+      "probe",
+      async (_args, ctx) => {
+        const pending = ctx.fs.writeFile("/p.txt", "p");
+        await write.inFlight;
+        try {
+          // @banned-pattern-ignore: asserts the sandbox still blocks this
+          new Function("return 1")();
+        } catch (error) {
+          blocked = error;
+        }
+        write.release();
+        await pending;
+        return OK;
+      },
+      { trusted: false },
+    );
+    const bash = new Bash({
+      fs: new ReadWriteFs({ root }),
+      customCommands: [probe],
+      defenseInDepth: { onViolation },
+    });
+
+    expect(await settleWithin(bash.exec("probe"))).toMatchObject(OK);
+    expect(blocked).toBeInstanceOf(SecurityViolationError);
   });
 });
