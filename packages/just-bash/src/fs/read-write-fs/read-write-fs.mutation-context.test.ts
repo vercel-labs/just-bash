@@ -13,6 +13,7 @@ import {
   holdStagedWrites,
   settleWithin,
 } from "../../test-utils/fs-gates.js";
+import type { IFileSystem } from "../interface.js";
 import { ReadWriteFs } from "./read-write-fs.js";
 
 const OK = { stdout: "", stderr: "", exitCode: 0 };
@@ -67,50 +68,80 @@ describe("ReadWriteFs mutations outside the caller's execution", () => {
           return Reflect.getPrototypeOf(object);
         },
       });
-    const pathLike = hooked("path", { toString: () => "/p" }) as never;
-    const text = hooked("content", { toString: () => "text" }) as never;
-    const bytes = hooked("bytes", new Uint8Array([98]));
-    const options = hooked("options", {
-      recursive: true,
-      force: true,
-      mode: 0o600,
-      encoding: "utf8" as const,
-    });
-    const mode = hooked("mode", { valueOf: () => 0o644 }) as never;
-    const time = hooked("time", new Date(0));
+    // A fresh set of arguments per phase, each hook labelled by its call.
+    const argumentsFor = (phase: string) => {
+      const label = <T extends object>(call: string, target: T) =>
+        hooked(`${phase} ${call}`, target);
+      return {
+        writePath: label("writeFile path", { toString: () => "/p" }) as never,
+        text: label("writeFile content", { toString: () => "text" }) as never,
+        encoding: label("writeFile options", { encoding: "utf8" as const }),
+        bytes: label("appendFile bytes", new Uint8Array([98])),
+        mkdir: label("mkdir options", { recursive: true }),
+        exclusive: label("createExclusive options", { mode: 0o600 }),
+        cp: label("cp options", { recursive: true }),
+        rm: label("rm options", { recursive: true, force: true }),
+        mvPath: label("mv path", { toString: () => "/p" }) as never,
+        mode: label("chmod mode", { valueOf: () => 0o644 }) as never,
+        symlinkPath: label("symlink path", { toString: () => "/p" }) as never,
+        linkPath: label("link path", { toString: () => "/p" }) as never,
+        time: label("utimes time", new Date(0)),
+      };
+    };
+    const mutations = (
+      cmdFs: IFileSystem,
+      a: ReturnType<typeof argumentsFor>,
+    ) =>
+      [
+        ["writeFile path", () => cmdFs.writeFile(a.writePath, "x")],
+        ["writeFile content", () => cmdFs.writeFile("/w", a.text)],
+        ["writeFile options", () => cmdFs.writeFile("/o", "o", a.encoding)],
+        ["appendFile bytes", () => cmdFs.appendFile("/w", a.bytes)],
+        ["mkdir", () => cmdFs.mkdir("/d/e", a.mkdir)],
+        ["createExclusive", () => cmdFs.createExclusive?.("/x", a.exclusive)],
+        ["cp", () => cmdFs.cp("/d", "/c", a.cp)],
+        ["rm", () => cmdFs.rm("/d", a.rm)],
+        ["mv", () => cmdFs.mv(a.mvPath, "/m")],
+        ["chmod", () => cmdFs.chmod("/w", a.mode)],
+        ["symlink", () => cmdFs.symlink(a.symlinkPath, "/s")],
+        ["link", () => cmdFs.link(a.linkPath, "/l")],
+        ["utimes", () => cmdFs.utimes("/w", a.time, a.time)],
+      ] as const;
 
     const outcomes = new Map<string, string>();
+    const settle = async (label: string, call: Promise<void> | undefined) => {
+      try {
+        await call;
+        outcomes.set(label, "done");
+      } catch (error) {
+        outcomes.set(label, (error as Error).name);
+      }
+    };
+    // Live: the root is free, so each call runs as soon as it is made.
+    const liveArguments = argumentsFor("live");
+    const live = defineCommand(
+      "live",
+      async (_args, ctx) => {
+        for (const [call, run] of mutations(ctx.fs, liveArguments)) {
+          await settle(`live ${call}`, run());
+        }
+        return OK;
+      },
+      { trusted: false },
+    );
+    // Queued: every call is made at once, behind a held root.
+    const queuedArguments = argumentsFor("queued");
     const issued = createGate();
     const settled = createGate();
-    const mutate = defineCommand(
-      "mutate",
+    const queued = defineCommand(
+      "queued",
       async (_args, ctx) => {
-        const settle = async (label: string, call?: Promise<void>) => {
-          try {
-            await call;
-            outcomes.set(label, "done");
-          } catch (error) {
-            outcomes.set(label, (error as Error).name);
-          }
-          if (outcomes.size === 13) settled.reached();
-        };
-        const calls = [
-          settle("writeFile path", ctx.fs.writeFile(pathLike, "x")),
-          settle("writeFile content", ctx.fs.writeFile("/w", text)),
-          settle("writeFile options", ctx.fs.writeFile("/w", "x", options)),
-          settle("appendFile bytes", ctx.fs.appendFile("/w", bytes)),
-          settle("mkdir", ctx.fs.mkdir("/d", options)),
-          settle("createExclusive", ctx.fs.createExclusive?.("/e", options)),
-          settle("rm", ctx.fs.rm("/d", options)),
-          settle("cp", ctx.fs.cp("/w", "/c", options)),
-          settle("mv", ctx.fs.mv(pathLike, "/m")),
-          settle("chmod", ctx.fs.chmod("/w", mode)),
-          settle("symlink", ctx.fs.symlink(pathLike, "/s")),
-          settle("link", ctx.fs.link(pathLike, "/l")),
-          settle("utimes", ctx.fs.utimes("/w", time, time)),
-        ];
+        const calls = mutations(ctx.fs, queuedArguments).map(([call, run]) =>
+          settle(`queued ${call}`, run()),
+        );
         issued.reached();
         for (const call of calls) await call;
+        settled.reached();
         return OK;
       },
       { trusted: false },
@@ -118,17 +149,32 @@ describe("ReadWriteFs mutations outside the caller's execution", () => {
     const rwfs = new ReadWriteFs({ root });
     const bash = new Bash({
       fs: rwfs,
-      customCommands: [mutate],
+      customCommands: [live, queued],
       defenseInDepth: true,
     });
+
+    expect(await settleWithin(bash.exec("live"))).toMatchObject(OK);
+    // Read now, assert later, so a hook failure is the first one reported.
+    const at = (file: string) => path.join(root, file);
+    const read = (file: string) =>
+      fs.existsSync(at(file)) ? fs.readFileSync(at(file), "utf8") : null;
+    const liveResults = {
+      w: read("w"),
+      o: read("o"),
+      copied: fs.existsSync(at("c/e")),
+      removed: !fs.existsSync(at("d")),
+      exclusiveMode: fs.existsSync(at("x"))
+        ? fs.statSync(at("x")).mode & 0o777
+        : null,
+    };
+
     // A host write holds the root, so every call that passes its checks
     // queues; it is released only after the caller's execution has ended.
     const [held] = holdStagedWrites(1);
     const holder = rwfs.writeFile("/held", "h");
     await settleWithin(held.inFlight);
     const controller = new AbortController();
-
-    const stopped = bash.exec("mutate", { signal: controller.signal });
+    const stopped = bash.exec("queued", { signal: controller.signal });
     await settleWithin(issued.inFlight);
     controller.abort();
     expect(await settleWithin(stopped)).toMatchObject(ABORTED);
@@ -136,27 +182,54 @@ describe("ReadWriteFs mutations outside the caller's execution", () => {
     expect(await settleWithin(holder)).toBeUndefined();
     expect(await settleWithin(settled.inFlight)).toBeUndefined();
 
-    // Each hook ran once, at the call, where the sandbox blocked it. None
-    // ran after the execution ended.
-    expect([...hookRuns].sort()).toEqual([
-      "bytes: blocked",
-      "content: blocked",
-      "options: blocked",
+    // Every hook ran at its call, where the sandbox blocked it, and none ran
+    // later. Paths, modes and times never reach a hook at all.
+    const hooksAtCall = [
+      "appendFile bytes",
+      "cp options",
+      "createExclusive options",
+      "mkdir options",
+      "rm options",
+      "writeFile content",
+      "writeFile options",
+    ];
+    expect([...hookRuns].sort()).toEqual(
+      ["live", "queued"].flatMap((phase) =>
+        hooksAtCall.map((call) => `${phase} ${call}: blocked`),
+      ),
+    );
+    // Non-string paths, object modes and non-Date times are rejected at the
+    // call; everything else ran live, and was dropped once queued.
+    const rejectedAtCall = new Set([
+      "writeFile path",
+      "mv",
+      "chmod",
+      "symlink",
+      "link",
+      "utimes",
     ]);
-    expect(Object.fromEntries(outcomes)).toEqual({
-      "writeFile path": "TypeError",
-      "writeFile content": "ExecutionAbortedError",
-      "writeFile options": "ExecutionAbortedError",
-      "appendFile bytes": "ExecutionAbortedError",
-      mkdir: "ExecutionAbortedError",
-      createExclusive: "ExecutionAbortedError",
-      rm: "ExecutionAbortedError",
-      cp: "ExecutionAbortedError",
-      mv: "TypeError",
-      chmod: "TypeError",
-      symlink: "TypeError",
-      link: "TypeError",
-      utimes: "TypeError",
+    const calls = mutations(rwfs, liveArguments).map(([call]) => call);
+    expect(outcomes).toEqual(
+      new Map(
+        ["live", "queued"].flatMap((phase) =>
+          calls.map((call) => [
+            `${phase} ${call}`,
+            rejectedAtCall.has(call)
+              ? "TypeError"
+              : phase === "live"
+                ? "done"
+                : "ExecutionAbortedError",
+          ]),
+        ),
+      ),
+    );
+    // The owned copies kept the caller's values.
+    expect(liveResults).toEqual({
+      w: "textb",
+      o: "o",
+      copied: true,
+      removed: true,
+      exclusiveMode: 0o600,
     });
     const later = await settleWithin(bash.exec("echo b > /b && cat /b"));
     expect(later).toMatchObject({ ...OK, stdout: "b\n" });
