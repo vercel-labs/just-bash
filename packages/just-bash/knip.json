@@ -9,6 +9,7 @@
     "src/security/fuzzing/**"
   ],
   "ignoreBinaries": ["tsx"],
+  "ignoreDependencies": ["@mixmark-io/domino"],
   "rules": {
     "unlisted": "off",
     "unresolved": "off",

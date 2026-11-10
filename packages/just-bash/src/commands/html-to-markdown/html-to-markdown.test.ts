@@ -30,6 +30,36 @@ describe("html-to-markdown", () => {
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("invalid bullet marker");
     });
+
+    // Turndown runs synchronously, so execution deadlines cannot interrupt it.
+    // These inputs have only a handful of tags but hit quadratic regexps in
+    // unpatched Turndown (mixmark-io/turndown#543); 200 KB took about a minute.
+    // See patches/turndown@7.2.5.patch.
+    it("trims long whitespace runs before the end in linear time", async () => {
+      const env = new Bash({
+        files: { "/ws.html": `<pre>a${" ".repeat(200_000)}b</pre>` },
+      });
+      const start = Date.now();
+      const result = await env.exec("html-to-markdown /ws.html");
+      const elapsed = Date.now() - start;
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe(`a${" ".repeat(200_000)}b\n`);
+      expect(elapsed).toBeLessThan(2000);
+    });
+
+    it("checks inline code padding in linear time", async () => {
+      const env = new Bash({
+        files: {
+          "/code.html": `<p>x<code><br>${"a".repeat(200_000)}</code></p>`,
+        },
+      });
+      const start = Date.now();
+      const result = await env.exec("html-to-markdown /code.html");
+      const elapsed = Date.now() - start;
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe(`x\`   ${"a".repeat(200_000)}\`\n`);
+      expect(elapsed).toBeLessThan(2000);
+    });
   });
 
   describe("basic conversion", () => {
