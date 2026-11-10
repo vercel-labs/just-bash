@@ -24,14 +24,16 @@ describe("executable scripts", () => {
       stderr: "",
       exitCode: 0,
     });
-    for (const assignment of [
-      `read ${name} <<<'value'`,
-      `for ${name} in value; do :; done`,
+    for (const [assignment, stdout] of [
+      [`read ${name} <<<'value'`, "value\n"],
+      [`for ${name} in value; do :; done`, "value\n"],
+      [`printf -v ${name} %s value`, "value\n"],
+      [`(( ${name}=7 ))`, "7\n"],
     ]) {
       expect(
         await env.exec(`set -a; ${assignment}; set +a; /probe.sh`),
       ).toMatchObject({
-        stdout: "value\n",
+        stdout,
         stderr: "",
         exitCode: 0,
       });

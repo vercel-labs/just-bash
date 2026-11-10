@@ -19,6 +19,34 @@ describe("export command - Real Bash Comparison", () => {
 
   describe("direct script inheritance", () => {
     it.each([
+      [
+        "arithmetic assignment respects allexport",
+        "set -a; (( JB_EXPORTED=7 )); set +a; ./probe.sh",
+      ],
+      [
+        "arithmetic expansion respects allexport",
+        "set -a; : $(( JB_EXPORTED=7 )); set +a; ./probe.sh",
+      ],
+      [
+        "arithmetic increment respects allexport",
+        "JB_EXPORTED=1; set -a; (( ++JB_EXPORTED )); set +a; ./probe.sh",
+      ],
+      [
+        "arithmetic post-increment respects allexport",
+        "JB_EXPORTED=1; set -a; (( JB_EXPORTED++ )); set +a; ./probe.sh",
+      ],
+      [
+        "let respects allexport",
+        "set -a; let JB_EXPORTED=7; set +a; ./probe.sh",
+      ],
+      [
+        "printf -v respects allexport",
+        "set -a; printf -v JB_EXPORTED %s value; set +a; ./probe.sh",
+      ],
+      [
+        "arithmetic keeps older locals hidden",
+        "JB_LOCAL=secret; set -a; (( JB_EXPORTED=7 )); set +a; ./probe.sh",
+      ],
       ["env assignments reach the script", "env JB_EXPORTED=value ./probe.sh"],
       [
         "env -i assignments reach the script",
@@ -116,6 +144,18 @@ describe("export command - Real Bash Comparison", () => {
 
   describe("function-local auto-exports", () => {
     it.each([
+      ["arithmetic", "JB_VALUE=outer", "(( JB_VALUE=7 ))"],
+      ["printf -v", "JB_VALUE=outer", "printf -v JB_VALUE %s inner"],
+      [
+        "arithmetic with an exported outer variable",
+        "export JB_VALUE=outer",
+        "(( JB_VALUE=7 ))",
+      ],
+      [
+        "printf -v with an exported outer variable",
+        "export JB_VALUE=outer",
+        "printf -v JB_VALUE %s inner",
+      ],
       ["read", "JB_VALUE=outer", "read JB_VALUE <<<'inner'"],
       ["for", "JB_VALUE=outer", "for JB_VALUE in inner; do :; done"],
       [
