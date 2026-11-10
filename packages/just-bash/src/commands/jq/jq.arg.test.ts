@@ -80,6 +80,16 @@ describe("jq named-argument flags", () => {
       expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
     });
+
+    it("reads a file named - rather than stdin", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "printf 'from file' > ./- && echo '{\"a\":1}' | jq -c --rawfile r - '[., $r]'",
+      );
+      expect(result.stdout).toBe('[{"a":1},"from file"]\n');
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("--slurpfile", () => {
@@ -98,6 +108,104 @@ describe("jq named-argument flags", () => {
       const result = await env.exec("jq -n --slurpfile s nope.json '$s'");
       expect(result.stdout).toBe("");
       expect(result.exitCode).toBe(2);
+    });
+
+    it("reads a file named - rather than stdin", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo '[1]' > ./- && echo '{\"a\":1}' | jq -c --slurpfile s - '[., $s]'",
+      );
+      expect(result.stdout).toBe('[{"a":1},[[1]]]\n');
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("errors when no file named - exists", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "echo '{\"a\":1}' | jq -c --slurpfile s - '[., $s]'",
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("jq: -: No such file or directory\n");
+      expect(result.exitCode).toBe(2);
+    });
+  });
+
+  describe("binding files", () => {
+    it.each([
+      "--rawfile",
+      "--slurpfile",
+    ])("charges a %s file to the input budget", async (flag) => {
+      const env = new Bash({ executionLimits: { maxInputBytes: 4 } });
+      const result = await env.exec(
+        `printf 12345678 > ./- && jq -n ${flag} x - 0`,
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "bash: jq: input size limit exceeded (4 bytes)\n",
+      );
+      expect(result.exitCode).toBe(126);
+    });
+
+    it("charges every binding file to one aggregate budget", async () => {
+      const env = new Bash({ executionLimits: { maxInputBytes: 5 } });
+      const result = await env.exec(
+        "printf 123 > a && printf 456 > b && jq -n --rawfile x a --rawfile y b 0",
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "bash: jq: aggregate input size limit exceeded (5 bytes)\n",
+      );
+      expect(result.exitCode).toBe(126);
+    });
+
+    it("holds a --rawfile value to the string length limit", async () => {
+      const env = new Bash({ executionLimits: { maxStringLength: 32 } });
+      const result = await env.exec(
+        "for i in 1 2 3 4; do printf 0123456789 >> ./-; done; jq -n --rawfile x - 0",
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "bash: jq: string length limit exceeded (32 bytes)\n",
+      );
+      expect(result.exitCode).toBe(126);
+    });
+
+    it("measures a --rawfile value in UTF-8 bytes", async () => {
+      const env = new Bash({ executionLimits: { maxStringLength: 32 } });
+      const result = await env.exec(
+        "printf 'éééééééééé' > e.txt && printf 'éééééééééé' >> e.txt && jq -n --rawfile x e.txt 0",
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "bash: jq: string length limit exceeded (32 bytes)\n",
+      );
+      expect(result.exitCode).toBe(126);
+    });
+
+    it("keeps jq's order in $ARGS.named when a later binding is skipped", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "printf A > a && jq -cn --rawfile x a --arg x later --arg y y '$ARGS.named'",
+      );
+      expect(result.stdout).toBe('{"x":"A","y":"y"}\n');
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it.each([
+      ["--arg x value --rawfile x -", '"value"'],
+      ["--arg x first --arg x second", '"first"'],
+      ["--argjson x 1 --argjson x '{bad'", "1"],
+      ["--rawfile x a --slurpfile x b", '"f"'],
+    ])("keeps the first binding of a name: %s", async (flags, value) => {
+      const env = new Bash();
+      const result = await env.exec(
+        `printf f > a && printf g > b && jq -cn ${flags} '$x'`,
+      );
+      expect(result.stdout).toBe(`${value}\n`);
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
     });
   });
 
