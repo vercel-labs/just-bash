@@ -17,6 +17,44 @@ describe("export command - Real Bash Comparison", () => {
     await cleanupTestDir(testDir);
   });
 
+  describe("direct script inheritance", () => {
+    it.each([
+      [
+        "only exported variables reach the script",
+        "JB_LOCAL=local; export JB_EXPORTED=exported; ./probe.sh",
+      ],
+      [
+        "prefix assignments reach the script",
+        'JB_LOCAL=parent; JB_EXPORTED=temporary ./probe.sh; echo "[$JB_LOCAL] [$JB_EXPORTED]"',
+      ],
+      [
+        "export -n hides a variable",
+        "export JB_LOCAL=local; export -n JB_LOCAL; ./probe.sh",
+      ],
+      [
+        "PATH lookup also isolates variables",
+        "JB_LOCAL=local; export JB_EXPORTED=exported; PATH=.:$PATH probe.sh",
+      ],
+      [
+        "sourced scripts still see local variables",
+        "JB_LOCAL=local; source ./probe.sh",
+      ],
+    ])("%s", async (_name, command) => {
+      const env = await setupFiles(testDir, {
+        "probe.sh":
+          '#!/bin/bash\nprintf "[%s] [%s]\\n" "$JB_LOCAL" "$JB_EXPORTED"\n',
+      });
+      await compareOutputs(
+        env,
+        testDir,
+        `chmod +x probe.sh; ${command}`,
+        undefined,
+        undefined,
+        import.meta.url,
+      );
+    });
+  });
+
   describe("setting variables", () => {
     it("should set and use a variable", async () => {
       const env = await setupFiles(testDir, {});

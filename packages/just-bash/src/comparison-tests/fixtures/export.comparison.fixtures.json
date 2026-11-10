@@ -13,10 +13,28 @@
     "stderr": "",
     "exitCode": 0
   },
+  "7410da5902a67a20": {
+    "command": "chmod +x probe.sh; export JB_LOCAL=local; export -n JB_LOCAL; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] []\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "7b6a73a19e04e211": {
     "command": "export X=42 && echo $X",
     "files": {},
     "stdout": "42\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7df2b215cf7eee2b": {
+    "command": "chmod +x probe.sh; JB_LOCAL=local; export JB_EXPORTED=exported; PATH=.:$PATH probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [exported]\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -34,10 +52,37 @@
     "stderr": "",
     "exitCode": 0
   },
+  "ac0af221fbf7027f": {
+    "command": "chmod +x probe.sh; JB_LOCAL=local; source ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[local] []\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b4f4a660ad723dd4": {
+    "command": "chmod +x probe.sh; JB_LOCAL=local; export JB_EXPORTED=exported; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [exported]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "dbc45ae674bf0324": {
     "command": "export NAME=world; echo \"hello $NAME\"",
     "files": {},
     "stdout": "hello world\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e9e642637eaac5b6": {
+    "command": "chmod +x probe.sh; JB_LOCAL=parent; JB_EXPORTED=temporary ./probe.sh; echo \"[$JB_LOCAL] [$JB_EXPORTED]\"",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [temporary]\n[parent] []\n",
     "stderr": "",
     "exitCode": 0
   },

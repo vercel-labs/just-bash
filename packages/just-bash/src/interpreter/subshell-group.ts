@@ -32,6 +32,7 @@ import {
 } from "./fd-table.js";
 import { getErrorMessage } from "./helpers/errors.js";
 import { failure, result } from "./helpers/result.js";
+import { buildBashopts, buildShellopts } from "./helpers/shellopts.js";
 import {
   type PreparedRedirections,
   withPreparedRedirections,
@@ -351,6 +352,28 @@ export async function executeUserScript(
 
   const parentLoopDepth = ctx.state.loopDepth;
   const cleanup = beginIsolatedShellState(ctx.state);
+
+  const inheritedEnv = ctx.state.env;
+  ctx.state.env = new Map<string, string>([
+    ["PATH", "/usr/bin:/bin"],
+    ["PWD", ctx.state.cwd],
+    ["OSTYPE", "linux-gnu"],
+    ["MACHTYPE", "x86_64-pc-linux-gnu"],
+    ["HOSTTYPE", "x86_64"],
+    ["HOSTNAME", "localhost"],
+    ["SHELLOPTS", buildShellopts(ctx.state.options)],
+    ["BASHOPTS", buildBashopts(ctx.state.shoptOptions)],
+  ]);
+  for (const [name, value] of inheritedEnv) {
+    if (
+      ctx.state.exportedVars?.has(name) ||
+      ctx.state.tempExportedVars?.has(name)
+    ) {
+      ctx.state.env.set(name, value);
+    }
+  }
+  ctx.state.env.set("IFS", " \t\n");
+  ctx.state.env.set("OPTIND", "1");
 
   // Set up subshell-like environment
   ctx.state.parentHasLoopContext = parentLoopDepth > 0;
