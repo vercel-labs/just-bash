@@ -374,25 +374,20 @@ export class ReadWriteFs implements IFileSystem {
   private async withFilesystemMutation<T>(
     operation: () => Promise<T>,
   ): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      ReadWriteFs.pendingMutations.push({
-        root: this.canonicalRoot,
-        // Another execution's mutation may start this one from its own
-        // .finally. Binding keeps the callbacks registered here owned by the
-        // execution that queued the mutation, so they still run after the
-        // other execution deactivates.
-        start: DefenseInDepthBox.bindCurrentContext(() => {
-          ReadWriteFs.activeMutationRoots.add(this.canonicalRoot);
-          void operation()
-            .then(resolve, reject)
-            .finally(() => {
-              ReadWriteFs.activeMutationRoots.delete(this.canonicalRoot);
-              ReadWriteFs.drainMutationQueue();
-            });
-        }),
-      });
+    // Defense-in-depth drops .then callbacks of an execution that has ended, and
+    // a root left active blocks every later mutation on it. So the queue waits
+    // and releases with await, and the operation runs trusted, so nothing it
+    // chains can be dropped if its execution is cancelled mid-write.
+    await new Promise<void>((start) => {
+      ReadWriteFs.pendingMutations.push({ root: this.canonicalRoot, start });
       ReadWriteFs.drainMutationQueue();
     });
+    try {
+      return await DefenseInDepthBox.runTrustedAsync(operation);
+    } finally {
+      ReadWriteFs.activeMutationRoots.delete(this.canonicalRoot);
+      ReadWriteFs.drainMutationQueue();
+    }
   }
 
   private static drainMutationQueue(): void {
@@ -408,6 +403,7 @@ export class ReadWriteFs implements IFileSystem {
         continue;
       }
       ReadWriteFs.pendingMutations.splice(index, 1);
+      ReadWriteFs.activeMutationRoots.add(pending.root);
       pending.start();
     }
   }

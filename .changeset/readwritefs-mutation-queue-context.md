@@ -2,4 +2,4 @@
 "just-bash": patch
 ---
 
-Fix a deadlock when concurrent executions write into the same `ReadWriteFs` root. A mutation queued behind another execution's mutation now runs in the context of the execution that queued it, so defense-in-depth no longer drops its callbacks when the other execution finishes first. Previously the queued write never settled and the root stayed locked for the life of the process.
+Fix `ReadWriteFs` roots that stayed locked for the life of the process when concurrent executions wrote into them. The mutation queue now waits and releases with `await`, and runs each mutation in the trusted scope, so defense-in-depth can no longer drop its settle or release callbacks when an execution finishes first, is aborted mid-write, or the mutation came from host code or a defense-off `Bash`.
