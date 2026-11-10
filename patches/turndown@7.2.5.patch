@@ -1,0 +1,315 @@
+diff --git a/dist/turndown.js b/dist/turndown.js
+index ebeafaf26fbcd3bfa08252e38cd9aa6bab2d4ee9..bb95f254b1b60ab767dbfdcf1e025f9e3aec80f3 100644
+--- a/dist/turndown.js
++++ b/dist/turndown.js
+@@ -16,6 +16,22 @@ var TurndownService = (function () {
+   function trimLeadingNewlines(string) {
+     return string.replace(/^\n*/, '');
+   }
++  function trimTrailingWhitespace(string) {
++    // Patched by just-bash (mixmark-io/turndown#543): avoid the quadratic
++    // backtracking of /[\t\r\n\s]+$/ on long whitespace runs before the end.
++    var indexEnd = string.length;
++    while (indexEnd > 0 && /\s/.test(string[indexEnd - 1])) indexEnd--;
++    return string.substring(0, indexEnd);
++  }
++  function needsSpacePadding(content) {
++    // Patched by just-bash (mixmark-io/turndown#543): same result as
++    // /^`|^ .*?[^ ].* $|`$/.test(content) without quadratic backtracking.
++    if (content[0] === '`' || content[content.length - 1] === '`') return true;
++    if (content.length < 3 || content[0] !== ' ' || content[content.length - 1] !== ' ') return false;
++    var inner = content.slice(1, -1);
++    var lineTerminators = (inner.match(/[\n\r\u2028\u2029]/g) || []).length;
++    return lineTerminators === 0 ? /[^ ]/.test(inner) : lineTerminators === 1;
++  }
+   function trimTrailingNewlines(string) {
+     // avoid match-at-end regexp bottleneck, see #370
+     var indexEnd = string.length;
+@@ -223,7 +239,7 @@ var TurndownService = (function () {
+     replacement: function (content) {
+       if (!content) return '';
+       content = content.replace(/\r?\n|\r/g, ' ');
+-      var extraSpace = /^`|^ .*?[^ ].* $|`$/.test(content) ? ' ' : '';
++      var extraSpace = needsSpacePadding(content) ? ' ' : '';
+       var delimiter = '`';
+       var matches = content.match(/`+/gm) || [];
+       while (matches.indexOf(delimiter) !== -1) delimiter = delimiter + '`';
+@@ -748,7 +764,7 @@ var TurndownService = (function () {
+         join(output, rule.append(self.options));
+       }
+     });
+-    return output.join('').replace(/^[\t\r\n]+/, '').replace(/[\t\r\n\s]+$/, '');
++    return trimTrailingWhitespace(output.join('').replace(/^[\t\r\n]+/, ''));
+   }
+ 
+   /**
+diff --git a/lib/turndown.browser.cjs.js b/lib/turndown.browser.cjs.js
+index e593d3c5362283d8dcd35613d85b6803ca2a889b..08cff14783d39f4248c39bcf36a79b1accdef8fd 100644
+--- a/lib/turndown.browser.cjs.js
++++ b/lib/turndown.browser.cjs.js
+@@ -15,6 +15,22 @@ function repeat(character, count) {
+ function trimLeadingNewlines(string) {
+   return string.replace(/^\n*/, '');
+ }
++function trimTrailingWhitespace(string) {
++  // Patched by just-bash (mixmark-io/turndown#543): avoid the quadratic
++  // backtracking of /[\t\r\n\s]+$/ on long whitespace runs before the end.
++  var indexEnd = string.length;
++  while (indexEnd > 0 && /\s/.test(string[indexEnd - 1])) indexEnd--;
++  return string.substring(0, indexEnd);
++}
++function needsSpacePadding(content) {
++  // Patched by just-bash (mixmark-io/turndown#543): same result as
++  // /^`|^ .*?[^ ].* $|`$/.test(content) without quadratic backtracking.
++  if (content[0] === '`' || content[content.length - 1] === '`') return true;
++  if (content.length < 3 || content[0] !== ' ' || content[content.length - 1] !== ' ') return false;
++  var inner = content.slice(1, -1);
++  var lineTerminators = (inner.match(/[\n\r\u2028\u2029]/g) || []).length;
++  return lineTerminators === 0 ? /[^ ]/.test(inner) : lineTerminators === 1;
++}
+ function trimTrailingNewlines(string) {
+   // avoid match-at-end regexp bottleneck, see #370
+   var indexEnd = string.length;
+@@ -222,7 +238,7 @@ rules.code = {
+   replacement: function (content) {
+     if (!content) return '';
+     content = content.replace(/\r?\n|\r/g, ' ');
+-    var extraSpace = /^`|^ .*?[^ ].* $|`$/.test(content) ? ' ' : '';
++    var extraSpace = needsSpacePadding(content) ? ' ' : '';
+     var delimiter = '`';
+     var matches = content.match(/`+/gm) || [];
+     while (matches.indexOf(delimiter) !== -1) delimiter = delimiter + '`';
+@@ -747,7 +763,7 @@ function postProcess(output) {
+       join(output, rule.append(self.options));
+     }
+   });
+-  return output.join('').replace(/^[\t\r\n]+/, '').replace(/[\t\r\n\s]+$/, '');
++  return trimTrailingWhitespace(output.join('').replace(/^[\t\r\n]+/, ''));
+ }
+ 
+ /**
+diff --git a/lib/turndown.browser.es.js b/lib/turndown.browser.es.js
+index 975151d9a22e6243a95bac8c76914389e54960de..94f8bf144b4d1a07b3fbb32550a107d6f9f92ebe 100644
+--- a/lib/turndown.browser.es.js
++++ b/lib/turndown.browser.es.js
+@@ -13,6 +13,22 @@ function repeat(character, count) {
+ function trimLeadingNewlines(string) {
+   return string.replace(/^\n*/, '');
+ }
++function trimTrailingWhitespace(string) {
++  // Patched by just-bash (mixmark-io/turndown#543): avoid the quadratic
++  // backtracking of /[\t\r\n\s]+$/ on long whitespace runs before the end.
++  var indexEnd = string.length;
++  while (indexEnd > 0 && /\s/.test(string[indexEnd - 1])) indexEnd--;
++  return string.substring(0, indexEnd);
++}
++function needsSpacePadding(content) {
++  // Patched by just-bash (mixmark-io/turndown#543): same result as
++  // /^`|^ .*?[^ ].* $|`$/.test(content) without quadratic backtracking.
++  if (content[0] === '`' || content[content.length - 1] === '`') return true;
++  if (content.length < 3 || content[0] !== ' ' || content[content.length - 1] !== ' ') return false;
++  var inner = content.slice(1, -1);
++  var lineTerminators = (inner.match(/[\n\r\u2028\u2029]/g) || []).length;
++  return lineTerminators === 0 ? /[^ ]/.test(inner) : lineTerminators === 1;
++}
+ function trimTrailingNewlines(string) {
+   // avoid match-at-end regexp bottleneck, see #370
+   var indexEnd = string.length;
+@@ -220,7 +236,7 @@ rules.code = {
+   replacement: function (content) {
+     if (!content) return '';
+     content = content.replace(/\r?\n|\r/g, ' ');
+-    var extraSpace = /^`|^ .*?[^ ].* $|`$/.test(content) ? ' ' : '';
++    var extraSpace = needsSpacePadding(content) ? ' ' : '';
+     var delimiter = '`';
+     var matches = content.match(/`+/gm) || [];
+     while (matches.indexOf(delimiter) !== -1) delimiter = delimiter + '`';
+@@ -745,7 +761,7 @@ function postProcess(output) {
+       join(output, rule.append(self.options));
+     }
+   });
+-  return output.join('').replace(/^[\t\r\n]+/, '').replace(/[\t\r\n\s]+$/, '');
++  return trimTrailingWhitespace(output.join('').replace(/^[\t\r\n]+/, ''));
+ }
+ 
+ /**
+diff --git a/lib/turndown.browser.umd.js b/lib/turndown.browser.umd.js
+index 613a0d9eb957c14daa15cea7d3d3a03dc9e43757..9ce920df7504c0dc4e3aa5763bda8496d6b6b434 100644
+--- a/lib/turndown.browser.umd.js
++++ b/lib/turndown.browser.umd.js
+@@ -19,6 +19,22 @@
+   function trimLeadingNewlines(string) {
+     return string.replace(/^\n*/, '');
+   }
++  function trimTrailingWhitespace(string) {
++    // Patched by just-bash (mixmark-io/turndown#543): avoid the quadratic
++    // backtracking of /[\t\r\n\s]+$/ on long whitespace runs before the end.
++    var indexEnd = string.length;
++    while (indexEnd > 0 && /\s/.test(string[indexEnd - 1])) indexEnd--;
++    return string.substring(0, indexEnd);
++  }
++  function needsSpacePadding(content) {
++    // Patched by just-bash (mixmark-io/turndown#543): same result as
++    // /^`|^ .*?[^ ].* $|`$/.test(content) without quadratic backtracking.
++    if (content[0] === '`' || content[content.length - 1] === '`') return true;
++    if (content.length < 3 || content[0] !== ' ' || content[content.length - 1] !== ' ') return false;
++    var inner = content.slice(1, -1);
++    var lineTerminators = (inner.match(/[\n\r\u2028\u2029]/g) || []).length;
++    return lineTerminators === 0 ? /[^ ]/.test(inner) : lineTerminators === 1;
++  }
+   function trimTrailingNewlines(string) {
+     // avoid match-at-end regexp bottleneck, see #370
+     var indexEnd = string.length;
+@@ -226,7 +242,7 @@
+     replacement: function (content) {
+       if (!content) return '';
+       content = content.replace(/\r?\n|\r/g, ' ');
+-      var extraSpace = /^`|^ .*?[^ ].* $|`$/.test(content) ? ' ' : '';
++      var extraSpace = needsSpacePadding(content) ? ' ' : '';
+       var delimiter = '`';
+       var matches = content.match(/`+/gm) || [];
+       while (matches.indexOf(delimiter) !== -1) delimiter = delimiter + '`';
+@@ -751,7 +767,7 @@
+         join(output, rule.append(self.options));
+       }
+     });
+-    return output.join('').replace(/^[\t\r\n]+/, '').replace(/[\t\r\n\s]+$/, '');
++    return trimTrailingWhitespace(output.join('').replace(/^[\t\r\n]+/, ''));
+   }
+ 
+   /**
+diff --git a/lib/turndown.cjs.js b/lib/turndown.cjs.js
+index e7a9dac80312b281fb51f40956412dd21f90aed9..9f668a42c157e818086766cf0482a8b5aa972740 100644
+--- a/lib/turndown.cjs.js
++++ b/lib/turndown.cjs.js
+@@ -15,6 +15,22 @@ function repeat(character, count) {
+ function trimLeadingNewlines(string) {
+   return string.replace(/^\n*/, '');
+ }
++function trimTrailingWhitespace(string) {
++  // Patched by just-bash (mixmark-io/turndown#543): avoid the quadratic
++  // backtracking of /[\t\r\n\s]+$/ on long whitespace runs before the end.
++  var indexEnd = string.length;
++  while (indexEnd > 0 && /\s/.test(string[indexEnd - 1])) indexEnd--;
++  return string.substring(0, indexEnd);
++}
++function needsSpacePadding(content) {
++  // Patched by just-bash (mixmark-io/turndown#543): same result as
++  // /^`|^ .*?[^ ].* $|`$/.test(content) without quadratic backtracking.
++  if (content[0] === '`' || content[content.length - 1] === '`') return true;
++  if (content.length < 3 || content[0] !== ' ' || content[content.length - 1] !== ' ') return false;
++  var inner = content.slice(1, -1);
++  var lineTerminators = (inner.match(/[\n\r\u2028\u2029]/g) || []).length;
++  return lineTerminators === 0 ? /[^ ]/.test(inner) : lineTerminators === 1;
++}
+ function trimTrailingNewlines(string) {
+   // avoid match-at-end regexp bottleneck, see #370
+   var indexEnd = string.length;
+@@ -222,7 +238,7 @@ rules.code = {
+   replacement: function (content) {
+     if (!content) return '';
+     content = content.replace(/\r?\n|\r/g, ' ');
+-    var extraSpace = /^`|^ .*?[^ ].* $|`$/.test(content) ? ' ' : '';
++    var extraSpace = needsSpacePadding(content) ? ' ' : '';
+     var delimiter = '`';
+     var matches = content.match(/`+/gm) || [];
+     while (matches.indexOf(delimiter) !== -1) delimiter = delimiter + '`';
+@@ -724,7 +740,7 @@ function postProcess(output) {
+       join(output, rule.append(self.options));
+     }
+   });
+-  return output.join('').replace(/^[\t\r\n]+/, '').replace(/[\t\r\n\s]+$/, '');
++  return trimTrailingWhitespace(output.join('').replace(/^[\t\r\n]+/, ''));
+ }
+ 
+ /**
+diff --git a/lib/turndown.es.js b/lib/turndown.es.js
+index 8b3796e6d1e33771c0b6ff6234998ca88edbcd6f..2602bc462cf8f04cdbaad2990eddbc1496ad7572 100644
+--- a/lib/turndown.es.js
++++ b/lib/turndown.es.js
+@@ -13,6 +13,22 @@ function repeat(character, count) {
+ function trimLeadingNewlines(string) {
+   return string.replace(/^\n*/, '');
+ }
++function trimTrailingWhitespace(string) {
++  // Patched by just-bash (mixmark-io/turndown#543): avoid the quadratic
++  // backtracking of /[\t\r\n\s]+$/ on long whitespace runs before the end.
++  var indexEnd = string.length;
++  while (indexEnd > 0 && /\s/.test(string[indexEnd - 1])) indexEnd--;
++  return string.substring(0, indexEnd);
++}
++function needsSpacePadding(content) {
++  // Patched by just-bash (mixmark-io/turndown#543): same result as
++  // /^`|^ .*?[^ ].* $|`$/.test(content) without quadratic backtracking.
++  if (content[0] === '`' || content[content.length - 1] === '`') return true;
++  if (content.length < 3 || content[0] !== ' ' || content[content.length - 1] !== ' ') return false;
++  var inner = content.slice(1, -1);
++  var lineTerminators = (inner.match(/[\n\r\u2028\u2029]/g) || []).length;
++  return lineTerminators === 0 ? /[^ ]/.test(inner) : lineTerminators === 1;
++}
+ function trimTrailingNewlines(string) {
+   // avoid match-at-end regexp bottleneck, see #370
+   var indexEnd = string.length;
+@@ -220,7 +236,7 @@ rules.code = {
+   replacement: function (content) {
+     if (!content) return '';
+     content = content.replace(/\r?\n|\r/g, ' ');
+-    var extraSpace = /^`|^ .*?[^ ].* $|`$/.test(content) ? ' ' : '';
++    var extraSpace = needsSpacePadding(content) ? ' ' : '';
+     var delimiter = '`';
+     var matches = content.match(/`+/gm) || [];
+     while (matches.indexOf(delimiter) !== -1) delimiter = delimiter + '`';
+@@ -722,7 +738,7 @@ function postProcess(output) {
+       join(output, rule.append(self.options));
+     }
+   });
+-  return output.join('').replace(/^[\t\r\n]+/, '').replace(/[\t\r\n\s]+$/, '');
++  return trimTrailingWhitespace(output.join('').replace(/^[\t\r\n]+/, ''));
+ }
+ 
+ /**
+diff --git a/lib/turndown.umd.js b/lib/turndown.umd.js
+index 17de32da58a6ddcbb74f596b3f613e19ec8f26ba..5b733ff8b5f9dc42677fb1964262c85fa945b156 100644
+--- a/lib/turndown.umd.js
++++ b/lib/turndown.umd.js
+@@ -19,6 +19,22 @@
+   function trimLeadingNewlines(string) {
+     return string.replace(/^\n*/, '');
+   }
++  function trimTrailingWhitespace(string) {
++    // Patched by just-bash (mixmark-io/turndown#543): avoid the quadratic
++    // backtracking of /[\t\r\n\s]+$/ on long whitespace runs before the end.
++    var indexEnd = string.length;
++    while (indexEnd > 0 && /\s/.test(string[indexEnd - 1])) indexEnd--;
++    return string.substring(0, indexEnd);
++  }
++  function needsSpacePadding(content) {
++    // Patched by just-bash (mixmark-io/turndown#543): same result as
++    // /^`|^ .*?[^ ].* $|`$/.test(content) without quadratic backtracking.
++    if (content[0] === '`' || content[content.length - 1] === '`') return true;
++    if (content.length < 3 || content[0] !== ' ' || content[content.length - 1] !== ' ') return false;
++    var inner = content.slice(1, -1);
++    var lineTerminators = (inner.match(/[\n\r\u2028\u2029]/g) || []).length;
++    return lineTerminators === 0 ? /[^ ]/.test(inner) : lineTerminators === 1;
++  }
+   function trimTrailingNewlines(string) {
+     // avoid match-at-end regexp bottleneck, see #370
+     var indexEnd = string.length;
+@@ -226,7 +242,7 @@
+     replacement: function (content) {
+       if (!content) return '';
+       content = content.replace(/\r?\n|\r/g, ' ');
+-      var extraSpace = /^`|^ .*?[^ ].* $|`$/.test(content) ? ' ' : '';
++      var extraSpace = needsSpacePadding(content) ? ' ' : '';
+       var delimiter = '`';
+       var matches = content.match(/`+/gm) || [];
+       while (matches.indexOf(delimiter) !== -1) delimiter = delimiter + '`';
+@@ -728,7 +744,7 @@
+         join(output, rule.append(self.options));
+       }
+     });
+-    return output.join('').replace(/^[\t\r\n]+/, '').replace(/[\t\r\n\s]+$/, '');
++    return trimTrailingWhitespace(output.join('').replace(/^[\t\r\n]+/, ''));
+   }
+ 
+   /**
