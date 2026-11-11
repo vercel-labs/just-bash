@@ -13,6 +13,7 @@ import {
   isPathWithinRoot,
   normalizePath,
   sanitizeSymlinkTarget,
+  toVirtualPath,
   validatePath,
   validateRealPath,
   validateRootDirectory,
@@ -137,6 +138,58 @@ describe("isPathWithinRoot", () => {
     // boundary attack with backslash
     expect(isPathWithinRoot("D:\\projects", "D:\\project")).toBe(false);
     expect(isPathWithinRoot("D:\\project-evil", "D:\\project")).toBe(false);
+  });
+
+  it("handles Windows UNC roots", () => {
+    const root = "\\\\server\\share";
+    expect(isPathWithinRoot("\\\\server\\share\\file.txt", root)).toBe(true);
+    expect(isPathWithinRoot("\\\\server\\share", root)).toBe(true);
+    expect(isPathWithinRoot("\\\\server\\share-evil\\file.txt", root)).toBe(
+      false,
+    );
+    expect(isPathWithinRoot("\\\\server\\other\\file.txt", root)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// toVirtualPath
+// ---------------------------------------------------------------------------
+describe("toVirtualPath", () => {
+  it("keeps the leading slash when the canonical root is /", () => {
+    expect(toVirtualPath("/usr", "/")).toBe("/usr");
+    expect(toVirtualPath("/a/b/c", "/")).toBe("/a/b/c");
+  });
+
+  it("returns / for the root itself", () => {
+    expect(toVirtualPath("/", "/")).toBe("/");
+    expect(toVirtualPath("/sandbox", "/sandbox")).toBe("/");
+  });
+
+  it("strips a non-root canonical root", () => {
+    expect(toVirtualPath("/sandbox/file.txt", "/sandbox")).toBe("/file.txt");
+    expect(toVirtualPath("/sandbox/a/b", "/sandbox")).toBe("/a/b");
+  });
+
+  it("normalizes Windows separators", () => {
+    expect(toVirtualPath("D:\\project\\file.txt", "D:\\project")).toBe(
+      "/file.txt",
+    );
+    expect(toVirtualPath("D:\\project", "D:\\project")).toBe("/");
+  });
+
+  it("keeps the leading slash when the canonical root is a drive root", () => {
+    expect(toVirtualPath("D:\\project\\file.txt", "D:\\")).toBe(
+      "/project/file.txt",
+    );
+    expect(toVirtualPath("D:\\project", "D:\\")).toBe("/project");
+    expect(toVirtualPath("D:\\", "D:\\")).toBe("/");
+  });
+
+  it("converts paths under a UNC root", () => {
+    expect(
+      toVirtualPath("\\\\server\\share\\dir\\file.txt", "\\\\server\\share"),
+    ).toBe("/dir/file.txt");
+    expect(toVirtualPath("\\\\server\\share", "\\\\server\\share")).toBe("/");
   });
 });
 
