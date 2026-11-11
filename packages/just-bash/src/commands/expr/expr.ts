@@ -50,6 +50,31 @@ export const exprCommand: RuntimeCommand = {
   },
 };
 
+function integerValue(value: string): number {
+  return /^-?[0-9]+$/.test(value) ? Number(value) : Number.NaN;
+}
+
+// Keep integer results in decimal notation so they can be used by the next operator.
+function formatInteger(value: number): string {
+  if (value === 0) return "0";
+  return Number.isFinite(value)
+    ? value.toLocaleString("en-US", {
+        useGrouping: false,
+        maximumFractionDigits: 0,
+      })
+    : String(value);
+}
+
+// Compare Unicode code points, matching byte ordering in the C UTF-8 locale.
+function compareStrings(left: string, right: string): number {
+  const a = Array.from(left, (char) => char.codePointAt(0) ?? 0);
+  const b = Array.from(right, (char) => char.codePointAt(0) ?? 0);
+  for (let j = 0; j < Math.min(a.length, b.length); j++) {
+    if (a[j] !== b[j]) return a[j] - b[j];
+  }
+  return a.length - b.length;
+}
+
 function evaluateExpr(
   args: string[],
   consumeWork: (units: number) => void,
@@ -101,9 +126,10 @@ function evaluateExpr(
       if (["=", "!=", "<", ">", "<=", ">="].includes(op)) {
         i++;
         const right = parseAddSub();
-        const leftNum = parseInt(left, 10);
-        const rightNum = parseInt(right, 10);
+        const leftNum = integerValue(left);
+        const rightNum = integerValue(right);
         const isNumeric = !Number.isNaN(leftNum) && !Number.isNaN(rightNum);
+        const stringOrder = isNumeric ? 0 : compareStrings(left, right);
 
         let result: boolean;
         if (op === "=") {
@@ -111,13 +137,13 @@ function evaluateExpr(
         } else if (op === "!=") {
           result = isNumeric ? leftNum !== rightNum : left !== right;
         } else if (op === "<") {
-          result = isNumeric ? leftNum < rightNum : left < right;
+          result = isNumeric ? leftNum < rightNum : stringOrder < 0;
         } else if (op === ">") {
-          result = isNumeric ? leftNum > rightNum : left > right;
+          result = isNumeric ? leftNum > rightNum : stringOrder > 0;
         } else if (op === "<=") {
-          result = isNumeric ? leftNum <= rightNum : left <= right;
+          result = isNumeric ? leftNum <= rightNum : stringOrder <= 0;
         } else {
-          result = isNumeric ? leftNum >= rightNum : left >= right;
+          result = isNumeric ? leftNum >= rightNum : stringOrder >= 0;
         }
         left = result ? "1" : "0";
       } else {
@@ -134,12 +160,14 @@ function evaluateExpr(
       if (op === "+" || op === "-") {
         i++;
         const right = parseMulDiv();
-        const leftNum = parseInt(left, 10);
-        const rightNum = parseInt(right, 10);
+        const leftNum = integerValue(left);
+        const rightNum = integerValue(right);
         if (Number.isNaN(leftNum) || Number.isNaN(rightNum)) {
           throw new Error("non-integer argument");
         }
-        left = String(op === "+" ? leftNum + rightNum : leftNum - rightNum);
+        left = formatInteger(
+          op === "+" ? leftNum + rightNum : leftNum - rightNum,
+        );
       } else {
         break;
       }
@@ -154,8 +182,8 @@ function evaluateExpr(
       if (op === "*" || op === "/" || op === "%") {
         i++;
         const right = parseMatch();
-        const leftNum = parseInt(left, 10);
-        const rightNum = parseInt(right, 10);
+        const leftNum = integerValue(left);
+        const rightNum = integerValue(right);
         if (Number.isNaN(leftNum) || Number.isNaN(rightNum)) {
           throw new Error("non-integer argument");
         }
@@ -163,11 +191,11 @@ function evaluateExpr(
           throw new Error("division by zero");
         }
         if (op === "*") {
-          left = String(leftNum * rightNum);
+          left = formatInteger(leftNum * rightNum);
         } else if (op === "/") {
-          left = String(Math.trunc(leftNum / rightNum));
+          left = formatInteger(Math.trunc(leftNum / rightNum));
         } else {
-          left = String(leftNum % rightNum);
+          left = formatInteger(leftNum % rightNum);
         }
       } else {
         break;
