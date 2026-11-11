@@ -39,6 +39,7 @@ import {
   resolveCanonicalPath,
   resolveCanonicalPathNoSymlinks,
   sanitizeFsError,
+  toVirtualPath,
   validatePath,
   validateRootDirectory,
 } from "../real-fs-utils.js";
@@ -1192,8 +1193,7 @@ export class ReadWriteFs implements IFileSystem {
         `EACCES: permission denied, cp '${virtualSource}' contains an unsafe symlink`,
       );
     }
-    const relative = preservedTarget.slice(this.canonicalRoot.length);
-    return relative || "/";
+    return toVirtualPath(preservedTarget, this.canonicalRoot);
   }
 
   private async preflightCopyTree(
@@ -1745,13 +1745,13 @@ export class ReadWriteFs implements IFileSystem {
 
       if (isPathWithinRoot(canonicalTarget, this.canonicalRoot)) {
         // Within root - compute virtual target path and return as relative
-        const virtualTarget =
-          canonicalTarget.slice(this.canonicalRoot.length) || "/";
+        const virtualTarget = toVirtualPath(
+          canonicalTarget,
+          this.canonicalRoot,
+        );
         // Return as relative path from the link's virtual directory
         if (linkDir === "/") {
-          return virtualTarget.startsWith("/")
-            ? virtualTarget.slice(1) || "."
-            : virtualTarget;
+          return virtualTarget.slice(1) || ".";
         }
         return nodePath.relative(linkDir, virtualTarget);
       }
@@ -1819,8 +1819,7 @@ export class ReadWriteFs implements IFileSystem {
     // with resolveAndValidate. Use boundary-safe prefix check to prevent
     // /data matching /datastore.
     if (isPathWithinRoot(resolved, this.canonicalRoot)) {
-      const relative = resolved.slice(this.canonicalRoot.length);
-      return relative || "/";
+      return toVirtualPath(resolved, this.canonicalRoot);
     }
     // Resolved path is outside root - reject it to prevent sandbox escape
     throw new Error(`ENOENT: no such file or directory, realpath '${path}'`);
