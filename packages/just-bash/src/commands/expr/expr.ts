@@ -50,6 +50,10 @@ export const exprCommand: RuntimeCommand = {
   },
 };
 
+function integerValue(value: string): number {
+  return /^[+-]?[0-9]+$/.test(value) ? Number(value) : Number.NaN;
+}
+
 function evaluateExpr(
   args: string[],
   consumeWork: (units: number) => void,
@@ -101,8 +105,8 @@ function evaluateExpr(
       if (["=", "!=", "<", ">", "<=", ">="].includes(op)) {
         i++;
         const right = parseAddSub();
-        const leftNum = parseInt(left, 10);
-        const rightNum = parseInt(right, 10);
+        const leftNum = integerValue(left);
+        const rightNum = integerValue(right);
         const isNumeric = !Number.isNaN(leftNum) && !Number.isNaN(rightNum);
 
         let result: boolean;
@@ -134,8 +138,8 @@ function evaluateExpr(
       if (op === "+" || op === "-") {
         i++;
         const right = parseMulDiv();
-        const leftNum = parseInt(left, 10);
-        const rightNum = parseInt(right, 10);
+        const leftNum = integerValue(left);
+        const rightNum = integerValue(right);
         if (Number.isNaN(leftNum) || Number.isNaN(rightNum)) {
           throw new Error("non-integer argument");
         }
@@ -154,8 +158,8 @@ function evaluateExpr(
       if (op === "*" || op === "/" || op === "%") {
         i++;
         const right = parseMatch();
-        const leftNum = parseInt(left, 10);
-        const rightNum = parseInt(right, 10);
+        const leftNum = integerValue(left);
+        const rightNum = integerValue(right);
         if (Number.isNaN(leftNum) || Number.isNaN(rightNum)) {
           throw new Error("non-integer argument");
         }
