@@ -123,9 +123,15 @@ export function evalArrayBuiltin(
           seen.set(keyStr, { item, key: keyVal });
         }
       }
-      // Sort by key value and return items
+      // Sort by key value and return items. jq keys by the array of the
+      // filter's outputs, so an item whose filter emitted nothing sorts first.
       const entries = [...seen.values()];
-      entries.sort((a, b) => compareJq(a.key, b.key));
+      entries.sort((a, b) => {
+        if (a.key === undefined || b.key === undefined) {
+          return Number(b.key === undefined) - Number(a.key === undefined);
+        }
+        return compareJq(a.key, b.key);
+      });
       return [entries.map((e) => e.item)];
     }
 
