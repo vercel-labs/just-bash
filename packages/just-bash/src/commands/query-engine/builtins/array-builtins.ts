@@ -9,7 +9,7 @@ import { ExecutionLimitError as QueryExecutionLimitError } from "../../../interp
 import type { EvalContext } from "../evaluator.js";
 import type { AstNode } from "../parser.js";
 import { isSafeKey, safeSet } from "../safe-object.js";
-import type { QueryValue } from "../value-operations.js";
+import { canonicalJson, type QueryValue } from "../value-operations.js";
 
 type EvalFn = (
   value: QueryValue,
@@ -118,14 +118,20 @@ export function evalArrayBuiltin(
       const seen = new Map<string, { item: QueryValue; key: QueryValue }>();
       for (const item of value) {
         const keyVal = evaluate(item, args[0], ctx)[0];
-        const keyStr = JSON.stringify(keyVal);
+        const keyStr = canonicalJson(keyVal);
         if (!seen.has(keyStr)) {
           seen.set(keyStr, { item, key: keyVal });
         }
       }
-      // Sort by key value and return items
+      // Sort by key value and return items. jq keys by the array of the
+      // filter's outputs, so an item whose filter emitted nothing sorts first.
       const entries = [...seen.values()];
-      entries.sort((a, b) => compareJq(a.key, b.key));
+      entries.sort((a, b) => {
+        if (a.key === undefined || b.key === undefined) {
+          return Number(b.key === undefined) - Number(a.key === undefined);
+        }
+        return compareJq(a.key, b.key);
+      });
       return [entries.map((e) => e.item)];
     }
 
@@ -133,7 +139,7 @@ export function evalArrayBuiltin(
       if (!Array.isArray(value) || args.length === 0) return [null];
       const groups = new Map<string, QueryValue[]>();
       for (const item of value) {
-        const key = JSON.stringify(evaluate(item, args[0], ctx)[0]);
+        const key = canonicalJson(evaluate(item, args[0], ctx)[0]);
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key)?.push(item);
       }

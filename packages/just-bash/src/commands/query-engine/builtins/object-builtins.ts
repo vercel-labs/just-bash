@@ -14,7 +14,11 @@ import {
   safeSet,
   sanitizeParsedData,
 } from "../safe-object.js";
-import { getValueDepth, type QueryValue } from "../value-operations.js";
+import {
+  canonicalJson,
+  getValueDepth,
+  type QueryValue,
+} from "../value-operations.js";
 
 // Default max depth for nested structures
 const DEFAULT_MAX_JQ_DEPTH = 2000;
@@ -243,7 +247,7 @@ export function evalObjectBuiltin(
         const seen = new Set<string>();
         const result: QueryValue[] = [];
         for (const item of value) {
-          const key = JSON.stringify(item);
+          const key = canonicalJson(item);
           if (!seen.has(key)) {
             seen.add(key);
             result.push(item);
