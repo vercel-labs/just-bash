@@ -56,6 +56,7 @@ function integerValue(value: string): number {
 
 // Keep integer results in decimal notation so they can be used by the next operator.
 function formatInteger(value: number): string {
+  if (value === 0) return "0";
   return Number.isFinite(value)
     ? value.toLocaleString("en-US", {
         useGrouping: false,

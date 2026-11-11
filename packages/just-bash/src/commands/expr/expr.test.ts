@@ -42,4 +42,21 @@ describe("expr integer operands", () => {
     const result = await new Bash().exec(`expr ${expression}`);
     expect(result).toMatchObject({ stdout: "0\n", stderr: "", exitCode: 1 });
   });
+
+  it.each([
+    "-1 '*' 0",
+    "-1 / 2",
+    "-4 % 2",
+  ])("normalizes zero-valued arithmetic: %s", async (expression) => {
+    const result = await new Bash().exec(`expr ${expression}`);
+    expect(result).toMatchObject({ stdout: "0\n", stderr: "", exitCode: 1 });
+  });
+
+  it.each([
+    ["-1 '*' 0 '|' 5", "5\n", 0],
+    ["-1 '*' 0 '&' 5", "0\n", 1],
+  ])("treats arithmetic zero as false: %s", async (expression, stdout, exitCode) => {
+    const result = await new Bash().exec(`expr ${expression}`);
+    expect(result).toMatchObject({ stdout, stderr: "", exitCode });
+  });
 });
