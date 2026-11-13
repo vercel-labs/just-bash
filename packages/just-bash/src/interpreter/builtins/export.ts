@@ -11,6 +11,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
+import { resolveNameref } from "../helpers/nameref.js";
 import { quoteDeclareValue } from "../helpers/quoting.js";
 import {
   checkReadonlyError,
@@ -75,12 +76,14 @@ export function handleExport(
           1,
         );
       }
+      const target = resolveNameref(ctx, name);
+      if (target === undefined) continue;
       if (value !== undefined) {
-        checkReadonlyError(ctx, name);
-        ctx.state.env.set(name, value);
+        checkReadonlyError(ctx, target);
+        ctx.state.env.set(target, value);
       }
       // Remove export attribute without deleting the variable
-      unmarkExported(ctx, name);
+      unmarkExported(ctx, target);
     }
     return OK;
   }
@@ -117,23 +120,26 @@ export function handleExport(
       continue;
     }
 
+    const target = resolveNameref(ctx, name);
+    if (target === undefined) continue;
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(target)) {
+      stderr += `bash: export: \`${target}': not a valid identifier\n`;
+      exitCode = 1;
+      continue;
+    }
     if (value !== undefined) {
-      checkReadonlyError(ctx, name);
+      checkReadonlyError(ctx, target);
       if (isAppend) {
         // Append to existing value (or set if not defined)
-        const existing = ctx.state.env.get(name) ?? "";
-        ctx.state.env.set(name, existing + value);
+        const existing = ctx.state.env.get(target) ?? "";
+        ctx.state.env.set(target, existing + value);
       } else {
-        ctx.state.env.set(name, value);
+        ctx.state.env.set(target, value);
       }
-    } else {
-      // If variable doesn't exist, create it as empty
-      if (!ctx.state.env.has(name)) {
-        ctx.state.env.set(name, "");
-      }
+    } else if (target === name && !ctx.state.env.has(target)) {
+      ctx.state.env.set(target, "");
     }
-    // Mark the variable as exported
-    markExported(ctx, name);
+    markExported(ctx, target);
   }
 
   return result("", stderr, exitCode);

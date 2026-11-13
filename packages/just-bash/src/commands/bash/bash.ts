@@ -1,5 +1,4 @@
 import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
-import { mergeToNullPrototype } from "../../helpers/env.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -140,23 +139,13 @@ async function executeScript(
     };
   }
 
-  // The nested shell is a new process: its environment is the parent's
-  // exported variables (including prefix assignments like
-  // "FOO=bar sh -c '...'"), plus the positional parameters. The exec entry
-  // initializes the shell's own variables (IFS, OPTIND, ...) on top.
-  // Use null-prototype object to prevent prototype pollution
-  const positionalEnv = mergeToNullPrototype(
-    ctx.exportedEnv ?? Object.create(null),
-    {
-      "0": scriptName,
-      "#": String(scriptArgs.length),
-      "@": scriptArgs.join(" "),
-      "*": scriptArgs.join(" "),
-    },
-  ) as Record<string, string>;
-  scriptArgs.forEach((arg, i) => {
-    positionalEnv[String(i + 1)] = arg;
-  });
+  const options = {
+    env: ctx.exportedEnv ?? Object.create(null),
+    newShell: true,
+    shellArgs: { name: scriptName, args: scriptArgs },
+    cwd: ctx.cwd,
+    signal: ctx.signal,
+  };
 
   // Skip shebang line if present
   let scriptToRun = script;
@@ -175,19 +164,11 @@ async function executeScript(
   // encoding and avoid double-encoding.
   const nestedExec = ctx.execWithInheritedStdin;
   const result = nestedExec
-    ? await nestedExec(scriptToRun, {
-        env: positionalEnv,
-        newShell: true,
-        cwd: ctx.cwd,
-        signal: ctx.signal,
-      })
+    ? await nestedExec(scriptToRun, options)
     : await ctx.exec(scriptToRun, {
-        env: positionalEnv,
-        newShell: true,
-        cwd: ctx.cwd,
+        ...options,
         stdin: latin1FromBytes(ctx.stdin),
         stdinKind: "bytes",
-        signal: ctx.signal,
       });
   return result;
 }
