@@ -133,6 +133,8 @@ export interface VariableAttributeState {
   uppercaseVars?: Set<string>;
   /** Set of exported variable names */
   exportedVars?: Set<string>;
+  /** Inherited environment entries whose names overlap with shell parameters. */
+  parameterNamedEnv?: ReadonlyMap<string, string>;
   /** Set of temporarily exported variable names (for prefix assignments like FOO=bar cmd) */
   tempExportedVars?: Set<string>;
   /** Saved export attributes of shadowed variables, parallel to localScopes. */

@@ -37,6 +37,26 @@ describe("env command - Real Bash Comparison", () => {
         "env -i 'A.B=value' env printenv A.B",
       ],
       [
+        "dotted names survive nested Bash",
+        "env -i 'HTTP.PROXY=value' bash -c 'printenv HTTP.PROXY'",
+      ],
+      [
+        "numeric names stay separate from positional arguments",
+        `env -i '1=environment' '2=unbound' '#=count' bash -c 'printf "[%s] [%s] [%s]\\n" "$1" "$2" "$#"; printenv 1 2 "#"; shift; sh -c "printenv 1"' _ positional`,
+      ],
+      [
+        "empty environment names are missing on lookup",
+        "env -i '=value' printenv ''",
+      ],
+      [
+        "empty names leave other lookups intact",
+        "env -i '=value' JB_EXPORTED=exported printenv '' JB_EXPORTED",
+      ],
+      [
+        "listing still includes an empty environment name",
+        "env -i '=value' printenv",
+      ],
+      [
         "nested shells do not export positional parameters",
         "bash -c 'printenv 1' _ secret",
       ],

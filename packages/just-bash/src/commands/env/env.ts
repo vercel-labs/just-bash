@@ -167,7 +167,7 @@ export const printenvCommand: RuntimeCommand = {
     const lines: string[] = [];
     let exitCode = 0;
     for (const varName of vars) {
-      const value = exportedEnv.get(varName);
+      const value = varName === "" ? undefined : exportedEnv.get(varName);
       if (value !== undefined) {
         lines.push(value);
       } else {
