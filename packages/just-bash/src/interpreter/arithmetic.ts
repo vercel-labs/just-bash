@@ -29,7 +29,19 @@ import { Parser } from "../parser/parser.js";
 import { ArithmeticError, NounsetError } from "./errors.js";
 import { getArrayElements, getVariable } from "./expansion.js";
 import { getArrayElement, hasArray, setArrayElement } from "./helpers/array.js";
+import { markExported } from "./helpers/readonly.js";
 import type { InterpreterContext } from "./types.js";
+
+function assignArithmeticVariable(
+  ctx: InterpreterContext,
+  name: string,
+  value: string,
+): void {
+  ctx.state.env.set(name, value);
+  if (ctx.state.options.allexport) {
+    markExported(ctx, name);
+  }
+}
 
 interface ArithmeticResolutionContext {
   readonly visited: Set<string>;
@@ -373,7 +385,7 @@ async function expandBracedContent(
     case "=": {
       const useDefault = isUnset || (checkEmpty && isEmpty);
       if (useDefault) {
-        ctx.state.env.set(varName, defaultValue);
+        assignArithmeticVariable(ctx, varName, defaultValue);
         return defaultValue;
       }
       return value || "";
@@ -652,7 +664,7 @@ async function evaluateArithmeticInternal(
           const current =
             Number.parseInt(await getVariable(ctx, name), 10) || 0;
           const newValue = expr.operator === "++" ? current + 1 : current - 1;
-          ctx.state.env.set(name, String(newValue));
+          assignArithmeticVariable(ctx, name, String(newValue));
           return expr.prefix ? newValue : current;
         }
         if (expr.operand.type === "ArithArrayElement") {
@@ -715,7 +727,7 @@ async function evaluateArithmeticInternal(
             const current =
               Number.parseInt(ctx.state.env.get(varName) || "0", 10) || 0;
             const newValue = expr.operator === "++" ? current + 1 : current - 1;
-            ctx.state.env.set(varName, String(newValue));
+            assignArithmeticVariable(ctx, varName, String(newValue));
             return expr.prefix ? newValue : current;
           }
         }
@@ -818,7 +830,8 @@ async function evaluateArithmeticInternal(
       const current = Number.parseInt(currentValue || "0", 10) || 0;
       const value = await evaluate(expr.value);
       const newValue = applyAssignmentOp(current, value, expr.operator);
-      if (arrayKey === undefined) ctx.state.env.set(envKey, String(newValue));
+      if (arrayKey === undefined)
+        assignArithmeticVariable(ctx, envKey, String(newValue));
       else {
         setArrayElement(
           ctx,
@@ -885,7 +898,8 @@ async function evaluateArithmeticInternal(
         Number.parseInt(ctx.state.env.get(envKey) || "0", 10) || 0;
       const value = await evaluate(expr.value);
       const newValue = applyAssignmentOp(current, value, expr.operator);
-      ctx.state.env.set(envKey, String(newValue));
+      if (expr.subscript) ctx.state.env.set(envKey, String(newValue));
+      else assignArithmeticVariable(ctx, envKey, String(newValue));
       return newValue;
     }
 

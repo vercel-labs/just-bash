@@ -15,6 +15,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
+import { markExported, unmarkExported } from "../helpers/readonly.js";
 import { failure } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -64,16 +65,23 @@ export function handleGetopts(
     10,
   );
 
-  // Clear OPTARG
-  ctx.state.env.set("OPTARG", "");
+  const assign = (name: string, value: string): void => {
+    ctx.state.env.set(name, value);
+    if (ctx.state.options.allexport) {
+      markExported(ctx, name);
+    }
+  };
+
+  ctx.state.env.delete("OPTARG");
 
   // Check if we've exhausted all arguments
   if (optind > argsToProcess.length) {
+    unmarkExported(ctx, "OPTARG");
     if (!invalidVarName) {
-      ctx.state.env.set(varName, "?");
+      assign(varName, "?");
     }
     // When returning because OPTIND is past all args, bash sets OPTIND to args.length + 1
-    ctx.state.env.set("OPTIND", String(argsToProcess.length + 1));
+    assign("OPTIND", String(argsToProcess.length + 1));
     ctx.state.env.set("__GETOPTS_CHARINDEX", "0");
     return { exitCode: invalidVarName ? 2 : 1, stdout: "", stderr: "" };
   }
@@ -84,18 +92,21 @@ export function handleGetopts(
   // Check if this is an option argument (starts with -)
   if (!currentArg || currentArg === "-" || !currentArg.startsWith("-")) {
     // Not an option - end of options
+    unmarkExported(ctx, "OPTARG");
+    assign("OPTIND", String(optind));
     if (!invalidVarName) {
-      ctx.state.env.set(varName, "?");
+      assign(varName, "?");
     }
     return { exitCode: invalidVarName ? 2 : 1, stdout: "", stderr: "" };
   }
 
   // Check for -- (end of options marker)
   if (currentArg === "--") {
-    ctx.state.env.set("OPTIND", String(optind + 1));
+    unmarkExported(ctx, "OPTARG");
+    assign("OPTIND", String(optind + 1));
     ctx.state.env.set("__GETOPTS_CHARINDEX", "0");
     if (!invalidVarName) {
-      ctx.state.env.set(varName, "?");
+      assign(varName, "?");
     }
     return { exitCode: invalidVarName ? 2 : 1, stdout: "", stderr: "" };
   }
@@ -107,7 +118,7 @@ export function handleGetopts(
 
   if (!optChar) {
     // No more characters in this argument, move to next
-    ctx.state.env.set("OPTIND", String(optind + 1));
+    assign("OPTIND", String(optind + 1));
     ctx.state.env.set("__GETOPTS_CHARINDEX", "0");
     // Recursively call to process next argument
     return handleGetopts(ctx, args);
@@ -119,20 +130,21 @@ export function handleGetopts(
     // Invalid option
     let stderrMsg = "";
     if (!silentMode) {
+      unmarkExported(ctx, "OPTARG");
       stderrMsg = `bash: illegal option -- ${optChar}\n`;
     } else {
-      ctx.state.env.set("OPTARG", optChar);
+      assign("OPTARG", optChar);
     }
     if (!invalidVarName) {
-      ctx.state.env.set(varName, "?");
+      assign(varName, "?");
     }
 
     // Move to next character or next argument
     if (startIndex + 1 < currentArg.length) {
       ctx.state.env.set("__GETOPTS_CHARINDEX", String(startIndex + 1));
-      ctx.state.env.set("OPTIND", String(optind)); // Always set OPTIND
+      assign("OPTIND", String(optind)); // Always set OPTIND
     } else {
-      ctx.state.env.set("OPTIND", String(optind + 1));
+      assign("OPTIND", String(optind + 1));
       ctx.state.env.set("__GETOPTS_CHARINDEX", "0");
     }
 
@@ -149,8 +161,8 @@ export function handleGetopts(
     // Check if there are more characters in the current arg (e.g., -cVALUE)
     if (startIndex + 1 < currentArg.length) {
       // Rest of current arg is the argument
-      ctx.state.env.set("OPTARG", currentArg.slice(startIndex + 1));
-      ctx.state.env.set("OPTIND", String(optind + 1));
+      assign("OPTARG", currentArg.slice(startIndex + 1));
+      assign("OPTIND", String(optind + 1));
       ctx.state.env.set("__GETOPTS_CHARINDEX", "0");
     } else {
       // Next argument is the option argument
@@ -158,17 +170,18 @@ export function handleGetopts(
         // No argument provided
         let stderrMsg = "";
         if (!silentMode) {
+          unmarkExported(ctx, "OPTARG");
           stderrMsg = `bash: option requires an argument -- ${optChar}\n`;
           if (!invalidVarName) {
-            ctx.state.env.set(varName, "?");
+            assign(varName, "?");
           }
         } else {
-          ctx.state.env.set("OPTARG", optChar);
+          assign("OPTARG", optChar);
           if (!invalidVarName) {
-            ctx.state.env.set(varName, ":");
+            assign(varName, ":");
           }
         }
-        ctx.state.env.set("OPTIND", String(optind + 1));
+        assign("OPTIND", String(optind + 1));
         ctx.state.env.set("__GETOPTS_CHARINDEX", "0");
         return {
           exitCode: invalidVarName ? 2 : 0,
@@ -176,25 +189,28 @@ export function handleGetopts(
           stderr: stderrMsg,
         };
       }
-      ctx.state.env.set("OPTARG", argsToProcess[optind]); // Next arg (0-indexed: optind)
-      ctx.state.env.set("OPTIND", String(optind + 2));
+      assign("OPTARG", argsToProcess[optind]); // Next arg (0-indexed: optind)
+      assign("OPTIND", String(optind + 2));
       ctx.state.env.set("__GETOPTS_CHARINDEX", "0");
     }
   } else {
+    if (ctx.state.options.allexport) {
+      markExported(ctx, "OPTARG");
+    }
     // Option doesn't require an argument
     // Move to next character or next argument
     if (startIndex + 1 < currentArg.length) {
       ctx.state.env.set("__GETOPTS_CHARINDEX", String(startIndex + 1));
-      ctx.state.env.set("OPTIND", String(optind)); // Always set OPTIND
+      assign("OPTIND", String(optind)); // Always set OPTIND
     } else {
-      ctx.state.env.set("OPTIND", String(optind + 1));
+      assign("OPTIND", String(optind + 1));
       ctx.state.env.set("__GETOPTS_CHARINDEX", "0");
     }
   }
 
   // Set the variable to the option character (if valid variable name)
   if (!invalidVarName) {
-    ctx.state.env.set(varName, optChar);
+    assign(varName, optChar);
   }
 
   return { exitCode: invalidVarName ? 2 : 0, stdout: "", stderr: "" };

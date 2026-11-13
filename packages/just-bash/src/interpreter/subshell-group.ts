@@ -31,7 +31,10 @@ import {
   getFdEntry,
 } from "./fd-table.js";
 import { getErrorMessage } from "./helpers/errors.js";
+import { evaluateBinaryFileTest } from "./helpers/file-tests.js";
 import { failure, result } from "./helpers/result.js";
+import { applyShellEnvironmentDefaults } from "./helpers/shell-environment.js";
+import { buildBashopts, buildShellopts } from "./helpers/shellopts.js";
 import {
   type PreparedRedirections,
   withPreparedRedirections,
@@ -351,6 +354,34 @@ export async function executeUserScript(
 
   const parentLoopDepth = ctx.state.loopDepth;
   const cleanup = beginIsolatedShellState(ctx.state);
+
+  const inheritedEnv = ctx.state.env;
+  ctx.state.exportedVars = new Set([
+    ...(ctx.state.exportedVars ?? []),
+    ...(ctx.state.tempExportedVars ?? []),
+  ]);
+  ctx.state.tempExportedVars = new Set();
+  ctx.state.env = new Map<string, string>([
+    ["SHELLOPTS", buildShellopts(ctx.state.options)],
+    ["BASHOPTS", buildBashopts(ctx.state.shoptOptions)],
+  ]);
+  for (const [name, value] of inheritedEnv) {
+    if (ctx.state.exportedVars.has(name)) {
+      ctx.state.env.set(name, value);
+    }
+  }
+  const inheritedPwd = ctx.state.env.get("PWD");
+  const cwd = ctx.state.cwd;
+  const pwd =
+    inheritedPwd?.startsWith("/") &&
+    (inheritedPwd === cwd ||
+      (await evaluateBinaryFileTest(ctx, "-ef", inheritedPwd, cwd)))
+      ? inheritedPwd
+      : await ctx.fs.realpath(cwd).catch(() => cwd);
+  ctx.state.cwd = ctx.fs.resolvePath(cwd, pwd);
+  ctx.state.env.set("PWD", pwd);
+  ctx.state.exportedVars.add("PWD");
+  applyShellEnvironmentDefaults(ctx.state.env);
 
   // Set up subshell-like environment
   ctx.state.parentHasLoopContext = parentLoopDepth > 0;

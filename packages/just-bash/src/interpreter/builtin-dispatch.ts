@@ -69,7 +69,7 @@ import { callFunction } from "./functions.js";
 import { setArrayElement } from "./helpers/array.js";
 import { getErrorMessage } from "./helpers/errors.js";
 import { resolveNamerefForAssignment } from "./helpers/nameref.js";
-import { isReadonly } from "./helpers/readonly.js";
+import { isReadonly, markExported } from "./helpers/readonly.js";
 import { failure, OK, testResult } from "./helpers/result.js";
 import { SHELL_BUILTINS } from "./helpers/shell-constants.js";
 import { computeIndexedArrayIndex } from "./simple-command-assignments.js";
@@ -900,6 +900,9 @@ export async function executeExternalCommand(
       }
       if (targetSubscript === undefined) {
         ctx.state.env.set(targetName, value);
+        if (ctx.state.options.allexport) {
+          markExported(ctx, targetName);
+        }
       } else {
         const kind = ctx.state.associativeArrays?.has(targetName)
           ? "associative"

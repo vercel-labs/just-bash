@@ -1,4 +1,103 @@
 {
+  "0bd3ffbe22b73963": {
+    "command": "chmod +x probe.sh; JB_VALUE=outer; f() { local JB_VALUE; set -a; read JB_VALUE <<<'inner'; set +a; ./probe.sh; }; f; ./probe.sh; echo \"$JB_VALUE\"",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s]\\n\" \"$JB_VALUE\"\n"
+    },
+    "stdout": "[inner]\n[]\nouter\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "0da64037d399b1cb": {
+    "command": "chmod +x probe.sh; set -a; getopts v: JB_FLAG -v argument; set +a; export -p | grep -c ' OPTIND='; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s] [%s]\\n\" \"$JB_FLAG\" \"$OPTARG\" \"$OPTIND\"\n"
+    },
+    "stdout": "1\n[v] [argument] [1]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1018a2aab7246277": {
+    "command": "chmod +x probe.sh; export JB_VALUE=outer; f() { local JB_VALUE; set -a; read JB_VALUE <<<'inner'; set +a; ./probe.sh; }; f; ./probe.sh; echo \"$JB_VALUE\"",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s]\\n\" \"$JB_VALUE\"\n"
+    },
+    "stdout": "[inner]\n[outer]\nouter\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "18894dbab9832dca": {
+    "command": "chmod +x probe.sh; PWD=/fake ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nif [ \"$PWD\" = \"$(pwd)\" ]; then echo same; else echo different; fi\n"
+    },
+    "stdout": "same\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "211c3813c1293b1c": {
+    "command": "chmod +x probe.sh; export JB_VALUE=outer; f() { local JB_VALUE; set -a; for JB_VALUE in inner; do :; done; set +a; ./probe.sh; }; f; ./probe.sh; echo \"$JB_VALUE\"",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s]\\n\" \"$JB_VALUE\"\n"
+    },
+    "stdout": "[inner]\n[outer]\nouter\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "217521a49075fb93": {
+    "command": "mkdir dir; cp probe.sh dir/; cd dir; chmod +x probe.sh; unset PWD; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"%s\\n\" \"${PWD##*/}\"\nexport -p | grep -c \" PWD=\"\n"
+    },
+    "stdout": "dir\n1\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2cc9c99b8569f471": {
+    "command": "chmod +x probe.sh; set -a; read JB_EXPORTED <<<'value'; set +a; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [value]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3209c5092d45d60c": {
+    "command": "chmod +x probe.sh; set -a; printf -v JB_EXPORTED %s value; set +a; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [value]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "381b636f0579541c": {
+    "command": "chmod +x probe.sh; set -a; : $(( JB_EXPORTED=7 )); set +a; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [7]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3c79f5c3c44172a9": {
+    "command": "chmod +x probe.sh; export JB_VALUE=outer; f() { local JB_VALUE; set -a; export -n JB_VALUE; g() { read JB_VALUE <<<'inner'; }; g; set +a; ./probe.sh; }; f; ./probe.sh; echo \"$JB_VALUE\"",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s]\\n\" \"$JB_VALUE\"\n"
+    },
+    "stdout": "[inner]\n[outer]\nouter\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3db8442b62ea1633": {
+    "command": "chmod +x probe.sh; set -a; let JB_EXPORTED=7; set +a; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [7]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "4a2f700bead98b5a": {
     "command": "export NUM=10; [ $NUM -gt 5 ] && echo greater",
     "files": {},
@@ -13,10 +112,64 @@
     "stderr": "",
     "exitCode": 0
   },
+  "674b767b9ddc7cb5": {
+    "command": "ln -s dir alias; logical=\"$PWD/alias\"; cd dir; chmod +x probe.sh; PWD=\"$logical\" ./probe.sh",
+    "files": {
+      "dir/probe.sh": "#!/bin/bash\nprintf \"%s %s %s\\n\" \"${PWD##*/}\" \"$(basename \"$(pwd)\")\" \"$(basename \"$(pwd -P)\")\"\n"
+    },
+    "stdout": "alias alias dir\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7039950dc124b901": {
+    "command": "chmod +x probe.sh; JB_VALUE=outer; f() { local JB_VALUE; set -a; g() { printf -v JB_VALUE %s inner; }; g; set +a; ./probe.sh; }; f; ./probe.sh; echo \"$JB_VALUE\"",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s]\\n\" \"$JB_VALUE\"\n"
+    },
+    "stdout": "[inner]\n[]\nouter\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7410da5902a67a20": {
+    "command": "chmod +x probe.sh; export JB_LOCAL=local; export -n JB_LOCAL; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] []\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7473c528ee7c4098": {
+    "command": "chmod +x probe.sh; export JB_VALUE=outer; f() { local JB_VALUE; set -a; (( JB_VALUE=7 )); set +a; ./probe.sh; }; f; ./probe.sh; echo \"$JB_VALUE\"",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s]\\n\" \"$JB_VALUE\"\n"
+    },
+    "stdout": "[7]\n[outer]\nouter\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "7b6a73a19e04e211": {
     "command": "export X=42 && echo $X",
     "files": {},
     "stdout": "42\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7d01ef6ff09c5289": {
+    "command": "chmod +x probe.sh; set -a; readonly JB_EXPORTED=value; set +a; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [value]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7df2b215cf7eee2b": {
+    "command": "chmod +x probe.sh; JB_LOCAL=local; export JB_EXPORTED=exported; PATH=.:$PATH probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [exported]\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -27,10 +180,136 @@
     "stderr": "",
     "exitCode": 0
   },
+  "8ef3f238beb5d174": {
+    "command": "chmod +x probe.sh; JB_VALUE=outer; f() { local JB_VALUE; set -a; (( JB_VALUE=7 )); set +a; ./probe.sh; }; f; ./probe.sh; echo \"$JB_VALUE\"",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s]\\n\" \"$JB_VALUE\"\n"
+    },
+    "stdout": "[7]\n[]\nouter\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "8f93ecc4a3a9e58d": {
     "command": "export A=1 B=2 C=3; echo $A $B $C",
     "files": {},
     "stdout": "1 2 3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "92ad4dfdff07aaa7": {
+    "command": "chmod +x probe.sh; set -a; read -N 5 JB_EXPORTED <<<'value'; set +a; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [value]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "935a7c43c858922e": {
+    "command": "chmod +x probe.sh; JB_EXPORTED=first; set -a; readonly JB_EXPORTED+=second; set +a; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [firstsecond]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "948bba3b84d5460a": {
+    "command": "chmod +x probe.sh; env JB_EXPORTED=value ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [value]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "94da76cb69f3aca5": {
+    "command": "mkdir dir; cp probe.sh dir/; cd dir; chmod +x probe.sh; env -i ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"%s\\n\" \"${PWD##*/}\"\nexport -p | grep -c \" PWD=\"\n"
+    },
+    "stdout": "dir\n1\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a8778ea1a1efb32f": {
+    "command": "chmod +x probe.sh; JB_EXPORTED=1; set -a; (( JB_EXPORTED++ )); set +a; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [2]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "a8a099bebf10550f": {
+    "command": "chmod +x probe.sh; JB_VALUE=outer; f() { local JB_VALUE; set -a; for JB_VALUE in inner; do :; done; set +a; ./probe.sh; }; f; ./probe.sh; echo \"$JB_VALUE\"",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s]\\n\" \"$JB_VALUE\"\n"
+    },
+    "stdout": "[inner]\n[]\nouter\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ac0af221fbf7027f": {
+    "command": "chmod +x probe.sh; JB_LOCAL=local; source ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[local] []\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b04956ef514b35f4": {
+    "command": "chmod +x probe.sh; JB_LOCAL=secret; set -a; read JB_EXPORTED <<<'value'; set +a; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [value]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b4f4a660ad723dd4": {
+    "command": "chmod +x probe.sh; JB_LOCAL=local; export JB_EXPORTED=exported; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [exported]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b68d835e3979575f": {
+    "command": "chmod +x probe.sh; JB_VALUE=outer; f() { local JB_VALUE; set -a; printf -v JB_VALUE %s inner; set +a; ./probe.sh; }; f; ./probe.sh; echo \"$JB_VALUE\"",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s]\\n\" \"$JB_VALUE\"\n"
+    },
+    "stdout": "[inner]\n[]\nouter\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bc4bb4023ddb4d79": {
+    "command": "chmod +x probe.sh; env -i JB_EXPORTED=value ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [value]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d4e3eecc3be0ddce": {
+    "command": "chmod +x probe.sh; JB_VALUE=outer; f() { local JB_VALUE; set -a; g() { read JB_VALUE <<<'inner'; }; g; set +a; ./probe.sh; }; f; ./probe.sh; echo \"$JB_VALUE\"",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s]\\n\" \"$JB_VALUE\"\n"
+    },
+    "stdout": "[inner]\n[]\nouter\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d60ef9a2ad95351d": {
+    "command": "chmod +x probe.sh; set -a; : \"${JB_EXPORTED:=value}\"; set +a; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [value]\n",
     "stderr": "",
     "exitCode": 0
   },
@@ -41,6 +320,33 @@
     "stderr": "",
     "exitCode": 0
   },
+  "e247b76de081d516": {
+    "command": "chmod +x probe.sh; set -a; (( JB_EXPORTED=7 )); set +a; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [7]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e4137fb80c783c2c": {
+    "command": "chmod +x probe.sh; JB_LOCAL=secret; env JB_EXPORTED=value ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [value]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e9e642637eaac5b6": {
+    "command": "chmod +x probe.sh; JB_LOCAL=parent; JB_EXPORTED=temporary ./probe.sh; echo \"[$JB_LOCAL] [$JB_EXPORTED]\"",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [temporary]\n[parent] []\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "ec458e22502c7bb9": {
     "command": "export FOO=bar; echo $FOO",
     "files": {},
@@ -48,10 +354,64 @@
     "stderr": "",
     "exitCode": 0
   },
+  "f00ec61321cf9523": {
+    "command": "chmod +x probe.sh; JB_VALUE=value ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nexport -p | grep -c ' JB_VALUE='\nexport -n JB_VALUE\nbash -c 'echo \"[$JB_VALUE]\"'\n"
+    },
+    "stdout": "1\n[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f036a9e955b92e58": {
+    "command": "chmod +x probe.sh; JB_LOCAL=secret; set -a; (( JB_EXPORTED=7 )); set +a; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [7]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
   "f0b31788fc824515": {
     "command": "export VAL=yes; [ \"$VAL\" = \"yes\" ] && echo matched",
     "files": {},
     "stdout": "matched\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fc667154cde320f8": {
+    "command": "chmod +x probe.sh; export JB_VALUE=outer; f() { local JB_VALUE; set -a; printf -v JB_VALUE %s inner; set +a; ./probe.sh; }; f; ./probe.sh; echo \"$JB_VALUE\"",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s]\\n\" \"$JB_VALUE\"\n"
+    },
+    "stdout": "[inner]\n[outer]\nouter\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fd10bc988887bc13": {
+    "command": "chmod +x probe.sh; set -a; read -n 5 JB_EXPORTED <<<'value'; set +a; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [value]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fdf38a209e587dba": {
+    "command": "chmod +x probe.sh; JB_EXPORTED=1; set -a; (( ++JB_EXPORTED )); set +a; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [2]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fe62b9ea3be58aff": {
+    "command": "chmod +x probe.sh; set -a; for JB_EXPORTED in value; do :; done; set +a; ./probe.sh",
+    "files": {
+      "probe.sh": "#!/bin/bash\nprintf \"[%s] [%s]\\n\" \"$JB_LOCAL\" \"$JB_EXPORTED\"\n"
+    },
+    "stdout": "[] [value]\n",
     "stderr": "",
     "exitCode": 0
   },

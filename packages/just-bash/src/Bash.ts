@@ -46,6 +46,10 @@ import {
 } from "./interpreter/errors.js";
 import { cloneArrays } from "./interpreter/helpers/array.js";
 import {
+  applyShellEnvironmentDefaults,
+  SHELL_ENV_DEFAULTS,
+} from "./interpreter/helpers/shell-environment.js";
+import {
   buildBashopts,
   buildShellopts,
 } from "./interpreter/helpers/shellopts.js";
@@ -87,19 +91,6 @@ import type {
 } from "./types.js";
 
 export type { ExecutionLimitProfile, ExecutionLimits } from "./limits.js";
-
-const DEFAULT_PATH = "/usr/bin:/bin";
-
-/**
- * Variables a shell sets from its build and host at startup when the
- * environment does not provide them.
- */
-const HOST_VARS: ReadonlyArray<readonly [string, string]> = [
-  ["OSTYPE", "linux-gnu"],
-  ["MACHTYPE", "x86_64-pc-linux-gnu"],
-  ["HOSTTYPE", "x86_64"],
-  ["HOSTNAME", "localhost"], // Match hostname command in sandboxed environment
-];
 
 /**
  * Logger interface for Bash execution logging.
@@ -381,12 +372,9 @@ export class Bash {
     // Use Map for env to prevent prototype pollution attacks
     const env = new Map<string, string>([
       ["HOME", this.useDefaultLayout ? "/home/user" : "/"],
-      ["PATH", DEFAULT_PATH],
-      ["IFS", " \t\n"],
-      ...HOST_VARS,
+      ...SHELL_ENV_DEFAULTS,
       ["PWD", cwd],
       ["OLDPWD", cwd],
-      ["OPTIND", "1"], // getopts option index
       // Add user-provided env vars
       ...Object.entries(options.env ?? {}),
     ]);
@@ -756,14 +744,15 @@ export class Bash {
         execEnv.set("PWD", newPwd);
       }
 
-      // Decide which variables the new shell exports to its children. Only
-      // the host API and new shells treat `env` as the environment; internal
-      // callers such as `env` and `time` pass the full variable map and keep
-      // the caller's export set, including prefix exports (`FOO=x time ...`).
+      // The host API, replacement environments and new shells treat `env`
+      // as the environment. Other internal callers such as `time` pass the
+      // full variable map and keep the caller's export set, including prefix
+      // exports (`FOO=x time ...`).
       // The set is always copied so an `export` in one exec does not leak
-      // into later ones. Only valid names can be exported: nested sh/bash
-      // passes positional parameters ("0", "#", "1") through env.
-      const exportsEnv = !callerState || effectiveOptions.newShell;
+      // into later ones. Nested sh/bash passes positional parameters ("0",
+      // "#", "1") through env, so only that path filters shell identifiers.
+      // Explicit env assignments may use other names, such as "HTTP.PROXY".
+      const exportsEnv = !callerState || replaceEnv;
       const exportedVars =
         replaceEnv && exportsEnv
           ? new Set<string>()
@@ -775,11 +764,17 @@ export class Bash {
             : new Set(this.state.exportedVars);
       if (exportsEnv) {
         for (const key of Object.keys(effectiveOptions.env ?? {})) {
-          if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
+          if (
+            !effectiveOptions.newShell ||
+            /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)
+          ) {
             exportedVars.add(key);
           }
         }
-        if (newPwd !== undefined) {
+        if (
+          newPwd !== undefined &&
+          (!callerState || effectiveOptions.newShell)
+        ) {
           exportedVars.add("PWD");
         }
       }
@@ -787,16 +782,7 @@ export class Bash {
       if (effectiveOptions.newShell) {
         // Startup defaults do not add export attributes. Resetting inherited
         // values retains their existing export attributes.
-        if (!execEnv.has("PATH")) {
-          execEnv.set("PATH", DEFAULT_PATH);
-        }
-        for (const [name, value] of HOST_VARS) {
-          if (!execEnv.has(name)) {
-            execEnv.set(name, value);
-          }
-        }
-        execEnv.set("IFS", " \t\n");
-        execEnv.set("OPTIND", "1");
+        applyShellEnvironmentDefaults(execEnv);
         execEnv.set("SHELLOPTS", buildShellopts(this.state.options));
         execEnv.set("BASHOPTS", buildBashopts(this.state.shoptOptions));
       }

@@ -62,6 +62,7 @@ import {
 import {
   markLocalVarDepth,
   parseAssignment,
+  saveLocalVariable,
   setVariable,
 } from "./variable-assignment.js";
 
@@ -308,22 +309,13 @@ export async function handleDeclare(
   // Helper to save variable to local scope (for restoration when function exits)
   const saveToLocalScope = (name: string): void => {
     if (!createLocal) return;
-    const currentScope =
-      ctx.state.localScopes[ctx.state.localScopes.length - 1];
-    if (!currentScope.has(name)) {
-      currentScope.set(name, ctx.state.env.get(name));
-    }
+    saveLocalVariable(ctx, name, ctx.state.env.get(name));
   };
 
   // Helper to save array elements to local scope
   const saveArrayToLocalScope = (name: string): void => {
     if (!createLocal) return;
-    const currentScope =
-      ctx.state.localScopes[ctx.state.localScopes.length - 1];
-    // Save the base variable
-    if (!currentScope.has(name)) {
-      currentScope.set(name, ctx.state.env.get(name));
-    }
+    saveLocalVariable(ctx, name, ctx.state.env.get(name));
     ctx.state.localArrayScopes ??= [];
     while (ctx.state.localArrayScopes.length < ctx.state.localScopes.length) {
       ctx.state.localArrayScopes.push(new Map());
@@ -1147,6 +1139,9 @@ export async function handleReadonly(
         ),
       );
       markReadonly(ctx, name);
+      if (ctx.state.options.allexport) {
+        markExported(ctx, name);
+      }
       continue;
     }
 
@@ -1162,6 +1157,13 @@ export async function handleReadonly(
     const error = await setVariable(ctx, assignment, { makeReadonly: true });
     if (error) {
       return error;
+    }
+    if (
+      ctx.state.options.allexport &&
+      !assignment.isArray &&
+      assignment.arrayIndex === undefined
+    ) {
+      markExported(ctx, assignment.name);
     }
   }
 
