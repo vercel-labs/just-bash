@@ -154,6 +154,19 @@ export async function setVariable(
   return null; // Success
 }
 
+export function saveLocalVariable(
+  ctx: InterpreterContext,
+  name: string,
+  value: string | undefined,
+): void {
+  const scope = ctx.state.localScopes.at(-1);
+  if (!scope || scope.has(name)) return;
+  scope.set(name, value);
+  ctx.state.localExportScopes
+    ?.at(-1)
+    ?.set(name, ctx.state.exportedVars?.has(name) ?? false);
+}
+
 /**
  * Mark a variable as being declared at the current call depth.
  * Used for bash-specific unset scoping behavior.

@@ -40,6 +40,30 @@ describe("env command - Real Bash Comparison", () => {
         "nested shells do not export positional parameters",
         "bash -c 'printenv 1' _ secret",
       ],
+      [
+        "unset restores a shadowed outer export",
+        "export JB_VALUE=outer; f() { local JB_VALUE=inner; unset JB_VALUE; }; f; printenv JB_VALUE",
+      ],
+      [
+        "unexporting a local restores the outer export",
+        "export JB_VALUE=outer; f() { local JB_VALUE=inner; export -n JB_VALUE; }; f; env printenv JB_VALUE",
+      ],
+      [
+        "local -x exports only the local value",
+        'JB_VALUE=outer; f() { local -x JB_VALUE="hello world"; printenv JB_VALUE; env printenv JB_VALUE; }; f; printenv JB_VALUE',
+      ],
+      [
+        "local -x exports assignments made later",
+        "f() { local -x JB_VALUE; JB_VALUE=value; printenv JB_VALUE; }; f",
+      ],
+      [
+        "export resolves namerefs to their target",
+        "JB_VALUE=value; declare -n JB_REF=JB_VALUE; export JB_REF; printenv JB_VALUE; env printenv JB_VALUE; printenv JB_REF",
+      ],
+      [
+        "export assignments and unexporting resolve namerefs",
+        "JB_VALUE=value; declare -n JB_REF=JB_VALUE; export JB_REF+=more; printenv JB_VALUE; export -n JB_REF; printenv JB_VALUE",
+      ],
       ["empty env stays empty", "env -i env"],
       ["empty printenv stays empty", "env -i printenv"],
       [
