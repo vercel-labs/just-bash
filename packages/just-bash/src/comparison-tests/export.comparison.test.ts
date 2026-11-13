@@ -44,6 +44,18 @@ describe("export command - Real Bash Comparison", () => {
         "set -a; printf -v JB_EXPORTED %s value; set +a; ./probe.sh",
       ],
       [
+        "readonly assignment respects allexport",
+        "set -a; readonly JB_EXPORTED=value; set +a; ./probe.sh",
+      ],
+      [
+        "readonly append respects allexport",
+        "JB_EXPORTED=first; set -a; readonly JB_EXPORTED+=second; set +a; ./probe.sh",
+      ],
+      [
+        "default parameter assignment respects allexport",
+        'set -a; : "${JB_EXPORTED:=value}"; set +a; ./probe.sh',
+      ],
+      [
         "arithmetic keeps older locals hidden",
         "JB_LOCAL=secret; set -a; (( JB_EXPORTED=7 )); set +a; ./probe.sh",
       ],
@@ -142,8 +154,67 @@ describe("export command - Real Bash Comparison", () => {
     );
   });
 
+  it("preserves an inherited logical PWD that matches the working directory", async () => {
+    const env = await setupFiles(testDir, {
+      "dir/probe.sh":
+        '#!/bin/bash\nprintf "%s %s %s\\n" "${PWD##*/}" "$(basename "$(pwd)")" "$(basename "$(pwd -P)")"\n',
+    });
+    await compareOutputs(
+      env,
+      testDir,
+      'ln -s dir alias; logical="$PWD/alias"; cd dir; chmod +x probe.sh; PWD="$logical" ./probe.sh',
+      undefined,
+      undefined,
+      import.meta.url,
+    );
+  });
+
+  it.each([
+    "unset PWD; ./probe.sh",
+    "env -i ./probe.sh",
+  ])("exports an initialized PWD: %s", async (command) => {
+    const env = await setupFiles(testDir, {
+      "probe.sh":
+        '#!/bin/bash\nprintf "%s\\n" "${PWD##*/}"\nexport -p | grep -c " PWD="\n',
+    });
+    await compareOutputs(
+      env,
+      testDir,
+      `mkdir dir; cp probe.sh dir/; cd dir; chmod +x probe.sh; ${command}`,
+      undefined,
+      undefined,
+      import.meta.url,
+    );
+  });
+
+  it("exports getopts variables and resets OPTIND in a new script", async () => {
+    const env = await setupFiles(testDir, {
+      "probe.sh":
+        '#!/bin/bash\nprintf "[%s] [%s] [%s]\\n" "$JB_FLAG" "$OPTARG" "$OPTIND"\n',
+    });
+    await compareOutputs(
+      env,
+      testDir,
+      "chmod +x probe.sh; set -a; getopts v: JB_FLAG -v argument; set +a; export -p | grep -c ' OPTIND='; ./probe.sh",
+      undefined,
+      undefined,
+      import.meta.url,
+    );
+  });
+
   describe("function-local auto-exports", () => {
     it.each([
+      ["nested read", "JB_VALUE=outer", "g() { read JB_VALUE <<<'inner'; }; g"],
+      [
+        "nested printf -v",
+        "JB_VALUE=outer",
+        "g() { printf -v JB_VALUE %s inner; }; g",
+      ],
+      [
+        "nested read after unexporting the local",
+        "export JB_VALUE=outer",
+        "export -n JB_VALUE; g() { read JB_VALUE <<<'inner'; }; g",
+      ],
       ["arithmetic", "JB_VALUE=outer", "(( JB_VALUE=7 ))"],
       ["printf -v", "JB_VALUE=outer", "printf -v JB_VALUE %s inner"],
       [

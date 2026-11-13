@@ -33,6 +33,7 @@ import {
 import { getArrayElement, setArrayElement } from "../helpers/array.js";
 import { getIfsSeparator } from "../helpers/ifs.js";
 import { getNamerefTarget, isNameref } from "../helpers/nameref.js";
+import { markExported } from "../helpers/readonly.js";
 import { escapeRegex } from "../helpers/regex.js";
 import type { InterpreterContext } from "../types.js";
 import { patternToRegex } from "./pattern.js";
@@ -167,6 +168,9 @@ export async function handleAssignDefault(
       setArrayElement(ctx, arrayName, index, defaultValue);
     } else {
       ctx.state.env.set(parameter, defaultValue);
+      if (ctx.state.options.allexport) {
+        markExported(ctx, parameter);
+      }
     }
     return defaultValue;
   }

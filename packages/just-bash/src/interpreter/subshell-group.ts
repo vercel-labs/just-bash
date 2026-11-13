@@ -31,6 +31,7 @@ import {
   getFdEntry,
 } from "./fd-table.js";
 import { getErrorMessage } from "./helpers/errors.js";
+import { evaluateBinaryFileTest } from "./helpers/file-tests.js";
 import { failure, result } from "./helpers/result.js";
 import { buildBashopts, buildShellopts } from "./helpers/shellopts.js";
 import {
@@ -361,7 +362,6 @@ export async function executeUserScript(
   ctx.state.tempExportedVars = new Set();
   ctx.state.env = new Map<string, string>([
     ["PATH", "/usr/bin:/bin"],
-    ["PWD", ctx.state.cwd],
     ["OSTYPE", "linux-gnu"],
     ["MACHTYPE", "x86_64-pc-linux-gnu"],
     ["HOSTTYPE", "x86_64"],
@@ -374,7 +374,17 @@ export async function executeUserScript(
       ctx.state.env.set(name, value);
     }
   }
-  ctx.state.env.set("PWD", ctx.state.cwd);
+  const inheritedPwd = ctx.state.env.get("PWD");
+  const cwd = ctx.state.cwd;
+  const pwd =
+    inheritedPwd?.startsWith("/") &&
+    (inheritedPwd === cwd ||
+      (await evaluateBinaryFileTest(ctx, "-ef", inheritedPwd, cwd)))
+      ? inheritedPwd
+      : await ctx.fs.realpath(cwd).catch(() => cwd);
+  ctx.state.cwd = ctx.fs.resolvePath(cwd, pwd);
+  ctx.state.env.set("PWD", pwd);
+  ctx.state.exportedVars.add("PWD");
   ctx.state.env.set("IFS", " \t\n");
   ctx.state.env.set("OPTIND", "1");
 
