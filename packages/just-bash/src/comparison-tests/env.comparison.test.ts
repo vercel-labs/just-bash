@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Bash } from "../Bash.js";
 import {
   cleanupTestDir,
+  compareOutputs,
   createTestDir,
   runRealBash,
   setupFiles,
@@ -44,6 +45,23 @@ describe("printenv command - Real Bash Comparison", () => {
 
   afterEach(async () => {
     await cleanupTestDir(testDir);
+  });
+
+  it.each([
+    "JB_LOCAL=local; printenv JB_LOCAL",
+    "JB_LOCAL=local; export JB_EXPORTED=exported; printenv JB_LOCAL JB_EXPORTED",
+    "JB_LOCAL=local; export JB_EXPORTED=exported; printenv | grep '^JB_' | sort",
+    "JB_PREFIX=temporary printenv JB_PREFIX",
+  ])("uses only the exported environment: %s", async (command) => {
+    const env = await setupFiles(testDir, {});
+    await compareOutputs(
+      env,
+      testDir,
+      command,
+      undefined,
+      undefined,
+      import.meta.url,
+    );
   });
 
   describe("specific variable", () => {

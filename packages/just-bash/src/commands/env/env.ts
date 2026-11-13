@@ -145,12 +145,15 @@ export const printenvCommand: RuntimeCommand = {
       return showHelp(printenvHelp);
     }
 
+    const exportedEnv = new Map<string, string>(
+      Object.entries(ctx.exportedEnv ?? Object.create(null)),
+    );
     const vars = args.filter((arg) => !arg.startsWith("-"));
 
     if (vars.length === 0) {
       // Print all
       const lines: string[] = [];
-      for (const [key, value] of ctx.env) {
+      for (const [key, value] of exportedEnv) {
         lines.push(`${key}=${value}`);
       }
       return {
@@ -164,7 +167,7 @@ export const printenvCommand: RuntimeCommand = {
     const lines: string[] = [];
     let exitCode = 0;
     for (const varName of vars) {
-      const value = ctx.env.get(varName);
+      const value = exportedEnv.get(varName);
       if (value !== undefined) {
         lines.push(value);
       } else {

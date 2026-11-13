@@ -63,6 +63,29 @@ describe("executable scripts", () => {
     });
   });
 
+  it.each([
+    ["unset PATH; HOSTNAME=local", "/usr/bin:/bin localhost"],
+    ["export PATH=/bin HOSTNAME=inherited", "/bin inherited"],
+  ])("shares startup defaults with bash script: %s", async (setup, expected) => {
+    const env = new Bash({
+      files: {
+        "/probe.sh": {
+          content: 'printf "%s %s %s\\n" "$PATH" "$HOSTNAME" "$OPTIND"\n',
+          mode: 0o755,
+        },
+      },
+    });
+    for (const command of ["/probe.sh", "/bin/bash /probe.sh"]) {
+      expect(
+        await env.exec(`${setup}; export OPTIND=7; ${command}`),
+      ).toMatchObject({
+        stdout: `${expected} 1\n`,
+        stderr: "",
+        exitCode: 0,
+      });
+    }
+  });
+
   it("initializes shell variables without copying unexported parent values", async () => {
     const env = new Bash({
       files: {

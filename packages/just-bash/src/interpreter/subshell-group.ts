@@ -33,6 +33,7 @@ import {
 import { getErrorMessage } from "./helpers/errors.js";
 import { evaluateBinaryFileTest } from "./helpers/file-tests.js";
 import { failure, result } from "./helpers/result.js";
+import { applyShellEnvironmentDefaults } from "./helpers/shell-environment.js";
 import { buildBashopts, buildShellopts } from "./helpers/shellopts.js";
 import {
   type PreparedRedirections,
@@ -361,11 +362,6 @@ export async function executeUserScript(
   ]);
   ctx.state.tempExportedVars = new Set();
   ctx.state.env = new Map<string, string>([
-    ["PATH", "/usr/bin:/bin"],
-    ["OSTYPE", "linux-gnu"],
-    ["MACHTYPE", "x86_64-pc-linux-gnu"],
-    ["HOSTTYPE", "x86_64"],
-    ["HOSTNAME", "localhost"],
     ["SHELLOPTS", buildShellopts(ctx.state.options)],
     ["BASHOPTS", buildBashopts(ctx.state.shoptOptions)],
   ]);
@@ -385,8 +381,7 @@ export async function executeUserScript(
   ctx.state.cwd = ctx.fs.resolvePath(cwd, pwd);
   ctx.state.env.set("PWD", pwd);
   ctx.state.exportedVars.add("PWD");
-  ctx.state.env.set("IFS", " \t\n");
-  ctx.state.env.set("OPTIND", "1");
+  applyShellEnvironmentDefaults(ctx.state.env);
 
   // Set up subshell-like environment
   ctx.state.parentHasLoopContext = parentLoopDepth > 0;
