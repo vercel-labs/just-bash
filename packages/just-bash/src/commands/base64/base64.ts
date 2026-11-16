@@ -2,7 +2,7 @@
  * base64 - Encode or decode base64
  */
 
-import { latin1FromBytes } from "../../encoding.js";
+import { latin1FromBytes, uint8ArrayFromLatin1 } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type {
@@ -83,7 +83,7 @@ async function readBinary(
     // Convert binary string directly to bytes without UTF-8 re-encoding
     return {
       ok: true,
-      data: Uint8Array.from(stdinBinary, (c) => c.charCodeAt(0)),
+      data: uint8ArrayFromLatin1(stdinBinary),
     };
   }
 
@@ -99,7 +99,7 @@ async function readBinary(
         "string_length",
       );
       // Convert binary string directly to bytes without UTF-8 re-encoding
-      chunks.push(Uint8Array.from(stdinBinary, (c) => c.charCodeAt(0)));
+      chunks.push(uint8ArrayFromLatin1(stdinBinary));
       totalLength += stdinBinary.length;
       continue;
     }

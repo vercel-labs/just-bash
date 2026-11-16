@@ -3,7 +3,11 @@
  * Uses WebCrypto API for SHA algorithms, pure JS for MD5
  */
 
-import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
+import {
+  decodeBytesToUtf8,
+  latin1FromBytes,
+  uint8ArrayFromLatin1,
+} from "../../encoding.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -177,9 +181,7 @@ export function createChecksumCommand(
       // through without decoding.
       const readBinary = async (file: string): Promise<Uint8Array | null> => {
         if (file === "-") {
-          return Uint8Array.from(latin1FromBytes(ctx.stdin), (c) =>
-            c.charCodeAt(0),
-          );
+          return uint8ArrayFromLatin1(latin1FromBytes(ctx.stdin));
         }
         try {
           return await ctx.fs.readFileBuffer(ctx.fs.resolvePath(ctx.cwd, file));

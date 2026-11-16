@@ -2,6 +2,7 @@
  * Shared utilities for filesystem implementations
  */
 
+import { uint8ArrayFromLatin1 } from "../encoding.js";
 import type {
   BufferEncoding,
   ReadFileOptions,
@@ -26,7 +27,7 @@ export function toBuffer(
   }
 
   if (encoding === "base64") {
-    return Uint8Array.from(atob(content), (c) => c.charCodeAt(0));
+    return uint8ArrayFromLatin1(atob(content));
   }
   if (encoding === "hex") {
     const bytes = new Uint8Array(content.length / 2);
@@ -36,16 +37,7 @@ export function toBuffer(
     return bytes;
   }
   if (encoding === "binary" || encoding === "latin1") {
-    // Use chunked approach for large strings to avoid performance issues
-    const chunkSize = 65536; // 64KB chunks
-    if (content.length <= chunkSize) {
-      return Uint8Array.from(content, (c) => c.charCodeAt(0));
-    }
-    const result = new Uint8Array(content.length);
-    for (let i = 0; i < content.length; i++) {
-      result[i] = content.charCodeAt(i);
-    }
-    return result;
+    return uint8ArrayFromLatin1(content);
   }
   // Default to UTF-8 for text content
   return textEncoder.encode(content);

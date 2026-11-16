@@ -7,7 +7,11 @@
  * default size is 1000 lines, and default PREFIX is 'x'.
  */
 
-import { latin1FromBytes, utf8ByteLength } from "../../encoding.js";
+import {
+  latin1FromBytes,
+  uint8ArrayFromLatin1,
+  utf8ByteLength,
+} from "../../encoding.js";
 import type { ResourceLease } from "../../execution-scope.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import {
@@ -50,7 +54,7 @@ const MAX_OUTPUT_FILES = 100_000;
 let splitTransactionId = 0;
 
 function toUint8Array(content: string): Uint8Array {
-  return Uint8Array.from(content, (char) => char.charCodeAt(0));
+  return uint8ArrayFromLatin1(content);
 }
 
 type SplitMode = "lines" | "bytes" | "chunks";
