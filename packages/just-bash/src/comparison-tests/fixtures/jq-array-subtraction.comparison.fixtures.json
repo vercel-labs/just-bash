@@ -1,0 +1,83 @@
+{
+  "0beb8059bca363d9": {
+    "command": "jq -c '.arr -= [{\"b\":2,\"a\":1}]' input.json",
+    "files": {
+      "input.json": "{\"arr\":[{\"a\":1,\"b\":2}]}"
+    },
+    "stdout": "{\"arr\":[]}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1aa4e1742878249d": {
+    "command": "jq -c '[nan] - [nan]' input.json",
+    "files": {
+      "input.json": "null"
+    },
+    "stdout": "[null]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1af4824449eba658": {
+    "command": "jq -c '. - [1,true,{},[]]' input.json",
+    "files": {
+      "input.json": "[1,\"1\",true,false,null,{},[]]"
+    },
+    "stdout": "[\"1\",false,null]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "65b858e624c6a51f": {
+    "command": "jq -c '. - [{\"hasOwnProperty\":3,\"valueOf\":2,\"toString\":1}]' input.json",
+    "files": {
+      "input.json": "[{\"toString\":1,\"valueOf\":2,\"hasOwnProperty\":3}]"
+    },
+    "stdout": "[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6ca40e104baed23f": {
+    "command": "jq -c '. - [[1,2]]' input.json",
+    "files": {
+      "input.json": "[[1,2],[2,1],[1,2]]"
+    },
+    "stdout": "[[2,1]]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c6c2f78b80bfbf64": {
+    "command": "jq -c '. - [{\"é\":1}]' input.json",
+    "files": {
+      "input.json": "[{\"é\":1},{\"é\":1}]"
+    },
+    "stdout": "[{\"é\":1}]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e916349409fe3442": {
+    "command": "jq -c '. - [{\"b\":1}]' input.json",
+    "files": {
+      "input.json": "[{\"a\":1},{\"b\":1},{\"a\":2}]"
+    },
+    "stdout": "[{\"a\":1},{\"a\":2}]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f0cc0bb40116d6bc": {
+    "command": "jq -c '. - [{\"b\":0,\"a\":[{\"y\":2,\"x\":1}]}]' input.json",
+    "files": {
+      "input.json": "[{\"a\":[{\"x\":1,\"y\":2}],\"b\":0}, {\"b\":0,\"a\":[{\"y\":2,\"x\":1}]}]"
+    },
+    "stdout": "[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fbd74ccfa12a7ba0": {
+    "command": "jq -c '[nan] - [null]' input.json",
+    "files": {
+      "input.json": "null"
+    },
+    "stdout": "[null]\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
