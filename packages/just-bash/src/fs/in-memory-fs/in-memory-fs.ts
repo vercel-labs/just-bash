@@ -4,6 +4,10 @@ import {
   utf8ByteLength,
 } from "../../encoding.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
+import {
+  getFileOperationBudget,
+  resolveDestinationPath,
+} from "../destination-parent.js";
 import { fromBuffer, getEncoding, toBuffer } from "../encoding.js";
 import type {
   BufferEncoding,
@@ -14,6 +18,7 @@ import type {
   FileContent,
   FileEntry,
   FileInit,
+  FileSystemOperationOptions,
   FsEntry,
   FsStat,
   IFileSystem,
@@ -808,18 +813,37 @@ export class InMemoryFs implements IFileSystem {
   }
 
   async cp(src: string, dest: string, options?: CpOptions): Promise<void> {
+    const traversalBudget = getFileOperationBudget(options, "cp");
+    traversalBudget.checkpoint();
     validatePath(src, "cp");
     validatePath(dest, "cp");
     const srcNorm = normalizePath(src);
-    const destNorm = normalizePath(dest);
+    let destNorm = normalizePath(dest);
     const srcEntry = this.data.get(srcNorm);
 
     if (!srcEntry) {
       throw new Error(`ENOENT: no such file or directory, cp '${src}'`);
     }
 
+    if (srcEntry.type === "directory") {
+      if (!options?.recursive) {
+        throw new Error(`EISDIR: is a directory, cp '${src}'`);
+      }
+    }
+
+    destNorm = await resolveDestinationPath(this, dest, {
+      allowMissingDirectory: srcEntry.type === "directory",
+      budget: traversalBudget,
+    });
+    traversalBudget.checkpoint(0);
+    if (
+      srcEntry.type === "directory" &&
+      isSameOrDescendantPath(srcNorm, destNorm)
+    ) {
+      throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
+    }
+
     if (srcEntry.type === "file") {
-      this.ensureParentDirs(destNorm);
       // Deep copy: create a new Uint8Array to avoid sharing the buffer reference
       if ("content" in srcEntry) {
         const sourceBytes =
@@ -838,36 +862,42 @@ export class InMemoryFs implements IFileSystem {
       }
     } else if (srcEntry.type === "symlink") {
       // Copy the symlink itself (not its target)
-      this.ensureParentDirs(destNorm);
       this.data.set(destNorm, { ...srcEntry });
     } else if (srcEntry.type === "directory") {
-      if (!options?.recursive) {
-        throw new Error(`EISDIR: is a directory, cp '${src}'`);
-      }
-      if (isSameOrDescendantPath(srcNorm, destNorm)) {
-        throw new Error(`EINVAL: cannot copy '${src}' into itself, '${dest}'`);
-      }
       await this.mkdir(destNorm, { recursive: true });
       const children = await this.readdir(srcNorm);
+      traversalBudget.checkpoint(0);
       for (const child of children) {
         const srcChild = joinPath(srcNorm, child);
         const destChild = joinPath(destNorm, child);
-        await this.cp(srcChild, destChild, options);
+        await this.cp(srcChild, destChild, { ...options, traversalBudget });
       }
     }
   }
 
-  async mv(src: string, dest: string): Promise<void> {
+  async mv(
+    src: string,
+    dest: string,
+    options?: FileSystemOperationOptions,
+  ): Promise<void> {
+    const traversalBudget = getFileOperationBudget(options, "mv");
+    traversalBudget.checkpoint();
     validatePath(src, "mv");
     validatePath(dest, "mv");
     const srcNorm = normalizePath(src);
-    const destNorm = normalizePath(dest);
-    if (srcNorm === destNorm) return;
+    let destNorm = normalizePath(dest);
 
     const source = this.data.get(srcNorm);
     if (!source) {
       throw new Error(`ENOENT: no such file or directory, mv '${src}'`);
     }
+
+    destNorm = await resolveDestinationPath(this, dest, {
+      allowMissingDirectory: source.type === "directory",
+      budget: traversalBudget,
+    });
+    traversalBudget.checkpoint(0);
+    if (srcNorm === destNorm) return;
     if (
       source.type === "directory" &&
       isSameOrDescendantPath(srcNorm, destNorm)
@@ -878,14 +908,17 @@ export class InMemoryFs implements IFileSystem {
     if (source.type === "directory") {
       await this.mkdir(destNorm, { recursive: true });
       const children = await this.readdir(srcNorm);
+      traversalBudget.checkpoint(0);
       for (const child of children) {
-        await this.mv(joinPath(srcNorm, child), joinPath(destNorm, child));
+        await this.mv(joinPath(srcNorm, child), joinPath(destNorm, child), {
+          traversalBudget,
+        });
       }
+      traversalBudget.checkpoint(0);
       this.deleteEntry(srcNorm);
       return;
     }
 
-    this.ensureParentDirs(destNorm);
     // Reuse the same body while the old path still retains it. The accounting
     // helper therefore sees an existing reference and a rename never needs
     // temporary capacity equal to the file size.

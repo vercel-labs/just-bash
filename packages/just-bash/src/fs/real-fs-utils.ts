@@ -14,11 +14,7 @@ import * as fs from "node:fs";
 import * as nodePath from "node:path";
 
 // Re-export path utilities used by callers that import from real-fs-utils.
-export {
-  isSameOrDescendantPath,
-  normalizePath,
-  validatePath,
-} from "./path-utils.js";
+export { normalizePath, validatePath } from "./path-utils.js";
 
 /**
  * Check whether `resolved` is equal to, or a child of, `canonicalRoot`.
