@@ -12,6 +12,7 @@ import {
   splitByIfsForRead,
   stripTrailingIfsWhitespace,
 } from "../helpers/ifs.js";
+import { resolveScalarNameref } from "../helpers/nameref.js";
 import { checkReadonlyError, markExported } from "../helpers/readonly.js";
 import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
@@ -21,9 +22,12 @@ function assignReadVariable(
   name: string,
   value: string,
 ): void {
-  ctx.state.env.set(name, value);
+  const target = resolveScalarNameref(ctx, name);
+  if (target === undefined) return;
+  checkReadonlyError(ctx, target);
+  ctx.state.env.set(target, value);
   if (ctx.state.options.allexport) {
-    markExported(ctx, name);
+    markExported(ctx, target);
   }
 }
 
@@ -208,6 +212,10 @@ export function handleRead(
     return result("", "", 1);
   }
 
+  if (timeout === 0) {
+    return result("", "", 0);
+  }
+
   // Default variable is REPLY
   if (varNames.length === 0 && arrayName === null) {
     varNames.push("REPLY");
@@ -227,24 +235,6 @@ export function handleRead(
   }
 
   // Note: prompt (-p) would typically output to terminal, but we ignore it in non-interactive mode
-
-  // Handle -t 0: check if input is available without reading
-  // In bash, -t 0 is a "poll" operation that always succeeds (returns 0) as long as
-  // stdin is valid/readable. It doesn't actually read any data.
-  if (timeout === 0) {
-    // Clear any variables to empty (read doesn't actually read anything)
-    if (arrayName) {
-      clearArray(ctx, arrayName);
-    } else {
-      for (const name of varNames) {
-        assignReadVariable(ctx, name, "");
-      }
-      if (varNames.length === 0) {
-        assignReadVariable(ctx, "REPLY", "");
-      }
-    }
-    return result("", "", 0); // Always succeed - stdin is valid
-  }
 
   // Handle negative timeout - bash returns exit code 1
   if (timeout < 0 && timeout !== -1) {

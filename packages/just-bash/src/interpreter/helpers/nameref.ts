@@ -151,6 +151,14 @@ export function resolveNameref(
   return undefined;
 }
 
+export function resolveScalarNameref(
+  ctx: InterpreterContext,
+  name: string,
+): string | undefined {
+  const target = resolveNameref(ctx, name);
+  return target?.includes("[") ? undefined : target;
+}
+
 /**
  * Get the target name of a nameref (what it points to).
  * Returns the variable's value if it's a nameref, undefined otherwise.

@@ -81,6 +81,26 @@ describe("export command - Real Bash Comparison", () => {
         "set -a; read -n 5 JB_EXPORTED <<<'value'; set +a; ./probe.sh",
       ],
       [
+        "file descriptor variables respect allexport",
+        "set -a; exec {JB_EXPORTED}>out; set +a; ./probe.sh",
+      ],
+      [
+        "read polling leaves its destination alone",
+        'JB_LOCAL=secret; set -a; read -t 0 JB_LOCAL <<<new; set +a; ./probe.sh; printf "[%s]\\n" "$JB_LOCAL"',
+      ],
+      [
+        "read auto-exports the nameref target",
+        "JB_EXPORTED=old; declare -n ref=JB_EXPORTED; set -a; read ref <<<new; set +a; ./probe.sh",
+      ],
+      [
+        "arithmetic auto-exports the nameref target",
+        "JB_EXPORTED=4; declare -n ref=JB_EXPORTED; set -a; (( ref+=3 )); set +a; ./probe.sh",
+      ],
+      [
+        "getopts auto-exports the nameref target",
+        "declare -n ref=JB_EXPORTED; set -a; getopts a ref -a; set +a; ./probe.sh",
+      ],
+      [
         "for respects allexport",
         "set -a; for JB_EXPORTED in value; do :; done; set +a; ./probe.sh",
       ],

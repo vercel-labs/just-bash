@@ -225,6 +225,9 @@ export class Interpreter {
 
     // Use null-prototype to prevent prototype pollution via user-controlled variable names
     const env: Record<string, string> = Object.create(null);
+    for (const [name, value] of this.ctx.state.parameterNamedEnv ?? []) {
+      env[name] = value;
+    }
     for (const name of allExported) {
       const value = this.ctx.state.env.get(name);
       if (value !== undefined) {

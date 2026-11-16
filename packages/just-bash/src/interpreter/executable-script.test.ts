@@ -86,6 +86,62 @@ describe("executable scripts", () => {
     }
   });
 
+  it("shares working directory validation with explicit bash invocations", async () => {
+    const env = new Bash({
+      files: { "/probe.sh": { content: "printenv PWD", mode: 0o755 } },
+    });
+    await env.exec("mkdir /actual; ln -s /actual /alias");
+    for (const command of ["/probe.sh", "bash /probe.sh"]) {
+      expect(
+        await env.exec(
+          `cd /actual; PWD=/fake ${command}; PWD=/alias ${command}`,
+        ),
+      ).toMatchObject({
+        stdout: "/actual\n/alias\n",
+        stderr: "",
+        exitCode: 0,
+      });
+    }
+  });
+
+  it("rebuilds option variables from the child shell's active options", async () => {
+    const env = new Bash({
+      files: {
+        "/probe.sh": {
+          content:
+            "[[ :$SHELLOPTS: != *:nounset:* && :$BASHOPTS: != *:extglob:* ]]",
+          mode: 0o755,
+        },
+      },
+    });
+    for (const command of ["/probe.sh", "bash /probe.sh"]) {
+      expect(
+        await env.exec(`env SHELLOPTS=nounset BASHOPTS=extglob ${command}`),
+      ).toMatchObject({ stdout: "", stderr: "", exitCode: 0 });
+    }
+  });
+
+  it("exports OLDPWD assigned by cd with allexport", async () => {
+    const env = new Bash({
+      cwd: "/",
+      files: { "/probe.sh": { content: "printenv OLDPWD", mode: 0o755 } },
+    });
+    expect(
+      await env.exec(
+        "mkdir /dir; unset OLDPWD; set -a; cd /dir; set +a; /probe.sh",
+      ),
+    ).toMatchObject({ stdout: "/\n", stderr: "", exitCode: 0 });
+  });
+
+  it("keeps inherited environment names separate from positional parameters", async () => {
+    const env = new Bash();
+    expect(
+      await env.exec(
+        `env -i 'HTTP.PROXY=value' '1=env' bash -c 'echo "$1"; printenv HTTP.PROXY 1' _ arg`,
+      ),
+    ).toMatchObject({ stdout: "arg\nvalue\nenv\n", stderr: "", exitCode: 0 });
+  });
+
   it("initializes shell variables without copying unexported parent values", async () => {
     const env = new Bash({
       files: {

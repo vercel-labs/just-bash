@@ -29,6 +29,7 @@ import { Parser } from "../parser/parser.js";
 import { ArithmeticError, NounsetError } from "./errors.js";
 import { getArrayElements, getVariable } from "./expansion.js";
 import { getArrayElement, hasArray, setArrayElement } from "./helpers/array.js";
+import { resolveScalarNameref } from "./helpers/nameref.js";
 import { markExported } from "./helpers/readonly.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -37,9 +38,11 @@ function assignArithmeticVariable(
   name: string,
   value: string,
 ): void {
-  ctx.state.env.set(name, value);
+  const target = resolveScalarNameref(ctx, name);
+  if (target === undefined) return;
+  ctx.state.env.set(target, value);
   if (ctx.state.options.allexport) {
-    markExported(ctx, name);
+    markExported(ctx, target);
   }
 }
 
@@ -176,7 +179,9 @@ async function getArithVariable(
   name: string,
 ): Promise<string> {
   // First try to get the direct variable value
-  const directValue = ctx.state.env.get(name);
+  const directValue = ctx.state.env.get(
+    resolveScalarNameref(ctx, name) ?? name,
+  );
   if (directValue !== undefined) {
     return directValue;
   }
@@ -825,7 +830,7 @@ async function evaluateArithmeticInternal(
 
       const currentValue =
         arrayKey === undefined
-          ? ctx.state.env.get(envKey)
+          ? ctx.state.env.get(resolveScalarNameref(ctx, envKey) ?? envKey)
           : getArrayElement(ctx, name, arrayKey);
       const current = Number.parseInt(currentValue || "0", 10) || 0;
       const value = await evaluate(expr.value);
@@ -894,8 +899,11 @@ async function evaluateArithmeticInternal(
         const index = await evaluate(expr.subscript);
         envKey = `${varName}_${index}`;
       }
+      const target = expr.subscript
+        ? envKey
+        : (resolveScalarNameref(ctx, envKey) ?? envKey);
       const current =
-        Number.parseInt(ctx.state.env.get(envKey) || "0", 10) || 0;
+        Number.parseInt(ctx.state.env.get(target) || "0", 10) || 0;
       const value = await evaluate(expr.value);
       const newValue = applyAssignmentOp(current, value, expr.operator);
       if (expr.subscript) ctx.state.env.set(envKey, String(newValue));

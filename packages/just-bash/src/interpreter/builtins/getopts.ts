@@ -15,6 +15,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
+import { resolveScalarNameref } from "../helpers/nameref.js";
 import { markExported, unmarkExported } from "../helpers/readonly.js";
 import { failure } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
@@ -66,9 +67,11 @@ export function handleGetopts(
   );
 
   const assign = (name: string, value: string): void => {
-    ctx.state.env.set(name, value);
+    const target = resolveScalarNameref(ctx, name);
+    if (target === undefined) return;
+    ctx.state.env.set(target, value);
     if (ctx.state.options.allexport) {
-      markExported(ctx, name);
+      markExported(ctx, target);
     }
   };
 

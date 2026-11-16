@@ -1,3 +1,30 @@
+import type { IFileSystem } from "../../fs/interface.js";
+import { evaluateBinaryFileTest } from "./file-tests.js";
+
+export function isShellParameterName(name: string): boolean {
+  return /^(?:[0-9]+|[?#@*$!-])$/.test(name);
+}
+
+export async function resolveShellPwd(
+  fs: IFileSystem,
+  cwd: string,
+  inheritedPwd: string | undefined,
+): Promise<string> {
+  if (inheritedPwd === cwd) return inheritedPwd;
+  if (
+    inheritedPwd?.startsWith("/") &&
+    (await evaluateBinaryFileTest(
+      { fs, state: { cwd } },
+      "-ef",
+      inheritedPwd,
+      cwd,
+    ))
+  ) {
+    return inheritedPwd;
+  }
+  return fs.realpath(cwd).catch(() => cwd);
+}
+
 const INHERITABLE_DEFAULTS = [
   ["PATH", "/usr/bin:/bin"],
   ["OSTYPE", "linux-gnu"],
