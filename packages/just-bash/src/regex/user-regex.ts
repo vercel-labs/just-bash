@@ -8,7 +8,7 @@
  * Internal patterns (those we control) can use ConstantRegex for the same interface.
  */
 
-import { RE2JS, RE2JSSyntaxException } from "re2js";
+import { RE2JS, RE2JSGroupException, RE2JSSyntaxException } from "re2js";
 import { BoundedStringBuilder } from "../bounded-builder.js";
 import { ExecutionLimitError } from "../interpreter/errors.js";
 
@@ -107,6 +107,125 @@ function compilePattern(pattern: string, flags: string): RE2JS {
   return compiled;
 }
 
+type Re2Matcher = ReturnType<RE2JS["matcher"]>;
+type MatcherLike = Pick<Re2Matcher, "find" | "start" | "end" | "group">;
+
+const LITERAL_ESCAPABLE = "\\^$.|?*+()[]{}";
+// The only non-ASCII characters that RE2 case folding maps to ASCII letters:
+// U+212A KELVIN SIGN (k) and U+017F LATIN SMALL LETTER LONG S (s).
+const FOLDS_TO_ASCII = /[\u212A\u017F]/;
+
+// V8 compiles a regex lazily and throws "Regular expression too large" on the
+// first exec past 32,767 characters, so longer literals stay on RE2.
+const FOLDED_LITERAL_MAX_LENGTH = 1024;
+
+interface FoldedLiteral {
+  readonly regex: RegExp;
+  readonly length: number;
+  readonly foldsOutsideAscii: boolean;
+}
+
+/**
+ * Builds a native search for a pattern that is a plain printable-ASCII
+ * literal (metacharacters only as escapes), or returns null.
+ */
+function foldedLiteral(pattern: string): FoldedLiteral | null {
+  if (pattern.length > FOLDED_LITERAL_MAX_LENGTH) return null;
+  let literal = "";
+  let source = "";
+  for (let i = 0; i < pattern.length; i++) {
+    let char = pattern[i];
+    if (char === "\\") {
+      char = pattern[++i] ?? "";
+      if (char === "" || !LITERAL_ESCAPABLE.includes(char)) return null;
+      source += `\\${char}`;
+    } else if (char < " " || char > "~" || LITERAL_ESCAPABLE.includes(char)) {
+      return null;
+    } else {
+      source += char;
+    }
+    literal += char;
+  }
+  if (literal.length === 0) return null;
+  return {
+    regex: new RegExp(source, "gi"),
+    length: literal.length,
+    foldsOutsideAscii: /[ks]/i.test(literal),
+  };
+}
+
+/**
+ * Finds a case-insensitive ASCII literal with a native RegExp.
+ *
+ * re2js only skips ahead to candidate matches when the pattern starts with a
+ * case-sensitive literal, so a case-insensitive search steps the NFA through
+ * every input character. A literal cannot backtrack, so a native RegExp is
+ * safe here. Without the `u` flag, native case-insensitive matching never maps
+ * a non-ASCII character to an ASCII one, so it matches the same text as RE2
+ * except for FOLDS_TO_ASCII; inputs containing those characters stay on RE2
+ * when the literal contains "k" or "s".
+ */
+class FoldedLiteralMatcher implements MatcherLike {
+  private matchStart = -1;
+
+  constructor(
+    private readonly literal: FoldedLiteral,
+    readonly input: string,
+  ) {}
+
+  static supports(literal: FoldedLiteral, input: string): boolean {
+    return !literal.foldsOutsideAscii || !FOLDS_TO_ASCII.test(input);
+  }
+
+  reset(): void {
+    this.matchStart = -1;
+  }
+
+  find(start?: number): boolean {
+    let from = 0;
+    if (start !== undefined) {
+      if (start < 0 || start > this.input.length) {
+        throw new RE2JSGroupException(`start index out of bounds: ${start}`);
+      }
+      from = start;
+    } else if (this.matchStart !== -1) {
+      from = this.matchStart + this.literal.length;
+    }
+    const regex = this.literal.regex;
+    regex.lastIndex = from;
+    const match = regex.exec(this.input);
+    this.matchStart = match === null ? -1 : match.index;
+    return match !== null;
+  }
+
+  start(group = 0): number {
+    this.checkGroup(group);
+    return this.matchStart;
+  }
+
+  end(group = 0): number {
+    this.checkGroup(group);
+    return this.matchStart + this.literal.length;
+  }
+
+  group(group = 0): string {
+    this.checkGroup(group);
+    return this.input.slice(
+      this.matchStart,
+      this.matchStart + this.literal.length,
+    );
+  }
+
+  private checkGroup(group: number): void {
+    if (this.matchStart === -1) {
+      throw new RE2JSGroupException("perhaps no match attempted");
+    }
+    if (group !== 0) {
+      throw new RE2JSGroupException(`Group index out of bounds: ${group}`);
+    }
+  }
+}
+
 /**
  * A wrapper around RE2JS that provides a RegExp-compatible interface.
  * Uses RE2 for linear-time matching, providing ReDoS protection.
@@ -125,8 +244,12 @@ export class UserRegex implements RegexLike {
   // Matcher allocation dominates regex.test/exec cost when called once per line
   // across thousands of lines. We mutate charSequence in-place (not resetMatcherInput,
   // which is broken in re2js 1.2.1 — see acquireMatcher).
-  private _matcher: ReturnType<RE2JS["matcher"]> | null = null;
+  private _matcher: Re2Matcher | null = null;
   private _matcherInput: string | null = null;
+  // Set when the pattern is a case-insensitive ASCII literal; see
+  // FoldedLiteralMatcher.
+  private readonly _foldedLiteral: FoldedLiteral | null;
+  private _literalMatcher: FoldedLiteralMatcher | null = null;
   private readonly maxResults: number;
   private readonly maxOutputBytes: number;
   private readonly signal?: AbortSignal;
@@ -191,7 +314,29 @@ export class UserRegex implements RegexLike {
     return output.build();
   }
 
-  private acquireMatcher(input: string): ReturnType<RE2JS["matcher"]> {
+  private createMatcher(input: string): MatcherLike {
+    const literal = this._foldedLiteral;
+    if (literal !== null && FoldedLiteralMatcher.supports(literal, input)) {
+      return new FoldedLiteralMatcher(literal, input);
+    }
+    return this._re2.matcher(input);
+  }
+
+  private acquireMatcher(input: string): MatcherLike {
+    const literal = this._foldedLiteral;
+    if (literal !== null) {
+      if (this._literalMatcher?.input === input) {
+        this._literalMatcher.reset();
+        return this._literalMatcher;
+      }
+      if (
+        this._matcherInput !== input &&
+        FoldedLiteralMatcher.supports(literal, input)
+      ) {
+        this._literalMatcher = new FoldedLiteralMatcher(literal, input);
+        return this._literalMatcher;
+      }
+    }
     if (this._matcher === null) {
       this._matcher = this._re2.matcher(input);
       this._matcherInput = input;
@@ -220,6 +365,7 @@ export class UserRegex implements RegexLike {
     this._global = flags.includes("g");
     this._ignoreCase = flags.includes("i");
     this._multiline = flags.includes("m");
+    this._foldedLiteral = this._ignoreCase ? foldedLiteral(pattern) : null;
     this.maxResults = limits.maxResults ?? DEFAULT_MAX_REGEX_RESULTS;
     this.maxOutputBytes =
       limits.maxOutputBytes ?? DEFAULT_MAX_REGEX_OUTPUT_BYTES;
@@ -418,7 +564,7 @@ export class UserRegex implements RegexLike {
       this.maxOutputBytes,
       "regular expression replacement",
     );
-    const matcher = this._re2.matcher(input);
+    const matcher = this.createMatcher(input);
     let lastEnd = 0;
     let pos = 0;
     let matchCount = 0;
@@ -492,7 +638,7 @@ export class UserRegex implements RegexLike {
         ? this.maxResults
         : Math.min(limit, this.maxResults);
     const result: string[] = [];
-    const matcher = this._re2.matcher(input);
+    const matcher = this.createMatcher(input);
     let lastEnd = 0;
     let searchFrom = 0;
     while (result.length < effectiveLimit && matcher.find(searchFrom)) {
@@ -531,7 +677,7 @@ export class UserRegex implements RegexLike {
     // would be corrupted if a caller interleaves any other method on the same
     // UserRegex instance between two `next()` calls (acquireMatcher would
     // reset/repoint it). Use a fresh Matcher to keep iterator state private.
-    const matcher = this._re2.matcher(input);
+    const matcher = this.createMatcher(input);
     const groupCount = this._re2.groupCount();
     const namedGroups = this._re2.namedGroups();
     let pos = 0;
