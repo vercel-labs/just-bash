@@ -534,7 +534,7 @@ export async function dispatchBuiltin(
     return handleRead(ctx, args, stdin, stdinSourceFd);
   }
   if (commandName === "mapfile" || commandName === "readarray") {
-    return handleMapfile(ctx, args, stdin);
+    return handleMapfile(ctx, args, stdin, stdinSourceFd);
   }
   if (commandName === "declare" || commandName === "typeset") {
     return handleDeclare(ctx, args);
