@@ -40,6 +40,21 @@ describe("OverlayFs", () => {
       }).toThrow("not a directory");
     });
 
+    it("reads a child when the root is a symlink to /", async () => {
+      const link = path.join(tempDir, "host-root");
+      fs.symlinkSync("/", link, "dir");
+      const overlay = new OverlayFs({ root: link, mountPoint: "/" });
+      const child = fs
+        .readdirSync("/", { withFileTypes: true })
+        .find((entry) => entry.isDirectory());
+      expect(child).toBeDefined();
+
+      // readdir reports a rejected directory as empty, so check with stat,
+      // which throws ENOENT for it.
+      const stat = await overlay.stat(`/${child?.name}`);
+      expect(stat.isDirectory).toBe(true);
+    });
+
     it("bounds aggregate copy-on-write memory and releases removed files", async () => {
       const overlay = new OverlayFs({
         root: tempDir,

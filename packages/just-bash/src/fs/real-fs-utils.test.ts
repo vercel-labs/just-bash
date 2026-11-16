@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   isPathWithinRoot,
   normalizePath,
+  resolveCanonicalPathNoSymlinks,
   sanitizeSymlinkTarget,
   toVirtualPath,
   validatePath,
@@ -190,6 +191,59 @@ describe("toVirtualPath", () => {
       toVirtualPath("\\\\server\\share\\dir\\file.txt", "\\\\server\\share"),
     ).toBe("/dir/file.txt");
     expect(toVirtualPath("\\\\server\\share", "\\\\server\\share")).toBe("/");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveCanonicalPathNoSymlinks
+// ---------------------------------------------------------------------------
+describe("resolveCanonicalPathNoSymlinks", () => {
+  let tempDir: string;
+  let root: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "no-symlinks-root-"));
+    root = path.join(tempDir, "host-root");
+    fs.symlinkSync("/", root, "dir");
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("accepts a child when the root is a symlink to /", () => {
+    // Dirent.isDirectory() is false for symlinks, so this child is its own
+    // canonical path.
+    const child = fs
+      .readdirSync("/", { withFileTypes: true })
+      .find((entry) => entry.isDirectory());
+    expect(child).toBeDefined();
+
+    expect(
+      resolveCanonicalPathNoSymlinks(
+        path.join(root, child?.name ?? ""),
+        root,
+        fs.realpathSync(root),
+      ),
+    ).toBe(`/${child?.name}`);
+  });
+
+  it("still rejects a path through a symlinked directory when the root is a symlink to /", () => {
+    // The symlink is a parent component, so only the relative path
+    // comparison can catch it (the leaf check only sees file.txt).
+    const target = path.join(tempDir, "target");
+    fs.mkdirSync(target);
+    fs.writeFileSync(path.join(target, "file.txt"), "x");
+    const link = path.join(tempDir, "link");
+    fs.symlinkSync(target, link, "dir");
+
+    expect(
+      resolveCanonicalPathNoSymlinks(
+        path.join(root, link, "file.txt"),
+        root,
+        fs.realpathSync(root),
+      ),
+    ).toBeNull();
   });
 });
 

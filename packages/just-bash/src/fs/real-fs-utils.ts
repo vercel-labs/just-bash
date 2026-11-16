@@ -23,8 +23,8 @@ export {
 /**
  * Compute `target` relative to `canonicalRoot` with the path API that matches
  * the root: win32 for drive roots (`D:\`, `D:/`) and UNC roots
- * (`\\server\share`), posix otherwise.  Shared by `isPathWithinRoot` and
- * `toVirtualPath` so the two cannot disagree about which API applies.
+ * (`\\server\share`), posix otherwise.  Every root-relative comparison
+ * goes through here so they cannot disagree about which API applies.
  */
 function relativeToRoot(
   target: string,
@@ -178,8 +178,8 @@ export function resolveCanonicalPathNoSymlinks(
   if (canonical === null) return null;
 
   const resolvedReal = nodePath.resolve(realPath);
-  const relFromRoot = resolvedReal.slice(root.length);
-  const relFromCanonical = canonical.slice(canonicalRoot.length);
+  const relFromRoot = relativeToRoot(resolvedReal, root).relative;
+  const relFromCanonical = relativeToRoot(canonical, canonicalRoot).relative;
 
   if (relFromRoot !== relFromCanonical) {
     return null; // symlink was traversed

@@ -54,6 +54,21 @@ describe("ReadWriteFs root directory", () => {
     );
   });
 
+  it("reads a child when the root is a symlink to /", async () => {
+    const link = path.join(root, "host-root");
+    fs.symlinkSync("/", link, "dir");
+    const rwfs = new ReadWriteFs({ root: link });
+    const child = fs
+      .readdirSync("/", { withFileTypes: true })
+      .find((entry) => entry.isDirectory());
+    expect(child).toBeDefined();
+
+    // stat, not readdir: some host-root directories are not readable by
+    // every user.
+    const stat = await rwfs.stat(`/${child?.name}`);
+    expect(stat.isDirectory).toBe(true);
+  });
+
   it.each([
     false,
     true,
