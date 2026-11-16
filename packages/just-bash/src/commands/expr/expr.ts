@@ -67,12 +67,16 @@ function formatInteger(value: number): string {
 
 // Compare Unicode code points, matching byte ordering in the C UTF-8 locale.
 function compareStrings(left: string, right: string): number {
-  const a = Array.from(left, (char) => char.codePointAt(0) ?? 0);
-  const b = Array.from(right, (char) => char.codePointAt(0) ?? 0);
-  for (let j = 0; j < Math.min(a.length, b.length); j++) {
-    if (a[j] !== b[j]) return a[j] - b[j];
+  let a = 0;
+  let b = 0;
+  while (a < left.length && b < right.length) {
+    const leftPoint = left.codePointAt(a) ?? 0;
+    const rightPoint = right.codePointAt(b) ?? 0;
+    if (leftPoint !== rightPoint) return leftPoint - rightPoint;
+    a += leftPoint > 0xffff ? 2 : 1;
+    b += rightPoint > 0xffff ? 2 : 1;
   }
-  return a.length - b.length;
+  return (left.length - a) - (right.length - b);
 }
 
 function evaluateExpr(
@@ -129,7 +133,8 @@ function evaluateExpr(
         const leftNum = integerValue(left);
         const rightNum = integerValue(right);
         const isNumeric = !Number.isNaN(leftNum) && !Number.isNaN(rightNum);
-        const stringOrder = isNumeric ? 0 : compareStrings(left, right);
+        const stringOrder =
+          isNumeric || op === "=" || op === "!=" ? 0 : compareStrings(left, right);
 
         let result: boolean;
         if (op === "=") {

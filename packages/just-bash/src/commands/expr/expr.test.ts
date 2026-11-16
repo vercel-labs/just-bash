@@ -36,8 +36,8 @@ describe("expr integer operands", () => {
   });
 
   it.each([
-    "1000000000000 '*' 1000000000 '*' 0",
-    "'(' 1000000000000000000000 + 0 ')' '*' 0",
+    "1000000000000 '*' 1000000000 - 1000000000000000000000",
+    "'(' 1000000000000000000000 + 0 ')' - 1000000000000000000000",
   ])("keeps large intermediate results parseable: %s", async (expression) => {
     const result = await new Bash().exec(`expr ${expression}`);
     expect(result).toMatchObject({ stdout: "0\n", stderr: "", exitCode: 1 });
