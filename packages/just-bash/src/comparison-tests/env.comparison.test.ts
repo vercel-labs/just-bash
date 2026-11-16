@@ -84,6 +84,38 @@ describe("env command - Real Bash Comparison", () => {
         "export assignments and unexporting resolve namerefs",
         "JB_VALUE=value; declare -n JB_REF=JB_VALUE; export JB_REF+=more; printenv JB_VALUE; export -n JB_REF; printenv JB_VALUE",
       ],
+      [
+        "unexported locals expose an outer export to child commands",
+        "export X=outer; f() { local X=inner; export -n X; printenv X; env printenv X; }; f",
+      ],
+      [
+        "locals unset in their own scope expose an outer export",
+        "export X=outer; f() { local X=inner; unset X; printenv X; }; f",
+      ],
+      [
+        "unsetting a local from a nested function restores the outer export",
+        "export X=outer; f() { local X=inner; g; printenv X; }; g() { unset X; }; f",
+      ],
+      [
+        "changes to the revealed outer binding survive function return",
+        'export X=outer; f() { local X=inner; g; X=changed; export -n X; }; g() { unset X; }; f; echo "$X"; printenv X',
+      ],
+      [
+        "nameref exports assign to array elements without exporting the element",
+        `A=(a b); declare -n ref='A[1]'; export ref=two; echo "$? ${"${A[1]}"}"; export -n ref+=X; echo "$? ${"${A[1]}"}"`,
+      ],
+      [
+        "nameref exports respect integer and case attributes",
+        'declare -i v=0; declare -u word=a; declare -n n=v r=word; export n=1+2 r=hello; printenv v word; export n+=4; printenv v; export -n n+=5 r+=world; echo "$v $word"; printenv v word',
+      ],
+      [
+        "local -x arrays retain their export attribute",
+        "f() { local -x JB_ARRAY=(one two); declare -xp | grep JB_ARRAY; printenv JB_ARRAY; }; f",
+      ],
+      [
+        "nested shells reset the command environment underscore",
+        `env -i '_=stale' bash -c '[[ $(printenv _) = $(type -P printenv) ]]'`,
+      ],
       ["empty env stays empty", "env -i env"],
       ["empty printenv stays empty", "env -i printenv"],
       [

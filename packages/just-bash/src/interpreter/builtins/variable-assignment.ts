@@ -212,6 +212,7 @@ export function pushLocalVarStack(
   const stack = ctx.state.localVarStack.get(name) || [];
   stack.push({
     value: currentValue,
+    exported: ctx.state.exportedVars?.has(name) ?? false,
     scopeIndex: ctx.state.localScopes.length - 1,
   });
   ctx.state.localVarStack.set(name, stack);
@@ -224,7 +225,9 @@ export function pushLocalVarStack(
 export function popLocalVarStack(
   ctx: InterpreterContext,
   name: string,
-): { value: string | undefined; scopeIndex: number } | undefined {
+):
+  | { value: string | undefined; scopeIndex: number; exported: boolean }
+  | undefined {
   const stack = ctx.state.localVarStack?.get(name);
   if (!stack || stack.length === 0) {
     return undefined;

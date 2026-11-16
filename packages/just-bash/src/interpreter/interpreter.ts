@@ -82,6 +82,7 @@ import {
 import { expandWord, expandWordWithGlob } from "./expansion.js";
 import { advanceFd } from "./fd-table.js";
 import { executeFunctionDef } from "./functions.js";
+import { hasArray } from "./helpers/array.js";
 import { failure, OK, result, testResult } from "./helpers/result.js";
 import { isPosixSpecialBuiltin } from "./helpers/shell-constants.js";
 import { nullCommandExitStatus } from "./helpers/substitution-status.js";
@@ -222,9 +223,20 @@ export class Interpreter {
       env[name] = value;
     }
     for (const name of allExported) {
+      if (hasArray(this.ctx, name)) continue;
       const value = this.ctx.state.env.get(name);
       if (value !== undefined) {
         env[name] = value;
+      }
+    }
+    for (let i = this.ctx.state.localScopes.length - 1; i >= 0; i--) {
+      const exportScope = this.ctx.state.localExportScopes?.[i];
+      if (!exportScope) continue;
+      for (const [name, exported] of exportScope) {
+        if (!exported || Object.hasOwn(env, name)) continue;
+        if (allExported.has(name) && hasArray(this.ctx, name)) continue;
+        const value = this.ctx.state.localScopes[i].get(name);
+        if (value !== undefined) env[name] = value;
       }
     }
     return env;

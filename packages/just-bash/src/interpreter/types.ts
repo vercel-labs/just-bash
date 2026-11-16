@@ -133,6 +133,7 @@ export interface VariableAttributeState {
   uppercaseVars?: Set<string>;
   /** Set of exported variable names */
   exportedVars?: Set<string>;
+  commandPathInEnv?: boolean;
   /** Inherited environment entries whose names overlap with shell parameters. */
   parameterNamedEnv?: ReadonlyMap<string, string>;
   /** Set of temporarily exported variable names (for prefix assignments like FOO=bar cmd) */
@@ -178,7 +179,7 @@ export interface LocalScopingState {
    */
   localVarStack?: Map<
     string,
-    Array<{ value: string | undefined; scopeIndex: number }>
+    Array<{ value: string | undefined; scopeIndex: number; exported: boolean }>
   >;
   /**
    * Map of variable names to scope index where they were fully unset.

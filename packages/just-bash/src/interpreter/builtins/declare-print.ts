@@ -93,20 +93,21 @@ export function printSpecificVariables(
   for (const name of names) {
     // Get the variable's attribute flags (for scalar variables)
     const flags = getVariableFlags(ctx, name);
+    const arrayFlags = flags === "--" ? "" : flags.slice(1);
 
     // Check if this is an associative array
     const isAssoc = ctx.state.associativeArrays?.has(name);
     if (isAssoc) {
       const keys = getAssocArrayKeys(ctx, name);
       if (keys.length === 0) {
-        stdout += `declare -A ${name}=()\n`;
+        stdout += `declare -A${arrayFlags} ${name}=()\n`;
       } else {
         const elements = keys.map((key) => {
           const value = getArrayElement(ctx, name, key) ?? "";
           const formattedValue = formatAssocValue(value);
           return `[${formatAssocKey(key)}]=${formattedValue}`;
         });
-        stdout += `declare -A ${name}=(${elements.join(" ")})\n`;
+        stdout += `declare -A${arrayFlags} ${name}=(${elements.join(" ")})\n`;
       }
       continue;
     }
@@ -118,13 +119,13 @@ export function printSpecificVariables(
         const value = getArrayElement(ctx, name, index) ?? "";
         return `[${index}]=${quoteArrayValue(value)}`;
       });
-      stdout += `declare -a ${name}=(${elements.join(" ")})\n`;
+      stdout += `declare -a${arrayFlags} ${name}=(${elements.join(" ")})\n`;
       continue;
     }
 
     // Check if this is a declared empty array.
     if (hasArray(ctx, name)) {
-      stdout += `declare -a ${name}=()\n`;
+      stdout += `declare -a${arrayFlags} ${name}=()\n`;
       continue;
     }
 
@@ -209,6 +210,7 @@ export function printAllVariables(
   const sortedNames = Array.from(varNames).sort();
   for (const name of sortedNames) {
     const flags = getVariableFlags(ctx, name);
+    const arrayFlags = flags === "--" ? "" : flags.slice(1);
 
     // Check if this is an associative array
     const isAssoc = ctx.state.associativeArrays?.has(name);
@@ -234,7 +236,7 @@ export function printAllVariables(
     if (isAssoc) {
       const keys = getAssocArrayKeys(ctx, name);
       if (keys.length === 0) {
-        stdout += `declare -A ${name}=()\n`;
+        stdout += `declare -A${arrayFlags} ${name}=()\n`;
       } else {
         const elements = keys.map((key) => {
           const value = getArrayElement(ctx, name, key) ?? "";
@@ -242,7 +244,7 @@ export function printAllVariables(
           const formattedValue = formatAssocValue(value);
           return `[${formatAssocKey(key)}]=${formattedValue}`;
         });
-        stdout += `declare -A ${name}=(${elements.join(" ")})\n`;
+        stdout += `declare -A${arrayFlags} ${name}=(${elements.join(" ")})\n`;
       }
       continue;
     }
@@ -253,13 +255,13 @@ export function printAllVariables(
         const value = getArrayElement(ctx, name, index) ?? "";
         return `[${index}]=${quoteArrayValue(value)}`;
       });
-      stdout += `declare -a ${name}=(${elements.join(" ")})\n`;
+      stdout += `declare -a${arrayFlags} ${name}=(${elements.join(" ")})\n`;
       continue;
     }
 
     // Check if this is an empty array
     if (hasArray(ctx, name)) {
-      stdout += `declare -a ${name}=()\n`;
+      stdout += `declare -a${arrayFlags} ${name}=()\n`;
       continue;
     }
 

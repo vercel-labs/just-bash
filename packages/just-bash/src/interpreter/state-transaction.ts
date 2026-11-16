@@ -65,9 +65,7 @@ function cloneLocalArrayScopes(
 }
 
 function cloneLocalVarStack(
-  stack:
-    | Map<string, Array<{ value: string | undefined; scopeIndex: number }>>
-    | undefined,
+  stack: InterpreterState["localVarStack"],
 ): typeof stack {
   return stack
     ? new Map(

@@ -789,6 +789,8 @@ export class Bash {
       }
 
       if (effectiveOptions.newShell) {
+        execEnv.delete("_");
+        exportedVars.delete("_");
         // Startup defaults do not add export attributes. Resetting inherited
         // values retains their existing export attributes.
         if (!execEnv.has("PATH")) {
@@ -830,6 +832,7 @@ export class Bash {
         env: execEnv,
         exportedVars,
         parameterNamedEnv,
+        commandPathInEnv: effectiveOptions.newShell,
         arrays: replaceEnv ? new Map() : cloneArrays(this.state.arrays),
         cwd: newCwd,
         previousDir:

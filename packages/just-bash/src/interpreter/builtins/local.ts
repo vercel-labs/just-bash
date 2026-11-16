@@ -134,6 +134,8 @@ export async function handleLocal(
         setArrayElement(ctx, name, i, elements[i]);
       }
 
+      if (declareExport) markExported(ctx, name);
+
       // Track local variable depth for bash-specific unset scoping
       markLocalVarDepth(ctx, name);
 
@@ -190,6 +192,8 @@ export async function handleLocal(
       }
 
       // Update length marker
+
+      if (declareExport) markExported(ctx, name);
 
       // Track local variable depth for bash-specific unset scoping
       markLocalVarDepth(ctx, name);
@@ -266,6 +270,8 @@ export async function handleLocal(
 
       // Set the array element
       setArrayElement(ctx, name, index, indexValue);
+
+      if (declareExport) markExported(ctx, name);
 
       // Track local variable depth for bash-specific unset scoping
       markLocalVarDepth(ctx, name);

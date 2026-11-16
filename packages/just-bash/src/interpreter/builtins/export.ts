@@ -13,18 +13,15 @@
 import type { ExecResult } from "../../types.js";
 import { resolveNameref } from "../helpers/nameref.js";
 import { quoteDeclareValue } from "../helpers/quoting.js";
-import {
-  checkReadonlyError,
-  markExported,
-  unmarkExported,
-} from "../helpers/readonly.js";
-import { OK, result, success } from "../helpers/result.js";
+import { markExported, unmarkExported } from "../helpers/readonly.js";
+import { result, success } from "../helpers/result.js";
+import { processScalarAssignment } from "../simple-command-assignments.js";
 import type { InterpreterContext } from "../types.js";
 
-export function handleExport(
+export async function handleExport(
   ctx: InterpreterContext,
   args: string[],
-): ExecResult {
+): Promise<ExecResult> {
   // Handle -n flag for un-export
   let unexport = false;
   const processedArgs: string[] = [];
@@ -55,65 +52,14 @@ export function handleExport(
     return success(stdout);
   }
 
-  // Handle un-export: remove export attribute but keep variable value
-  // In bash, `export -n name=value` sets the value AND removes export attribute
-  if (unexport) {
-    for (const arg of processedArgs) {
-      let name: string;
-      let value: string | undefined;
-
-      if (arg.includes("=")) {
-        const eqIdx = arg.indexOf("=");
-        name = arg.slice(0, eqIdx);
-        value = arg.slice(eqIdx + 1);
-      } else {
-        name = arg;
-      }
-      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
-        return result(
-          "",
-          `bash: export: \`${arg}': not a valid identifier\n`,
-          1,
-        );
-      }
-      const target = resolveNameref(ctx, name);
-      if (target === undefined) continue;
-      if (value !== undefined) {
-        checkReadonlyError(ctx, target);
-        ctx.state.env.set(target, value);
-      }
-      // Remove export attribute without deleting the variable
-      unmarkExported(ctx, target);
-    }
-    return OK;
-  }
-
-  // Process each argument
   let stderr = "";
   let exitCode = 0;
 
   for (const arg of processedArgs) {
-    let name: string;
-    let value: string | undefined;
-    let isAppend = false;
+    const assignment = arg.match(/^([^=+]+)(\+?=)(.*)$/s);
+    const name = assignment?.[1] ?? arg;
+    const value = assignment?.[3];
 
-    // Check for += append syntax: export NAME+=value
-    const appendMatch = arg.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\+=(.*)$/);
-    if (appendMatch) {
-      name = appendMatch[1];
-      value = appendMatch[2];
-      isAppend = true;
-    } else if (arg.includes("=")) {
-      // export NAME=value
-      const eqIdx = arg.indexOf("=");
-      name = arg.slice(0, eqIdx);
-      value = arg.slice(eqIdx + 1);
-    } else {
-      // export NAME (without value)
-      name = arg;
-    }
-
-    // Validate variable name: must start with letter/underscore, contain only alphanumeric/_
     if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
       stderr += `bash: export: \`${arg}': not a valid identifier\n`;
       exitCode = 1;
@@ -122,24 +68,39 @@ export function handleExport(
 
     const target = resolveNameref(ctx, name);
     if (target === undefined) continue;
+    if (value !== undefined) {
+      const { error } = await processScalarAssignment(
+        ctx,
+        name,
+        value,
+        assignment?.[2] === "+=",
+      );
+      if (error) {
+        stderr += error.stderr;
+        exitCode = error.exitCode;
+        continue;
+      }
+    }
+
     if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(target)) {
-      stderr += `bash: export: \`${target}': not a valid identifier\n`;
-      exitCode = 1;
+      if (!unexport) {
+        stderr += `bash: export: \`${target}': not a valid identifier\n`;
+        if (value === undefined) exitCode = 1;
+      }
       continue;
     }
-    if (value !== undefined) {
-      checkReadonlyError(ctx, target);
-      if (isAppend) {
-        // Append to existing value (or set if not defined)
-        const existing = ctx.state.env.get(target) ?? "";
-        ctx.state.env.set(target, existing + value);
-      } else {
-        ctx.state.env.set(target, value);
+    if (unexport) {
+      unmarkExported(ctx, target);
+    } else {
+      if (
+        value === undefined &&
+        target === name &&
+        !ctx.state.env.has(target)
+      ) {
+        ctx.state.env.set(target, "");
       }
-    } else if (target === name && !ctx.state.env.has(target)) {
-      ctx.state.env.set(target, "");
+      markExported(ctx, target);
     }
-    markExported(ctx, target);
   }
 
   return result("", stderr, exitCode);
