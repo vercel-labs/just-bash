@@ -225,7 +225,7 @@ describe("resolveCanonicalPathNoSymlinks", () => {
         root,
         fs.realpathSync(root),
       ),
-    ).toBe(`/${child?.name}`);
+    ).toBe(path.join(fs.realpathSync(root), child?.name ?? ""));
   });
 
   it("still rejects a path through a symlinked directory when the root is a symlink to /", () => {
