@@ -46,7 +46,7 @@ import {
   setFdEntry,
   writeFdEntry,
 } from "./fd-table.js";
-import { getErrorCode } from "./helpers/errors.js";
+import { describeFsError, errnoReason } from "./helpers/errors.js";
 import { checkReadonlyError } from "./helpers/readonly.js";
 import { result as makeResult } from "./helpers/result.js";
 import {
@@ -229,11 +229,6 @@ const getDupSource = (
     : null;
 };
 
-const PATH_ERROR_REASONS = new Map([
-  ["ENOENT", "No such file or directory"],
-  ["ENOTDIR", "Not a directory"],
-]);
-
 async function openOutputEntry(
   ctx: InterpreterContext,
   target: string,
@@ -267,8 +262,9 @@ async function openOutputEntry(
     if (append) await ctx.fs.appendFile(filePath, "", "binary");
     else await ctx.fs.writeFile(filePath, "", "binary");
   } catch (error) {
-    const code = getErrorCode(error);
-    const reason = code && PATH_ERROR_REASONS.get(code);
+    // A refused open (EROFS, EACCES, ENOENT, ...) fails this command with the
+    // filesystem's own reason; anything else is not ours to turn into a diagnostic.
+    const reason = errnoReason(error);
     if (reason)
       return { error: makeResult("", `bash: ${target}: ${reason}\n`, 1) };
     if (!handleWriteError) throw error;
@@ -309,12 +305,12 @@ async function readInputEntry(
             device: CHARACTER_DEVICES.has(filePath),
           },
         };
-  } catch {
+  } catch (readError) {
     if (!readwrite) {
       return {
         error: makeResult(
           "",
-          `bash: ${target}: No such file or directory\n`,
+          `bash: ${target}: ${describeFsError(readError)}\n`,
           1,
         ),
       };
@@ -330,11 +326,11 @@ async function readInputEntry(
           device: CHARACTER_DEVICES.has(filePath),
         },
       };
-    } catch {
+    } catch (createError) {
       return {
         error: makeResult(
           "",
-          `bash: ${target}: No such file or directory\n`,
+          `bash: ${target}: ${describeFsError(createError)}\n`,
           1,
         ),
       };
@@ -1061,9 +1057,9 @@ async function prepareRedirectionsWithState(
           stdinReplaced = true;
           stdinUnavailable = device;
         }
-      } catch {
+      } catch (readError) {
         return fail(
-          makeResult("", `bash: ${target}: No such file or directory\n`, 1),
+          makeResult("", `bash: ${target}: ${describeFsError(readError)}\n`, 1),
           index,
         );
       }
@@ -1278,15 +1274,48 @@ export async function applyRedirections(
       pendingStderr = "";
       if (exitCode === 0) exitCode = 1;
     }
+    // A file that refuses the content (EROFS, EACCES, ...) fails the command that
+    // wrote to it, as bash does, and the script goes on. An error that is not an
+    // errno (a limit, a cancellation) is not a diagnostic and still propagates.
+    const refuse = (path: string, error: unknown): void => {
+      const reason = errnoReason(error);
+      if (reason === undefined) throw error;
+      stderr += `${omitShellPrefix ? "" : "bash: "}${path}: ${reason}\n`;
+      exitCode = 1;
+    };
     const deliverToFile = async (
       sink: { path: string; append: boolean },
       content: string,
       encoding: "binary" | "utf8",
     ) => {
-      if (sink.append) {
-        await ctx.fs.appendFile(sink.path, content, encoding);
-      } else {
-        await ctx.fs.writeFile(sink.path, content, encoding);
+      try {
+        if (sink.append) {
+          await ctx.fs.appendFile(sink.path, content, encoding);
+        } else {
+          await ctx.fs.writeFile(sink.path, content, encoding);
+        }
+      } catch (error) {
+        refuse(sink.path, error);
+      }
+    };
+    const deliverToDescriptor = async (
+      source: Extract<PreparedDupSource, { kind: "entry" }>,
+      content: string,
+      encoding: "binary" | "utf8",
+    ) => {
+      try {
+        await writeFdEntry(
+          ctx,
+          source.entry,
+          source.descriptors,
+          content,
+          encoding,
+        );
+      } catch (error) {
+        refuse(
+          "path" in source.entry ? source.entry.path : "descriptor",
+          error,
+        );
       }
     };
     if (
@@ -1303,10 +1332,8 @@ export async function applyRedirections(
         if (fd1Sink.kind === "file") {
           await deliverToFile(fd1Sink, combined, getStdoutEncoding(combined));
         } else {
-          await writeFdEntry(
-            ctx,
-            fd1Sink.source.entry,
-            fd1Sink.source.descriptors,
+          await deliverToDescriptor(
+            fd1Sink.source,
             combined,
             getStdoutEncoding(combined),
           );
@@ -1335,10 +1362,8 @@ export async function applyRedirections(
             );
             break;
           case "descriptor":
-            await writeFdEntry(
-              ctx,
-              sink.source.entry,
-              sink.source.descriptors,
+            await deliverToDescriptor(
+              sink.source,
               content,
               isStdout ? getStdoutEncoding(content) : getFileEncoding(content),
             );

@@ -9,6 +9,7 @@
 
 import { decodeBytesToUtf8, utf8ByteLength } from "../../encoding.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { errnoReason } from "../../interpreter/helpers/errors.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -342,7 +343,20 @@ export const nl: RuntimeCommand = {
       // Process each file
       for (const file of files) {
         const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-        const content = await ctx.fs.readFile(filePath);
+        let content: string | null;
+        try {
+          content = await ctx.fs.readFile(filePath);
+        } catch (error) {
+          // An errno from the filesystem is nl's own diagnostic, named by the
+          // path the user typed; anything else is not ours to swallow.
+          const reason = errnoReason(error);
+          if (reason === undefined) throw error;
+          return {
+            exitCode: 1,
+            stdout: output,
+            stderr: `nl: ${file}: ${reason}\n`,
+          };
+        }
         if (content === null) {
           return {
             exitCode: 1,
