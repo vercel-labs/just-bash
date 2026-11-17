@@ -1,3 +1,12 @@
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Bash } from "../Bash.js";
 import { InMemoryFs } from "../fs/in-memory-fs/index.js";
@@ -6,6 +15,9 @@ import type {
   FileContent,
   WriteFileOptions,
 } from "../fs/interface.js";
+import { ReadWriteFs } from "../fs/read-write-fs/index.js";
+import { SandboxBoundaryError } from "../fs/sandbox-boundary-error.js";
+import { errnoReason } from "../interpreter/helpers/errors.js";
 
 const refuse = (code: string, path: string): Error =>
   Object.assign(new Error(`${code}: refused, open '${path}'`), { code });
@@ -117,5 +129,99 @@ describe("a command says why, not 'No such file or directory' for everything", (
       "rm: cannot remove '/ro/f.txt': Read-only file system\n",
     );
     expect(result.exitCode).toBe(1);
+  });
+});
+
+describe("rm -f, nl and the sandbox's own refusals", () => {
+  const failing = (code: string, command: string) => {
+    class F extends InMemoryFs {
+      override async stat(path: string): ReturnType<InMemoryFs["stat"]> {
+        if (path === "/x") {
+          throw Object.assign(new Error(`${code}: boom`), { code });
+        }
+        return super.stat(path);
+      }
+    }
+    return new Bash({ fs: new F({ "/f.txt": "a\n" }) }).exec(command);
+  };
+
+  it("rm -f ignores ENOTDIR like a missing file", async () => {
+    const result = await failing("ENOTDIR", "rm -f /x; echo rc=$?");
+    expect(result.stdout).toBe("rc=0\n");
+    expect(result.stderr).toBe("");
+  });
+
+  it("rm -f reports an errno that is not 'missing'", async () => {
+    const result = await failing("EACCES", "rm -f /x; echo rc=$?");
+    expect(result.stdout).toBe("rc=1\n");
+    expect(result.stderr).toBe("rm: cannot remove '/x': Permission denied\n");
+  });
+
+  it("rm -f rethrows an error that is not in the errno map", async () => {
+    // Rethrown out of the command, so rm reports it and fails: never rc=0.
+    const result = await failing("EMFILE", "rm -f /x");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("EMFILE");
+  });
+
+  it("nl goes on to the later files after an input error, keeping the status", async () => {
+    const result = await bash().exec("nl /locked/s.txt /ro/f.txt; echo rc=$?");
+    expect(result.stdout).toBe("     1\tx\nrc=1\n");
+    expect(result.stderr).toBe("nl: /locked/s.txt: Permission denied\n");
+  });
+
+  it("nl reports EFBIG", async () => {
+    class Big extends InMemoryFs {
+      override async readFile(): Promise<string> {
+        throw Object.assign(new Error("EFBIG: file too large"), {
+          code: "EFBIG",
+        });
+      }
+    }
+    const result = await new Bash({ fs: new Big({ "/f": "x" }) }).exec("nl /f");
+    expect(result.stderr).toBe("nl: /f: File too large\n");
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("a sandbox boundary refusal has no errno and stays a hard failure", () => {
+    const error = new SandboxBoundaryError(
+      "EACCES: permission denied, '/x' resolves outside sandbox",
+    );
+    expect(errnoReason(error)).toBeUndefined();
+    expect(errnoReason(new Error("EACCES: denied"))).toBe("Permission denied");
+  });
+
+  describe("on a ReadWriteFs whose root holds a symlink out of it", () => {
+    const setup = () => {
+      const base = mkdtempSync(join(tmpdir(), "jb-boundary-"));
+      const root = join(base, "root");
+      mkdirSync(root);
+      writeFileSync(join(base, "secret.txt"), "secret\n");
+      symlinkSync(join(base, "secret.txt"), join(root, "link"));
+      return {
+        base,
+        bash: new Bash({ fs: new ReadWriteFs({ root }), cwd: "/" }),
+      };
+    };
+
+    it("a redirect through it still rejects exec()", async () => {
+      const { base, bash } = setup();
+      try {
+        await expect(bash.exec("echo x > /link")).rejects.toThrow("EACCES");
+      } finally {
+        rmSync(base, { recursive: true, force: true });
+      }
+    });
+
+    it("rm -f of it is reported, not silently ignored", async () => {
+      const { base, bash } = setup();
+      try {
+        const result = await bash.exec("rm -f /link; echo rc=$?");
+        expect(result.stdout).toBe("rc=1\n");
+        expect(result.stderr).toContain("outside sandbox");
+      } finally {
+        rmSync(base, { recursive: true, force: true });
+      }
+    });
   });
 });

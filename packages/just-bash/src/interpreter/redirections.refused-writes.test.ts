@@ -118,4 +118,125 @@ describe("a refused redirect fails the command, not exec()", () => {
     expect(result.stdout).toBe("rc=1\n");
     expect(result.stderr).toBe("bash: /f: Permission denied\n");
   });
+
+  it("a content refusal follows fd 2: 2>/dev/null drops it", async () => {
+    const result = await refusing("EROFS", "content").exec(
+      'echo x > /ro/f.txt 2>/dev/null; echo "after rc=$?"',
+    );
+    expect(result.stdout).toBe("after rc=1\n");
+    expect(result.stderr).toBe("");
+  });
+
+  it("a content refusal follows fd 2: 2> errors receives it", async () => {
+    const bash = refusing("EROFS", "content");
+    const result = await bash.exec(
+      "echo x > /ro/f.txt 2> /errors; echo rc=$?; cat /errors",
+    );
+    expect(result.stdout).toBe(
+      "rc=1\nbash: /ro/f.txt: Read-only file system\n",
+    );
+    expect(result.stderr).toBe("");
+  });
+
+  it("a content refusal is added to the command's own stderr in fd 2's file", async () => {
+    const bash = refusing("EROFS", "content");
+    const result = await bash.exec(
+      "{ echo x; echo oops >&2; } > /ro/f.txt 2> /errors; cat /errors",
+    );
+    expect(result.stdout).toBe(
+      "oops\nbash: /ro/f.txt: Read-only file system\n",
+    );
+    expect(result.stderr).toBe("");
+  });
+
+  it("with fd 2 on the refusing file the diagnostic reaches the caller's stderr", async () => {
+    const result = await refusing("EROFS", "content").exec(
+      "echo x > /ro/f.txt 2>&1",
+    );
+    expect(result.stderr).toBe("bash: /ro/f.txt: Read-only file system\n");
+  });
+
+  it("a late refusal names the path the script typed", async () => {
+    const result = await refusing("EROFS", "content").exec(
+      "cd /ro; echo x > f.txt; echo rc=$?",
+    );
+    expect(result.stdout).toBe("rc=1\n");
+    expect(result.stderr).toBe("bash: f.txt: Read-only file system\n");
+  });
+
+  it("EFBIG says File too large", async () => {
+    const result = await refusing("EFBIG").exec("echo x > /ro/f.txt");
+    expect(result.stderr).toBe("bash: /ro/f.txt: File too large\n");
+  });
+
+  it("an errno from exists()/stat() on the target reaches the mapping", async () => {
+    class NoStat extends InMemoryFs {
+      override async stat(path: string): ReturnType<InMemoryFs["stat"]> {
+        if (path === "/ro/f.txt") {
+          throw Object.assign(new Error("EACCES: denied"), { code: "EACCES" });
+        }
+        return super.stat(path);
+      }
+    }
+    const result = await new Bash({
+      fs: new NoStat({ "/ro/f.txt": "x\n" }),
+    }).exec("echo y > /ro/f.txt; echo rc=$?");
+    expect(result.stdout).toBe("rc=1\n");
+    expect(result.stderr).toBe("bash: /ro/f.txt: Permission denied\n");
+  });
+});
+
+describe("<> opens for reading and writing without losing the file", () => {
+  it("creates a file that is not there", async () => {
+    const bash = new Bash({ fs: new InMemoryFs() });
+    const result = await bash.exec("cat <> /new.txt; echo rc=$?; ls /new.txt");
+    expect(result.stdout).toBe("rc=0\n/new.txt\n");
+  });
+
+  it("leaves an existing file's content alone", async () => {
+    const bash = new Bash({ fs: new InMemoryFs({ "/f.txt": "keep\n" }) });
+    const result = await bash.exec("cat <> /f.txt");
+    expect(result.stdout).toBe("keep\n");
+  });
+
+  it("refuses an existing file that cannot be written", async () => {
+    class ReadOnly extends InMemoryFs {
+      override async appendFile(path: string): Promise<void> {
+        throw Object.assign(new Error(`EROFS: read-only, '${path}'`), {
+          code: "EROFS",
+        });
+      }
+    }
+    const result = await new Bash({
+      fs: new ReadOnly({ "/ro/f.txt": "x\n" }),
+    }).exec("cat <> /ro/f.txt; echo rc=$?");
+    expect(result.stdout).toBe("rc=1\n");
+    expect(result.stderr).toBe("bash: /ro/f.txt: Read-only file system\n");
+  });
+
+  it("a read that fails with EACCES never truncates the file", async () => {
+    const writes: string[] = [];
+    class Spy extends InMemoryFs {
+      override async readFile(): Promise<string> {
+        throw Object.assign(new Error("EACCES: denied"), { code: "EACCES" });
+      }
+      override async writeFile(
+        path: string,
+        content: FileContent,
+        options?: WriteFileOptions | BufferEncoding,
+      ): Promise<void> {
+        writes.push(path);
+        return super.writeFile(path, content, options);
+      }
+    }
+    const fs = new Spy({ "/f.txt": "keep\n" });
+    writes.length = 0;
+    const result = await new Bash({ fs }).exec("cat <> /f.txt; echo rc=$?");
+    expect(result.stdout).toBe("rc=1\n");
+    expect(result.stderr).toBe("bash: /f.txt: Permission denied\n");
+    expect(writes).toEqual([]);
+    expect(await fs.readFileBuffer("/f.txt")).toEqual(
+      new TextEncoder().encode("keep\n"),
+    );
+  });
 });

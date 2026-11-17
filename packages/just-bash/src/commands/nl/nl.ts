@@ -331,6 +331,8 @@ export const nl: RuntimeCommand = {
     }
 
     let output = "";
+    let stderr = "";
+    let exitCode = 0;
     let lineNumber = options.startNumber;
 
     if (files.length === 0) {
@@ -351,18 +353,14 @@ export const nl: RuntimeCommand = {
           // path the user typed; anything else is not ours to swallow.
           const reason = errnoReason(error);
           if (reason === undefined) throw error;
-          return {
-            exitCode: 1,
-            stdout: output,
-            stderr: `nl: ${file}: ${reason}\n`,
-          };
+          stderr += `nl: ${file}: ${reason}\n`;
+          exitCode = 1;
+          continue;
         }
         if (content === null) {
-          return {
-            exitCode: 1,
-            stdout: output,
-            stderr: `nl: ${file}: No such file or directory\n`,
-          };
+          stderr += `nl: ${file}: No such file or directory\n`;
+          exitCode = 1;
+          continue;
         }
         const result = processContent(
           content,
@@ -377,9 +375,9 @@ export const nl: RuntimeCommand = {
 
     // nl emits text; the pipeline handles encoding.
     return {
-      exitCode: 0,
+      exitCode,
       stdout: output,
-      stderr: "",
+      stderr,
     };
   },
 };

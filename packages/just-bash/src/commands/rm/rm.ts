@@ -1,5 +1,6 @@
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import {
+  errnoCode,
   errnoReason,
   getErrorMessage,
 } from "../../interpreter/helpers/errors.js";
@@ -62,11 +63,18 @@ export const rmCommand: RuntimeCommand = {
           stdout += `removed '${path}'\n`;
         }
       } catch (error) {
-        // -f ignores a file that is not there, and only that: a file the
-        // filesystem refuses to remove (EROFS, EACCES, ...) is still an error.
+        // -f ignores a file that is not there (ENOENT, or ENOTDIR for a path
+        // through a file, as GNU rm does) and only that: a file the filesystem
+        // refuses to remove (EROFS, EACCES, ...) is an error, and an error that
+        // is no errno at all (a limit, a cancellation, a sandbox refusal) is
+        // not ours to swallow.
         const refused = errnoReason(error);
-        const missing = refused === "No such file or directory";
-        if (force && !missing && refused !== undefined) {
+        const code = errnoCode(error);
+        if (force && (code === "ENOENT" || code === "ENOTDIR")) {
+          continue;
+        }
+        if (force && refused === undefined) throw error;
+        if (force && refused !== undefined) {
           stderr += `rm: cannot remove '${path}': ${refused}\n`;
           exitCode = 1;
         } else if (!force) {

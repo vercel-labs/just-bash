@@ -46,7 +46,7 @@ import {
   setFdEntry,
   writeFdEntry,
 } from "./fd-table.js";
-import { describeFsError, errnoReason } from "./helpers/errors.js";
+import { describeFsError, errnoCode, errnoReason } from "./helpers/errors.js";
 import { checkReadonlyError } from "./helpers/readonly.js";
 import { result as makeResult } from "./helpers/result.js";
 import {
@@ -79,8 +79,10 @@ async function checkOutputRedirectTarget(
     ) {
       return `bash: ${target}: cannot overwrite existing file\n`;
     }
-  } catch {
-    return `bash: ${target}: cannot open redirect target\n`;
+  } catch (error) {
+    // exists()/stat() can refuse too (EACCES on a parent, ELOOP, ...): say why.
+    const reason = errnoReason(error);
+    return `bash: ${target}: ${reason ?? "cannot open redirect target"}\n`;
   }
   return null;
 }
@@ -127,7 +129,7 @@ type PreparedDupSource = {
 type RedirectSink =
   | { kind: "live-stdout" }
   | { kind: "live-stderr" }
-  | { kind: "file"; path: string; append: boolean }
+  | { kind: "file"; path: string; append: boolean; target?: string }
   | {
       kind: "descriptor";
       source: PreparedDupSource;
@@ -285,9 +287,25 @@ async function readInputEntry(
   readwrite: boolean,
 ): Promise<{ entry?: FdEntry; error?: ExecResult }> {
   const filePath = ctx.fs.resolvePath(ctx.state.cwd, target);
+  let readFailure: { error: unknown } | undefined;
+  let content = "";
   try {
-    const content =
-      filePath === DEV_NULL ? "" : await ctx.fs.readFile(filePath);
+    content = filePath === DEV_NULL ? "" : await ctx.fs.readFile(filePath);
+  } catch (error) {
+    readFailure = { error };
+  }
+  if (!readFailure) {
+    if (readwrite && !CHARACTER_DEVICES.has(filePath)) {
+      // `<>` opens for writing too: an existing file that cannot be written is
+      // refused here (an empty append changes nothing and never truncates).
+      try {
+        await ctx.fs.appendFile(filePath, "", "binary");
+      } catch (writeError) {
+        const reason = errnoReason(writeError);
+        if (reason === undefined) throw writeError;
+        return { error: makeResult("", `bash: ${target}: ${reason}\n`, 1) };
+      }
+    }
     return readwrite
       ? {
           entry: {
@@ -305,36 +323,39 @@ async function readInputEntry(
             device: CHARACTER_DEVICES.has(filePath),
           },
         };
-  } catch (readError) {
-    if (!readwrite) {
-      return {
-        error: makeResult(
-          "",
-          `bash: ${target}: ${describeFsError(readError)}\n`,
-          1,
-        ),
-      };
-    }
-    try {
-      await ctx.fs.writeFile(filePath, "", "binary");
-      return {
-        entry: {
-          kind: "readwrite",
-          path: filePath,
-          position: 0,
-          content: "",
-          device: CHARACTER_DEVICES.has(filePath),
-        },
-      };
-    } catch (createError) {
-      return {
-        error: makeResult(
-          "",
-          `bash: ${target}: ${describeFsError(createError)}\n`,
-          1,
-        ),
-      };
-    }
+  }
+  const readError = readFailure.error;
+  // `<` that cannot read says why. `<>` creates the file only when it is not
+  // there (ENOENT): any other read failure (EACCES, EISDIR, ...) is reported,
+  // never "fixed" by writing an empty file over what could not be read.
+  if (!readwrite || errnoCode(readError) !== "ENOENT") {
+    return {
+      error: makeResult(
+        "",
+        `bash: ${target}: ${describeFsError(readError)}\n`,
+        1,
+      ),
+    };
+  }
+  try {
+    await ctx.fs.writeFile(filePath, "", "binary");
+    return {
+      entry: {
+        kind: "readwrite",
+        path: filePath,
+        position: 0,
+        content: "",
+        device: CHARACTER_DEVICES.has(filePath),
+      },
+    };
+  } catch (createError) {
+    return {
+      error: makeResult(
+        "",
+        `bash: ${target}: ${describeFsError(createError)}\n`,
+        1,
+      ),
+    };
   }
 }
 
@@ -398,13 +419,16 @@ async function prepareRedirectionsWithState(
     if (fd === 1) outputRoutes.stdout = sink;
     else if (fd === 2) outputRoutes.stderr = sink;
   };
-  const openedOutputSink = (entry: OutputFdEntry): RedirectSink => {
+  const openedOutputSink = (
+    entry: OutputFdEntry,
+    target?: string,
+  ): RedirectSink => {
     if (entry.kind === "dup-out") {
       return entry.sourceFd === 1 ? outputRoutes.stdout : outputRoutes.stderr;
     }
     return entry.path === DEV_NULL
       ? { kind: "discard" }
-      : { kind: "file", path: entry.path, append: entry.append };
+      : { kind: "file", path: entry.path, append: entry.append, target };
   };
   const snapshot = transaction.numericSnapshot;
   let stdin: string | undefined;
@@ -898,7 +922,7 @@ async function prepareRedirectionsWithState(
         const opened = await openOutputEntry(ctx, target, false, false, false);
         if (opened.error) return fail(opened.error, index);
         const entry = opened.entry;
-        const sink = openedOutputSink(entry);
+        const sink = openedOutputSink(entry, target);
         if (redir.fd == null) {
           persistStandard(1, entry, sink);
           persistStandard(2, entry, sink);
@@ -1022,7 +1046,7 @@ async function prepareRedirectionsWithState(
       );
       if (opened.error) return fail(opened.error, index);
       const entry = opened.entry;
-      const sink = openedOutputSink(entry);
+      const sink = openedOutputSink(entry, target);
       if (redir.operator === "&>" || redir.operator === "&>>") {
         persistStandard(1, entry, sink);
         persistStandard(2, entry, sink);
@@ -1276,18 +1300,21 @@ export async function applyRedirections(
     }
     // A file that refuses the content (EROFS, EACCES, ...) fails the command that
     // wrote to it, as bash does, and the script goes on. An error that is not an
-    // errno (a limit, a cancellation) is not a diagnostic and still propagates.
-    const refuse = (path: string, error: unknown): void => {
+    // errno (a limit, a cancellation, a sandbox refusal) is not a diagnostic and
+    // still propagates. The diagnostic is the shell's stderr, so it follows the
+    // fd-2 redirection like any other: `cmd > refused 2> errors` puts it in
+    // `errors`, `2>/dev/null` drops it.
+    const refusal = (shown: string, error: unknown): string => {
       const reason = errnoReason(error);
       if (reason === undefined) throw error;
-      stderr += `${omitShellPrefix ? "" : "bash: "}${path}: ${reason}\n`;
       exitCode = 1;
+      return `${omitShellPrefix ? "" : "bash: "}${shown}: ${reason}\n`;
     };
     const deliverToFile = async (
-      sink: { path: string; append: boolean },
+      sink: { path: string; append: boolean; target?: string },
       content: string,
       encoding: "binary" | "utf8",
-    ) => {
+    ): Promise<string> => {
       try {
         if (sink.append) {
           await ctx.fs.appendFile(sink.path, content, encoding);
@@ -1295,14 +1322,15 @@ export async function applyRedirections(
           await ctx.fs.writeFile(sink.path, content, encoding);
         }
       } catch (error) {
-        refuse(sink.path, error);
+        return refusal(sink.target ?? sink.path, error);
       }
+      return "";
     };
     const deliverToDescriptor = async (
       source: Extract<PreparedDupSource, { kind: "entry" }>,
       content: string,
       encoding: "binary" | "utf8",
-    ) => {
+    ): Promise<string> => {
       try {
         await writeFdEntry(
           ctx,
@@ -1312,11 +1340,12 @@ export async function applyRedirections(
           encoding,
         );
       } catch (error) {
-        refuse(
+        return refusal(
           "path" in source.entry ? source.entry.path : "descriptor",
           error,
         );
       }
+      return "";
     };
     if (
       fd1Sink === fd2Sink &&
@@ -1329,43 +1358,52 @@ export async function applyRedirections(
       // bare `2>&1`.
       const combined = pendingStdout + pendingStderr;
       if (combined !== "") {
-        if (fd1Sink.kind === "file") {
-          await deliverToFile(fd1Sink, combined, getStdoutEncoding(combined));
-        } else {
-          await deliverToDescriptor(
-            fd1Sink.source,
-            combined,
-            getStdoutEncoding(combined),
-          );
-        }
+        // fd 2 is the sink that just refused, so the diagnostic has nowhere
+        // else to go but the caller's own stderr.
+        stderr +=
+          fd1Sink.kind === "file"
+            ? await deliverToFile(
+                fd1Sink,
+                combined,
+                getStdoutEncoding(combined),
+              )
+            : await deliverToDescriptor(
+                fd1Sink.source,
+                combined,
+                getStdoutEncoding(combined),
+              );
       }
     } else {
+      let refusedStdout = "";
       for (const [content, sink, isStdout] of [
         [pendingStdout, fd1Sink, true],
         [pendingStderr, fd2Sink, false],
       ] as const) {
-        if (content === "") {
+        // A refusal found while writing stdout is stderr content, routed by fd 2.
+        const text = isStdout ? content : content + refusedStdout;
+        if (text === "") {
           continue;
         }
+        let refused = "";
         switch (sink.kind) {
           case "live-stdout":
-            stdout += content;
+            stdout += text;
             break;
           case "live-stderr":
-            stderr += content;
+            stderr += text;
             break;
           case "file":
-            await deliverToFile(
+            refused = await deliverToFile(
               sink,
-              content,
-              isStdout ? getStdoutEncoding(content) : getFileEncoding(content),
+              text,
+              isStdout ? getStdoutEncoding(text) : getFileEncoding(text),
             );
             break;
           case "descriptor":
-            await deliverToDescriptor(
+            refused = await deliverToDescriptor(
               sink.source,
-              content,
-              isStdout ? getStdoutEncoding(content) : getFileEncoding(content),
+              text,
+              isStdout ? getStdoutEncoding(text) : getFileEncoding(text),
             );
             break;
           case "invalid-output":
@@ -1373,6 +1411,8 @@ export async function applyRedirections(
           case "discard":
             break;
         }
+        if (isStdout) refusedStdout = refused;
+        else stderr += refused;
       }
     }
   }
