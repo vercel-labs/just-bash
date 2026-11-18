@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Bash } from "../../Bash.js";
 import { ReadWriteFs } from "./read-write-fs.js";
 
 describe("ReadWriteFs replacement mode and copy behavior", () => {
@@ -171,5 +172,22 @@ describe("ReadWriteFs replacement mode and copy behavior", () => {
 
     expect(fs.readFileSync(target, "utf8")).toBe("replacement");
     expect(fs.readFileSync(alias, "utf8")).toBe("content");
+  });
+
+  it("keeps the exec bit after > and sed -i rewrite a script", async () => {
+    const target = path.join(root, "m.sh");
+    fs.writeFileSync(target, "#!/bin/bash\necho ran\n");
+    fs.chmodSync(target, 0o755);
+    const bash = new Bash({ fs: rwfs, cwd: "/" });
+
+    const result = await bash.exec(`
+      printf '#!/bin/bash\\necho ran\\n' > m.sh
+      sed -i 's/ran/again/' m.sh
+      ./m.sh; echo rc=$?
+    `);
+
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe("again\nrc=0\n");
+    expect(fs.statSync(target).mode & 0o7777).toBe(0o755);
   });
 });
