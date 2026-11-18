@@ -14,6 +14,78 @@ describe("sort command", () => {
       cwd: "/test",
     });
 
+  it.each([
+    "-z",
+    "--zero-terminated",
+  ])("sorts NUL-delimited records with %s", async (flag) => {
+    const env = new Bash({ files: { "/records": "z\nreport\0\0a report" } });
+    const result = await env.exec(`sort ${flag} /records`);
+    expect(result).toMatchObject({
+      stdout: "\0a report\0z\nreport\0",
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
+  it("sorts a find -print0 pipeline without splitting filenames", async () => {
+    const env = new Bash({
+      files: {
+        "/reports/z report.txt": "one\ntwo\n",
+        "/reports/a\nreport.txt": "three\n",
+      },
+    });
+    const result = await env.exec(
+      "find /reports -type f -print0 | sort -z | xargs -0 cat",
+    );
+    expect(result).toMatchObject({
+      stdout: "three\none\ntwo\n",
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
+  it("combines NUL termination with reverse and unique sorting", async () => {
+    const env = new Bash({ files: { "/records": "a\0b\0a\0" } });
+    const result = await env.exec("sort -zru /records");
+    expect(result.stdout).toBe("b\0a\0");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("uses key sorting and writes NUL-terminated output to a file", async () => {
+    const env = new Bash({ files: { "/records": "alpha:10\0beta:2\0" } });
+    const result = await env.exec(
+      "sort -z -t: -k2,2n -o /sorted /records; cat /sorted",
+    );
+    expect(result).toMatchObject({
+      stdout: "beta:2\0alpha:10\0",
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
+  it("checks NUL-delimited record order", async () => {
+    const env = new Bash({
+      files: { "/sorted": "a\0b\0", "/unsorted": "b\0a\0" },
+    });
+    expect((await env.exec("sort -zc /sorted")).exitCode).toBe(0);
+    expect(await env.exec("sort -zc /unsorted")).toMatchObject({
+      stdout: "",
+      stderr: "sort: /unsorted:2: disorder: a\0",
+      exitCode: 1,
+    });
+  });
+
+  it.each([
+    "",
+    "-z",
+  ])("keeps unterminated records from separate files apart (%s)", async (flag) => {
+    const env = new Bash({ files: { "/one": "b", "/two": "a" } });
+    const separator = flag ? "\0" : "\n";
+    expect((await env.exec(`sort ${flag} /one /two`)).stdout).toBe(
+      `a${separator}b${separator}`,
+    );
+  });
+
   it("should sort lines alphabetically", async () => {
     const env = createEnv();
     const result = await env.exec("sort /test/names.txt");

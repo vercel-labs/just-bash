@@ -4,7 +4,7 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
-import { readAndConcat } from "../../utils/file-reader.js";
+import { readFiles } from "../../utils/file-reader.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import { createComparator, filterUnique } from "./comparator.js";
 import { parseKeySpec } from "./parser.js";
@@ -27,6 +27,7 @@ const sortHelp = {
     "-o, --output=FILE    write result to FILE instead of stdout",
     "-s, --stable         stabilize sort by disabling last-resort comparison",
     "-u, --unique         output only unique lines",
+    "-z, --zero-terminated  use NUL as the record separator",
     "-k, --key=KEYDEF     sort via a key; KEYDEF gives location and type",
     "-t, --field-separator=SEP  use SEP as field separator",
     "    --help           display this help and exit",
@@ -71,6 +72,7 @@ export const sortCommand: RuntimeCommand = {
       fieldDelimiter: null,
     };
     const files: string[] = [];
+    let recordSeparator = "\n";
 
     // Parse arguments
     for (let i = 0; i < args.length; i++) {
@@ -79,6 +81,8 @@ export const sortCommand: RuntimeCommand = {
         options.reverse = true;
       } else if (arg === "-n" || arg === "--numeric-sort") {
         options.numeric = true;
+      } else if (arg === "-z" || arg === "--zero-terminated") {
+        recordSeparator = "\0";
       } else if (arg === "-u" || arg === "--unique") {
         options.unique = true;
       } else if (arg === "-f" || arg === "--ignore-case") {
@@ -136,6 +140,7 @@ export const sortCommand: RuntimeCommand = {
           if (char === "r") options.reverse = true;
           else if (char === "n") options.numeric = true;
           else if (char === "u") options.unique = true;
+          else if (char === "z") recordSeparator = "\0";
           else if (char === "f") options.ignoreCase = true;
           else if (char === "h") options.humanNumeric = true;
           else if (char === "V") options.versionSort = true;
@@ -165,17 +170,23 @@ export const sortCommand: RuntimeCommand = {
     // would corrupt the latin1 byte view. Always decode for processing,
     // then re-encode the joined output back to bytes for the byte-shaped
     // pipeline.
-    const readResult = await readAndConcat(ctx, files, { cmdName: "sort" });
-    if (!readResult.ok) return readResult.error;
-    const content = decodeBytesToUtf8(readResult.content);
-
-    // Split into lines (preserve empty lines at the end for sorting)
-    let lines = content.split("\n");
-
-    // Remove last empty element if content ends with newline
-    if (lines.length > 0 && lines[lines.length - 1] === "") {
-      lines.pop();
+    const readResult = await readFiles(ctx, files, {
+      cmdName: "sort",
+      stopOnError: true,
+    });
+    if (readResult.exitCode !== 0) {
+      return {
+        stdout: "",
+        stderr: readResult.stderr,
+        exitCode: readResult.exitCode,
+      };
     }
+    // Each file ends its last record, even without a trailing separator.
+    let lines = readResult.files.flatMap(({ content }) => {
+      const records = decodeBytesToUtf8(content).split(recordSeparator);
+      if (records[records.length - 1] === "") records.pop();
+      return records;
+    });
 
     // Create comparator
     const comparator = createComparator(options);
@@ -187,7 +198,7 @@ export const sortCommand: RuntimeCommand = {
         if (comparator(lines[i - 1], lines[i]) > 0) {
           return {
             stdout: "",
-            stderr: `sort: ${checkFile}:${i + 1}: disorder: ${lines[i]}\n`,
+            stderr: `sort: ${checkFile}:${i + 1}: disorder: ${lines[i]}${recordSeparator}`,
             exitCode: 1,
           };
         }
@@ -203,7 +214,10 @@ export const sortCommand: RuntimeCommand = {
       lines = filterUnique(lines, options);
     }
 
-    const output = lines.length > 0 ? `${lines.join("\n")}\n` : "";
+    const output =
+      lines.length > 0
+        ? `${lines.join(recordSeparator)}${recordSeparator}`
+        : "";
 
     // sort emits text; the pipeline handles encoding.
     if (options.outputFile) {
@@ -228,6 +242,7 @@ export const flagsForFuzzing: CommandFuzzInfo = {
     { flag: "-r", type: "boolean" },
     { flag: "-n", type: "boolean" },
     { flag: "-u", type: "boolean" },
+    { flag: "-z", type: "boolean" },
     { flag: "-f", type: "boolean" },
     { flag: "-h", type: "boolean" },
     { flag: "-V", type: "boolean" },
