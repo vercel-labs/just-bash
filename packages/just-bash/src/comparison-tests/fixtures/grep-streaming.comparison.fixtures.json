@@ -1,0 +1,53 @@
+{
+  "6e0cca4ccd14d241": {
+    "command": "grep -L MATCH a.txt b.txt | cat",
+    "files": {
+      "a.txt": "before\nMATCH café\nafter\nMATCH 二\n",
+      "b.txt": "nothing selected\n"
+    },
+    "stdout": "b.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9c93eb30635bbaa9": {
+    "command": "grep -n MATCH a.txt b.txt | head -2",
+    "files": {
+      "a.txt": "before\nMATCH café\nafter\nMATCH 二\n",
+      "b.txt": "nothing selected\n"
+    },
+    "stdout": "a.txt:2:MATCH café\na.txt:4:MATCH 二\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bf821f1e7d4bc711": {
+    "command": "grep -c MATCH a.txt b.txt | cat",
+    "files": {
+      "a.txt": "before\nMATCH café\nafter\nMATCH 二\n",
+      "b.txt": "nothing selected\n"
+    },
+    "stdout": "a.txt:2\nb.txt:0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d80c2e567ed798f5": {
+    "command": "grep -n -C 1 MATCH a.txt b.txt | cat",
+    "files": {
+      "a.txt": "before\nMATCH café\nafter\nMATCH 二\n",
+      "b.txt": "nothing selected\n"
+    },
+    "stdout": "a.txt-1-before\na.txt:2:MATCH café\na.txt-3-after\na.txt:4:MATCH 二\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "eecb69828a3fd8a0": {
+    "command": "printf 'MATCH stdin\\n' | grep -n MATCH - a.txt - | cat",
+    "files": {
+      "a.txt": "before\nMATCH café\nafter\nMATCH 二\n",
+      "b.txt": "nothing selected\n"
+    },
+    "stdout": "(standard input):1:MATCH stdin\na.txt:2:MATCH café\na.txt:4:MATCH 二\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}
