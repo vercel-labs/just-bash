@@ -54,6 +54,20 @@ describe("du over an unreadable directory", () => {
     });
   });
 
+  it.each([
+    ["/", "/data/locked"],
+    ["data/", "data/locked"],
+  ])("does not duplicate separators for operand %s", async (operand, failedPath) => {
+    const result = await new Bash({ fs: new UnreadableFs(), cwd: "/" }).exec(
+      `du -s ${operand} >/dev/null`,
+    );
+    expect(result).toMatchObject({
+      stdout: "",
+      stderr: `du: cannot read directory '${failedPath}': Permission denied\n`,
+      exitCode: 1,
+    });
+  });
+
   it("uses a native errno without exposing the backend message", async () => {
     const error = new Error("host-specific diagnostic");
     Object.defineProperty(error, "code", { value: "EACCES" });

@@ -416,6 +416,7 @@ export async function traverseFileTree(
     try {
       names = await options.fs.readdir(item.path);
     } catch (error) {
+      budget.checkpoint();
       if (!options.onReadDirectoryError) throw error;
       options.onReadDirectoryError(error, item.path);
       continue;

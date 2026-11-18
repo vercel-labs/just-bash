@@ -135,7 +135,10 @@ async function calculateSize(
         const reason = code && UNREADABLE_DIRECTORY_REASONS.get(code);
         if (!reason) throw error;
         const relative = path.slice(fullPath.length).replace(/^\//, "");
-        const shown = relative ? `${displayPath}/${relative}` : displayPath;
+        const separator = displayPath.endsWith("/") ? "" : "/";
+        const shown = relative
+          ? `${displayPath}${separator}${relative}`
+          : displayPath;
         result.stderr += `du: cannot read directory '${shown}': ${reason}\n`;
       },
     },
