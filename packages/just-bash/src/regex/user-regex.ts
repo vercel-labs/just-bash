@@ -484,23 +484,39 @@ export class UserRegex implements RegexLike {
    * but JS split truncates to exactly limit elements. We implement JS behavior.
    */
   split(input: string, limit?: number): string[] {
-    if (limit === 0) {
-      return [];
-    }
     const effectiveLimit =
       limit === undefined || limit < 0
         ? this.maxResults
         : Math.min(limit, this.maxResults);
-    const result: string[] = [];
+    if (effectiveLimit === 0) {
+      return [];
+    }
     const matcher = this._re2.matcher(input);
+    if (input === "") {
+      return matcher.find(0) ? [] : [""];
+    }
+    const result: string[] = [];
     let lastEnd = 0;
     let searchFrom = 0;
-    while (result.length < effectiveLimit && matcher.find(searchFrom)) {
+    // As in String.prototype.split, a match may not start at the end of the
+    // input, and an empty match where the previous piece ended is skipped
+    while (
+      result.length < effectiveLimit &&
+      searchFrom < input.length &&
+      matcher.find(searchFrom)
+    ) {
+      const start = matcher.start(0);
+      const end = matcher.end(0);
+      if (start >= input.length) break;
+      if (end === lastEnd) {
+        // Step over a whole code point so surrogate pairs stay together
+        searchFrom = start + ((input.codePointAt(start) ?? 0) > 0xffff ? 2 : 1);
+        continue;
+      }
       this.assertResultCount(result.length + 1);
-      result.push(input.slice(lastEnd, matcher.start(0)));
-      lastEnd = matcher.end(0);
-      searchFrom =
-        matcher.end(0) > matcher.start(0) ? matcher.end(0) : matcher.end(0) + 1;
+      result.push(input.slice(lastEnd, start));
+      lastEnd = end;
+      searchFrom = end;
     }
     if (result.length < effectiveLimit) result.push(input.slice(lastEnd));
     return result;

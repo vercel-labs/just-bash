@@ -275,6 +275,56 @@ describe("awk field handling", () => {
       expect(result.stdout).toBe("3 []\n");
       expect(result.exitCode).toBe(0);
     });
+
+    it.each([
+      ["-F'|'", "a|b|c"],
+      ["-F.", "a.b.c"],
+    ])("should treat single-character %s literally", async (flag, input) => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo '${input}' | awk ${flag} '{ print NF, $2 }'`,
+      );
+      expect(result.stdout).toBe("3 b\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it.each([
+      ["FS", `BEGIN { FS = "[,:]"; print split("a,b:c", parts) }`],
+      ["a string separator", `BEGIN { print split("a,b:c", parts, "[,:]") }`],
+    ])("should treat %s as a regex in split()", async (_kind, program) => {
+      const env = new Bash();
+      const result = await env.exec(`awk '${program}'`);
+      expect(result.stdout).toBe("3\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it.each([
+      ["FS", `echo axbxxc | awk -F'a*' '{ print NF, $2 }'`, "2 xbxxc\n"],
+      [
+        "split()",
+        `awk 'BEGIN { print split("axbxxc", parts, "a*"), parts[2] }'`,
+        "2 xbxxc\n",
+      ],
+      [
+        "an empty or padded split()",
+        `awk 'BEGIN { print split("", a, ","), split("  a b ", b) }'`,
+        "0 2\n",
+      ],
+    ])("should split like awk for %s", async (_kind, script, expected) => {
+      const env = new Bash();
+      const result = await env.exec(script);
+      expect(result.stdout).toBe(expected);
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should split into characters with empty FS", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo a😀b | awk 'BEGIN { FS = "" } { print NF, $2 }'`,
+      );
+      expect(result.stdout).toBe("3 😀\n");
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("field assignment with arithmetic", () => {

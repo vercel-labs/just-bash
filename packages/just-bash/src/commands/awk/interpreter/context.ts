@@ -4,16 +4,14 @@
  * Holds all state for AWK program execution.
  */
 
-import { ConstantRegex, type RegexLike } from "../../../regex/index.js";
 import type { FeatureCoverageWriter } from "../../../types.js";
 import type { AwkFunctionDef } from "../ast.js";
+import { type FieldSplitter, splitOnWhitespace } from "./fields.js";
 import type { AwkFileSystem, AwkValue } from "./types.js";
 
 const DEFAULT_MAX_ITERATIONS = 10000;
 // Keep low to prevent JS stack overflow (each AWK call uses ~10-20 JS stack frames)
 const DEFAULT_MAX_RECURSION_DEPTH = 100;
-// Default field separator for AWK (whitespace)
-const DEFAULT_FIELD_SEP = new ConstantRegex(/\s+/);
 
 export interface AwkRuntimeContext {
   // Built-in variables
@@ -55,7 +53,7 @@ export interface AwkRuntimeContext {
   /** Internal getline streams, isolated from the AWK variable namespace. */
   getlineCommandStreams: Map<string, { lines: string[]; index: number }>;
   getlineFileStreams: Map<string, { lines: string[]; index: number }>;
-  fieldSep: RegexLike;
+  fieldSep: FieldSplitter;
 
   // Execution limits
   maxIterations: number;
@@ -103,7 +101,7 @@ export interface AwkRuntimeContext {
 }
 
 export interface CreateContextOptions {
-  fieldSep?: RegexLike;
+  fieldSep?: FieldSplitter;
   maxIterations?: number;
   maxRecursionDepth?: number;
   maxOutputSize?: number;
@@ -121,7 +119,7 @@ export function createRuntimeContext(
   options: CreateContextOptions = {},
 ): AwkRuntimeContext {
   const {
-    fieldSep = DEFAULT_FIELD_SEP,
+    fieldSep = splitOnWhitespace,
     maxIterations = DEFAULT_MAX_ITERATIONS,
     maxRecursionDepth = DEFAULT_MAX_RECURSION_DEPTH,
     maxOutputSize = 0,
