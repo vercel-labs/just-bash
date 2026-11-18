@@ -3,6 +3,7 @@ import {
   ExecutionAbortedError,
   ExecutionLimitError,
 } from "../../interpreter/errors.js";
+import { getErrorCode } from "../../interpreter/helpers/errors.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -129,6 +130,14 @@ async function calculateSize(
       site: "du",
       symlinks: "never",
       includeLeave: true,
+      onReadDirectoryError(error, path) {
+        const code = getErrorCode(error);
+        const reason = code && UNREADABLE_DIRECTORY_REASONS.get(code);
+        if (!reason) throw error;
+        const relative = path.slice(fullPath.length).replace(/^\//, "");
+        const shown = relative ? `${displayPath}/${relative}` : displayPath;
+        result.stderr += `du: cannot read directory '${shown}': ${reason}\n`;
+      },
     },
     (entry) => {
       const relative = entry.path.slice(fullPath.length).replace(/^\//, "");
@@ -177,6 +186,17 @@ async function calculateSize(
 
   return result;
 }
+
+// Match find's recoverable directory-read errors; never expose backend messages.
+const UNREADABLE_DIRECTORY_REASONS = new Map<string, string>([
+  ["EACCES", "Permission denied"],
+  ["EIO", "Input/output error"],
+  ["ELOOP", "Too many levels of symbolic links"],
+  ["ENAMETOOLONG", "File name too long"],
+  ["ENOENT", "No such file or directory"],
+  ["ENOTDIR", "Not a directory"],
+  ["EPERM", "Permission denied"],
+]);
 
 function formatSize(bytes: number, humanReadable: boolean): string {
   if (!humanReadable) {

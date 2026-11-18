@@ -317,6 +317,8 @@ export interface TraverseFileTreeOptions extends TraversalBudgetOptions {
   readonly root: string;
   readonly symlinks?: SymlinkTraversalPolicy;
   readonly includeLeave?: boolean;
+  /** Handle a failed directory read; throw to stop traversal (the default). */
+  readonly onReadDirectoryError?: (error: unknown, path: string) => void;
   readonly budget?: FileTraversalBudget;
 }
 
@@ -410,7 +412,14 @@ export async function traverseFileTree(
       isSymlink,
       identity,
     });
-    const names = await options.fs.readdir(item.path);
+    let names: string[];
+    try {
+      names = await options.fs.readdir(item.path);
+    } catch (error) {
+      if (!options.onReadDirectoryError) throw error;
+      options.onReadDirectoryError(error, item.path);
+      continue;
+    }
     budget.checkpoint();
     names.sort((a, b) => a.localeCompare(b));
     for (let index = names.length - 1; index >= 0; index--) {

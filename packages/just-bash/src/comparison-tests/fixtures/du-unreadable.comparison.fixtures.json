@@ -1,0 +1,12 @@
+{
+  "1a38976a8019319e": {
+    "command": "out=$(du -s data 2>/dev/null); status=$?; echo \"$out\" | cut -f2; echo \"status:$status\"",
+    "files": {
+      "data/docs/notes.txt": "notes\n",
+      "data/locked/secret.txt": "secret\n"
+    },
+    "stdout": "data\nstatus:1\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
