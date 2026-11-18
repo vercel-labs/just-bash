@@ -580,6 +580,7 @@ export class Bash {
       : undefined;
     const runtimeCommand: RuntimeCommand = {
       name: command.name,
+      streaming: command.streaming,
       trusted,
       internalIsExtension: isExtension,
       internalOriginalCommand: originalCommand,
