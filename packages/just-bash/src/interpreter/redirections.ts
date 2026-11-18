@@ -1159,12 +1159,16 @@ export async function routeControlFlowError(
         : 0;
   const routed = await applyRedirections(
     ctx,
-    makeResult(error.stdout, error.stderr, exitCode),
+    {
+      ...makeResult(error.stdout, error.stderr, exitCode),
+      internalStdoutProducers: error.internalStdoutProducers,
+    },
     redirections.length > 0,
     prepared.outputRoutes,
   );
   error.stdout = routed.stdout;
   error.stderr = routed.stderr;
+  error.internalStdoutProducers = routed.internalStdoutProducers;
   error.internalOutputAccounting = routed.internalOutputAccounting ?? {
     stdout: utf8ByteLength(routed.stdout),
     stderr: utf8ByteLength(routed.stderr),
@@ -1271,7 +1275,16 @@ export async function applyRedirections(
     stderr = "";
     if (fd1Sink.kind === "invalid-output" && pendingStdout !== "") {
       pendingStdout = "";
-      pendingStderr += `${omitShellPrefix ? "" : "bash: "}${writeErrorCommand}: write error: Bad file descriptor\n`;
+      const producers = result.internalStdoutProducers ?? [
+        {
+          command: result.internalProducerCommand ?? writeErrorCommand,
+          omitShellPrefix:
+            result.internalProducerOmitsShellPrefix ?? omitShellPrefix,
+        },
+      ];
+      for (const producer of producers) {
+        pendingStderr += `${producer.omitShellPrefix ? "" : "bash: "}${producer.command}: write error: Bad file descriptor\n`;
+      }
       exitCode = 1;
     }
     if (fd2Sink.kind === "invalid-output" && pendingStderr !== "") {
@@ -1353,6 +1366,12 @@ export async function applyRedirections(
   }
 
   const finalResult = makeResult(stdout, stderr, exitCode);
+  if (stdout !== "") {
+    finalResult.internalProducerCommand = result.internalProducerCommand;
+    finalResult.internalProducerOmitsShellPrefix =
+      result.internalProducerOmitsShellPrefix;
+    finalResult.internalStdoutProducers = result.internalStdoutProducers;
+  }
   // Preserve the upstream's stdout shape through the redirection layer so
   // the next stage (pipeline glue, output boundary) can tell bytes-shaped
   // output from text-shaped output. Both the new `stdoutKind` field and
