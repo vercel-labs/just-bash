@@ -359,7 +359,7 @@ export async function cmdStats(
     for (const row of data) {
       ctx.executionScope?.consumeWork(1, "xan stats rows");
       const value = row[col];
-      if (value === null || value === undefined) continue;
+      if (value === null || value === undefined || value === "") continue;
 
       valueCount++;
       const numericValue =
