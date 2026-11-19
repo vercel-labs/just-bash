@@ -329,7 +329,7 @@ function createHOSTFS(
       ENOTDIR: 54,
       EISDIR: 31,
       EINVAL: 28,
-      EFBIG: 27,
+      EFBIG: 22, // Emscripten/WASI errno; 27 is EINTR and Python retries writes.
       EMFILE: 33,
       ENOSPC: 51,
       ESPIPE: 70,

@@ -5,6 +5,7 @@ import type { CommandExecOptions, ExecResult } from "../../types.js";
 import { BridgeHandler } from "./bridge-handler.js";
 import {
   createSharedBuffer,
+  ErrorCode,
   OpCode,
   type OpCodeType,
   ProtocolBuffer,
@@ -37,6 +38,30 @@ async function sendOp(
 }
 
 describe("BridgeHandler raceDeadline", () => {
+  it("returns an error even when its message exceeds the bridge capacity", async () => {
+    const shared = createSharedBuffer(24);
+    const protocol = new ProtocolBuffer(shared);
+    const handler = new BridgeHandler(
+      shared,
+      new InMemoryFs(),
+      "/",
+      "test-cmd",
+    );
+    const runPromise = handler.run(1000);
+    try {
+      expect(
+        await sendOp(protocol, OpCode.READ_FILE, {
+          path: "/missing-file-with-a-long-name.txt",
+        }),
+      ).toBe(Status.ERROR);
+      expect(protocol.getErrorCode()).toBe(ErrorCode.NOT_FOUND);
+      expect(protocol.getResultAsString()).toBe("ENOENT: no such file or ");
+    } finally {
+      handler.stop();
+      await runPromise;
+    }
+  });
+
   it("HTTP_REQUEST resolves with error when secureFetch never settles", async () => {
     const shared = createSharedBuffer();
     const protocol = new ProtocolBuffer(shared);
