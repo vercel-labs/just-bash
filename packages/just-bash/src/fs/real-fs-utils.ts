@@ -139,7 +139,33 @@ export function resolveCanonicalPath(
       try {
         const leafStat = fs.lstatSync(realPath);
         if (leafStat.isSymbolicLink()) {
-          const target = fs.readlinkSync(realPath);
+          let target: string;
+          try {
+            target = fs.readlinkSync(realPath);
+          } catch {
+            return null;
+          }
+          const canonicalLeaf = nodePath.join(
+            parentCanon,
+            nodePath.basename(realPath),
+          );
+          const components = target.split(
+            nodePath.sep === "\\" ? /[\\/]/ : "/",
+          );
+          // A canonical absolute target or one containing `..` can be
+          // checked without losing the spelling of an intermediate link.
+          if (
+            (components.includes("..") ||
+              (nodePath.isAbsolute(target) &&
+                isPathWithinRoot(target, canonicalRoot))) &&
+            !isRealpathFailureInsideSandbox(
+              nodePath.relative(canonicalRoot, canonicalLeaf),
+              canonicalRoot,
+              true,
+            )
+          ) {
+            return null;
+          }
           const resolvedTarget = nodePath.isAbsolute(target)
             ? target
             : nodePath.resolve(nodePath.dirname(realPath), target);
@@ -156,8 +182,8 @@ export function resolveCanonicalPath(
         // A RealpathError from the target check is a real lookup failure,
         // not a missing leaf — never swallow it into the walk-up path.
         if (e instanceof RealpathError) throw e;
-        // lstatSync ENOENT: the leaf truly doesn't exist (not a symlink
-        // entry on disk), so the walk-up basename is correct.
+        // Only ENOENT proves the leaf is missing; anything else fails closed.
+        if ((e as NodeJS.ErrnoException).code !== "ENOENT") return null;
       }
 
       return nodePath.join(parentCanon, nodePath.basename(realPath));
@@ -168,131 +194,199 @@ export function resolveCanonicalPath(
   }
 }
 
-/**
- * Maximum symlink traversals realpath(3) follows before reporting ELOOP
- * (Linux MAXSYMLINKS). The containment walk below fails closed past this
- * depth: a lookup needing more traversals cannot have its errno verified
- * as inside the sandbox.
- */
+// Bound both recursion and total work. Checking the physical and normalized
+// target paths can otherwise revisit the same chain many times.
 const MAX_SYMLINK_TRAVERSALS = 40;
+const MAX_CONTAINMENT_STEPS = 1024;
 
 /**
  * Check whether a failed realpath(3) lookup stayed inside the sandbox root
  * and complied with the symlink policy, so its errno may be surfaced to
  * the caller instead of the generic sandbox rejection.
  *
- * realpath(3) resolves symlinks as it walks, so a failure past a symlink
- * that points outside the root (ENOTDIR past an escape link, ELOOP in a
- * loop outside the root) would otherwise leak information about paths
- * outside the sandbox. This walks the lookup component by component with
- * lstatSync (which does not follow symlinks), starting from the canonical
- * root:
- *
- * - a symlink component violates the policy outright when symlinks are
- *   disallowed;
- * - otherwise the symlink's target chain must itself stay inside the root
- *   (checked recursively; a visited set makes a loop among in-root
- *   symlinks terminate as "inside");
- * - any other lstat failure concerns a path already verified to be inside
- *   the root, so the errno is safe to surface.
- *
- * Fail-closed: anything unverifiable (a readlink failure, traversal depth
- * past the kernel limit, a path that is not under the root at all)
- * returns false.
- *
- * `pathRelativeToRoot` is the failing lookup relative to the sandbox root
- * (so the walk starts at `canonicalRoot` and never depends on the lexical
- * root, which may itself contain symlinks, e.g. /tmp on macOS).
+ * Node first follows each symlink with a physical stat, then normalizes its
+ * target and restarts its own walk. Check both paths so a target such as
+ * `escape/../missing` cannot hide an outside lookup. An absolute target using
+ * a noncanonical root alias fails closed.
  */
 export function isRealpathFailureInsideSandbox(
   pathRelativeToRoot: string,
   canonicalRoot: string,
   allowSymlinks: boolean,
 ): boolean {
-  return isLookupInsideSandbox(
-    nodePath.join(canonicalRoot, pathRelativeToRoot),
-    canonicalRoot,
-    allowSymlinks,
-    new Set<string>(),
-    0,
-  );
-}
-
-function isLookupInsideSandbox(
-  realPath: string,
-  canonicalRoot: string,
-  allowSymlinks: boolean,
-  seen: Set<string>,
-  depth: number,
-): boolean {
-  if (depth > MAX_SYMLINK_TRAVERSALS) return false;
-  const relative = nodePath.relative(canonicalRoot, realPath);
   if (
-    relative === "" ||
-    relative === ".." ||
-    relative.startsWith(`..${nodePath.sep}`) ||
-    nodePath.isAbsolute(relative)
+    nodePath.isAbsolute(pathRelativeToRoot) ||
+    (nodePath.sep === "\\" && nodePath.win32.parse(pathRelativeToRoot).root)
   ) {
     return false;
   }
-  if (seen.has(realPath)) {
-    // A cycle among paths already verified to be inside the root: the
-    // failing lookup loops within the sandbox, so its errno is safe.
-    return true;
+  const path = nodePath.resolve(canonicalRoot, pathRelativeToRoot);
+  if (!isPathWithinRoot(path, canonicalRoot)) return false;
+  return (
+    isLookupInsideSandbox(
+      canonicalRoot,
+      nodePath.relative(canonicalRoot, path).split(nodePath.sep),
+      canonicalRoot,
+      allowSymlinks,
+      new Set<string>(),
+      { remaining: MAX_CONTAINMENT_STEPS },
+    ) !== "outside"
+  );
+}
+
+function getLookupTarget(
+  link: string,
+  canonicalRoot: string,
+): { base: string; components: string[]; normalized: string } | null {
+  let target: string;
+  try {
+    target = fs.readlinkSync(link);
+  } catch {
+    return null;
   }
-  seen.add(realPath);
-  let current = canonicalRoot;
-  for (const part of relative.split(nodePath.sep)) {
+  if (nodePath.sep === "\\") target = target.replaceAll("/", "\\");
+  let base = nodePath.dirname(link);
+  const normalized = nodePath.resolve(base, target);
+  if (nodePath.isAbsolute(target)) {
+    const rootPrefix = canonicalRoot.endsWith(nodePath.sep)
+      ? canonicalRoot
+      : `${canonicalRoot}${nodePath.sep}`;
+    const comparableTarget =
+      nodePath.sep === "\\" ? target.toLowerCase() : target;
+    const comparableRoot =
+      nodePath.sep === "\\" ? canonicalRoot.toLowerCase() : canonicalRoot;
+    const comparablePrefix =
+      nodePath.sep === "\\" ? rootPrefix.toLowerCase() : rootPrefix;
+    if (comparableTarget === comparableRoot) {
+      target = "";
+    } else if (comparableTarget.startsWith(comparablePrefix)) {
+      target = target.slice(rootPrefix.length);
+    } else {
+      return null;
+    }
+    base = canonicalRoot;
+  } else if (nodePath.sep === "\\" && nodePath.win32.parse(target).root) {
+    // Drive-relative paths do not resolve relative to the link's parent.
+    return null;
+  }
+  return { base, components: target.split(nodePath.sep), normalized };
+}
+
+/**
+ * Walk a symlink target in OS lookup order. Unlike lexical normalization,
+ * `..` here applies after all preceding symlinks have resolved.
+ */
+function resolvePhysicalLookup(
+  current: string,
+  components: string[],
+  canonicalRoot: string,
+  allowSymlinks: boolean,
+  seen: Set<string>,
+  budget: { remaining: number },
+): "outside" | "stopped" | { path: string; directory: boolean } {
+  let directory = true;
+  for (const part of components) {
+    if (--budget.remaining < 0) return "outside";
+    if (!directory) return "stopped";
     if (part === "" || part === ".") continue;
-    current = nodePath.join(current, part);
+    current =
+      part === ".." ? nodePath.dirname(current) : nodePath.join(current, part);
+    if (!isPathWithinRoot(current, canonicalRoot)) return "outside";
     let stat: fs.Stats;
     try {
       stat = fs.lstatSync(current);
     } catch {
-      // The failing component is missing (ENOENT) or cannot be inspected
-      // here (ENOTDIR/ELOOP/EACCES on an in-root path): every component
-      // walked so far was checked, so the failure concerns a path inside
-      // the root.
-      return true;
+      return "stopped";
+    }
+    if (!stat.isSymbolicLink()) {
+      directory = stat.isDirectory();
+      continue;
+    }
+    if (!allowSymlinks) return "outside";
+    if (seen.has(current)) return "stopped";
+    if (seen.size >= MAX_SYMLINK_TRAVERSALS) return "outside";
+    const target = getLookupTarget(current, canonicalRoot);
+    if (!target) return "outside";
+    seen.add(current);
+    const resolved = resolvePhysicalLookup(
+      target.base,
+      target.components,
+      canonicalRoot,
+      allowSymlinks,
+      seen,
+      budget,
+    );
+    seen.delete(current);
+    if (typeof resolved === "string") return resolved;
+    current = resolved.path;
+    directory = resolved.directory;
+  }
+  return { path: current, directory };
+}
+
+function isLookupInsideSandbox(
+  current: string,
+  components: string[],
+  canonicalRoot: string,
+  allowSymlinks: boolean,
+  seen: Set<string>,
+  budget: { remaining: number },
+): "outside" | "stopped" | "resolved" {
+  for (let index = 0; index < components.length; index++) {
+    const part = components[index];
+    if (--budget.remaining < 0) return "outside";
+    if (part === "" || part === ".") continue;
+    current = nodePath.join(current, part);
+    if (!isPathWithinRoot(current, canonicalRoot)) return "outside";
+    let stat: fs.Stats;
+    try {
+      stat = fs.lstatSync(current);
+    } catch {
+      return "stopped";
     }
     if (!stat.isSymbolicLink()) continue;
-    // A symlink component violates the policy when symlinks are
-    // disallowed. Otherwise its target chain must itself stay inside
-    // the root — a loop or failure inside an outside target must not
-    // surface.
-    if (!allowSymlinks) return false;
-    let target: string;
-    try {
-      target = fs.readlinkSync(current);
-    } catch {
-      return false;
+    if (!allowSymlinks) return "outside";
+    if (seen.has(current)) {
+      // A repeated link with a remaining suffix can normalize to a new path.
+      return components.length === index + 1 ? "stopped" : "outside";
     }
-    const resolvedTarget = nodePath.isAbsolute(target)
-      ? target
-      : nodePath.resolve(nodePath.dirname(current), target);
-    if (
-      !isLookupInsideSandbox(
-        resolvedTarget,
-        canonicalRoot,
-        allowSymlinks,
-        seen,
-        depth + 1,
-      )
-    ) {
-      return false;
-    }
-    // Continue the walk from the resolved target so later components are
-    // checked against the path realpath(3) actually traversed. When the
-    // target does not resolve (dangling, or a loop/file failure inside
-    // it), keep walking lexically: the recursive check above already
-    // verified the target chain stays inside the root.
-    try {
-      current = fs.realpathSync(resolvedTarget);
-    } catch {
-      current = resolvedTarget;
-    }
+    if (seen.size >= MAX_SYMLINK_TRAVERSALS) return "outside";
+    const target = getLookupTarget(current, canonicalRoot);
+    if (!target) return "outside";
+    seen.add(current);
+
+    // realpathSync first stats the link in OS lookup order, then restarts
+    // with a normalized target and the remaining path.
+    const physical = resolvePhysicalLookup(
+      target.base,
+      target.components,
+      canonicalRoot,
+      allowSymlinks,
+      seen,
+      budget,
+    );
+    if (physical === "outside") return "outside";
+    const normalized = nodePath.resolve(
+      target.normalized,
+      components.slice(index + 1).join(nodePath.sep),
+    );
+    if (!isPathWithinRoot(normalized, canonicalRoot)) return "outside";
+    const result = isLookupInsideSandbox(
+      canonicalRoot,
+      nodePath.relative(canonicalRoot, normalized).split(nodePath.sep),
+      canonicalRoot,
+      allowSymlinks,
+      seen,
+      budget,
+    );
+    seen.delete(current);
+    if (result === "outside") return result;
+    // An unresolved physical lookup may still be followed by a lexical
+    // normalization in a caller. Reject unless that walk also stopped.
+    if (physical === "stopped" && result !== "stopped") return "outside";
+    return result;
   }
-  return true;
+  return "resolved";
 }
 
 /**

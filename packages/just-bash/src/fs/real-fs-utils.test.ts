@@ -11,6 +11,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   isPathWithinRoot,
+  isRealpathFailureInsideSandbox,
   normalizePath,
   RealpathError,
   resolveCanonicalPath,
@@ -283,7 +284,9 @@ describe("resolveCanonicalPath", () => {
 
   it("walks up on ENOENT for a non-existent child", () => {
     const child = path.join(tempDir, "missing", "child.txt");
-    expect(resolveCanonicalPath(child, canonicalRoot)).toBe(child);
+    expect(resolveCanonicalPath(child, canonicalRoot)).toBe(
+      path.join(canonicalRoot, "missing", "child.txt"),
+    );
   });
 
   it("throws RealpathError with ENOTDIR when a file is traversed as a directory (fixes #745)", () => {
@@ -317,6 +320,71 @@ describe("resolveCanonicalPath", () => {
     }
     expect(caught).toBeInstanceOf(RealpathError);
     expect((caught as RealpathError).code).toBe("ELOOP");
+  });
+
+  it("checks an in-root symlink chain without rejecting its errno", () => {
+    fs.writeFileSync(path.join(tempDir, "file"), "content");
+    for (let index = 0; index < 24; index++) {
+      fs.symlinkSync(
+        index === 23 ? "file" : `link-${index + 1}`,
+        path.join(tempDir, `link-${index}`),
+      );
+    }
+    expect(
+      isRealpathFailureInsideSandbox("link-0/child", canonicalRoot, true),
+    ).toBe(true);
+  });
+
+  it("fails closed when containment exceeds the work budget", () => {
+    for (let index = 0; index < 4; index++) {
+      fs.symlinkSync(
+        `${"./".repeat(300)}${index === 3 ? "." : `link-${index + 1}`}`,
+        path.join(tempDir, `link-${index}`),
+      );
+    }
+
+    expect(
+      isRealpathFailureInsideSandbox("link-0/child", canonicalRoot, true),
+    ).toBe(false);
+  });
+
+  it("rejects an escape hidden by repeated expansion after an internal cycle", () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "rcp-outside-"));
+    try {
+      fs.mkdirSync(path.join(tempDir, "d"));
+      fs.symlinkSync(outside, path.join(tempDir, "d", "out"));
+      for (let index = 0; index < 12; index++) {
+        fs.symlinkSync(
+          index === 11 ? "." : `link-${index + 1}`,
+          path.join(tempDir, "d", `link-${index}`),
+        );
+      }
+      fs.symlinkSync("loop", path.join(tempDir, "loop"));
+      fs.symlinkSync(
+        "loop/../d/link-0/out/file/child",
+        path.join(tempDir, "a"),
+      );
+
+      expect(isRealpathFailureInsideSandbox("a", canonicalRoot, true)).toBe(
+        false,
+      );
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an escape after a self-referential target is normalized", () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "rcp-outside-"));
+    try {
+      fs.symlinkSync(outside, path.join(tempDir, "out"));
+      fs.symlinkSync("a/../out/file/child", path.join(tempDir, "a"));
+
+      expect(isRealpathFailureInsideSandbox("a", canonicalRoot, true)).toBe(
+        false,
+      );
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
   });
 });
 

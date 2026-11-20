@@ -262,6 +262,225 @@ describe("ReadWriteFs", () => {
       }
     });
 
+    it.each([
+      "file",
+      "directory",
+    ])("rejects an escaping symlink target with a parent component through an outside %s", async (kind) => {
+      const outsideDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "rwfs-outside-"),
+      );
+      try {
+        const outside = path.join(outsideDir, "target");
+        if (kind === "file") {
+          fs.writeFileSync(outside, "secret");
+        } else {
+          fs.mkdirSync(outside);
+        }
+        fs.symlinkSync(outside, path.join(tempDir, "b"));
+        fs.symlinkSync("b/../missing", path.join(tempDir, "a"));
+
+        for (const allowSymlinks of [false, true]) {
+          const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks });
+          let caught: unknown;
+          try {
+            await rwfs.stat("/a");
+          } catch (error) {
+            caught = error;
+          }
+          expect((caught as Error).message).toBe(
+            "EACCES: permission denied, '/a' resolves outside sandbox",
+          );
+          expect((caught as NodeJS.ErrnoException).code).toBeUndefined();
+        }
+      } finally {
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it.each([
+      "file",
+      "directory",
+    ])("rejects an outside %s reached after a nested link and parent traversal", async (kind) => {
+      const outsideDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "rwfs-outside-"),
+      );
+      try {
+        fs.mkdirSync(path.join(tempDir, "deep", "child"), { recursive: true });
+        fs.mkdirSync(path.join(tempDir, "dir"));
+        fs.symlinkSync("../deep/child", path.join(tempDir, "dir", "link"));
+        fs.symlinkSync("dir/link", path.join(tempDir, "b"));
+        fs.symlinkSync(outsideDir, path.join(tempDir, "deep", "probe"));
+        fs.symlinkSync("b/../probe/secret/child", path.join(tempDir, "a"));
+        if (kind === "file") {
+          fs.writeFileSync(path.join(outsideDir, "secret"), "secret");
+        } else {
+          fs.mkdirSync(path.join(outsideDir, "secret"));
+        }
+        const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+        await expect(rwfs.stat("/a")).rejects.toThrow("outside sandbox");
+      } finally {
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it("preserves ENOTDIR after an in-root nested link and parent traversal", async () => {
+      fs.mkdirSync(path.join(tempDir, "deep", "child"), { recursive: true });
+      fs.mkdirSync(path.join(tempDir, "dir"));
+      fs.symlinkSync("../deep/child", path.join(tempDir, "dir", "link"));
+      fs.symlinkSync("dir/link", path.join(tempDir, "b"));
+      fs.writeFileSync(path.join(tempDir, "deep", "file"), "content");
+      fs.symlinkSync("b/../file/child", path.join(tempDir, "a"));
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+      await expect(rwfs.stat("/a")).rejects.toThrow("ENOTDIR");
+    });
+
+    it("rejects an outside lookup behind a self-referential normalized target", async () => {
+      const outsideDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "rwfs-outside-"),
+      );
+      try {
+        fs.symlinkSync(outsideDir, path.join(tempDir, "b"));
+        fs.symlinkSync("a/../b/file/child", path.join(tempDir, "a"));
+        fs.writeFileSync(path.join(outsideDir, "file"), "secret");
+        const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+        await expect(rwfs.stat("/a")).rejects.toThrow("outside sandbox");
+      } finally {
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it("rejects an outside lookup hidden behind a repeated normalized link", async () => {
+      const outsideDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "rwfs-outside-"),
+      );
+      try {
+        fs.symlinkSync(outsideDir, path.join(tempDir, "out"));
+        fs.symlinkSync("b/file", path.join(tempDir, "a"));
+        fs.symlinkSync("missing/../a/../out", path.join(tempDir, "b"));
+        const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+        await expect(rwfs.stat("/a")).rejects.toThrow("outside sandbox");
+      } finally {
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it.each([
+      "file",
+      "directory",
+    ])("does not expose an outside %s reached after a missing normalized parent", async (kind) => {
+      const parent = fs.mkdtempSync(path.join(os.tmpdir(), "rwfs-parent-"));
+      try {
+        const root = path.join(parent, "root");
+        const outside = path.join(parent, "outside");
+        fs.mkdirSync(root);
+        fs.mkdirSync(outside);
+        if (kind === "file") {
+          fs.writeFileSync(path.join(outside, "secret"), "secret");
+        } else {
+          fs.mkdirSync(path.join(outside, "secret"));
+        }
+        fs.symlinkSync(
+          "missing/../../outside/secret/child",
+          path.join(root, "a"),
+        );
+        const rwfs = new ReadWriteFs({ root, allowSymlinks: true });
+
+        await expect(rwfs.stat("/a")).rejects.toThrow("outside sandbox");
+      } finally {
+        fs.rmSync(parent, { recursive: true, force: true });
+      }
+    });
+
+    it("does not reject a dangling symlink whose parent traversal stays inside the root", async () => {
+      fs.mkdirSync(path.join(tempDir, "nested", "dir"), { recursive: true });
+      fs.symlinkSync("dir/../missing", path.join(tempDir, "nested", "a"));
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+      await rwfs.writeFile("/nested/a", "created");
+
+      expect(
+        fs.readFileSync(path.join(tempDir, "nested", "missing"), "utf8"),
+      ).toBe("created");
+    });
+
+    it("preserves ENOTDIR when a link traverses an in-root file before '..'", async () => {
+      fs.writeFileSync(path.join(tempDir, "file"), "content");
+      fs.symlinkSync("file/../missing", path.join(tempDir, "link"));
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+      await expect(rwfs.stat("/link")).rejects.toThrow("ENOTDIR");
+    });
+
+    it("rejects a symlink that leaves the root before returning to it", async () => {
+      const target = `../${path.basename(tempDir)}/missing`;
+      fs.symlinkSync(target, path.join(tempDir, "a"));
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+      await expect(rwfs.stat("/a")).rejects.toThrow(
+        "EACCES: permission denied, '/a' resolves outside sandbox",
+      );
+      await expect(rwfs.realpath("/a")).rejects.toThrow("ENOENT");
+    });
+
+    it("does not expose an outside lookup after a file and '..' in a symlink target", async () => {
+      const outsideDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "rwfs-outside-"),
+      );
+      try {
+        fs.writeFileSync(path.join(outsideDir, "secret"), "secret");
+        fs.writeFileSync(path.join(tempDir, "file"), "local");
+        fs.mkdirSync(path.join(tempDir, "dir"));
+        fs.symlinkSync(outsideDir, path.join(tempDir, "out"));
+        fs.symlinkSync("file/../out/secret/child", path.join(tempDir, "a"));
+        fs.symlinkSync("dir/../out/secret/child", path.join(tempDir, "b"));
+        fs.symlinkSync("file", path.join(tempDir, "inner-file"));
+        fs.symlinkSync("dir", path.join(tempDir, "inner-dir"));
+        fs.symlinkSync(
+          "inner-file/../out/secret/child",
+          path.join(tempDir, "c"),
+        );
+        fs.symlinkSync(
+          "inner-dir/../out/secret/child",
+          path.join(tempDir, "d"),
+        );
+        const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+        for (const name of ["a", "b", "c", "d"]) {
+          for (const suffix of ["", "/child"]) {
+            await expect(rwfs.stat(`/${name}${suffix}`)).rejects.toThrow(
+              `EACCES: permission denied, '/${name}${suffix}' resolves outside sandbox`,
+            );
+          }
+        }
+      } finally {
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it("rejects an outside lookup after a symlink target normalizes another failed target", async () => {
+      const outsideDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "rwfs-outside-"),
+      );
+      try {
+        fs.writeFileSync(path.join(outsideDir, "secret"), "secret");
+        fs.symlinkSync(outsideDir, path.join(tempDir, "out"));
+        fs.writeFileSync(path.join(tempDir, "file"), "local");
+        fs.symlinkSync("file/child", path.join(tempDir, "inner"));
+        fs.symlinkSync("inner/../out/secret/child", path.join(tempDir, "a"));
+        const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+        await expect(rwfs.stat("/a")).rejects.toThrow(
+          "EACCES: permission denied, '/a' resolves outside sandbox",
+        );
+      } finally {
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
     it("should fall back to the generic rejection for a symlink loop when symlinks are disallowed (review #767)", async () => {
       try {
         fs.symlinkSync("loop-b", path.join(tempDir, "loop-a"));
@@ -615,6 +834,155 @@ describe("ReadWriteFs", () => {
       expect(fs.readFileSync(path.join(tempDir, "target.txt"), "utf8")).toBe(
         "created",
       );
+    });
+
+    it("should write through an allowed absolute dangling symlink within the root", async () => {
+      fs.symlinkSync(
+        path.join(tempDir, "target.txt"),
+        path.join(tempDir, "link"),
+      );
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+      await rwfs.writeFile("/link", "created");
+
+      expect(fs.readFileSync(path.join(tempDir, "target.txt"), "utf8")).toBe(
+        "created",
+      );
+    });
+
+    it("rejects a dangling absolute symlink whose nested target leaves the root", async () => {
+      const outsideDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "rwfs-outside-"),
+      );
+      try {
+        fs.mkdirSync(path.join(outsideDir, "dir"));
+        fs.symlinkSync(path.join(outsideDir, "dir"), path.join(tempDir, "b"));
+        fs.symlinkSync("b/../missing", path.join(tempDir, "a"));
+        fs.symlinkSync(
+          path.join(fs.realpathSync(tempDir), "a"),
+          path.join(tempDir, "link"),
+        );
+        const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+        await expect(rwfs.stat("/link")).rejects.toThrow("outside sandbox");
+      } finally {
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it("rejects a dangling absolute symlink spelled through a root alias when its nested target leaves", async () => {
+      const parent = fs.mkdtempSync(path.join(os.tmpdir(), "rwfs-parent-"));
+      try {
+        const root = path.join(parent, "root");
+        const alias = path.join(parent, "alias");
+        const outside = path.join(parent, "outside");
+        fs.mkdirSync(root);
+        fs.mkdirSync(outside);
+        fs.symlinkSync(root, alias);
+        fs.symlinkSync(outside, path.join(root, "b"));
+        fs.symlinkSync("b/../missing", path.join(root, "a"));
+        fs.symlinkSync(path.join(alias, "a"), path.join(root, "link"));
+        const rwfs = new ReadWriteFs({ root, allowSymlinks: true });
+
+        await expect(rwfs.stat("/link")).rejects.toThrow("outside sandbox");
+      } finally {
+        fs.rmSync(parent, { recursive: true, force: true });
+      }
+    });
+
+    it("rejects an escaping parent component when the sandbox root is its symlink", async () => {
+      const parent = fs.mkdtempSync(path.join(os.tmpdir(), "rwfs-parent-"));
+      try {
+        const root = path.join(parent, "root");
+        const alias = path.join(parent, "alias");
+        fs.mkdirSync(root);
+        fs.mkdirSync(path.join(parent, "outside"));
+        fs.symlinkSync(root, alias);
+        fs.symlinkSync("../outside", path.join(root, "b"));
+        fs.symlinkSync("b/../missing", path.join(root, "a"));
+        fs.symlinkSync(path.join(alias, "a"), path.join(root, "link"));
+        const rwfs = new ReadWriteFs({ root: alias, allowSymlinks: true });
+
+        await expect(rwfs.stat("/link")).rejects.toThrow("outside sandbox");
+      } finally {
+        fs.rmSync(parent, { recursive: true, force: true });
+      }
+    });
+
+    it("rejects an escaping target normalized away by an outer dangling link", async () => {
+      const outsideDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "rwfs-outside-"),
+      );
+      try {
+        fs.mkdirSync(path.join(outsideDir, "dir"));
+        fs.symlinkSync(path.join(outsideDir, "dir"), path.join(tempDir, "b"));
+        fs.symlinkSync("b/../missing", path.join(tempDir, "a"));
+        fs.symlinkSync("a/../missing", path.join(tempDir, "outer"));
+        const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+        await expect(rwfs.stat("/outer")).rejects.toThrow("outside sandbox");
+      } finally {
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it("does not expose a file outside the root through an absolute target that normalizes '..'", async () => {
+      const parent = fs.mkdtempSync(path.join(os.tmpdir(), "rwfs-parent-"));
+      try {
+        const root = path.join(parent, "root");
+        const outside = path.join(parent, "outside");
+        fs.mkdirSync(root);
+        fs.writeFileSync(outside, "secret");
+        const absoluteTarget = `${fs.realpathSync(root)}/../outside`;
+        fs.symlinkSync(absoluteTarget, path.join(root, "link"));
+        const rwfs = new ReadWriteFs({ root, allowSymlinks: true });
+
+        await expect(rwfs.stat("/link/child")).rejects.toThrow(
+          "outside sandbox",
+        );
+      } finally {
+        fs.rmSync(parent, { recursive: true, force: true });
+      }
+    });
+
+    it("preserves an in-root errno through a link with an internal parent traversal", async () => {
+      fs.mkdirSync(path.join(tempDir, "dir"));
+      fs.writeFileSync(path.join(tempDir, "file"), "content");
+      fs.symlinkSync("dir/../file", path.join(tempDir, "link"));
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+      await expect(rwfs.stat("/link/child")).rejects.toThrow("ENOTDIR");
+    });
+
+    it("preserves an in-root errno through an absolute target in a subdirectory", async () => {
+      fs.mkdirSync(path.join(tempDir, "dir"));
+      fs.writeFileSync(path.join(tempDir, "file"), "content");
+      fs.symlinkSync(
+        path.join(fs.realpathSync(tempDir), "file"),
+        path.join(tempDir, "dir", "link"),
+      );
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+      await expect(rwfs.stat("/dir/link/child")).rejects.toThrow("ENOTDIR");
+    });
+
+    it("fails closed on an absolute target spelled through a root alias", async () => {
+      const parent = fs.mkdtempSync(path.join(os.tmpdir(), "rwfs-parent-"));
+      try {
+        const root = path.join(parent, "root");
+        const alias = path.join(parent, "alias");
+        fs.mkdirSync(root);
+        fs.writeFileSync(path.join(root, "file"), "content");
+        fs.symlinkSync(root, alias);
+        fs.symlinkSync(path.join(alias, "file"), path.join(root, "link"));
+        const rwfs = new ReadWriteFs({ root, allowSymlinks: true });
+
+        await expect(rwfs.stat("/link/child")).rejects.toThrow(
+          "outside sandbox",
+        );
+      } finally {
+        fs.rmSync(parent, { recursive: true, force: true });
+      }
     });
   });
 
