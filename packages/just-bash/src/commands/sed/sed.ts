@@ -13,6 +13,7 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
+import { describeFsError } from "../../utils/fs-error.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
 import {
   createInitialState,
@@ -533,7 +534,7 @@ export const sedCommand: RuntimeCommand = {
           }
           return {
             stdout: "",
-            stderr: `sed: ${file}: No such file or directory\n`,
+            stderr: `sed: ${file}: ${describeFsError(e)}\n`,
             exitCode: 1,
           };
         }
