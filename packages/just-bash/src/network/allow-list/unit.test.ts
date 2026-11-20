@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  findMatchingEntry,
   isPrivateIp,
   isUrlAllowed,
   matchesAllowListEntry,
@@ -471,6 +472,152 @@ describe("validateAllowList", () => {
       expect(errors).toHaveLength(3);
     });
   });
+
+  describe("per-URL methods validation", () => {
+    it("accepts valid methods on AllowedUrl entries", () => {
+      const errors = validateAllowList([
+        { url: "https://api.example.com", methods: ["GET", "POST"] },
+      ]);
+      expect(errors).toEqual([]);
+    });
+
+    it("rejects invalid method strings", () => {
+      const methods = [
+        "GET",
+        "INVALID",
+      ] as unknown as import("../types.js").HttpMethod[];
+      const errors = validateAllowList([
+        { url: "https://api.example.com", methods },
+      ]);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toContain('Invalid HTTP method "INVALID"');
+    });
+
+    it("accepts entries without methods field", () => {
+      const errors = validateAllowList([{ url: "https://api.example.com" }]);
+      expect(errors).toEqual([]);
+    });
+
+    it("accepts an empty methods array", () => {
+      expect(
+        validateAllowList([{ url: "https://api.example.com", methods: [] }]),
+      ).toEqual([]);
+    });
+
+    it.each([
+      null,
+      false,
+      0,
+      "",
+      "GET",
+      {},
+      new Set(["GET"]),
+    ])("rejects non-array methods at configuration time: %s", (methods) => {
+      expect(() =>
+        createSecureFetch({
+          allowedUrlPrefixes: [
+            {
+              url: "https://api.example.com",
+              methods: methods as unknown as import("../types.js").HttpMethod[],
+            },
+          ],
+        }),
+      ).toThrow("methods must be an array");
+    });
+
+    it("rejects non-string array members", () => {
+      const invalidMethods: unknown[] = [
+        Symbol("method"),
+        Object.create(null),
+        1,
+      ];
+      for (const method of invalidMethods) {
+        expect(
+          validateAllowList([
+            {
+              url: "https://api.example.com",
+              methods: [
+                "GET",
+                method,
+              ] as unknown as import("../types.js").HttpMethod[],
+            },
+          ]),
+        ).toEqual([
+          'Invalid HTTP method in allow-list entry for "https://api.example.com": must be a string',
+        ]);
+      }
+    });
+  });
+});
+
+describe("findMatchingEntry", () => {
+  it("returns the matching string entry", () => {
+    const entries = ["https://api.example.com", "https://cdn.example.com"];
+    const result = findMatchingEntry("https://api.example.com/data", entries);
+    expect(result).toBe("https://api.example.com");
+  });
+
+  it("returns the matching AllowedUrl entry", () => {
+    const entry = { url: "https://api.example.com", methods: ["GET" as const] };
+    const result = findMatchingEntry("https://api.example.com/data", [entry]);
+    expect(result).toBe(entry);
+  });
+
+  it("returns undefined when no entry matches", () => {
+    const result = findMatchingEntry("https://evil.com/data", [
+      "https://api.example.com",
+    ]);
+    expect(result).toBeUndefined();
+  });
+
+  it("prefers the most specific prefix regardless of declaration order", () => {
+    expect(
+      findMatchingEntry("https://api.example.com/data", [
+        { url: "https://api.example.com", methods: ["GET", "POST"] },
+        { url: "https://api.example.com/data", methods: ["GET"] },
+      ]),
+    ).toEqual({ url: "https://api.example.com/data", methods: ["GET"] });
+
+    expect(
+      findMatchingEntry("https://api.example.com/data", [
+        { url: "https://api.example.com/data", methods: ["GET"] },
+        { url: "https://api.example.com", methods: ["GET", "POST"] },
+      ]),
+    ).toEqual({ url: "https://api.example.com/data", methods: ["GET"] });
+  });
+
+  it("keeps declaration order when prefixes are equally specific", () => {
+    expect(
+      findMatchingEntry("https://api.example.com/data", [
+        { url: "https://api.example.com/data", methods: ["GET"] },
+        { url: "https://api.example.com/data", methods: ["POST"] },
+      ]),
+    ).toEqual({ url: "https://api.example.com/data", methods: ["GET"] });
+
+    expect(
+      findMatchingEntry("https://api.example.com/data", [
+        { url: "https://api.example.com/data", methods: ["POST"] },
+        { url: "https://api.example.com/data", methods: ["GET"] },
+      ]),
+    ).toEqual({ url: "https://api.example.com/data", methods: ["POST"] });
+  });
+
+  it("ignores query strings and fragments when selecting", () => {
+    expect(
+      findMatchingEntry("https://api.example.com/data?x=1#frag", [
+        { url: "https://api.example.com", methods: ["GET", "POST"] },
+        { url: "https://api.example.com/data", methods: ["GET"] },
+      ]),
+    ).toEqual({ url: "https://api.example.com/data", methods: ["GET"] });
+  });
+
+  it("cannot gain specificity from a query string or fragment in an entry", () => {
+    const errors = validateAllowList([
+      { url: "https://api.example.com/data?x=1", methods: ["GET"] },
+    ]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("Query strings and fragments");
+  });
 });
 
 describe("security scenarios", () => {
@@ -894,6 +1041,57 @@ describe("createSecureFetch allow-list validation", () => {
     expect(validateAllowList(["https://example.com/v1/%5cadmin"])).toEqual([
       'Allow-list entry contains ambiguous path separators: "https://example.com/v1/%5cadmin"',
     ]);
+  });
+
+  it("rejects unusable prefixes on origins with per-URL methods", () => {
+    const encoded = "https://example.com/%64ata";
+    const repeated = "https://example.com/data//item";
+    const other = "https://other.example.com/%64ata";
+    const broad = { url: "https://example.com", methods: ["GET" as const] };
+
+    for (const allowedUrlPrefixes of [
+      [broad, encoded, { url: repeated }, other],
+      [encoded, { url: repeated }, other, broad],
+    ]) {
+      expect(() => createSecureFetch({ allowedUrlPrefixes })).toThrow(
+        `Invalid network allow-list:\nAllow-list entry contains an ambiguous path on an origin with per-URL methods: "${encoded}"\nAllow-list entry contains an ambiguous path on an origin with per-URL methods: "${repeated}"`,
+      );
+    }
+    expect(() =>
+      createSecureFetch({ allowedUrlPrefixes: [encoded, repeated] }),
+    ).not.toThrow();
+    expect(() =>
+      createSecureFetch({
+        allowedUrlPrefixes: [
+          "https://example.com",
+          { url: encoded, methods: ["GET"] },
+        ],
+      }),
+    ).toThrow(`"${encoded}"`);
+    expect(() =>
+      createSecureFetch({
+        allowedUrlPrefixes: [
+          { url: "https://example.com/data", methods: ["GET"] },
+          other,
+        ],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      createSecureFetch({
+        allowedUrlPrefixes: [broad, "https://example.com/data\\item"],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      createSecureFetch({
+        allowedUrlPrefixes: [broad, "https://example.com/data\\\\item"],
+      }),
+    ).toThrow('"https://example.com/data\\\\item"');
+    expect(() =>
+      createSecureFetch({
+        dangerouslyAllowFullInternetAccess: true,
+        allowedUrlPrefixes: [broad, encoded, repeated],
+      }),
+    ).not.toThrow();
   });
 
   it("skips validation when dangerouslyAllowFullInternetAccess is true", () => {

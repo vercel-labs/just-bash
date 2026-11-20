@@ -88,6 +88,13 @@ export function createMockFetch(): ReturnType<typeof vi.fn<typeof fetch>> {
         });
       }
 
+      if (urlString === "https://api.example.com/redirect-307-to-allowed") {
+        return new Response("", {
+          status: 307,
+          headers: { location: "https://api.example.com/data" },
+        });
+      }
+
       if (urlString === "https://api.example.com/redirect-chain") {
         return new Response("", {
           status: 302,

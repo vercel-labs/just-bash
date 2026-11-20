@@ -10,9 +10,12 @@ import { combineAbortSignals } from "../abort-signals.js";
 import { DefenseInDepthBox } from "../security/defense-in-depth-box.js";
 import { _clearTimeout, _setTimeout } from "../timers.js";
 import {
+  findMatchingEntry,
   isPrivateIp,
   isUrlAllowed,
   matchesAllowListEntry,
+  normalizeAllowListEntry,
+  parseUrl,
   validateAllowList,
 } from "./allow-list.js";
 import type { AllowedUrl, AllowedUrlEntry } from "./types.js";
@@ -33,6 +36,7 @@ const DEFAULT_MAX_REDIRECTS = 20;
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_MAX_RESPONSE_SIZE = 10485760; // 10MB
 const DEFAULT_ALLOWED_METHODS: HttpMethod[] = ["GET", "HEAD"];
+const AMBIGUOUS_METHOD_PATH = /[%;\\]|\/\//;
 
 /** Load guarded-fetch before the defense-in-depth loader hook is active. */
 type GuardedFetchModule = typeof import("guarded-fetch");
@@ -123,6 +127,32 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
   // Fail fast on invalid allow-list entries
   if (!config.dangerouslyAllowFullInternetAccess) {
     const errors = validateAllowList(entries);
+    if (errors.length > 0) {
+      throw new Error(`Invalid network allow-list:\n${errors.join("\n")}`);
+    }
+    const methodOrigins = new Set<string>();
+    for (const entry of entries) {
+      if (typeof entry === "string" || entry.methods === undefined) continue;
+      const prefix = normalizeAllowListEntry(entry.url);
+      if (prefix) methodOrigins.add(prefix.origin);
+    }
+
+    // An ambiguous prefix is itself path-scoped, so only `methods` must be checked.
+    if (methodOrigins.size > 0) {
+      for (const entry of entries) {
+        const url = typeof entry === "string" ? entry : entry.url;
+        const prefix = normalizeAllowListEntry(url);
+        if (
+          prefix &&
+          methodOrigins.has(prefix.origin) &&
+          AMBIGUOUS_METHOD_PATH.test(prefix.pathPrefix)
+        ) {
+          errors.push(
+            `Allow-list entry contains an ambiguous path on an origin with per-URL methods: "${url}"`,
+          );
+        }
+      }
+    }
     if (errors.length > 0) {
       throw new Error(`Invalid network allow-list:\n${errors.join("\n")}`);
     }
@@ -321,18 +351,62 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     }
   }
 
+  function checkAmbiguousPathMethod(url: string, method: string): void {
+    const parsedUrl = parseUrl(url);
+    // WHATWG URL parsing normalizes raw backslashes for HTTP(S) URLs.
+    if (!parsedUrl || !AMBIGUOUS_METHOD_PATH.test(parsedUrl.pathname)) return;
+
+    let originHasMethods = false;
+    let originHasPath = false;
+    for (const entry of entries) {
+      const prefix = normalizeAllowListEntry(
+        typeof entry === "string" ? entry : entry.url,
+      );
+      if (prefix?.origin !== parsedUrl.origin) continue;
+      if (typeof entry !== "string" && entry.methods !== undefined)
+        originHasMethods = true;
+      if (prefix.pathPrefix !== "/" && prefix.pathPrefix !== "")
+        originHasPath = true;
+      if (originHasMethods && originHasPath) {
+        // An empty list denies every method.
+        checkMethodAllowed(method, []);
+        return;
+      }
+    }
+  }
+
+  /**
+   * Returns the methods a URL may use. A matching allow-list entry with its
+   * own `methods` overrides the global list for that prefix, so it can widen
+   * the policy as well as narrow it. An empty array denies every method. The
+   * selected entry never inherits methods from another matching entry.
+   */
+  function getEffectiveMethods(url: string): HttpMethod[] {
+    if (
+      !entries.some(
+        (entry) => typeof entry !== "string" && entry.methods !== undefined,
+      )
+    )
+      return allowedMethods as HttpMethod[];
+    const entry = findMatchingEntry(url, entries);
+    if (entry && typeof entry === "object" && entry.methods) {
+      return entry.methods;
+    }
+    return allowedMethods as HttpMethod[];
+  }
+
   /**
    * Checks if an HTTP method is allowed by the configuration.
    * @throws MethodNotAllowedError if the method is not allowed
    */
-  function checkMethodAllowed(method: string): void {
+  function checkMethodAllowed(method: string, effective: HttpMethod[]): void {
     if (config.dangerouslyAllowFullInternetAccess) {
       return;
     }
 
     const upperMethod = method.toUpperCase();
-    if (!allowedMethods.includes(upperMethod as HttpMethod)) {
-      throw new MethodNotAllowedError(upperMethod, allowedMethods);
+    if (!effective.includes(upperMethod as HttpMethod)) {
+      throw new MethodNotAllowedError(upperMethod, effective);
     }
   }
 
@@ -425,9 +499,10 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
 
     try {
       // Keep preflight inside finally so rejected requests clean up.
+      checkAmbiguousPathMethod(url, method);
       checkPathAllowed(url);
       checkPrivateLiteral(url);
-      checkMethodAllowed(method);
+      checkMethodAllowed(method, getEffectiveMethods(url));
 
       // Loaded at init and cached; `null` in the browser build.
       const gfModule = guardedFetchPromise ? await guardedFetchPromise : null;
@@ -551,6 +626,21 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
             combinedAbort.signal,
           );
 
+          // Per the fetch standard and curl: 301/302 rewrite POST only, 303
+          // rewrites all but GET/HEAD, 307/308 preserve method and body.
+          const status = response.status;
+          const rewriteToGet =
+            ((status === 301 || status === 302) && currentMethod === "POST") ||
+            (status === 303 &&
+              currentMethod !== "GET" &&
+              currentMethod !== "HEAD");
+          if (rewriteToGet) {
+            currentMethod = "GET";
+            currentBody = undefined;
+          }
+
+          checkAmbiguousPathMethod(redirectUrl, currentMethod);
+
           // Re-check path-prefix allow-list and private literal for the hop.
           try {
             checkPathAllowed(redirectUrl);
@@ -565,20 +655,9 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
             throw error;
           }
 
-          // Per the fetch standard and curl: 301/302 rewrite POST only, 303
-          // rewrites all but GET/HEAD, 307/308 preserve method and body.
-          const status = response.status;
-          const rewriteToGet =
-            ((status === 301 || status === 302) && currentMethod === "POST") ||
-            (status === 303 &&
-              currentMethod !== "GET" &&
-              currentMethod !== "HEAD");
-          if (rewriteToGet) {
-            currentMethod = "GET";
-            currentBody = undefined;
-            // A rewritten method is a new request under the same policy.
-            checkMethodAllowed(currentMethod);
-          }
+          // The hop is a new request, so the method it will send must satisfy
+          // the target's own policy, including any per-entry `methods`.
+          checkMethodAllowed(currentMethod, getEffectiveMethods(redirectUrl));
 
           // Do not forward user credentials across origins.
           if (new URL(redirectUrl).origin !== new URL(currentUrl).origin) {

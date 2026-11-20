@@ -93,6 +93,49 @@ describe("firewall header transforms", () => {
     expect(calls[0].headers.authorization).toBe("Bearer secret-token");
   });
 
+  it("uses a replaced transform on the next request", async () => {
+    const { mockFn, calls } = createCapturingMock();
+    global.fetch = mockFn;
+    const entry = {
+      url: "https://api.example.com",
+      transform: [{ headers: { Authorization: "Bearer old" } }],
+    };
+    let token = "getter-old";
+    const getterEntry = {
+      url: "https://getter.example.com",
+      get transform() {
+        return [{ headers: { Authorization: `Bearer ${token}` } }];
+      },
+    };
+    const routes: AllowedUrlEntry[] = [
+      entry,
+      "https://api.example.com",
+      "https://other.example.com",
+      getterEntry,
+    ];
+    const secureFetch = createSecureFetch({ allowedUrlPrefixes: routes });
+
+    await secureFetch("https://api.example.com/data");
+    entry.transform = [{ headers: { Authorization: "Bearer new" } }];
+    await secureFetch("https://api.example.com/data");
+    entry.url = "https://other.example.com";
+    entry.transform = [{ headers: { Authorization: "Bearer other" } }];
+    await secureFetch("https://api.example.com/data");
+    await secureFetch("https://other.example.com/data");
+    await secureFetch("https://getter.example.com/data");
+    token = "getter-new";
+    await secureFetch("https://getter.example.com/data");
+
+    expect(calls.map((call) => call.headers.authorization)).toEqual([
+      "Bearer old",
+      "Bearer new",
+      undefined,
+      "Bearer other",
+      "Bearer getter-old",
+      "Bearer getter-new",
+    ]);
+  });
+
   it("preserves non-conflicting user headers", async () => {
     const { mockFn, calls } = createCapturingMock();
     global.fetch = mockFn;
