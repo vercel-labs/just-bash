@@ -1,0 +1,153 @@
+import { describe, expect, it } from "vitest";
+import { Bash } from "../../Bash.js";
+
+describe("shift builtin", () => {
+  describe("host limits", () => {
+    it("should move only the stored parameters when $# is seeded high", async () => {
+      const env = new Bash({
+        env: { "#": "5000", "1": "a", "2": "b" },
+      });
+      const result = await env.exec(`
+        shift
+        echo "count=$# [$1] [\${2-U}]"
+      `);
+      expect(result.stdout).toBe("count=4999 [b] [U]\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should give the same result however many other variables exist", async () => {
+      const script = 'shift; echo "count=$# [${2-U}]"; [ -v 2 ] || echo unset';
+      const vars = Object.fromEntries(
+        Array.from({ length: 30 }, (_, i) => [`V${i}`, "x"]),
+      );
+      for (const extra of [{}, vars]) {
+        const env = new Bash({
+          env: { ...extra, "#": "20", "1": "a" },
+        });
+        const result = await env.exec(script);
+        expect(result.stdout).toBe("count=19 [U]\nunset\n");
+      }
+
+      const defaults = new Bash({ env: { "#": "500", "1": "a" } });
+      const fromDefaults = await defaults.exec(script);
+      expect(fromDefaults.stdout).toBe("count=499 [U]\nunset\n");
+    });
+
+    it("should not walk every slot when $# is seeded at a million", async () => {
+      const env = new Bash({
+        env: { "#": "1000000", "1": "a", "2": "b" },
+        executionLimits: { maxExecutionTimeMs: 10_000 },
+      });
+      const result = await env.exec(`
+        i=0
+        while [ $i -lt 2000 ]; do shift; i=$((i + 1)); done
+        echo "count=$# [\${1-U}]"
+      `);
+      expect(result.stdout).toBe("count=998000 [U]\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should leave stored keys past $# alone", async () => {
+      const env = new Bash({
+        env: { "#": " +1000", "1": "a", "1001": "X" },
+      });
+      const result = await env.exec(
+        'shift; v=$@; echo "$# [${1-U}] [${1000-U}] [${1001-U}] [$v]"',
+      );
+      expect(result.stdout).toBe("999 [U] [U] [X] []\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should stay exact past 2 ** 53", async () => {
+      const env = new Bash({
+        env: {
+          "#": "9007199254740993",
+          "1": "a",
+          "2": "b",
+          "9007199254740993": "z",
+        },
+      });
+      const result = await env.exec(`
+        shift
+        v=$@
+        echo "$# [$v] [\${9007199254740992-U}]"
+        shift 9007199254740993
+        echo "rc=$? $#"
+        shift 9007199254740992
+        echo "rc=$? $#"
+      `);
+      expect(result.stdout).toBe(
+        "9007199254740992 [b z] [z]\nrc=1 9007199254740992\nrc=0 0\n",
+      );
+      expect(result.stderr).toBe("bash: shift: shift count out of range\n");
+    });
+
+    it("should not parse long digit strings in $# or stored keys", async () => {
+      const digits = "9".repeat(1_000_000);
+      const env = new Bash({
+        env: { "#": "1000000000", "1": "a", [digits]: "x", N: digits },
+        executionLimits: { maxExecutionTimeMs: 10_000 },
+      });
+      const result = await env.exec(`
+        i=0
+        while [ $i -lt 2000 ]; do shift; i=$((i + 1)); done
+        echo "count=$#"
+        shift $N
+        echo "rc=$? count=$#"
+      `);
+      expect(result.stdout).toBe("count=999998000\nrc=1 count=999998000\n");
+      expect(result.stderr).toBe("bash: shift: shift count out of range\n");
+
+      const longCount = new Bash({
+        env: { "#": digits, "1": "a" },
+        executionLimits: { maxExecutionTimeMs: 10_000 },
+      });
+      const fromLongCount = await longCount.exec(
+        'shift 0; echo "rc=$?"; shift; echo "rc=$? [$1]"',
+      );
+      expect(fromLongCount.stdout).toBe("rc=0\nrc=1 [a]\n");
+      expect(fromLongCount.stderr).toBe(
+        "bash: shift: $#: positional parameter count out of range\n",
+      );
+    });
+
+    it("should accept $# up to 2 ** 63 - 1 and refuse anything above", async () => {
+      const atMax = new Bash({
+        env: { "#": "9223372036854775807", "1": "a", "2": "b" },
+      });
+      const fromMax = await atMax.exec(`
+        shift
+        echo "rc=$? $# [$1]"
+        shift 9223372036854775807
+        echo "rc=$? $#"
+        shift 9223372036854775806
+        echo "rc=$? $# [\${1-U}]"
+      `);
+      expect(fromMax.stdout).toBe(
+        "rc=0 9223372036854775806 [b]\nrc=1 9223372036854775806\nrc=0 0 [U]\n",
+      );
+      expect(fromMax.stderr).toBe("bash: shift: shift count out of range\n");
+
+      for (const count of ["9223372036854775808", "9999999999999999999"]) {
+        const aboveMax = new Bash({ env: { "#": count, "1": "a" } });
+        const fromAbove = await aboveMax.exec(
+          'shift 0; echo "rc=$?"; shift; echo "rc=$? $# [$1]"; shift 9223372036854775809; echo "rc=$?"',
+        );
+        expect(fromAbove.stdout).toBe(`rc=0\nrc=1 ${count} [a]\nrc=1\n`);
+        expect(fromAbove.stderr).toBe(
+          "bash: shift: $#: positional parameter count out of range\n".repeat(
+            2,
+          ),
+        );
+      }
+    });
+
+    it("should keep a non numeric $# as main does", async () => {
+      const env = new Bash({ env: { "#": "abc", "1": "a" } });
+      const result = await env.exec(
+        'shift 0; echo "rc=$? $#"; shift; echo "rc=$? $# [$1]"',
+      );
+      expect(result.stdout).toBe("rc=0 abc\nrc=0 0 [a]\n");
+    });
+  });
+});
