@@ -118,22 +118,26 @@ export async function readFiles(
     const batch = files.slice(i, i + batchSize);
     const batchResults = await Promise.allSettled(
       batch.map(async (file) => {
-        if (allowStdinMarker && file === "-") {
-          return {
-            filename: "-",
-            content: ctx.stdin,
-            error: null as string | null,
-          };
-        }
+        let reservation: ResourceLease | undefined;
         try {
+          if (allowStdinMarker && file === "-") {
+            return {
+              filename: "-",
+              content: ctx.stdin,
+              error: null as string | null,
+            };
+          }
           const filePath = ctx.fs.resolvePath(ctx.cwd, file);
           const stat = inputLeases ? await ctx.fs.stat(filePath) : undefined;
           const size = stat?.isFile ? stat.size : 0;
           if (inputLeases && ctx.executionScope) {
             // Reserve both the byte buffer and its decoded text until consumed.
-            inputLeases.push(
-              ctx.executionScope.reserveBytes("file input", size * 2, cmdName),
+            reservation = ctx.executionScope.reserveBytes(
+              "file input",
+              size * 2,
+              cmdName,
             );
+            inputLeases.push(reservation);
           }
           // Use binary encoding to preserve all bytes (including non-UTF-8).
           // This is important for piping binary data through commands like cat.
@@ -155,7 +159,14 @@ export async function readFiles(
           }
           return { filename: file, content, error: null as string | null };
         } catch (error) {
-          rethrowFatalExecutionError(error);
+          try {
+            reservation?.release();
+            rethrowFatalExecutionError(error);
+          } catch (fatalError) {
+            // Keep late failures as data until the batch settles. A guarded
+            // Promise.allSettled rejection handler may be blocked after abort.
+            return { fatalError };
+          }
           return {
             filename: file,
             content: EMPTY_BYTES,
@@ -168,11 +179,13 @@ export async function readFiles(
     // Settle every read before the caller can release its reservations.
     for (const r of batchResults) {
       if (r.status === "rejected") throw r.reason;
+      if ("fatalError" in r.value) throw r.value.fatalError;
     }
     // Process results in order
     for (const settled of batchResults) {
       if (settled.status === "rejected") continue;
       const r = settled.value;
+      if ("fatalError" in r) continue;
       if (r.error) {
         stderr += r.error;
         exitCode = 1;

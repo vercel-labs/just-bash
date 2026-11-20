@@ -196,7 +196,8 @@ export async function readBytesFrom(
   path: string,
 ): Promise<ByteString> {
   if (typeof fs.readFileBytes === "function") {
-    return fs.readFileBytes(path);
+    // Avoid adopting the filesystem promise through a guarded .then callback.
+    return await fs.readFileBytes(path);
   }
   return bytesFromUint8Array(await fs.readFileBuffer(path));
 }

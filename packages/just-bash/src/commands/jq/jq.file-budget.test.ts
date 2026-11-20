@@ -1,6 +1,8 @@
+import { setImmediate } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
+import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 
 const input = JSON.stringify("x".repeat(98));
 
@@ -100,5 +102,125 @@ describe("jq file input budgets", () => {
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("jq: /missing: No such file or directory\n");
     expect(result.exitCode).toBe(0);
+  });
+
+  it("releases a failed file read before a later file reserves its bytes", async () => {
+    let failStarted!: () => void;
+    const failedRead = new Promise<void>((resolve) => {
+      failStarted = resolve;
+    });
+    let allowGoodStat!: () => void;
+    const goodStat = new Promise<void>((resolve) => {
+      allowGoodStat = resolve;
+    });
+    class ReadFailureFs extends InMemoryFs {
+      override async stat(path: string) {
+        if (path === "/good") await goodStat;
+        return super.stat(path);
+      }
+
+      override async readFileBytes(path: string) {
+        if (path === "/bad") {
+          failStarted();
+          throw new Error("read failed");
+        }
+        return super.readFileBytes(path);
+      }
+    }
+    const bash = new Bash({
+      fs: new ReadFailureFs({ "/bad": input, "/good": input }),
+      executionLimits: { maxLiveBytes: 200 },
+    });
+    const execution = bash.exec("jq empty /bad /good");
+    await failedRead;
+    await setImmediate();
+    allowGoodStat();
+    const result = await execution;
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("jq: /bad: No such file or directory\n");
+    expect(result.exitCode).toBe(2);
+  });
+
+  it.each([
+    ["stat", "resolve", "jq empty /slow"],
+    ["stat", "reject", "jq empty /slow"],
+    ["read", "resolve", "jq empty /slow"],
+    ["read", "reject", "jq empty /slow"],
+    ["read", "resolve", "wc /slow"],
+    ["read", "reject", "wc /slow"],
+  ] as const)("handles a delayed %s that settles after cancellation: %s (%s)", async (phase, outcome, command) => {
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    let resolveOperation!: () => void;
+    let rejectOperation!: (error: Error) => void;
+    const operationGate = new Promise<void>((resolve, reject) => {
+      resolveOperation = resolve;
+      rejectOperation = reject;
+    });
+    let executionId: string | undefined;
+    let operationSettled = false;
+    class DelayedFs extends InMemoryFs {
+      override async stat(path: string) {
+        if (path === "/slow" && phase === "stat") {
+          const stat = await super.stat(path);
+          executionId = DefenseInDepthBox.getCurrentExecutionId();
+          markStarted();
+          try {
+            await operationGate;
+          } finally {
+            operationSettled = true;
+          }
+          return stat;
+        }
+        return super.stat(path);
+      }
+
+      override async readFileBytes(path: string) {
+        if (path === "/slow" && phase === "read") {
+          const content = await super.readFileBytes(path);
+          executionId = DefenseInDepthBox.getCurrentExecutionId();
+          markStarted();
+          try {
+            await operationGate;
+          } finally {
+            operationSettled = true;
+          }
+          return content;
+        }
+        return super.readFileBytes(path);
+      }
+    }
+    const controller = new AbortController();
+    const bash = new Bash({
+      fs: new DelayedFs({ "/slow": input }),
+      executionLimits: { maxExtensionCleanupTimeMs: 0 },
+    });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const execution = bash.exec(command, {
+        signal: controller.signal,
+      });
+      await started;
+      controller.abort();
+      const result = await execution;
+      expect(result.exitCode).toBe(124);
+      expect(executionId).toBeDefined();
+      expect(DefenseInDepthBox.getInstance(true).isActive()).toBe(false);
+
+      if (outcome === "resolve") resolveOperation();
+      else rejectOperation(new Error("late filesystem failure"));
+      await setImmediate();
+      await setImmediate();
+      expect(operationSettled).toBe(true);
+      expect(unhandled).toStrictEqual([]);
+    } finally {
+      resolveOperation();
+      process.off("unhandledRejection", onUnhandled);
+    }
   });
 });
