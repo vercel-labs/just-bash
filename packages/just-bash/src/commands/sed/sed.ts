@@ -153,12 +153,9 @@ async function processContent(
       }
     : undefined;
 
-  // Commands such as N can advance lineIndex by more than one per cycle.
+  // Commands such as N advance lineIndex, while D can restart a cycle.
   let cyclesProcessed = 0;
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    if (cyclesProcessed++ % DEADLINE_CHECK_STRIDE === 0) {
-      executionScope?.throwIfAborted("sed");
-    }
     const state: SedState = {
       ...createInitialState(totalLines, filename, rangeStates),
       patternSpace: lines[lineIndex],
@@ -186,6 +183,9 @@ async function processContent(
       if (cycleIterations > maxCycleIterations) {
         // Prevent infinite loops
         break;
+      }
+      if (cyclesProcessed++ % DEADLINE_CHECK_STRIDE === 0) {
+        executionScope?.throwIfAborted("sed");
       }
 
       state.restartCycle = false;
@@ -529,6 +529,7 @@ export const sedCommand: RuntimeCommand = {
               exitCode: result.exitCode ?? 1,
             };
           }
+          ctx.executionScope?.throwIfAborted("sed");
           await withDefenseContext("in-place output write", () =>
             ctx.fs.writeFile(filePath, result.output),
           );

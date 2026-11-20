@@ -332,14 +332,15 @@ export const awkCommand2: RuntimeCommand = {
       };
     } catch (e) {
       if (e instanceof ExecutionLimitError) {
-        // AWK output has not passed through shell output accounting yet.
-        e.stdout = interp.getOutput() + e.stdout;
-        e.stderr = `awk: ${e.message}\n`;
-        throw e;
+        throw new ExecutionLimitError(
+          e.message,
+          e.limitType,
+          "",
+          `awk: ${e.message}\n`,
+        );
       }
       if (e instanceof ExecutionAbortedError) {
-        // AWK output has not passed through shell output accounting yet.
-        e.stdout = interp.getOutput() + e.stdout;
+        throw new ExecutionAbortedError("", e.stderr);
       }
       rethrowFatalExecutionError(e);
       // Handle errors during execution

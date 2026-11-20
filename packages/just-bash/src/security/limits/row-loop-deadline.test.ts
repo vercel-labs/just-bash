@@ -59,7 +59,7 @@ describe("execution deadlines inside data commands", () => {
     expect(result.stderr).toBe(`bash: ${site} aborted\n`);
   });
 
-  it("preserves AWK output and stops the script after an abort", async () => {
+  it("discards AWK output and stops the script after an abort", async () => {
     const checks = abortOnCheckpoint("awk", 2);
     const bash = new Bash({ files: { "/rows": rows } });
 
@@ -69,11 +69,39 @@ describe("execution deadlines inside data commands", () => {
 
     expect(checks()).toBe(2);
     expect(result.exitCode).toBe(124);
-    expect(result.stdout).toBe("first\n");
+    expect(result.stdout).toBe("");
     expect(result.stderr).toBe("bash: awk aborted\n");
   });
 
-  it("preserves AWK output and output carried by a limit", async () => {
+  it("keeps AWK abort output within the byte limit", async () => {
+    const deadline = 60_000;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(0);
+    const original = ExecutionScope.prototype.throwIfAborted;
+    let checks = 0;
+    vi.spyOn(ExecutionScope.prototype, "throwIfAborted").mockImplementation(
+      function (this: ExecutionScope, site?: string) {
+        if (site === "awk" && ++checks === 2) {
+          clock.mockReturnValue(deadline + 1);
+        }
+        original.call(this, site);
+      },
+    );
+    const bash = new Bash({
+      files: { "/rows": rows },
+      executionLimits: { maxExecutionTimeMs: deadline, maxOutputSize: 10 },
+    });
+    const result = await bash.exec(
+      `awk 'NR == 1 { print "éééééé" }' /rows; printf after`,
+    );
+    expect(checks).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "bash: awk exceeded execution deadline (60000ms)\n",
+    );
+    expect(result.exitCode).toBe(124);
+  });
+
+  it("discards AWK output and output carried by a limit", async () => {
     vi.spyOn(InMemoryFs.prototype, "readFile").mockRejectedValueOnce(
       new ExecutionLimitError("injected limit", "iterations", "nested\n"),
     );
@@ -84,8 +112,21 @@ describe("execution deadlines inside data commands", () => {
     );
 
     expect(result.exitCode).toBe(126);
-    expect(result.stdout).toBe("first\nnested\n");
+    expect(result.stdout).toBe("");
     expect(result.stderr).toBe("awk: injected limit\n");
+  });
+
+  it("discards output carried by an AWK abort", async () => {
+    vi.spyOn(InMemoryFs.prototype, "readFile").mockRejectedValueOnce(
+      new ExecutionAbortedError("nested\n", "bash: awk aborted\n"),
+    );
+    const bash = new Bash({ files: { "/input": "one\n" } });
+    const result = await bash.exec(
+      `awk 'BEGIN { print "first" } { print }' /input; printf after`,
+    );
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("bash: awk aborted\n");
+    expect(result.exitCode).toBe(124);
   });
 
   it("checks sed cycles even when N skips line-index boundaries", async () => {

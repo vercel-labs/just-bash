@@ -220,6 +220,18 @@ function jqArgError(message: string): ExecResult {
   return { stdout: "", stderr: `jq: ${message}\n`, exitCode: 2 };
 }
 
+function rethrowJqLimitError(error: unknown): void {
+  if (error instanceof ExecutionLimitError) {
+    throw new ExecutionLimitError(
+      error.message,
+      error.limitType,
+      "",
+      `jq: ${sanitizeErrorMessage(error.message)}\n`,
+    );
+  }
+  rethrowFatalExecutionError(error);
+}
+
 const jqHelp = {
   name: "jq",
   summary: "command-line JSON processor",
@@ -326,7 +338,8 @@ export const jqCommand: RuntimeCommand = {
         let parsed: unknown[];
         try {
           parsed = parseJsonStream(json.trim(), jsonLimits);
-        } catch {
+        } catch (error) {
+          rethrowJqLimitError(error);
           return jqArgError("invalid JSON text passed to --argjson");
         }
         if (parsed.length !== 1) {
@@ -393,7 +406,8 @@ export const jqCommand: RuntimeCommand = {
         let parsed: unknown[];
         try {
           parsed = parseJsonStream(a.trim(), jsonLimits);
-        } catch {
+        } catch (error) {
+          rethrowJqLimitError(error);
           return jqArgError("invalid JSON text passed to --jsonargs");
         }
         if (parsed.length !== 1) {
@@ -430,7 +444,8 @@ export const jqCommand: RuntimeCommand = {
               name,
               trimmed ? parseJsonStream(trimmed, jsonLimits) : [],
             );
-          } catch {
+          } catch (error) {
+            rethrowJqLimitError(error);
             return jqArgError("invalid JSON text passed to --slurpfile");
           }
         }
@@ -623,15 +638,7 @@ export const jqCommand: RuntimeCommand = {
         exitCode,
       };
     } catch (e) {
-      if (e instanceof ExecutionLimitError) {
-        throw new ExecutionLimitError(
-          e.message,
-          e.limitType,
-          "",
-          `jq: ${sanitizeErrorMessage(e.message)}\n`,
-        );
-      }
-      rethrowFatalExecutionError(e);
+      rethrowJqLimitError(e);
       const msg = sanitizeErrorMessage((e as Error).message);
       if (msg.includes("Unknown function")) {
         return {

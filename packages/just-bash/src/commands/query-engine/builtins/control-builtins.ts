@@ -5,7 +5,7 @@
  */
 
 import { rethrowFatalExecutionError } from "../../../fatal-execution-error.js";
-import type { EvalContext } from "../evaluator.js";
+import { chargeQueryWork, type EvalContext } from "../evaluator.js";
 import type { AstNode } from "../parser.js";
 import type { QueryValue } from "../value-operations.js";
 
@@ -116,6 +116,7 @@ export function evalControlBuiltin(
             "array_elements",
           );
         }
+        chargeQueryWork(ctx);
         result.push(item);
       };
       const startsVals = evaluate(value, args[0], ctx);

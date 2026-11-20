@@ -165,10 +165,6 @@ function queryLimitError(
 }
 
 export function chargeQueryWork(ctx: EvalContext, count = 1): void {
-  if (ctx.budget.operations >= ctx.budget.deadlineCheckAt) {
-    ctx.budget.deadlineCheckAt = ctx.budget.operations + DEADLINE_CHECK_STRIDE;
-    ctx.executionScope?.throwIfAborted("query evaluation");
-  }
   if (
     !Number.isSafeInteger(count) ||
     count < 0 ||
@@ -180,6 +176,10 @@ export function chargeQueryWork(ctx: EvalContext, count = 1): void {
     );
   }
   ctx.budget.operations += count;
+  if (ctx.budget.operations >= ctx.budget.deadlineCheckAt) {
+    ctx.budget.deadlineCheckAt = ctx.budget.operations + DEADLINE_CHECK_STRIDE;
+    ctx.executionScope?.throwIfAborted("query evaluation");
+  }
 }
 
 export function assertQueryResultCapacity(

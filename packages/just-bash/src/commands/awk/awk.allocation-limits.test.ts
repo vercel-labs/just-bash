@@ -61,13 +61,10 @@ describe("AWK prospective allocation limits", () => {
 
   it("charges input records against the AWK work limit", async () => {
     const bash = new Bash({ executionLimits: { maxAwkIterations: 2 } });
-    const result = await bash.exec(
-      "printf 'before\\n'; awk '{ print }'; printf after",
-      {
-        stdin: "one\ntwo\nthree\n",
-      },
-    );
-    expect(result.stdout).toBe("before\none\ntwo\n");
+    const result = await bash.exec("awk '{ print }'", {
+      stdin: "one\ntwo\nthree\n",
+    });
+    expect(result.stdout).toBe("");
     expect(result.stderr).toBe("awk: record limit exceeded (2)\n");
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
@@ -92,7 +89,7 @@ describe("AWK prospective allocation limits", () => {
       executionLimits: { maxStringLength: 32 },
     });
     const result = await bash.exec("awk '{ print }' /first /second");
-    expect(result.stdout).toBe("aaaaaaaaaaaaaaaaaaaa\n");
+    expect(result.stdout).toBe("");
     expect(result.stderr).toBe(
       "awk: aggregate input size limit exceeded (32 bytes)\n",
     );

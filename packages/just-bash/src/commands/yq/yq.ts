@@ -456,6 +456,7 @@ export const yqCommand: RuntimeCommand = {
 
       // Handle inplace mode
       if (options.inplace && filePath) {
+        ctx.executionScope?.throwIfAborted("yq");
         await withDefenseContext("in-place write", () =>
           ctx.fs.writeFile(filePath, finalOutput),
         );

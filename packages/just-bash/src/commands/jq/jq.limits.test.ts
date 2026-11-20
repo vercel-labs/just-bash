@@ -13,6 +13,42 @@ import { evaluate, parse } from "../query-engine/index.js";
  */
 
 describe("JQ Execution Limits", () => {
+  describe("argument and regex flag limits", () => {
+    it.each([
+      ["--argjson", "jq -n --argjson x '[[[0]]]' '.'"],
+      ["--jsonargs", "jq -n --jsonargs '.' '[[[0]]]'"],
+      ["--slurpfile", "jq -n --slurpfile x /args '.'"],
+    ])("does not recover from a limit in %s", async (_option, command) => {
+      const bash = new Bash({
+        files: { "/args": "[[[0]]]" },
+        executionLimits: { maxQueryDepth: 2 },
+      });
+      const result = await bash.exec(`${command} || echo recovered`);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("jq: query depth limit exceeded (2)\n");
+      expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+    });
+
+    it.each([
+      'scan("a"; [range(3)])',
+      'test("a"; [range(3)])',
+      'match("a"; [range(3)])',
+      'capture("a"; [range(3)])',
+      'sub("a"; "b"; [range(3)])',
+      'gsub("a"; "b"; [range(3)])',
+    ])("does not recover from a limit in regex flags: %s", async (filter) => {
+      const bash = new Bash({ executionLimits: { maxQueryElements: 2 } });
+      const result = await bash.exec(
+        `jq -n '"a" | ${filter}' || echo recovered`,
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "jq: query result element limit exceeded (2)\n",
+      );
+      expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+    });
+  });
+
   describe("string allocation protection", () => {
     it("rejects string multiplication before repeat allocates", async () => {
       const env = new Bash({

@@ -11,7 +11,10 @@ import {
   unsafeBytesFromLatin1,
   utf8ByteLength,
 } from "../../encoding.js";
-import type { ResourceLease } from "../../execution-scope.js";
+import {
+  DEADLINE_CHECK_STRIDE,
+  type ResourceLease,
+} from "../../execution-scope.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { FileTraversalBudget } from "../../fs/traversal.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
@@ -1233,6 +1236,9 @@ async function searchFiles(
           regex.lastIndex = 0;
           let lineOffset = 0;
           for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+            if (lineIdx % DEADLINE_CHECK_STRIDE === 0) {
+              ctx.executionScope?.throwIfAborted("rg");
+            }
             const line = lines[lineIdx];
             regex.lastIndex = 0;
             const submatches: JsonSubmatch[] = [];
