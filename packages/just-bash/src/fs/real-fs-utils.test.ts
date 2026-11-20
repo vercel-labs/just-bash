@@ -239,7 +239,9 @@ describe("resolveCanonicalPathNoSymlinks", () => {
 
     expect(
       resolveCanonicalPathNoSymlinks(
-        path.join(root, link, "file.txt"),
+        // link is drive-absolute on Windows, so strip its drive root before
+        // joining it under the symlinked root.
+        path.join(root, link.slice(path.parse(link).root.length), "file.txt"),
         root,
         fs.realpathSync(root),
       ),
