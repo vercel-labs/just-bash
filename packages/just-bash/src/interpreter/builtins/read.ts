@@ -12,9 +12,24 @@ import {
   splitByIfsForRead,
   stripTrailingIfsWhitespace,
 } from "../helpers/ifs.js";
-import { checkReadonlyError } from "../helpers/readonly.js";
+import { resolveScalarNameref } from "../helpers/nameref.js";
+import { checkReadonlyError, markExported } from "../helpers/readonly.js";
 import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
+
+function assignReadVariable(
+  ctx: InterpreterContext,
+  name: string,
+  value: string,
+): void {
+  const target = resolveScalarNameref(ctx, name);
+  if (target === undefined) return;
+  checkReadonlyError(ctx, target);
+  ctx.state.env.set(target, value);
+  if (ctx.state.options.allexport) {
+    markExported(ctx, target);
+  }
+}
 
 export function handleRead(
   ctx: InterpreterContext,
@@ -197,6 +212,10 @@ export function handleRead(
     return result("", "", 1);
   }
 
+  if (timeout === 0) {
+    return result("", "", 0);
+  }
+
   // Default variable is REPLY
   if (varNames.length === 0 && arrayName === null) {
     varNames.push("REPLY");
@@ -216,24 +235,6 @@ export function handleRead(
   }
 
   // Note: prompt (-p) would typically output to terminal, but we ignore it in non-interactive mode
-
-  // Handle -t 0: check if input is available without reading
-  // In bash, -t 0 is a "poll" operation that always succeeds (returns 0) as long as
-  // stdin is valid/readable. It doesn't actually read any data.
-  if (timeout === 0) {
-    // Clear any variables to empty (read doesn't actually read anything)
-    if (arrayName) {
-      clearArray(ctx, arrayName);
-    } else {
-      for (const name of varNames) {
-        ctx.state.env.set(name, "");
-      }
-      if (varNames.length === 0) {
-        ctx.state.env.set("REPLY", "");
-      }
-    }
-    return result("", "", 0); // Always succeed - stdin is valid
-  }
 
   // Handle negative timeout - bash returns exit code 1
   if (timeout < 0 && timeout !== -1) {
@@ -330,10 +331,10 @@ export function handleRead(
 
     // With -N, assign entire content to first variable (no IFS splitting)
     const varName = varNames[0] || "REPLY";
-    ctx.state.env.set(varName, line);
+    assignReadVariable(ctx, varName, line);
     // Set remaining variables to empty
     for (let j = 1; j < varNames.length; j++) {
-      ctx.state.env.set(varNames[j], "");
+      assignReadVariable(ctx, varNames[j], "");
     }
     return result("", "", foundDelimiter ? 0 : 1);
   } else if (nchars >= 0) {
@@ -440,7 +441,7 @@ export function handleRead(
       if (line.length === 0 && effectiveStdin.length === 0) {
         // No input at all - return failure
         for (const name of varNames) {
-          ctx.state.env.set(name, "");
+          assignReadVariable(ctx, name, "");
         }
         if (arrayName) {
           clearArray(ctx, arrayName);
@@ -467,7 +468,7 @@ export function handleRead(
   // If no variable names given (only REPLY), store whole line without IFS splitting
   // This preserves leading/trailing whitespace
   if (varNames.length === 1 && varNames[0] === "REPLY") {
-    ctx.state.env.set("REPLY", processBackslashEscapes(line));
+    assignReadVariable(ctx, "REPLY", processBackslashEscapes(line));
     return result("", "", foundDelimiter ? 0 : 1);
   }
 
@@ -510,7 +511,7 @@ export function handleRead(
     const name = varNames[j];
     if (j < varNames.length - 1) {
       // Assign single word, processing backslash escapes
-      ctx.state.env.set(name, processBackslashEscapes(words[j] ?? ""));
+      assignReadVariable(ctx, name, processBackslashEscapes(words[j] ?? ""));
     } else {
       // Last variable gets all remaining content from original line
       // This preserves original separators (tabs, etc.) but strips trailing IFS
@@ -519,9 +520,9 @@ export function handleRead(
         let value = line.substring(wordStarts[j]);
         value = stripTrailingIfsWhitespace(value, ifs, raw);
         value = processBackslashEscapes(value);
-        ctx.state.env.set(name, value);
+        assignReadVariable(ctx, name, value);
       } else {
-        ctx.state.env.set(name, "");
+        assignReadVariable(ctx, name, "");
       }
     }
   }

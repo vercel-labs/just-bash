@@ -33,6 +33,11 @@ import {
 import { getErrorMessage } from "./helpers/errors.js";
 import { failure, result } from "./helpers/result.js";
 import {
+  applyShellEnvironmentDefaults,
+  resolveShellPwd,
+} from "./helpers/shell-environment.js";
+import { buildBashopts, buildShellopts } from "./helpers/shellopts.js";
+import {
   type PreparedRedirections,
   withPreparedRedirections,
 } from "./redirections.js";
@@ -351,6 +356,27 @@ export async function executeUserScript(
 
   const parentLoopDepth = ctx.state.loopDepth;
   const cleanup = beginIsolatedShellState(ctx.state);
+
+  const inheritedEnv = ctx.state.env;
+  ctx.state.exportedVars = new Set([
+    ...(ctx.state.exportedVars ?? []),
+    ...(ctx.state.tempExportedVars ?? []),
+  ]);
+  ctx.state.tempExportedVars = new Set();
+  ctx.state.env = new Map<string, string>();
+  for (const [name, value] of inheritedEnv) {
+    if (ctx.state.exportedVars.has(name)) {
+      ctx.state.env.set(name, value);
+    }
+  }
+  const cwd = ctx.state.cwd;
+  const pwd = await resolveShellPwd(ctx.fs, cwd, ctx.state.env.get("PWD"));
+  ctx.state.cwd = ctx.fs.resolvePath(cwd, pwd);
+  ctx.state.env.set("PWD", pwd);
+  ctx.state.exportedVars.add("PWD");
+  applyShellEnvironmentDefaults(ctx.state.env);
+  ctx.state.env.set("SHELLOPTS", buildShellopts(ctx.state.options));
+  ctx.state.env.set("BASHOPTS", buildBashopts(ctx.state.shoptOptions));
 
   // Set up subshell-like environment
   ctx.state.parentHasLoopContext = parentLoopDepth > 0;

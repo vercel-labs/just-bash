@@ -47,7 +47,11 @@ import {
   writeFdEntry,
 } from "./fd-table.js";
 import { getErrorCode } from "./helpers/errors.js";
-import { checkReadonlyError } from "./helpers/readonly.js";
+import {
+  checkReadonlyError,
+  markExported,
+  unmarkExported,
+} from "./helpers/readonly.js";
 import { result as makeResult } from "./helpers/result.js";
 import {
   effectiveRedirectFd,
@@ -173,7 +177,7 @@ type RedirectionTransactionState = {
   fdVariableSnapshot: FdSnapshot;
   standardSnapshot: FdSnapshot;
   standardClosedSnapshot: Map<number, boolean>;
-  fdVariableEnv: Map<string, string | undefined>;
+  fdVariableEnv: Map<string, { value: string | undefined; exported: boolean }>;
   nextFd: number | undefined;
   policy: RedirectionPolicy;
 };
@@ -546,13 +550,14 @@ async function prepareRedirectionsWithState(
         if (capacityError) return capacityError;
         rememberFd(ctx, transaction.fdVariableSnapshot, fd);
         if (!transaction.fdVariableEnv.has(redir.fdVariable)) {
-          transaction.fdVariableEnv.set(
-            redir.fdVariable,
-            ctx.state.env.get(redir.fdVariable),
-          );
+          transaction.fdVariableEnv.set(redir.fdVariable, {
+            value: ctx.state.env.get(redir.fdVariable),
+            exported: ctx.state.exportedVars?.has(redir.fdVariable) ?? false,
+          });
         }
         setFdEntry(ctx, fd, { kind: "input", content });
         ctx.state.env.set(redir.fdVariable, String(fd));
+        if (ctx.state.options.allexport) markExported(ctx, redir.fdVariable);
         ctx.state.nextFd = fd + 1;
       } else if (effectiveFd !== null && effectiveFd >= FIRST_USER_FD) {
         const capacityError = await requireCapacity(effectiveFd, index);
@@ -658,10 +663,10 @@ async function prepareRedirectionsWithState(
       }
       rememberFd(ctx, transaction.fdVariableSnapshot, fd);
       if (!transaction.fdVariableEnv.has(redir.fdVariable)) {
-        transaction.fdVariableEnv.set(
-          redir.fdVariable,
-          ctx.state.env.get(redir.fdVariable),
-        );
+        transaction.fdVariableEnv.set(redir.fdVariable, {
+          value: ctx.state.env.get(redir.fdVariable),
+          exported: ctx.state.exportedVars?.has(redir.fdVariable) ?? false,
+        });
       }
       let entry: FdEntry | undefined;
       let duplicate: { sourceFd: number; move: boolean } | undefined;
@@ -751,6 +756,7 @@ async function prepareRedirectionsWithState(
         closeFd(ctx, duplicate.sourceFd);
       }
       ctx.state.env.set(redir.fdVariable, String(fd));
+      if (ctx.state.options.allexport) markExported(ctx, redir.fdVariable);
       ctx.state.nextFd = fd + 1;
       continue;
     }
@@ -1121,9 +1127,11 @@ export function createRedirectionTransaction(
       }
       if (policy === "bare") {
         restoreFds(ctx, state.fdVariableSnapshot);
-        for (const [name, value] of state.fdVariableEnv) {
+        for (const [name, { value, exported }] of state.fdVariableEnv) {
           if (value === undefined) ctx.state.env.delete(name);
           else ctx.state.env.set(name, value);
+          if (exported) markExported(ctx, name);
+          else unmarkExported(ctx, name);
         }
         ctx.state.nextFd = state.nextFd;
       }

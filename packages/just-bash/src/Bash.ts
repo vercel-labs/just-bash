@@ -46,6 +46,12 @@ import {
 } from "./interpreter/errors.js";
 import { cloneArrays } from "./interpreter/helpers/array.js";
 import {
+  applyShellEnvironmentDefaults,
+  isShellParameterName,
+  resolveShellPwd,
+  SHELL_ENV_DEFAULTS,
+} from "./interpreter/helpers/shell-environment.js";
+import {
   buildBashopts,
   buildShellopts,
 } from "./interpreter/helpers/shellopts.js";
@@ -80,6 +86,7 @@ import type {
 import type {
   BashExecResult,
   Command,
+  CommandExecOptions,
   CommandRegistry,
   FeatureCoverageWriter,
   RuntimeCommand,
@@ -87,19 +94,6 @@ import type {
 } from "./types.js";
 
 export type { ExecutionLimitProfile, ExecutionLimits } from "./limits.js";
-
-const DEFAULT_PATH = "/usr/bin:/bin";
-
-/**
- * Variables a shell sets from its build and host at startup when the
- * environment does not provide them.
- */
-const HOST_VARS: ReadonlyArray<readonly [string, string]> = [
-  ["OSTYPE", "linux-gnu"],
-  ["MACHTYPE", "x86_64-pc-linux-gnu"],
-  ["HOSTTYPE", "x86_64"],
-  ["HOSTNAME", "localhost"], // Match hostname command in sandboxed environment
-];
 
 /**
  * Logger interface for Bash execution logging.
@@ -381,15 +375,18 @@ export class Bash {
     // Use Map for env to prevent prototype pollution attacks
     const env = new Map<string, string>([
       ["HOME", this.useDefaultLayout ? "/home/user" : "/"],
-      ["PATH", DEFAULT_PATH],
-      ["IFS", " \t\n"],
-      ...HOST_VARS,
+      ...SHELL_ENV_DEFAULTS,
       ["PWD", cwd],
       ["OLDPWD", cwd],
-      ["OPTIND", "1"], // getopts option index
       // Add user-provided env vars
       ...Object.entries(options.env ?? {}),
     ]);
+
+    const parameterNamedEnv = new Map(
+      Object.entries(options.env ?? {}).filter(([name]) =>
+        isShellParameterName(name),
+      ),
+    );
 
     // Create secure fetch: prefer explicit fetch, fall back to network config
     if (options.fetch) {
@@ -474,8 +471,11 @@ export class Bash {
         "PWD",
         "OLDPWD",
         // Also export any user-provided environment variables
-        ...Object.keys(options.env || {}),
+        ...Object.keys(options.env ?? {}).filter(
+          (name) => !parameterNamedEnv.has(name),
+        ),
       ]),
+      parameterNamedEnv,
       // SHELLOPTS and BASHOPTS are readonly
       readonlyVars: new Set(["SHELLOPTS", "BASHOPTS"]),
       // Hash table for PATH command lookup caching
@@ -671,7 +671,9 @@ export class Bash {
 
   private async execInScope(
     commandLine: string,
-    options: (ExecOptions & { newShell?: boolean }) | undefined,
+    options:
+      | (ExecOptions & Pick<CommandExecOptions, "newShell" | "shellArgs">)
+      | undefined,
     executionScope: ExecutionScope,
     execDepth: number,
     parentSignal: AbortSignal | undefined,
@@ -717,7 +719,14 @@ export class Bash {
       // it initializes PWD (and cwd) using realpath (resolving symlinks)
       let newPwd: string | undefined;
       let newCwd = effectiveCwd;
-      if (effectiveOptions.cwd) {
+      if (effectiveOptions.newShell) {
+        newPwd = await resolveShellPwd(
+          this.fs,
+          effectiveCwd,
+          effectiveOptions.env?.PWD,
+        );
+        newCwd = this.fs.resolvePath(effectiveCwd, newPwd);
+      } else if (effectiveOptions.cwd) {
         if (effectiveOptions.env && "PWD" in effectiveOptions.env) {
           // PWD explicitly provided - use it
           newPwd = effectiveOptions.env.PWD;
@@ -745,60 +754,55 @@ export class Bash {
       const execEnv = replaceEnv
         ? new Map<string, string>()
         : new Map((callerState ?? this.state).env);
-      // Merge in options.env
-      if (effectiveOptions.env) {
-        for (const [key, value] of Object.entries(effectiveOptions.env)) {
-          execEnv.set(key, value);
+      const parameterNamedEnv = new Map(
+        replaceEnv ? undefined : (callerState ?? this.state).parameterNamedEnv,
+      );
+      const exportsEnv = !callerState || replaceEnv;
+      const exportedVars = new Set(
+        replaceEnv ? undefined : (callerState ?? this.state).exportedVars,
+      );
+      if (!replaceEnv && callerState?.tempExportedVars) {
+        for (const name of callerState.tempExportedVars) {
+          exportedVars.add(name);
         }
+      }
+      for (const [name, value] of Object.entries(effectiveOptions.env ?? {})) {
+        if (exportsEnv && isShellParameterName(name)) {
+          parameterNamedEnv.set(name, value);
+          if (callerState || effectiveOptions.newShell) continue;
+        } else if (exportsEnv) {
+          exportedVars.add(name);
+        }
+        execEnv.set(name, value);
       }
       // Update PWD when cwd option is provided
       if (newPwd !== undefined) {
         execEnv.set("PWD", newPwd);
       }
 
-      // Decide which variables the new shell exports to its children. Only
-      // the host API and new shells treat `env` as the environment; internal
-      // callers such as `env` and `time` pass the full variable map and keep
-      // the caller's export set, including prefix exports (`FOO=x time ...`).
-      // The set is always copied so an `export` in one exec does not leak
-      // into later ones. Only valid names can be exported: nested sh/bash
-      // passes positional parameters ("0", "#", "1") through env.
-      const exportsEnv = !callerState || effectiveOptions.newShell;
-      const exportedVars =
-        replaceEnv && exportsEnv
-          ? new Set<string>()
-          : callerState
-            ? new Set([
-                ...(callerState.exportedVars ?? []),
-                ...(callerState.tempExportedVars ?? []),
-              ])
-            : new Set(this.state.exportedVars);
-      if (exportsEnv) {
-        for (const key of Object.keys(effectiveOptions.env ?? {})) {
-          if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
-            exportedVars.add(key);
-          }
-        }
-        if (newPwd !== undefined) {
-          exportedVars.add("PWD");
-        }
+      if (newPwd !== undefined && (!callerState || effectiveOptions.newShell)) {
+        exportedVars.add("PWD");
       }
 
       if (effectiveOptions.newShell) {
         // Startup defaults do not add export attributes. Resetting inherited
         // values retains their existing export attributes.
-        if (!execEnv.has("PATH")) {
-          execEnv.set("PATH", DEFAULT_PATH);
-        }
-        for (const [name, value] of HOST_VARS) {
-          if (!execEnv.has(name)) {
-            execEnv.set(name, value);
-          }
-        }
-        execEnv.set("IFS", " \t\n");
-        execEnv.set("OPTIND", "1");
+        applyShellEnvironmentDefaults(execEnv);
         execEnv.set("SHELLOPTS", buildShellopts(this.state.options));
         execEnv.set("BASHOPTS", buildBashopts(this.state.shoptOptions));
+
+        const { name, args } = effectiveOptions.shellArgs ?? {
+          name: "bash",
+          args: [],
+        };
+        execEnv.set("0", name);
+        execEnv.set("#", String(args.length));
+        const joinedArgs = args.join(" ");
+        execEnv.set("@", joinedArgs);
+        execEnv.set("*", joinedArgs);
+        for (const [index, arg] of args.entries()) {
+          execEnv.set(String(index + 1), arg);
+        }
       }
 
       // A recursive exec continues the calling shell, so it inherits that
@@ -812,6 +816,7 @@ export class Bash {
         ...this.state,
         env: execEnv,
         exportedVars,
+        parameterNamedEnv,
         arrays: replaceEnv ? new Map() : cloneArrays(this.state.arrays),
         cwd: newCwd,
         previousDir:

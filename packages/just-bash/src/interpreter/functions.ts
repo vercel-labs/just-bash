@@ -11,6 +11,7 @@ import type { ExecResult } from "../types.js";
 import { clearLocalVarStackForScope } from "./builtins/variable-assignment.js";
 import { ControlFlowError, ExitError, ReturnError } from "./errors.js";
 import { cloneArray } from "./helpers/array.js";
+import { markExported, unmarkExported } from "./helpers/readonly.js";
 import { OK, result, throwExecutionLimit } from "./helpers/result.js";
 import { POSIX_SPECIAL_BUILTINS } from "./helpers/shell-constants.js";
 import {
@@ -84,11 +85,8 @@ export async function callFunction(
   ctx.state.localArrayScopes ??= [];
   ctx.state.localArrayScopes.push(new Map());
 
-  // Push a new set for tracking exports made in this scope
-  if (!ctx.state.localExportedVars) {
-    ctx.state.localExportedVars = [];
-  }
-  ctx.state.localExportedVars.push(new Set());
+  ctx.state.localExportScopes ??= [];
+  ctx.state.localExportScopes.push(new Map());
 
   const savedPositional = new Map<string, string | undefined>();
   const oldPositionalCount = Number.parseInt(ctx.state.env.get("#") ?? "0", 10);
@@ -152,15 +150,11 @@ export async function callFunction(
       }
     }
 
-    // Pop local export tracking and restore export state
-    // If a variable was exported only in this scope, unmark it
-    if (ctx.state.localExportedVars && ctx.state.localExportedVars.length > 0) {
-      const localExports = ctx.state.localExportedVars.pop();
-      if (localExports) {
-        for (const name of localExports) {
-          // Remove the export attribute since the local scope is gone
-          ctx.state.exportedVars?.delete(name);
-        }
+    const localExportScope = ctx.state.localExportScopes?.pop();
+    if (localExportScope) {
+      for (const [name, wasExported] of localExportScope) {
+        if (wasExported) markExported(ctx, name);
+        else unmarkExported(ctx, name);
       }
     }
 

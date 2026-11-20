@@ -1,9 +1,13 @@
 import type { InterpreterContext } from "../types.js";
 
+type FileTestContext = Pick<InterpreterContext, "fs"> & {
+  state: Pick<InterpreterContext["state"], "cwd">;
+};
+
 /**
  * Resolve a path relative to the current working directory.
  */
-function resolvePath(ctx: InterpreterContext, path: string): string {
+function resolvePath(ctx: FileTestContext, path: string): string {
   return ctx.fs.resolvePath(ctx.state.cwd, path);
 }
 
@@ -231,7 +235,7 @@ export function isBinaryFileTestOperator(
  * @param right - Right operand (file path)
  */
 export async function evaluateBinaryFileTest(
-  ctx: InterpreterContext,
+  ctx: FileTestContext,
   operator: string,
   left: string,
   right: string,

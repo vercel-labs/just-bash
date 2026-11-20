@@ -48,6 +48,7 @@ import {
   BREAK_CONTINUE_STATUS,
   handleLoopError,
 } from "./helpers/loop.js";
+import { markExported } from "./helpers/readonly.js";
 import { failure, throwExecutionLimit } from "./helpers/result.js";
 import {
   type PreparedRedirections,
@@ -263,6 +264,9 @@ async function executeForBody(
       }
 
       ctx.state.env.set(node.variable, value);
+      if (ctx.state.options.allexport) {
+        markExported(ctx, node.variable);
+      }
 
       try {
         for (const stmt of node.body) {

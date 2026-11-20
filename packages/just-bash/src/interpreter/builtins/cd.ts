@@ -3,6 +3,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
+import { markExported } from "../helpers/readonly.js";
 import { failure, success } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -123,6 +124,10 @@ export async function handleCd(
   ctx.state.cwd = newDir;
   ctx.state.env.set("PWD", ctx.state.cwd);
   ctx.state.env.set("OLDPWD", ctx.state.previousDir);
+  if (ctx.state.options.allexport) {
+    markExported(ctx, "PWD");
+    markExported(ctx, "OLDPWD");
+  }
 
   // cd - prints the new directory
   // An empty OLDPWD keeps cwd unchanged and cd - prints an empty line.

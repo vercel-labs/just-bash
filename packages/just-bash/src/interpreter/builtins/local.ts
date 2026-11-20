@@ -17,11 +17,15 @@ import {
   setArrayKind,
 } from "../helpers/array.js";
 import { markNameref } from "../helpers/nameref.js";
-import { checkReadonlyError } from "../helpers/readonly.js";
+import { checkReadonlyError, markExported } from "../helpers/readonly.js";
 import { failure, result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 import { parseArrayElements } from "./declare-array-parsing.js";
-import { markLocalVarDepth, pushLocalVarStack } from "./variable-assignment.js";
+import {
+  markLocalVarDepth,
+  pushLocalVarStack,
+  saveLocalVariable,
+} from "./variable-assignment.js";
 
 export async function handleLocal(
   ctx: InterpreterContext,
@@ -42,8 +46,7 @@ export async function handleLocal(
   }
   const currentArrayScope = ctx.state.localArrayScopes.at(-1);
   const saveArray = (name: string): void => {
-    if (!currentScope.has(name))
-      currentScope.set(name, ctx.state.env.get(name));
+    saveLocalVariable(ctx, name, ctx.state.env.get(name));
     if (currentArrayScope && !currentArrayScope.has(name)) {
       const array = getArray(ctx, name);
       currentArrayScope.set(name, array ? cloneArray(array) : undefined);
@@ -53,6 +56,7 @@ export async function handleLocal(
   let exitCode = 0;
   let declareNameref = false;
   let declareArray = false;
+  let declareExport = false;
   let _printMode = false;
 
   // Parse flags
@@ -62,6 +66,8 @@ export async function handleLocal(
       declareNameref = true;
     } else if (arg === "-a") {
       declareArray = true;
+    } else if (arg === "-x") {
+      declareExport = true;
     } else if (arg === "-p") {
       _printMode = true;
     } else if (arg.startsWith("-") && !arg.includes("=")) {
@@ -69,6 +75,7 @@ export async function handleLocal(
       for (const flag of arg.slice(1)) {
         if (flag === "n") declareNameref = true;
         else if (flag === "a") declareArray = true;
+        else if (flag === "x") declareExport = true;
         else if (flag === "p") _printMode = true;
         // Other flags are ignored for now
       }
@@ -203,10 +210,7 @@ export async function handleLocal(
       // Check if variable is readonly
       checkReadonlyError(ctx, name, "bash");
 
-      // Save previous value for scope restoration
-      if (!currentScope.has(name)) {
-        currentScope.set(name, ctx.state.env.get(name));
-      }
+      saveLocalVariable(ctx, name, ctx.state.env.get(name));
 
       // Append to existing value (or set if not defined)
       const existing = ctx.state.env.get(name) ?? "";
@@ -219,6 +223,9 @@ export async function handleLocal(
           "local append",
         ),
       );
+      if (declareExport || ctx.state.options.allexport) {
+        markExported(ctx, name);
+      }
 
       // Track local variable depth for bash-specific unset scoping
       markLocalVarDepth(ctx, name);
@@ -332,7 +339,7 @@ export async function handleLocal(
           }
         }
       }
-      currentScope.set(name, savedValue);
+      saveLocalVariable(ctx, name, savedValue);
       // Also save array elements if -a flag is used
       if (declareArray) {
         saveArray(name);
@@ -359,11 +366,6 @@ export async function handleLocal(
         continue;
       }
       ctx.state.env.set(name, value);
-      // If allexport is enabled (set -a), auto-export the variable
-      if (ctx.state.options.allexport) {
-        ctx.state.exportedVars = ctx.state.exportedVars || new Set();
-        ctx.state.exportedVars.add(name);
-      }
     } else {
       // `local v` without assignment: bash behavior is:
       // - If the variable is already local in current scope, keep its value
@@ -377,6 +379,10 @@ export async function handleLocal(
         ctx.state.env.delete(name);
       }
       // If already local or has tempenv binding, keep the current value
+    }
+
+    if (declareExport || (value !== undefined && ctx.state.options.allexport)) {
+      markExported(ctx, name);
     }
 
     // Track local variable depth for bash-specific unset scoping
