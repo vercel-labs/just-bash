@@ -9,10 +9,28 @@ describe("awk math functions", () => {
       expect(result.stdout).toBe("3\n");
     });
 
-    it("int() handles negative numbers", async () => {
+    it("int() truncates negative numbers toward zero", async () => {
       const env = new Bash();
       const result = await env.exec("echo '-3.7' | awk '{ print int($1) }'");
-      expect(result.stdout).toBe("-4\n");
+      expect(result.stdout).toBe("-3\n");
+    });
+
+    it("int() truncates negative fractions and numeric prefixes toward zero", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `awk 'BEGIN { print int(-3.7), int(-0.5), int(3.7), int("-2.9x") }'`,
+      );
+      expect(result.stdout).toBe("-3 0 3 -2\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("printf %d and %i truncate toward zero", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `awk 'BEGIN { printf "%d %i %d %d %5d|\\n", -3.7, -3.7, -0.5, 3.7, -2.5 }'`,
+      );
+      expect(result.stdout).toBe("-3 -3 0 3    -2|\n");
+      expect(result.stderr).toBe("");
     });
 
     it("sqrt() calculates square root", async () => {

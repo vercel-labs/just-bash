@@ -1,0 +1,16 @@
+{
+  "f2fb68f19640a4c0": {
+    "command": "awk 'BEGIN { print int(-3.7), int(-0.5), int(3.7), int(\"-2.9x\") }'",
+    "files": {},
+    "stdout": "-3 0 3 -2\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ff4fcb030e65e671": {
+    "command": "awk 'BEGIN { printf \"%d %i %d %d %5d|\\n\", -3.7, -3.7, -0.5, 3.7, -2.5 }'",
+    "files": {},
+    "stdout": "-3 -3 0 3    -2|\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

@@ -519,7 +519,7 @@ async function awkInt(
   evaluator: AwkEvaluator,
 ): Promise<number> {
   if (args.length === 0) return 0;
-  return Math.floor(toNumber(await evaluator.evalExpr(args[0])));
+  return Math.trunc(toNumber(await evaluator.evalExpr(args[0])));
 }
 
 async function awkSqrt(
@@ -770,7 +770,7 @@ export function formatPrintf(
 
         case "d":
         case "i": {
-          let num = val !== undefined ? Math.floor(Number(val)) : 0;
+          let num = val !== undefined ? Math.trunc(Number(val)) : 0;
           if (Number.isNaN(num)) num = 0;
           const isNegative = num < 0;
           let digits = Math.abs(num).toString();
