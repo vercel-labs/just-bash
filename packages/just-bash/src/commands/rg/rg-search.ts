@@ -1152,16 +1152,18 @@ async function searchFiles(
         if (!fileData) return null;
 
         const { content, isBinary, lease } = fileData;
-        bytesSearched += content.length;
-
-        // Skip binary files unless -a/--text is specified.
-        if (isBinary && !options.searchBinary) {
-          lease?.release();
-          return null;
-        }
-
-        const filenameForSearch = showFilename && !options.heading ? file : "";
         try {
+          ctx.executionScope?.throwIfAborted("rg");
+          bytesSearched += content.length;
+
+          // Skip binary files unless -a/--text is specified.
+          if (isBinary && !options.searchBinary) {
+            lease?.release();
+            return null;
+          }
+
+          const filenameForSearch =
+            showFilename && !options.heading ? file : "";
           const result = searchContent(content, regex, {
             invertMatch: options.invertMatch,
             showLineNumbers: effectiveLineNumbers,

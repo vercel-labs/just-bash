@@ -1816,7 +1816,6 @@ function evalBuiltin(
     compareJq,
     isTruthy,
     containsDeep,
-    ExecutionLimitError,
   );
   if (arrayResult !== null) return arrayResult;
 

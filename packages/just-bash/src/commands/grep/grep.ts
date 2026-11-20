@@ -698,6 +698,8 @@ export const grepCommand: RuntimeCommand = {
               content = await ctx.fs.readFile(filePath);
             }
 
+            ctx.executionScope?.throwIfAborted("grep");
+
             // File-level preFilter: skip searchContent entirely when no needle exists in file.
             // Avoids content.split("\n") and all per-line work for the common zero-match case.
             if (preFilter && !invertMatch) {

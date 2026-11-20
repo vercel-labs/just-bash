@@ -10,13 +10,13 @@
 
 import { BoundedStringBuilder } from "../../bounded-builder.js";
 import { decodeBytesToUtf8 } from "../../encoding.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import {
   assertDefenseContext,
   awaitWithDefenseContext,
 } from "../../security/defense-context.js";
-import { SecurityViolationError } from "../../security/defense-in-depth-box.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -329,9 +329,7 @@ export const yqCommand: RuntimeCommand = {
           ctx.fs.readFile(resolvedFilePath),
         );
       } catch (e) {
-        if (e instanceof SecurityViolationError) {
-          throw e;
-        }
+        rethrowFatalExecutionError(e);
         return {
           stdout: "",
           stderr: `yq: ${files[0]}: No such file or directory\n`,
@@ -478,17 +476,15 @@ export const yqCommand: RuntimeCommand = {
         exitCode,
       };
     } catch (e) {
-      if (e instanceof SecurityViolationError) {
-        throw e;
-      }
       if (e instanceof ExecutionLimitError) {
-        const message = sanitizeErrorMessage(e.message);
-        return {
-          stdout: "",
-          stderr: `yq: ${message}\n`,
-          exitCode: ExecutionLimitError.EXIT_CODE,
-        };
+        throw new ExecutionLimitError(
+          e.message,
+          e.limitType,
+          "",
+          `yq: ${sanitizeErrorMessage(e.message)}\n`,
+        );
       }
+      rethrowFatalExecutionError(e);
       const msg = sanitizeErrorMessage((e as Error).message);
       if (msg.includes("Unknown function")) {
         return {

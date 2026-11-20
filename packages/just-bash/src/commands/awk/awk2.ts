@@ -7,13 +7,15 @@
 import { decodeBytesToUtf8 } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { mapToRecord } from "../../helpers/env.js";
-import { ExecutionLimitError } from "../../interpreter/errors.js";
+import {
+  ExecutionAbortedError,
+  ExecutionLimitError,
+} from "../../interpreter/errors.js";
 import { ConstantRegex, createUserRegex } from "../../regex/index.js";
 import {
   assertDefenseContext,
   awaitWithDefenseContext,
 } from "../../security/defense-context.js";
-import { SecurityViolationError } from "../../security/defense-in-depth-box.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -137,9 +139,7 @@ export const awkCommand2: RuntimeCommand = {
             ctx.fs.writeFile(path, existing + content),
           );
         } catch (e) {
-          if (e instanceof SecurityViolationError) {
-            throw e;
-          }
+          rethrowFatalExecutionError(e);
           // File doesn't exist, just write
           await withDefenseContext("appendFile create", () =>
             ctx.fs.writeFile(path, content),
@@ -301,12 +301,7 @@ export const awkCommand2: RuntimeCommand = {
               ctx.fs.readFile(filePath),
             );
           } catch (e) {
-            if (
-              e instanceof SecurityViolationError ||
-              e instanceof ExecutionLimitError
-            ) {
-              throw e;
-            }
+            rethrowFatalExecutionError(e);
             return {
               stdout: "",
               stderr: `awk: ${file}: No such file or directory\n`,
@@ -336,17 +331,23 @@ export const awkCommand2: RuntimeCommand = {
         exitCode: interp.getExitCode(),
       };
     } catch (e) {
-      if (e instanceof SecurityViolationError) {
+      if (e instanceof ExecutionLimitError) {
+        // AWK output has not passed through shell output accounting yet.
+        e.stdout = interp.getOutput() + e.stdout;
+        e.stderr = `awk: ${e.message}\n`;
         throw e;
       }
+      if (e instanceof ExecutionAbortedError) {
+        // AWK output has not passed through shell output accounting yet.
+        e.stdout = interp.getOutput() + e.stdout;
+      }
+      rethrowFatalExecutionError(e);
       // Handle errors during execution
       const msg = e instanceof Error ? e.message : String(e);
-      const exitCode =
-        e instanceof ExecutionLimitError ? ExecutionLimitError.EXIT_CODE : 2;
       return {
         stdout: interp.getOutput(),
         stderr: `awk: ${msg}\n`,
-        exitCode,
+        exitCode: 2,
       };
     }
   },

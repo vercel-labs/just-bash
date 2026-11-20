@@ -4,6 +4,7 @@
  * Handles array manipulation functions like sort, sort_by, group_by, max, min, add, etc.
  */
 
+import { rethrowFatalExecutionError } from "../../../fatal-execution-error.js";
 import { mergeToNullPrototype } from "../../../helpers/env.js";
 import { ExecutionLimitError as QueryExecutionLimitError } from "../../../interpreter/errors.js";
 import type { EvalContext } from "../evaluator.js";
@@ -26,10 +27,6 @@ type EvalWithPartialFn = (
 type CompareFn = (a: QueryValue, b: QueryValue) => number;
 type IsTruthyFn = (v: QueryValue) => boolean;
 type ContainsDeepFn = (a: QueryValue, b: QueryValue) => boolean;
-type ExecutionLimitErrorClass = new (
-  message: string,
-  kind: "recursion" | "commands" | "iterations",
-) => Error;
 
 function assertResultCapacity(
   ctx: EvalContext,
@@ -59,7 +56,6 @@ export function evalArrayBuiltin(
   compareJq: CompareFn,
   isTruthy: IsTruthyFn,
   containsDeep: ContainsDeepFn,
-  ExecutionLimitError: ExecutionLimitErrorClass,
 ): QueryValue[] | null {
   switch (name) {
     case "sort":
@@ -223,8 +219,7 @@ export function evalArrayBuiltin(
             if (cond.some(isTruthy)) return [true];
           }
         } catch (e) {
-          // Always re-throw execution limit errors
-          if (e instanceof ExecutionLimitError) throw e;
+          rethrowFatalExecutionError(e);
           // Error occurred but we might have found a truthy value already
         }
         return [false];
@@ -252,8 +247,7 @@ export function evalArrayBuiltin(
             if (!cond.some(isTruthy)) return [false];
           }
         } catch (e) {
-          // Always re-throw execution limit errors
-          if (e instanceof ExecutionLimitError) throw e;
+          rethrowFatalExecutionError(e);
           // Error occurred but we might have found a falsy value already
         }
         return [true];
