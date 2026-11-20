@@ -576,8 +576,21 @@ async function listPath(
       // its parent, so both print their real size and mtime like GNU ls does
       // instead of the placeholder epoch date.
       for (const entry of specialEntries) {
-        const targetPath =
+        let targetPath =
           entry === "." ? fullPath : ctx.fs.resolvePath(fullPath, "..");
+        if (entry === "..") {
+          // ".." names the listed directory's parent on disk. When the
+          // path reaches the directory through a symlink, the lexical
+          // parent is a different directory, so derive the parent from
+          // the canonical path, as GNU ls does. Backends that cannot
+          // resolve the path keep the lexical parent.
+          const canonical = await ctx.fs
+            .realpath(fullPath)
+            .catch(() => undefined);
+          if (canonical !== undefined) {
+            targetPath = ctx.fs.resolvePath(canonical, "..");
+          }
+        }
         try {
           const entryStat = await ctx.fs.stat(targetPath);
           const size = entryStat.size ?? 0;
