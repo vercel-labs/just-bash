@@ -170,6 +170,7 @@ export const awkCommand2: RuntimeCommand = {
         : undefined,
       coverage: ctx.coverage,
       requireDefenseContext: ctx.requireDefenseContext,
+      executionScope: ctx.executionScope,
     });
     runtimeCtx.FS = fieldSepStr;
     // Use Object.assign with null-prototype to preserve safety
@@ -187,6 +188,12 @@ export const awkCommand2: RuntimeCommand = {
 
     // Set up ENVIRON from shell environment (null-prototype prevents prototype pollution)
     runtimeCtx.ENVIRON = mapToRecord(ctx.env);
+
+    // ARGV and ENVIRON count toward the element limit like any other
+    // array, so the count starts at their sizes.
+    runtimeCtx.arrayElementCount =
+      Object.keys(runtimeCtx.ARGV).length +
+      Object.keys(runtimeCtx.ENVIRON).length;
 
     // Create interpreter
     const interp = new AwkInterpreter(runtimeCtx);

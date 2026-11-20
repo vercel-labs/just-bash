@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
+import type { CommandExecutionBudget } from "../../execution-scope.js";
+import {
+  ExecutionAbortedError,
+  ExecutionLimitError,
+} from "../../interpreter/errors.js";
+import { AwkInterpreter, createRuntimeContext } from "./interpreter/index.js";
+import { AwkParser } from "./parser2.js";
 
 describe("awk associative arrays", () => {
   describe("basic array operations", () => {
@@ -388,13 +395,108 @@ describe("awk associative arrays", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it("should order mixed values by type: numbers first, then strings (fixes #737)", async () => {
+    it("should order mixed values like the interpreter's < rules (fixes #737)", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "" | awk 'BEGIN { x[1] = "1a"; x[2] = 2; x[3] = 10; n = asort(x); print n, x[1], x[2], x[3] }'`,
       );
-      expect(result.stdout).toBe("3 2 10 1a\n");
+      // "1a" vs 2 is not both numeric-looking, so it falls back to string
+      // comparison ("1a" < "2"); 2 vs 10 compare numerically.
+      expect(result.stdout).toBe("3 1a 2 10\n");
       expect(result.exitCode).toBe(0);
+    });
+
+    it("should compare a numeric-looking string as a string against punctuation", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { x[1] = "10"; x[2] = "!"; n = asort(x); print n, x[1], x[2] }'`,
+      );
+      expect(result.stdout).toBe("2 ! 10\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should reject an explicitly supplied empty how argument", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { x[1] = 2; x[2] = 1; n = asort(x, y, ""); print n }'`,
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe('awk: asort: unsupported how argument ""\n');
+      expect(result.exitCode).toBe(2);
+    });
+
+    it("should keep the source alias when a how function uses the same parameter name", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function g(arr) { return "@val_num_asc" } function f(arr) { n = asort(arr, arr, g(arr)); print "n=" n, arr[1], arr[2] } BEGIN { x[1]=3; x[2]=1; f(x); print "x:", x[1], x[2] }'`,
+      );
+      expect(result.stdout).toBe("n=2 1 3\nx: 1 3\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should read and write ARGV through a function-parameter alias", async () => {
+      const env = new Bash({
+        files: { "/tmp/f1": "", "/tmp/f2": "" },
+      });
+      const result = await env.exec(
+        `awk 'function f(a) { print "[" a[1] "]", "[" a[2] "]"; a[1] = "zzz"; print ARGV[1] } BEGIN { f(ARGV) }' /tmp/f2 /tmp/f1`,
+      );
+      expect(result.stdout).toBe("[/tmp/f2] [/tmp/f1]\nzzz\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should read ENVIRON through a function-parameter alias", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `export ZZASORT=hello; echo "" | awk 'function f(e) { print e["ZZASORT"] } BEGIN { f(ENVIRON) }'`,
+      );
+      expect(result.stdout).toBe("hello\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should count values copied into ARGV against maxArrayElements", async () => {
+      const bash = new Bash({ executionLimits: { maxArrayElements: 5 } });
+      const result = await bash.exec(
+        `echo "" | awk 'BEGIN { r[1]=4; r[2]=3; r[3]=2; r[4]=1; n = asort(r, ARGV); print "n=" n }'`,
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("awk: array element limit exceeded (5)\n");
+      expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+    });
+
+    it("should charge the sort to the shared work budget", async () => {
+      const bash = new Bash({ executionLimits: { maxWorkUnits: 50 } });
+      const result = await bash.exec(
+        `echo "" | awk 'BEGIN { for (i = 200; i >= 1; i--) x[i] = i; n = asort(x); print "n=" n }'`,
+      );
+      expect(result.stdout).toBe("");
+      // Scope-charged work errors surface with the shell's "bash:" prefix
+      // (the same shape as other commands' consumeWork errors, e.g. xan).
+      expect(result.stderr).toBe(
+        "bash: asort value conversion: work work limit exceeded (50)\n",
+      );
+      expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+    });
+
+    it("should let an abort interrupt a large sort", async () => {
+      const scope = {
+        consumeWork: () => 0,
+        throwIfAborted: () => {
+          throw new ExecutionAbortedError("", "bash: asort sort aborted\n");
+        },
+      };
+      const parser = new AwkParser();
+      const ast = parser.parse(
+        `BEGIN { for (i = 3000; i >= 1; i--) x[i] = i; n = asort(x); print n }`,
+      );
+      const ctx = createRuntimeContext({
+        executionScope: scope as unknown as CommandExecutionBudget,
+      });
+      const interp = new AwkInterpreter(ctx);
+      interp.execute(ast);
+      await expect(interp.executeBegin()).rejects.toThrow(
+        ExecutionAbortedError,
+      );
     });
 
     it("should break numeric ties by string value for @val_num_asc (fixes #737)", async () => {

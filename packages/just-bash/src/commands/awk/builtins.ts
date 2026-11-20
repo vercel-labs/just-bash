@@ -271,11 +271,16 @@ async function awkSplit(
  * source is left unchanged and the sorted values land in dest. Returns the
  * number of elements. ARGV and ENVIRON are read and written through their
  * dedicated storage, the same place element access uses. The default
- * comparison is gawk's type order: numeric values come first (compared
- * numerically), then string values (compared as strings). The optional
- * how argument accepts the gawk "@val_num_asc", "@val_num_desc",
- * "@val_str_asc" and "@val_str_desc" modes; the numeric modes break ties
- * between numerically equal values with a string comparison, as gawk does.
+ * comparison follows the interpreter's `<` rules: values that both look
+ * numeric compare numerically, otherwise they compare as strings. (This
+ * differs from gawk's asort default, which puts numbers/strnums before
+ * strings; the interpreter has no strnum attribute to express that
+ * distinction, so `<`-consistency wins.) The optional how argument
+ * accepts the gawk "@val_num_asc", "@val_num_desc", "@val_str_asc" and
+ * "@val_str_desc" modes; the numeric modes break ties between numerically
+ * equal values with a string comparison, as gawk does. An explicitly
+ * supplied how must be one of those four modes — including the empty
+ * string, which is an error rather than the default ordering.
  */
 async function awkAsort(
   args: AwkExpr[],
@@ -291,62 +296,91 @@ async function awkAsort(
     destRaw = args[1].name;
   }
 
+  // Resolve aliases before evaluating `how`: a `how` function call can
+  // take an array parameter under the same name and drop the alias this
+  // call relies on when it returns.
+  const resolvedSource = resolveArrayName(ctx, sourceRaw);
+  const resolvedDest = resolveArrayName(ctx, destRaw);
+
   let how = "";
+  let howSupplied = false;
   if (args.length >= 3) {
+    howSupplied = true;
     how = toAwkString(await evaluator.evalExpr(args[2]));
   }
-  const descending = how.endsWith("_desc");
   const numericOnly = how === "@val_num_asc" || how === "@val_num_desc";
   const stringOnly = how === "@val_str_asc" || how === "@val_str_desc";
-  if (how !== "" && !numericOnly && !stringOnly) {
+  if (howSupplied && !numericOnly && !stringOnly) {
     throw new Error(`asort: unsupported how argument "${how}"`);
   }
+  const descending = how.endsWith("_desc");
 
   // Snapshot the source only after the other arguments have been
   // evaluated: gawk passes arrays by reference, so a `how` expression
   // that modifies the source is visible to the sort.
-  const sourceStore = getArrayStore(
-    ctx,
-    sourceRaw,
-    resolveArrayName(ctx, sourceRaw),
-  );
+  const sourceStore = getArrayStore(ctx, sourceRaw, resolvedSource);
   const values: AwkValue[] = sourceStore ? Object.values(sourceStore) : [];
 
-  const compareAsStrings = (a: AwkValue, b: AwkValue): number => {
-    const sa = toAwkString(a);
-    const sb = toAwkString(b);
-    return sa < sb ? -1 : sa > sb ? 1 : 0;
+  // Convert each value once up front: the comparator runs O(n log n)
+  // times, so converting inside it would redo the string/number
+  // conversion on every comparison.
+  const entries = values.map((value) => ({
+    value,
+    str: toAwkString(value),
+    num: toNumber(value),
+    isNum: looksLikeNumber(value),
+  }));
+
+  // Charge the sort to the shared work budget and let an abort interrupt
+  // it: a large array needs O(n log n) comparisons, so the comparator
+  // charges one unit and polls the abort signal every 1024 comparisons
+  // instead of on each one. Without an execution scope (interpreter used
+  // directly) only the array-element limit bounds the sort.
+  const scope = ctx.executionScope;
+  scope?.consumeWork(values.length, "asort value conversion");
+  let comparisons = 0;
+  const chargeSortWork = (): void => {
+    comparisons++;
+    if (comparisons % 1024 !== 0) return;
+    scope?.consumeWork(1, "asort comparison");
+    scope?.throwIfAborted("asort sort");
   };
-  const compareAsNumbers = (a: AwkValue, b: AwkValue): number => {
-    const na = toNumber(a);
-    const nb = toNumber(b);
-    return na < nb ? -1 : na > nb ? 1 : 0;
-  };
-  const compare = (a: AwkValue, b: AwkValue): number => {
+
+  const compareStrings = (a: string, b: string): number =>
+    a < b ? -1 : a > b ? 1 : 0;
+  const compareNumbers = (a: number, b: number): number =>
+    a < b ? -1 : a > b ? 1 : 0;
+  const compare = (
+    a: { value: AwkValue; str: string; num: number; isNum: boolean },
+    b: { value: AwkValue; str: string; num: number; isNum: boolean },
+  ): number => {
+    chargeSortWork();
     let result: number;
     if (numericOnly) {
-      result = compareAsNumbers(a, b);
+      result = compareNumbers(a.num, b.num);
       // gawk breaks numeric ties with the string values so the ordering
       // does not depend on the underlying sort implementation.
-      if (result === 0) result = compareAsStrings(a, b);
+      if (result === 0) result = compareStrings(a.str, b.str);
     } else if (stringOnly) {
-      result = compareAsStrings(a, b);
-    } else if (looksLikeNumber(a) && looksLikeNumber(b)) {
-      result = compareAsNumbers(a, b);
-    } else if (looksLikeNumber(a)) {
-      result = -1;
-    } else if (looksLikeNumber(b)) {
-      result = 1;
+      result = compareStrings(a.str, b.str);
+    } else if (a.isNum && b.isNum) {
+      result = compareNumbers(a.num, b.num);
     } else {
-      result = compareAsStrings(a, b);
+      // Same fallback as the interpreter's `<`: string comparison.
+      result = compareStrings(a.str, b.str);
     }
     return descending ? -result : result;
   };
-  values.sort(compare);
+  entries.sort(compare);
 
   // The values are already copied above, so replacing the destination is
   // safe even when dest is the source.
-  replaceArrayValues(ctx, destRaw, values);
+  replaceArrayValues(
+    ctx,
+    destRaw,
+    entries.map((entry) => entry.value),
+    resolvedDest,
+  );
   return values.length;
 }
 
