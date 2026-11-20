@@ -91,6 +91,7 @@ function ownEncoding(
   options: WriteFileOptions | BufferEncoding | undefined,
   operation: string,
 ): BufferEncoding | undefined {
+  // Like Node, a null encoding selects the default.
   const encoding: unknown = getEncoding(options);
   if (encoding !== undefined && typeof encoding !== "string") {
     throw new TypeError(`${operation}: encoding must be a string`);

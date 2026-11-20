@@ -150,7 +150,7 @@ interface DefenseContext {
   originatingExecutionId?: string;
   /** When true, blocking is suspended (trusted infrastructure code) */
   trusted?: boolean;
-  /** When true, blocking is enforced even inside an outer trusted scope. */
+  /** When true, blocking is enforced despite other trusted scopes. */
   forceUntrusted?: boolean;
 }
 
@@ -415,11 +415,24 @@ export class DefenseInDepthBox {
    * Avoids allocating a new {sandboxActive, executionId} object on every
    * Promise.then / timer call.
    */
-  private getCachedContext(executionId: string): DefenseContext {
+  private getCachedContext(
+    executionId: string,
+    originatingExecutionId?: string,
+  ): DefenseContext {
     let ctx = this.contextCache.get(executionId);
     if (!ctx) {
-      ctx = { sandboxActive: true, executionId };
-      this.contextCache.set(executionId, ctx);
+      ctx = {
+        sandboxActive: true,
+        executionId,
+        originatingExecutionId,
+        trusted: false,
+        forceUntrusted: originatingExecutionId !== undefined,
+      };
+      // A late callback can register after its execution's entry was removed.
+      // Do not keep a new cache entry that no handle remains to delete.
+      if (this.isExecutionIdActive(executionId)) {
+        this.contextCache.set(executionId, ctx);
+      }
     }
     return ctx;
   }
@@ -445,9 +458,15 @@ export class DefenseInDepthBox {
     if (!executionId) return fn;
 
     const box = DefenseInDepthBox.instance;
-    const baseContext = box?.getCachedContext(executionId) ?? {
+    const baseContext = box?.getCachedContext(
+      executionId,
+      current?.originatingExecutionId,
+    ) ?? {
       sandboxActive: true as const,
       executionId,
+      originatingExecutionId: current?.originatingExecutionId,
+      trusted: false,
+      forceUntrusted: current?.forceUntrusted === true,
     };
     // Trusted mode remains tightly scoped, but an explicit untrusted boundary
     // must survive infrastructure callback rebinding.
@@ -461,6 +480,7 @@ export class DefenseInDepthBox {
           "bound_callback_after_deactivate",
           "bound callback",
           "Bound callback blocked after originating execution was deactivated",
+          captured,
         );
         if (!activeBox.config.auditMode) {
           return undefined as TResult;
@@ -624,7 +644,16 @@ export class DefenseInDepthBox {
         this.activeExecutionIds.add(executionId);
         // executionContext is guaranteed to be non-null here (checked IS_BROWSER above)
         // biome-ignore lint/style/noNonNullAssertion: guarded by IS_BROWSER check
-        return executionContext!.run({ sandboxActive: true, executionId }, fn);
+        return executionContext!.run(
+          {
+            sandboxActive: true,
+            executionId,
+            originatingExecutionId: undefined,
+            trusted: false,
+            forceUntrusted: false,
+          },
+          fn,
+        );
       },
       deactivate: () => {
         if (deactivated) return;
@@ -802,12 +831,12 @@ export class DefenseInDepthBox {
    * Run library work, called from inside an execution, in a sandboxed
    * execution of its own that ends when the work settles.
    *
-   * The work is restricted like any untrusted execution, so nothing it runs
-   * gains the caller's trust, or any trust. Its lifetime is the work's, not
-   * the caller's: the promises it chains internally still settle if the
-   * caller's execution deactivates first, and the patches stay applied until
-   * it is done. Outside an execution, as for host code or with defense off,
-   * `fn` simply runs.
+   * The work is untrusted even when the caller is trusted. Library code can
+   * still use an explicit trusted scope within the work. Its lifetime is the
+   * work's, not the caller's: the promises it chains internally still settle
+   * if the caller's execution deactivates first, and the patches stay applied
+   * until it is done. Outside an execution, as for host code or with defense
+   * off, `fn` simply runs.
    */
   static async runInOwnExecution<T>(fn: () => Promise<T>): Promise<T> {
     const box = DefenseInDepthBox.instance;
@@ -817,11 +846,14 @@ export class DefenseInDepthBox {
       return await fn();
     }
     const handle = box.activate();
-    const context = box.getCachedContext(handle.executionId);
-    context.originatingExecutionId =
-      caller.originatingExecutionId ?? caller.executionId;
     try {
-      return await handle.run(() => storage.run(context, fn));
+      return await handle.run(() => {
+        const context = box.getCachedContext(
+          handle.executionId,
+          caller.originatingExecutionId ?? caller.executionId,
+        );
+        return storage.run(context, fn);
+      });
     } finally {
       // Teardown changes protected intrinsics; it must not run as the
       // untrusted caller, whose execution may already have ended.
@@ -879,8 +911,8 @@ export class DefenseInDepthBox {
     type: SecurityViolationType,
     path: string,
     message: string,
+    context = executionContext?.getStore(),
   ): SecurityViolation {
-    const context = executionContext?.getStore();
     const violation: SecurityViolation = {
       timestamp: getSafeTimestamp(),
       type,
@@ -1639,7 +1671,10 @@ export class DefenseInDepthBox {
             return Reflect.apply(originalThen, this, [onFulfilled, onRejected]);
           }
 
-          const baseContext = box.getCachedContext(executionId);
+          const baseContext = box.getCachedContext(
+            executionId,
+            store?.originatingExecutionId,
+          );
           const captured = store?.forceUntrusted
             ? { ...baseContext, forceUntrusted: true }
             : baseContext;

@@ -91,6 +91,16 @@ describe("ReadWriteFs mutation argument types", () => {
     expect(fs.existsSync(path.join(root, "n"))).toBe(false);
   });
 
+  it("uses UTF-8 for null write and append encodings", async () => {
+    const rwfs = new ReadWriteFs({ root });
+    await rwfs.writeFile("/n", "é", { encoding: null });
+    await rwfs.appendFile("/n", "あ", { encoding: null });
+
+    expect(fs.readFileSync(path.join(root, "n"))).toEqual(
+      Buffer.from("éあ", "utf8"),
+    );
+  });
+
   it("rejects byte content that is not a genuine Uint8Array", async () => {
     // Not a Uint8Array to the first prototype lookup, a Uint8Array after.
     let lookups = 0;

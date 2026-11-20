@@ -158,6 +158,110 @@ describe("ReadWriteFs mutations reading a planted prototype getter", () => {
     );
   });
 
+  it("blocks a planted getter when a context property setter grants trust", async () => {
+    let setterCalled = false;
+    const bash = new Bash({
+      fs: new ReadWriteFs({ root }),
+      customCommands: [
+        untrusted("mutate", (cmdFs) => {
+          planted.push([Object.prototype, "originatingExecutionId"]);
+          Object.defineProperty(Object.prototype, "originatingExecutionId", {
+            configurable: true,
+            set(this: { trusted?: boolean }) {
+              setterCalled = true;
+              this.trusted = true;
+            },
+          });
+          plant(Object.prototype, "mode", "mode");
+          return cmdFs.mkdir("/made");
+        }),
+      ],
+      defenseInDepth: true,
+    });
+
+    expect(await settleWithin(bash.exec("mutate"))).toMatchObject(OK);
+    unplant();
+    expect([...hookRuns]).toEqual(["mode: blocked"]);
+    expect(setterCalled).toBe(false);
+    expect(fs.statSync(path.join(root, "made")).isDirectory()).toBe(true);
+  });
+
+  it("blocks untrusted work when a prototype grants inherited trust", async () => {
+    let before: unknown;
+    let after: unknown;
+    const bash = new Bash({
+      fs: new ReadWriteFs({ root }),
+      customCommands: [
+        untrusted("mutate", async (cmdFs) => {
+          planted.push([Object.prototype, "trusted"]);
+          Object.defineProperty(Object.prototype, "trusted", {
+            configurable: true,
+            value: true,
+          });
+          try {
+            // @banned-pattern-ignore: verify prototype pollution cannot grant trust
+            new Function("return 1")();
+          } catch (error) {
+            before = error;
+          }
+          plant(Object.prototype, "mode", "mode");
+          await cmdFs.mkdir("/made");
+          try {
+            // @banned-pattern-ignore: verify the caller stays restricted
+            new Function("return 1")();
+          } catch (error) {
+            after = error;
+          }
+        }),
+      ],
+      defenseInDepth: true,
+    });
+
+    expect(await settleWithin(bash.exec("mutate"))).toMatchObject(OK);
+    unplant();
+    expect(before).toBeInstanceOf(SecurityViolationError);
+    expect(after).toBeInstanceOf(SecurityViolationError);
+    expect([...hookRuns]).toEqual(["mode: blocked"]);
+    expect(fs.statSync(path.join(root, "made")).isDirectory()).toBe(true);
+  });
+
+  it("blocks a planted getter when the mutation starts in a trusted scope", async () => {
+    const box = DefenseInDepthBox.getInstance(true);
+    const handle = box.activate();
+    const rwfs = new ReadWriteFs({ root });
+    const originalMkdir = fs.promises.mkdir.bind(fs.promises);
+    const trustedScope = createGate();
+    let trustedValue: number | undefined;
+    vi.spyOn(fs.promises, "mkdir").mockImplementation(async (dir, options) => {
+      // Keep a trusted scope for the child execution open while Node reads
+      // the untrusted getter. The caller's trusted scope has a different ID.
+      const pending = DefenseInDepthBox.runTrustedAsync(async () => {
+        // @banned-pattern-ignore: confirms trusted infrastructure still works in the child
+        trustedValue = new Function("return 1")();
+        await trustedScope.released;
+      });
+      try {
+        return await originalMkdir(dir, options);
+      } finally {
+        trustedScope.release();
+        await pending;
+      }
+    });
+    try {
+      await handle.run(async () => {
+        plant(Object.prototype, "mode", "mode");
+        await DefenseInDepthBox.runTrustedAsync(() => rwfs.mkdir("/made"));
+      });
+    } finally {
+      unplant();
+      handle.deactivate();
+    }
+
+    expect(trustedValue).toBe(1);
+    expect([...hookRuns]).toEqual(["mode: blocked"]);
+    expect(fs.statSync(path.join(root, "made")).isDirectory()).toBe(true);
+  });
+
   it("keeps a planted getter blocked after the caller's execution ends", async () => {
     // Hold Node's mkdir until the caller is gone and no other execution is
     // active, then let it read the getter.
