@@ -132,8 +132,9 @@ export class AwkInterpreter {
     if (this.ctx.inEndBlock) return;
 
     this.ctx.inEndBlock = true;
-    // Reset shouldExit so END blocks can execute, but preserve exitCode
     this.ctx.shouldExit = false;
+    this.ctx.shouldNext = false;
+    this.ctx.shouldNextFile = false;
 
     for (const rule of this.program.rules) {
       if (rule.pattern?.type === "end") {
