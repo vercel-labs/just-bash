@@ -146,9 +146,11 @@ interface DefenseContext {
   sandboxActive: true;
   /** Unique ID for this execution, useful for correlating violations */
   executionId: string;
+  /** Original execution to report when work has an independent lifetime. */
+  originatingExecutionId?: string;
   /** When true, blocking is suspended (trusted infrastructure code) */
   trusted?: boolean;
-  /** When true, blocking is enforced even inside an outer trusted scope. */
+  /** When true, blocking is enforced despite other trusted scopes. */
   forceUntrusted?: boolean;
 }
 
@@ -180,6 +182,14 @@ function runInContext(
   const als = executionContext!;
   return als.run(captured, () => fn(...args));
 }
+
+// Object.defineProperty reads inherited descriptor fields too.
+function ownDescriptor(descriptor: PropertyDescriptor): PropertyDescriptor {
+  const copy = { __proto__: null, ...descriptor };
+  return copy;
+}
+
+const defineProperty = Object.defineProperty;
 
 /**
  * Default configuration for the defense-in-depth box.
@@ -413,11 +423,24 @@ export class DefenseInDepthBox {
    * Avoids allocating a new {sandboxActive, executionId} object on every
    * Promise.then / timer call.
    */
-  private getCachedContext(executionId: string): DefenseContext {
+  private getCachedContext(
+    executionId: string,
+    originatingExecutionId?: string,
+  ): DefenseContext {
     let ctx = this.contextCache.get(executionId);
     if (!ctx) {
-      ctx = { sandboxActive: true, executionId };
-      this.contextCache.set(executionId, ctx);
+      ctx = {
+        sandboxActive: true,
+        executionId,
+        originatingExecutionId,
+        trusted: false,
+        forceUntrusted: originatingExecutionId !== undefined,
+      };
+      // A late callback can register after its execution's entry was removed.
+      // Do not keep a new cache entry that no handle remains to delete.
+      if (this.isExecutionIdActive(executionId)) {
+        this.contextCache.set(executionId, ctx);
+      }
     }
     return ctx;
   }
@@ -443,9 +466,15 @@ export class DefenseInDepthBox {
     if (!executionId) return fn;
 
     const box = DefenseInDepthBox.instance;
-    const baseContext = box?.getCachedContext(executionId) ?? {
+    const baseContext = box?.getCachedContext(
+      executionId,
+      current?.originatingExecutionId,
+    ) ?? {
       sandboxActive: true as const,
       executionId,
+      originatingExecutionId: current?.originatingExecutionId,
+      trusted: false,
+      forceUntrusted: current?.forceUntrusted === true,
     };
     // Trusted mode remains tightly scoped, but an explicit untrusted boundary
     // must survive infrastructure callback rebinding.
@@ -459,6 +488,7 @@ export class DefenseInDepthBox {
           "bound_callback_after_deactivate",
           "bound callback",
           "Bound callback blocked after originating execution was deactivated",
+          captured,
         );
         if (!activeBox.config.auditMode) {
           return undefined as TResult;
@@ -622,7 +652,16 @@ export class DefenseInDepthBox {
         this.activeExecutionIds.add(executionId);
         // executionContext is guaranteed to be non-null here (checked IS_BROWSER above)
         // biome-ignore lint/style/noNonNullAssertion: guarded by IS_BROWSER check
-        return executionContext!.run({ sandboxActive: true, executionId }, fn);
+        return executionContext!.run(
+          {
+            sandboxActive: true,
+            executionId,
+            originatingExecutionId: undefined,
+            trusted: false,
+            forceUntrusted: false,
+          },
+          fn,
+        );
       },
       deactivate: () => {
         if (deactivated) return;
@@ -797,6 +836,53 @@ export class DefenseInDepthBox {
   }
 
   /**
+   * Run library work, called from inside an execution, in a sandboxed
+   * execution of its own that ends when the work settles.
+   *
+   * The work is untrusted even when the caller is trusted. Library code can
+   * still use an explicit trusted scope within the work. Its lifetime is the
+   * work's, not the caller's: the promises it chains internally still settle
+   * if the caller's execution deactivates first, and the patches stay applied
+   * until it is done. Outside an execution, as for host code or with defense
+   * off, `fn` simply runs.
+   */
+  static async runInOwnExecution<T>(fn: () => Promise<T>): Promise<T> {
+    const box = DefenseInDepthBox.instance;
+    const storage = executionContext;
+    const caller = storage?.getStore();
+    if (!box || !storage || caller?.sandboxActive !== true) {
+      return await fn();
+    }
+    const handle = box.activate();
+    try {
+      return await handle.run(() => {
+        const context = box.getCachedContext(
+          handle.executionId,
+          caller.originatingExecutionId ?? caller.executionId,
+        );
+        return storage.run(context, fn);
+      });
+    } finally {
+      // Teardown changes protected intrinsics; it must not run as the
+      // untrusted caller, whose execution may already have ended.
+      DefenseInDepthBox.runTrusted(() => handle.deactivate());
+    }
+  }
+
+  /**
+   * Whether the current async context belongs to an execution whose handle
+   * has deactivated. Always false outside an execution.
+   */
+  static hasCurrentExecutionEnded(): boolean {
+    const store = executionContext?.getStore();
+    if (store?.sandboxActive !== true) return false;
+    return (
+      DefenseInDepthBox.instance?.isExecutionIdActive(store.executionId) !==
+      true
+    );
+  }
+
+  /**
    * Check if current context should be blocked.
    * Returns false in audit mode, browser environment, outside sandboxed context,
    * inside runTrusted(), or when the immediate caller is a Node.js bundled dep.
@@ -833,6 +919,7 @@ export class DefenseInDepthBox {
     type: SecurityViolationType,
     path: string,
     message: string,
+    context = executionContext?.getStore(),
   ): SecurityViolation {
     const violation: SecurityViolation = {
       timestamp: getSafeTimestamp(),
@@ -840,7 +927,7 @@ export class DefenseInDepthBox {
       message,
       path,
       stack: new Error().stack,
-      executionId: executionContext?.getStore()?.executionId,
+      executionId: context?.originatingExecutionId ?? context?.executionId,
     };
 
     // Store violation (with cap to prevent memory issues)
@@ -1592,7 +1679,10 @@ export class DefenseInDepthBox {
             return Reflect.apply(originalThen, this, [onFulfilled, onRejected]);
           }
 
-          const baseContext = box.getCachedContext(executionId);
+          const baseContext = box.getCachedContext(
+            executionId,
+            store?.originatingExecutionId,
+          );
           const captured = store?.forceUntrusted
             ? { ...baseContext, forceUntrusted: true }
             : baseContext;
@@ -2272,7 +2362,7 @@ export class DefenseInDepthBox {
           } finally {
             // Host setters may redefine the property, even before throwing.
             // Reinstate the write gate before returning control to the caller.
-            Object.defineProperty(ModuleClass, prop, guardedDescriptor);
+            defineProperty(ModuleClass, prop, ownDescriptor(guardedDescriptor));
           }
           const installed = Object.getOwnPropertyDescriptor(ModuleClass, prop);
           if (
@@ -2378,7 +2468,7 @@ export class DefenseInDepthBox {
       const { target, prop, descriptor } =
         this.temporaryIntrinsicDescriptors[i];
       try {
-        Object.defineProperty(target, prop, descriptor);
+        defineProperty(target, prop, ownDescriptor(descriptor));
       } catch (e) {
         console.debug(
           `[DefenseInDepthBox] Could not restore temporary intrinsic ${String(prop)}:`,
@@ -2394,7 +2484,7 @@ export class DefenseInDepthBox {
 
       try {
         if (descriptor) {
-          Object.defineProperty(target, prop, descriptor);
+          defineProperty(target, prop, ownDescriptor(descriptor));
         } else {
           // Property didn't exist originally, delete it
           delete (target as Record<string, unknown>)[prop];

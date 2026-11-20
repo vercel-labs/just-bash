@@ -28,7 +28,7 @@ export interface ReadFileOptions {
  * Options for writing files
  */
 export interface WriteFileOptions {
-  encoding?: BufferEncoding;
+  encoding?: BufferEncoding | null;
 }
 
 /**

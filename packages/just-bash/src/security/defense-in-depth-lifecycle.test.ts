@@ -1,13 +1,14 @@
 import { execFileSync } from "node:child_process";
 import * as nodeModule from "node:module";
 import { pathToFileURL } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DefenseInDepthBox,
   SecurityViolationError,
 } from "./defense-in-depth-box.js";
 
 const tsxLoaderUrl = import.meta.resolve("tsx");
+const nativeSetImmediate = globalThis.setImmediate;
 
 const processListenerMethods = [
   "on",
@@ -70,6 +71,189 @@ describe.runIf(typeof nodeModule.registerHooks === "function")(
       expect(Object.isFrozen(Reflect)).toBe(false);
       expect(Object.isFrozen(JSON)).toBe(false);
       expect(Object.isFrozen(Math)).toBe(false);
+    });
+
+    it("restores patches without invoking an inherited descriptor getter", async () => {
+      const box = DefenseInDepthBox.getInstance(true);
+      const math = Math;
+      const before = [
+        Object.getOwnPropertyDescriptor(globalThis, "Function"),
+        Object.getOwnPropertyDescriptor(math, "max"),
+      ];
+      const handle = box.activate();
+      let getterCalls = 0;
+      let teardownGetterCalls = 0;
+      try {
+        await handle.run(async () => {
+          Object.defineProperty(Object.prototype, "get", {
+            configurable: true,
+            get() {
+              getterCalls++;
+              return undefined;
+            },
+          });
+        });
+        getterCalls = 0;
+        handle.deactivate();
+        teardownGetterCalls = getterCalls;
+      } finally {
+        Reflect.deleteProperty(Object.prototype, "get");
+        handle.deactivate();
+      }
+
+      expect(teardownGetterCalls).toBe(0);
+      expect([
+        Object.getOwnPropertyDescriptor(globalThis, "Function"),
+        Object.getOwnPropertyDescriptor(math, "max"),
+      ]).toEqual(before);
+      expect(box.isActive()).toBe(false);
+    });
+
+    it("does not use an inherited originating execution ID", async () => {
+      const box = DefenseInDepthBox.getInstance(true);
+      const handle = box.activate();
+      let inheritedReads = 0;
+      try {
+        await handle.run(async () => {
+          Object.defineProperty(Object.prototype, "originatingExecutionId", {
+            configurable: true,
+            get() {
+              inheritedReads++;
+              return "forged";
+            },
+          });
+          try {
+            // @banned-pattern-ignore: verify attribution of a blocked operation
+            new Function("return 1")();
+          } catch {
+            // The blocked operation records a violation.
+          }
+          await DefenseInDepthBox.runInOwnExecution(async () => {
+            try {
+              // @banned-pattern-ignore: verify attribution of a child violation
+              new Function("return 1")();
+            } catch {
+              // The blocked operation records a violation.
+            }
+          });
+        });
+      } finally {
+        Reflect.deleteProperty(Object.prototype, "originatingExecutionId");
+        handle.deactivate();
+      }
+
+      expect(box.getStats().violations.map((v) => v.executionId)).toEqual([
+        handle.executionId,
+        handle.executionId,
+      ]);
+      expect(inheritedReads).toBe(0);
+    });
+
+    it("releases the child handle if its context cannot be created", async () => {
+      const box = DefenseInDepthBox.getInstance(true);
+      const handle = box.activate();
+      let caught: unknown;
+      const internals = box as unknown as {
+        getCachedContext(id: string, origin?: string): unknown;
+      };
+      const original = internals.getCachedContext.bind(box);
+      const spy = vi
+        .spyOn(internals, "getCachedContext")
+        .mockImplementation((id, origin) => {
+          if (id !== handle.executionId)
+            throw new Error("context setup failed");
+          return original(id, origin);
+        });
+      try {
+        await handle.run(async () => {
+          try {
+            await DefenseInDepthBox.runInOwnExecution(async () => {});
+          } catch (error) {
+            caught = error;
+          }
+        });
+      } finally {
+        spy.mockRestore();
+        handle.deactivate();
+      }
+
+      expect(caught).toEqual(new Error("context setup failed"));
+      expect(box.getStats().refCount).toBe(0);
+      expect(box.isActive()).toBe(false);
+    });
+
+    it("attributes callbacks registered after a child ends to the originating execution", async () => {
+      const box = DefenseInDepthBox.getInstance(true);
+      const handle = box.activate();
+      let childId: string | undefined;
+      let parentId: string | undefined;
+      let callbackRan = false;
+      let finished!: () => void;
+      const lateCallback = new Promise<void>((resolve) => {
+        finished = resolve;
+      });
+      try {
+        await handle.run(async () => {
+          await DefenseInDepthBox.runInOwnExecution(async () => {
+            parentId = DefenseInDepthBox.getCurrentExecutionId();
+            await DefenseInDepthBox.runInOwnExecution(async () => {
+              childId = DefenseInDepthBox.getCurrentExecutionId();
+              nativeSetImmediate(() => {
+                void Promise.resolve().then(() => {
+                  callbackRan = true;
+                });
+                nativeSetImmediate(finished);
+              });
+            });
+          });
+        });
+        await lateCallback;
+      } finally {
+        handle.deactivate();
+      }
+
+      expect(childId).toBeDefined();
+      expect(parentId).toBeDefined();
+      expect(parentId).not.toBe(handle.executionId);
+      expect(childId).not.toBe(parentId);
+      expect(childId).not.toBe(handle.executionId);
+      expect(callbackRan).toBe(false);
+      expect(box.getStats().violations).toContainEqual(
+        expect.objectContaining({
+          type: "promise_then_after_deactivate",
+          executionId: handle.executionId,
+        }),
+      );
+      const cache = (box as unknown as { contextCache: Map<string, unknown> })
+        .contextCache;
+      expect(cache.size).toBe(0);
+    });
+
+    it("attributes a bound child callback invoked after it ends", async () => {
+      const box = DefenseInDepthBox.getInstance(true);
+      const handle = box.activate();
+      let callback!: () => void;
+      let ran = false;
+      try {
+        await handle.run(async () => {
+          await DefenseInDepthBox.runInOwnExecution(async () => {
+            callback = DefenseInDepthBox.bindCurrentContext(() => {
+              ran = true;
+            });
+          });
+        });
+        callback();
+      } finally {
+        handle.deactivate();
+      }
+
+      expect(ran).toBe(false);
+      expect(box.getStats().violations).toContainEqual(
+        expect.objectContaining({
+          type: "bound_callback_after_deactivate",
+          executionId: handle.executionId,
+        }),
+      );
     });
   },
 );
