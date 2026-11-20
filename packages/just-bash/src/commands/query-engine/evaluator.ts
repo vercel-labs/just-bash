@@ -1979,9 +1979,7 @@ function collectPaths(
           `Cannot index ${type} with ${typeof component === "string" ? `string "${component}"` : "number"}`,
         );
       }
-      parent = getValueAtPath(parent, [
-        typeof component === "number" ? Math.trunc(component) : component,
-      ]);
+      parent = getValueAtPath(parent, [component]);
     }
     paths.push(path);
   };
