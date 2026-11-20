@@ -17,6 +17,7 @@ export interface ResourceLease {
  */
 export interface CommandExecutionBudget {
   readonly remainingLiveBytes: number;
+  readonly remainingInputBytes: number;
   consumeWork(units?: number, site?: string): number;
   consumeLimited(
     kind: string,
@@ -62,6 +63,11 @@ export class ExecutionScope {
   /** Bytes still available for prospective intermediate allocations. */
   get remainingLiveBytes(): number {
     return Math.max(0, this.limits.maxLiveBytes - this.liveBytes);
+  }
+
+  /** Bytes still available for aggregate input. */
+  get remainingInputBytes(): number {
+    return Math.max(0, this.limits.maxInputBytes - this.inputBytes);
   }
 
   /** Snapshot used to prove accounting inherited from a nested execution. */
@@ -465,6 +471,10 @@ export function createCommandExecutionBudget(
     remainingLiveBytes: {
       enumerable: true,
       get: () => scope.remainingLiveBytes,
+    },
+    remainingInputBytes: {
+      enumerable: true,
+      get: () => scope.remainingInputBytes,
     },
     consumeWork: { enumerable: true, value: scope.consumeWork.bind(scope) },
     consumeLimited: {
