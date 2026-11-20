@@ -110,6 +110,24 @@ describe("ls", () => {
     expect(result.stderr).toBe("");
   });
 
+  it("should show the real mtime for . and .. in long format (fixes #756)", async () => {
+    const env = new Bash({
+      files: { "/w/a/sub/.keep": "" },
+    });
+    const result = await env.exec("ls -la /w/a");
+    const lines = result.stdout.split("\n").filter((l) => l);
+    expect(lines[0]).toBe("total 3");
+    // "." and ".." must show their real directory mtime, not the epoch
+    // placeholder the old code printed for both.
+    expect(lines[1]).not.toContain("Jan  1 00:00");
+    expect(lines[2]).not.toContain("Jan  1 00:00");
+    // "." is /w/a itself, so its date matches the "sub" entry created with it.
+    const dateOf = (line: string) =>
+      line.match(/([A-Z][a-z]{2}\s+\d+\s+[\d:]+)/)?.[1];
+    expect(dateOf(lines[1])).toBe(dateOf(lines[3]));
+    expect(result.stderr).toBe("");
+  });
+
   it("should list multiple directories", async () => {
     const env = new Bash({
       files: {
