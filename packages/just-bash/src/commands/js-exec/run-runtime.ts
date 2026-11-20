@@ -5,6 +5,7 @@ import {
   getHostFunctionContext,
   RunAbortedError,
   RunBridgeLimitError,
+  RunCpuTimeoutError,
   RunError,
   type RunModuleLoader,
   RunTimeoutError,
@@ -1188,6 +1189,9 @@ ${bootstrap}
             ),
             maxSourceBytes: maxRunSourceBytes,
             memoryLimitBytes: RUN_MEMORY_LIMIT_BYTES,
+            // run's CPU budget defaults to 10 seconds. Give it the wall-clock
+            // limit so it can't stop a guest within maxJsTimeoutMs.
+            cpuTimeoutMs: runTimeoutMs,
             timeoutMs: runTimeoutMs,
           },
           moduleLoader,
@@ -1222,16 +1226,17 @@ ${bootstrap}
       );
     } else if (
       error instanceof RunTimeoutError ||
+      error instanceof RunCpuTimeoutError ||
       error instanceof RunAbortedError
     ) {
       output.exitCode = 124;
       appendDiagnostic(
-        `js-exec: ${error instanceof RunTimeoutError || deadlineSignal.aborted ? `Execution timeout: exceeded ${ctx.limits.maxJsTimeoutMs}ms limit` : "Execution aborted"}\n`,
+        `js-exec: ${error instanceof RunTimeoutError || error instanceof RunCpuTimeoutError || deadlineSignal.aborted ? `Execution timeout: exceeded ${ctx.limits.maxJsTimeoutMs}ms limit` : "Execution aborted"}\n`,
       );
     } else {
       output.exitCode = 1;
       const isGuestError =
-        RunError.isInstance(error) && error.code === "RUN_ERROR";
+        RunError.isInstance(error) && error.code === "RUN_USER_SOURCE_ERROR";
       const guestMessage = isGuestError
         ? formatGuestError(error, options, sourceLineOffset)
         : sanitizeHostErrorMessage(message);
