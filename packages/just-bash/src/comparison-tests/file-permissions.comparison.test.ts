@@ -58,7 +58,7 @@ describe("file permissions - Real Bash Comparison", () => {
     );
   });
 
-  it("reports GNU's diagnostic for copying an unreadable source", async () => {
+  it("fails to copy an unreadable source", async () => {
     const env = await setupFiles(testDir, FILES);
     await compareOutputs(
       env,
@@ -67,7 +67,7 @@ describe("file permissions - Real Bash Comparison", () => {
     );
   });
 
-  it("reports GNU's diagnostic for copying over a read-only destination", async () => {
+  it("fails to copy over a read-only destination", async () => {
     const env = await setupFiles(testDir, FILES);
     await compareOutputs(
       env,
@@ -112,7 +112,7 @@ describe("file permissions - Real Bash Comparison", () => {
     );
   });
 
-  it("reports sed read permission failures with GNU's diagnostic", async () => {
+  it("fails to run sed on an unreadable file", async () => {
     const env = await setupFiles(testDir, FILES);
     await compareOutputs(
       env,

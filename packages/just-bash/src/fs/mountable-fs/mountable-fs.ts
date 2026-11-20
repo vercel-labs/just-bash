@@ -22,6 +22,7 @@ import {
   resolvePath,
   validatePath,
 } from "../path-utils.js";
+import { isPermissionDenied } from "../permission-utils.js";
 
 /**
  * Configuration for a mount point
@@ -688,7 +689,19 @@ export class MountableFs implements IFileSystem {
     if (srcStat.isFile) {
       const content = await this.readFileBuffer(src);
       const destinationExists = await this.exists(dest);
-      await this.writeFile(dest, content);
+      try {
+        await this.writeFile(dest, content);
+      } catch (error) {
+        if (
+          !preserveSourceMode ||
+          !isPermissionDenied(error) ||
+          !(await this.lstat(dest)).isFile
+        ) {
+          throw error;
+        }
+        await this.rm(dest);
+        await this.writeFile(dest, content);
+      }
       if (preserveSourceMode || !destinationExists) {
         await this.chmod(dest, srcStat.mode);
       }

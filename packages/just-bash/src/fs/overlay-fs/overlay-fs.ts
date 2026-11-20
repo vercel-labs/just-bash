@@ -534,6 +534,15 @@ export class OverlayFs implements IFileSystem {
     if (!canonical) {
       throw new Error(`ENOENT: no such file or directory, open '${path}'`);
     }
+    const virtualTarget = this.realTargetToVirtual(normalized, canonical);
+    if (virtualTarget !== normalized) {
+      return this.readFileBufferInternal(
+        virtualTarget,
+        seen,
+        requestedPath,
+        enforceReadPermission,
+      );
+    }
 
     try {
       const stat = await fs.promises.lstat(canonical);

@@ -18,6 +18,53 @@ describe("python3 file permissions", () => {
     expect(await env.fs.readFile("/data")).toBe("originalXY");
   });
 
+  it("appends a single write larger than the bridge payload", async () => {
+    const size = 9 * 1024 * 1024;
+    const env = new Bash({ python: true, files: { "/data": "start" } });
+    const result = await env.exec(`python3 -c "
+import os
+fd = os.open('/host/data', os.O_WRONLY | os.O_APPEND)
+print(os.write(fd, b'x' * ${size}))
+os.close(fd)
+"`);
+
+    expect(result).toMatchObject({
+      stdout: `${size}\n`,
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(await env.fs.readFile("/data")).toBe(`start${"x".repeat(size)}`);
+  });
+
+  it("reports bytes appended before a later bridge chunk fails", async () => {
+    class FailingSecondAppendFs extends InMemoryFs {
+      appendCount = 0;
+
+      override async appendFile(...args: Parameters<InMemoryFs["appendFile"]>) {
+        this.appendCount += 1;
+        if (this.appendCount === 2) throw new Error("EIO: append failed");
+        return super.appendFile(...args);
+      }
+    }
+    const fs = new FailingSecondAppendFs({ "/data": "start" });
+    const env = new Bash({ python: true, fs });
+    const result = await env.exec(`python3 -c "
+import os
+fd = os.open('/host/data', os.O_WRONLY | os.O_APPEND)
+print(os.write(fd, b'x' * (9 * 1024 * 1024)))
+os.close(fd)
+"`);
+
+    expect(result).toMatchObject({
+      stdout: `${8 * 1024 * 1024}\n`,
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(await fs.readFile("/data")).toBe(
+      `start${"x".repeat(8 * 1024 * 1024)}`,
+    );
+  });
+
   it("preserves write-only content when truncation cannot read it", async () => {
     const env = new Bash({
       python: true,

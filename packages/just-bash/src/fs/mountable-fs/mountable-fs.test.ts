@@ -384,6 +384,58 @@ describe("MountableFs", () => {
   });
 
   describe("cross-mount move", () => {
+    it("replaces a read-only destination and preserves the source mode", async () => {
+      const source = new InMemoryFs({
+        "/source": { content: "new", mode: 0o750 },
+      });
+      const destination = new InMemoryFs({
+        "/destination": { content: "old", mode: 0o444 },
+      });
+      const fs = new MountableFs({ base: source });
+      fs.mount("/mnt", destination);
+
+      await fs.mv("/source", "/mnt/destination");
+
+      expect(await destination.readFile("/destination")).toBe("new");
+      expect((await destination.stat("/destination")).mode).toBe(0o750);
+      expect(await source.exists("/source")).toBe(false);
+    });
+
+    it("does not remove a symlink when a write through it is denied", async () => {
+      const source = new InMemoryFs({ "/source": "new" });
+      const destination = new InMemoryFs({
+        "/target": { content: "old", mode: 0o444 },
+      });
+      await destination.symlink("/target", "/destination");
+      const fs = new MountableFs({ base: source });
+      fs.mount("/mnt", destination);
+
+      await expect(fs.mv("/source", "/mnt/destination")).rejects.toThrow(
+        "EACCES",
+      );
+      expect((await destination.lstat("/destination")).isSymbolicLink).toBe(
+        true,
+      );
+      expect(await destination.readFile("/target")).toBe("old");
+      expect(await source.readFile("/source")).toBe("new");
+    });
+
+    it("preserves both files when a replacement exceeds the destination quota", async () => {
+      const source = new InMemoryFs({ "/source": "longer" });
+      const destination = new InMemoryFs(
+        { "/destination": "old" },
+        { maxTotalBytes: 3 },
+      );
+      const fs = new MountableFs({ base: source });
+      fs.mount("/mnt", destination);
+
+      await expect(fs.mv("/source", "/mnt/destination")).rejects.toThrow(
+        "ENOSPC",
+      );
+      expect(await destination.readFile("/destination")).toBe("old");
+      expect(await source.readFile("/source")).toBe("longer");
+    });
+
     it("should move file across mounts", async () => {
       const mount1 = new InMemoryFs({ "/src.txt": "content" });
       const mount2 = new InMemoryFs();

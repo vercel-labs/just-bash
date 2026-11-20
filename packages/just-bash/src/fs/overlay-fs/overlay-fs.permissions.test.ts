@@ -121,6 +121,31 @@ describe("OverlayFs file permissions", () => {
     expect(fs.readFileSync(realPath, "utf8")).toBe("original");
   });
 
+  it.each([
+    "/",
+    "/project",
+  ])("checks overlay permissions when reading through real symlinks at %s", async (mountPoint) => {
+    fs.writeFileSync(path.join(tempDir, "target"), "original");
+    fs.symlinkSync("target", path.join(tempDir, "alias"));
+    fs.symlinkSync(tempDir, path.join(tempDir, "dir"));
+    const overlay = new OverlayFs({
+      root: tempDir,
+      mountPoint,
+      allowSymlinks: true,
+    });
+    const prefix = mountPoint === "/" ? "" : mountPoint;
+    await overlay.chmod(`${prefix}/target`, 0o000);
+
+    for (const alias of [`${prefix}/alias`, `${prefix}/dir/target`]) {
+      await expect(overlay.readFile(alias)).rejects.toThrow(
+        `EACCES: permission denied, open '${alias}'`,
+      );
+    }
+    await overlay.chmod(`${prefix}/target`, 0o600);
+    expect(await overlay.readFile(`${prefix}/alias`)).toBe("original");
+    expect(await overlay.readFile(`${prefix}/dir/target`)).toBe("original");
+  });
+
   it("preserves a real file's mode when overwriting it", async () => {
     const realPath = path.join(tempDir, "write-real");
     fs.writeFileSync(realPath, "original");

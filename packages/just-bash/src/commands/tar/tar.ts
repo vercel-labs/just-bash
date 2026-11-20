@@ -6,6 +6,7 @@
  */
 
 import { latin1FromBytes } from "../../encoding.js";
+import { isPermissionDenied } from "../../fs/permission-utils.js";
 import { createUserRegex } from "../../regex/index.js";
 import type {
   ExecResult,
@@ -887,22 +888,19 @@ async function extractTarArchive(
         }
 
         if (isAborted(ctx)) return abortedResult();
-        if (!options.keepOldFiles) {
-          try {
-            const existing = await ctx.fs.lstat(targetPath);
-            if (existing.isFile) {
-              await ctx.fs.rm(targetPath);
-            }
-          } catch (error) {
-            if (
-              !(error instanceof Error) ||
-              !error.message.startsWith("ENOENT")
-            ) {
-              throw error;
-            }
+        try {
+          await ctx.fs.writeFile(targetPath, entry.content);
+        } catch (error) {
+          if (
+            options.keepOldFiles ||
+            !isPermissionDenied(error) ||
+            !(await ctx.fs.lstat(targetPath)).isFile
+          ) {
+            throw error;
           }
+          await ctx.fs.rm(targetPath);
+          await ctx.fs.writeFile(targetPath, entry.content);
         }
-        await ctx.fs.writeFile(targetPath, entry.content);
 
         // Set permissions if preserving
         if (options.preserve && entry.mode) {

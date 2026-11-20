@@ -532,11 +532,7 @@ export const sedCommand: RuntimeCommand = {
             ctx.fs.stat(filePath),
           );
           const mode = stat.mode & 0o7777;
-          const fileName = filePath.slice(filePath.lastIndexOf("/") + 1);
-          const tempPath = joinPath(
-            dirname(filePath),
-            `.${fileName}.${randomChars(10)}`,
-          );
+          const tempPath = joinPath(dirname(filePath), `sed${randomChars(10)}`);
           try {
             await withDefenseContext("in-place temp create", () =>
               createExclusiveOn(ctx.fs, tempPath, { mode: mode | 0o200 }),
@@ -545,6 +541,7 @@ export const sedCommand: RuntimeCommand = {
             if (!(error instanceof ExclusiveCreateUnsupportedError)) {
               throw error;
             }
+            // Legacy backends without exclusive creation cannot guarantee rename.
             await withDefenseContext("in-place output write", () =>
               ctx.fs.writeFile(filePath, result.output),
             );

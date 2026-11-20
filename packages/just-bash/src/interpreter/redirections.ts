@@ -313,7 +313,7 @@ async function readInputEntry(
           },
         };
   } catch (error) {
-    if (isPermissionDenied(error) || getErrorCode(error) === "EACCES") {
+    if (isPermissionDenied(error)) {
       return {
         error: makeResult("", `bash: ${target}: Permission denied\n`, 1),
       };
@@ -1314,6 +1314,25 @@ export async function applyRedirections(
         await ctx.fs.writeFile(sink.path, content, encoding);
       }
     };
+    const deliverToDescriptor = async (
+      sink: Extract<RedirectSink, { kind: "descriptor" }>,
+      content: string,
+      encoding: "binary" | "utf8",
+    ) => {
+      try {
+        await writeFdEntry(
+          ctx,
+          sink.source.entry,
+          sink.source.descriptors,
+          content,
+          encoding,
+        );
+      } catch (error) {
+        if (!isPermissionDenied(error)) throw error;
+        stderr += `${omitShellPrefix ? "" : "bash: "}${writeErrorCommand}: write error: Permission denied\n`;
+        exitCode = 1;
+      }
+    };
     if (
       fd1Sink === fd2Sink &&
       (fd1Sink.kind === "file" || fd1Sink.kind === "descriptor")
@@ -1328,10 +1347,8 @@ export async function applyRedirections(
         if (fd1Sink.kind === "file") {
           await deliverToFile(fd1Sink, combined, getStdoutEncoding(combined));
         } else {
-          await writeFdEntry(
-            ctx,
-            fd1Sink.source.entry,
-            fd1Sink.source.descriptors,
+          await deliverToDescriptor(
+            fd1Sink,
             combined,
             getStdoutEncoding(combined),
           );
@@ -1360,10 +1377,8 @@ export async function applyRedirections(
             );
             break;
           case "descriptor":
-            await writeFdEntry(
-              ctx,
-              sink.source.entry,
-              sink.source.descriptors,
+            await deliverToDescriptor(
+              sink,
               content,
               isStdout ? getStdoutEncoding(content) : getFileEncoding(content),
             );

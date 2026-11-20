@@ -22,6 +22,7 @@ import {
   sanitizeUnknownError,
   wrapWasmCallback,
 } from "../../security/wasm-callback.js";
+import { Size } from "../worker-bridge/protocol.js";
 import { SyncBackend } from "../worker-bridge/sync-backend.js";
 
 export interface WorkerInput {
@@ -629,8 +630,22 @@ function createHOSTFS(
         }
         const hostPath = stream.hostPath;
         if (stream.hostAppendOnly && hostPath) {
-          const data = buffer.slice(offset, offset + length);
-          tryFSOperation(() => backend.appendFile(hostPath, data));
+          for (
+            let start = offset;
+            start < offset + length;
+            start += Size.DATA_BUFFER
+          ) {
+            const data = buffer.subarray(
+              start,
+              Math.min(start + Size.DATA_BUFFER, offset + length),
+            );
+            try {
+              tryFSOperation(() => backend.appendFile(hostPath, data));
+            } catch (error) {
+              if (start === offset) throw error;
+              return start - offset;
+            }
+          }
           return length;
         }
         let content = stream.hostContent || new Uint8Array(0);
