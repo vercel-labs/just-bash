@@ -103,8 +103,11 @@ import type {
 const findHelp = {
   name: "find",
   summary: "search for files in a directory hierarchy",
-  usage: "find [path...] [expression]",
+  usage: "find [-H|-L|-P] [path...] [expression]",
   options: [
+    "-H              follow symlinks in starting paths only",
+    "-L              follow all symlinks",
+    "-P              never follow symlinks (default)",
     "-name PATTERN    file name matches shell pattern PATTERN",
     "-iname PATTERN   like -name but case insensitive",
     "-path PATTERN    file path matches shell pattern PATTERN",
@@ -151,10 +154,16 @@ export const findCommand: RuntimeCommand = {
     let minDepth: number | null = null;
     let depthFirst = false;
 
+    let followMode = "-P";
+    let pathStart = 0;
+    while (["-H", "-L", "-P"].includes(args[pathStart])) {
+      followMode = args[pathStart++];
+    }
+
     // Starting points must precede the expression. Separating them first keeps
     // predicate operands and -exec command arguments from being mistaken for paths.
     let expressionStart = args.length;
-    for (let i = 0; i < args.length; i++) {
+    for (let i = pathStart; i < args.length; i++) {
       const arg = args[i];
       if (
         arg.startsWith("-") ||
@@ -336,16 +345,12 @@ export const findCommand: RuntimeCommand = {
       typeof ctx.fs.readdirWithFileTypes === "function";
 
     // Process each search path
-    for (let searchPath of searchPaths) {
-      // Normalize trailing slashes (except for root "/")
-      if (searchPath.length > 1 && searchPath.endsWith("/")) {
-        searchPath = searchPath.slice(0, -1);
-      }
+    for (const searchPath of searchPaths) {
       const basePath = ctx.fs.resolvePath(ctx.cwd, searchPath);
 
       // Check if path exists
       try {
-        await ctx.fs.stat(basePath);
+        await ctx.fs.lstat(basePath);
       } catch {
         appendStderr(`find: ${searchPath}: No such file or directory\n`);
         exitCode = 1;
@@ -359,6 +364,7 @@ export const findCommand: RuntimeCommand = {
         typeInfo?: { isFile: boolean; isDirectory: boolean };
         // For ordered results: index where this item's results go
         resultIndex: number;
+        ancestors?: readonly string[];
       }
 
       // Processed node info
@@ -404,9 +410,20 @@ export const findCommand: RuntimeCommand = {
         } else {
           try {
             const statStart = Date.now();
-            // find defaults to the POSIX -P policy: inspect symlinks, never
-            // follow them while deciding whether to descend.
             stat = await ctx.fs.lstat(currentPath);
+            if (
+              stat.isSymbolicLink &&
+              (followMode === "-L" ||
+                (depth === 0 &&
+                  (followMode === "-H" || searchPath.endsWith("/"))))
+            ) {
+              try {
+                stat = await ctx.fs.stat(currentPath);
+              } catch (error) {
+                // -L still visits dangling symlinks as links.
+                if (getErrorCode(error) !== "ENOENT") throw error;
+              }
+            }
             traceCounters.statCalls++;
             traceCounters.statTime += Date.now() - statStart;
           } catch {
@@ -420,7 +437,7 @@ export const findCommand: RuntimeCommand = {
         // Compute name and relative path
         let name: string;
         if (currentPath === basePath) {
-          name = searchPath.split("/").pop() || searchPath;
+          name = searchPath.replace(/\/+$/, "").split("/").pop() || searchPath;
         } else {
           name = currentPath.split("/").pop() || "";
         }
@@ -428,9 +445,18 @@ export const findCommand: RuntimeCommand = {
         const relativePath =
           currentPath === basePath
             ? searchPath
-            : searchPath === "."
-              ? `./${currentPath.slice(basePath === "/" ? basePath.length : basePath.length + 1)}`
-              : searchPath + currentPath.slice(basePath.length);
+            : `${searchPath}${searchPath.endsWith("/") ? "" : "/"}${currentPath.slice(basePath === "/" ? 1 : basePath.length + 1)}`;
+
+        let ancestors = item.ancestors;
+        if (isDirectory && followMode === "-L") {
+          const identity = await ctx.fs.realpath(currentPath);
+          if (ancestors?.includes(identity)) {
+            appendStderr(`find: ${relativePath}: File system loop detected\n`);
+            exitCode = 1;
+            return null;
+          }
+          ancestors = [...(ancestors ?? []), identity];
+        }
 
         // Get children for directories
         const children: WorkItem[] = [];
@@ -500,11 +526,15 @@ export const findCommand: RuntimeCommand = {
                       ? `/${entry.name}`
                       : `${currentPath}/${entry.name}`,
                   depth: depth + 1,
-                  typeInfo: {
-                    isFile: entry.isFile,
-                    isDirectory: entry.isDirectory,
-                  },
+                  typeInfo:
+                    entry.isSymbolicLink && followMode === "-L"
+                      ? undefined
+                      : {
+                          isFile: entry.isFile,
+                          isDirectory: entry.isDirectory,
+                        },
                   resultIndex: idx,
+                  ancestors,
                 });
               }
             }
@@ -524,6 +554,7 @@ export const findCommand: RuntimeCommand = {
                       : `${currentPath}/${entry}`,
                   depth: depth + 1,
                   resultIndex: idx,
+                  ancestors,
                 });
               }
             }
@@ -1076,8 +1107,8 @@ function formatFindPrintf(
           break;
         case "P": {
           // Path without starting point
-          const sp = result.startingPoint;
-          if (result.path === sp) {
+          const sp = result.startingPoint.replace(/\/+$/, "");
+          if (result.path.replace(/\/+$/, "") === sp) {
             value = "";
           } else if (result.path.startsWith(`${sp}/`)) {
             value = result.path.slice(sp.length + 1);

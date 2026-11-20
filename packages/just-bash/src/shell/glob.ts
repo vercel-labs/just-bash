@@ -438,7 +438,7 @@ export class GlobExpander {
             if (remainingSegments.length === 0) {
               // No more segments - add this path to results
               matchPromises.push(Promise.resolve([newResultPrefix]));
-            } else if (entry.isDirectory) {
+            } else if (entry.isDirectory || entry.isSymbolicLink) {
               // More segments to match and this is a directory - recurse
               matchPromises.push(
                 this.expandSegments(

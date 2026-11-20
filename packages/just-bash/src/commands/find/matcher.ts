@@ -96,7 +96,7 @@ export function evaluateExpressionWithPrune(
     case "regex": {
       try {
         const flags = expr.ignoreCase ? "i" : "";
-        const regex = createUserRegex(expr.pattern, flags);
+        const regex = createUserRegex(`^(?:${expr.pattern})$`, flags);
         return {
           matches: regex.test(ctx.relativePath),
           pruned: false,
@@ -449,7 +449,7 @@ export function evaluateSimpleExpression(
     case "regex": {
       try {
         const flags = expr.ignoreCase ? "i" : "";
-        const regex = createUserRegex(expr.pattern, flags);
+        const regex = createUserRegex(`^(?:${expr.pattern})$`, flags);
         return {
           matches: regex.test(relativePath),
           pruned: false,
