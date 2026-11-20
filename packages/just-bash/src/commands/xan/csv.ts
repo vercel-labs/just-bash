@@ -113,6 +113,35 @@ export function toSafeRow(plainRow: Record<string, unknown>): CsvRow {
   return safe;
 }
 
+/**
+ * Infer a query value from a CSV cell string. CSV cells are text, so this
+ * is the only place that re-types them — for expression evaluation and
+ * JSON output, where numbers and booleans are expected. Values that
+ * merely look numeric stay strings: leading-zero codes ("01067") and
+ * ISO timestamps ("2026-03-03T10:00:00Z") pass through exactly as written.
+ */
+export function inferTypedCellValue(
+  value: string | number | boolean | null,
+): string | number | boolean | null {
+  if (typeof value !== "string") return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  if (/^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?$/.test(value)) {
+    const num = Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+  return value;
+}
+
+/** Copy a row with each cell re-typed for expression evaluation. */
+export function toTypedRow(row: CsvRow): CsvRow {
+  const typed = createSafeRow();
+  for (const key of Object.keys(row)) {
+    safeSetRow(typed, key, inferTypedCellValue(row[key]));
+  }
+  return typed;
+}
+
 /** Parse CSV input string to array of row objects */
 export function parseCsv(
   input: string,
@@ -146,7 +175,11 @@ export function parseCsv(
   let limitError: ExecutionLimitError | undefined;
   Papa.parse<Record<string, unknown>>(normalizedInput, {
     header: true,
-    dynamicTyping: true,
+    // Cells are text: real xan passes cell bytes through unchanged, so
+    // never let the parser re-type them. dynamicTyping used to turn
+    // "01067" into 1067 and ISO timestamps into Date objects (which
+    // toSafeRow then dropped entirely, emptying the cell).
+    dynamicTyping: false,
     skipEmptyLines: true,
     step: (result, parser) => {
       const fields = Object.keys(result.data);
@@ -172,7 +205,13 @@ export function parseCsv(
         return;
       }
       cellCount += fields.length;
-      safeData.push(toSafeRow(result.data));
+      const row = toSafeRow(result.data);
+      // Papa returns null for empty cells only when dynamicTyping is on;
+      // with text cells, restore that: an empty cell is null, never "".
+      for (const key of Object.keys(row)) {
+        if (row[key] === "") row[key] = null;
+      }
+      safeData.push(row);
     },
   });
   if (limitError) throw limitError;

@@ -21,6 +21,7 @@ import {
   parseCsvRows,
   readCsvInput,
   safeSetRow,
+  toTypedRow,
 } from "./csv.js";
 
 /**
@@ -535,7 +536,9 @@ async function cmdToJson(
     );
   }
   const maxBytes = ctx.limits.maxOutputSize - 1;
-  const output = formatJsonValue(data as QueryValue, maxBytes);
+  // Re-type cells for JSON output only; CSV stays text. See toTypedRow.
+  const typedData = data.map(toTypedRow);
+  const output = formatJsonValue(typedData as QueryValue, maxBytes);
   // xan emits text; the pipeline handles encoding.
   return {
     stdout: `${output}\n`,

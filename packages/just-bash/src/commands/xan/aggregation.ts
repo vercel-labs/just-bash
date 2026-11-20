@@ -5,7 +5,13 @@
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { utf8ByteLength } from "../printf/escapes.js";
 import { type EvaluateOptions, evaluate } from "../query-engine/index.js";
-import { type CsvData, type CsvRow, createSafeRow, safeSetRow } from "./csv.js";
+import {
+  type CsvData,
+  type CsvRow,
+  createSafeRow,
+  safeSetRow,
+  toTypedRow,
+} from "./csv.js";
 import { parseMoonblade } from "./moonblade-parser.js";
 import { moonbladeToJq } from "./moonblade-to-jq.js";
 
@@ -139,7 +145,8 @@ function evalExpr(
   ast: ReturnType<typeof moonbladeToJq>,
   evalOptions: EvaluateOptions,
 ): unknown {
-  const results = evaluate(row, ast, evalOptions);
+  // Rows are text; expressions see re-typed cells (numbers/booleans).
+  const results = evaluate(toTypedRow(row), ast, evalOptions);
   return results.length > 0 ? results[0] : null;
 }
 

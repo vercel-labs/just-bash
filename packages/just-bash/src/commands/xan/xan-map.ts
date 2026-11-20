@@ -15,6 +15,7 @@ import {
   readCsvInput,
   safeSetRow,
   toSafeRow,
+  toTypedRow,
 } from "./csv.js";
 import {
   getMoonbladeLimits,
@@ -119,7 +120,8 @@ export async function cmdMap(
 
     for (const spec of specs) {
       resultBudget.consumeWork();
-      const results = evaluate(rowWithIndex, spec.ast, evalOptions);
+      // Rows are text; expressions see re-typed cells (numbers/booleans).
+      const results = evaluate(toTypedRow(rowWithIndex), spec.ast, evalOptions);
       const value = results.length > 0 ? results[0] : null;
 
       // If filtering and value is null/undefined, skip row
@@ -240,7 +242,8 @@ export async function cmdTransform(
       const rowWithUnderscore = Object.assign(nullPrototypeCopy(row), {
         _: row[col],
       });
-      const results = evaluate(rowWithUnderscore, ast, evalOptions);
+      // Rows are text; expressions see re-typed cells (numbers/booleans).
+      const results = evaluate(toTypedRow(rowWithUnderscore), ast, evalOptions);
       const value = results.length > 0 ? results[0] : null;
 
       // Update the column (use new name if renamed)

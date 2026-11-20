@@ -6,7 +6,7 @@ import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import { showHelp } from "../help.js";
 import { type EvaluateOptions, evaluate } from "../query-engine/index.js";
 import { parseMoonbladeExpr } from "./column-selection.js";
-import { type CsvData, formatCsv, readCsvInput } from "./csv.js";
+import { type CsvData, formatCsv, readCsvInput, toTypedRow } from "./csv.js";
 import { getMoonbladeLimits } from "./moonblade-parser.js";
 
 export async function cmdFilter(
@@ -69,7 +69,8 @@ export async function cmdFilter(
   const filtered: CsvData = [];
   for (const row of data) {
     if (limit > 0 && filtered.length >= limit) break;
-    const results = evaluate(row, ast, evalOptions);
+    // Rows are text; expressions see re-typed cells (numbers/booleans).
+    const results = evaluate(toTypedRow(row), ast, evalOptions);
     const matches = results.length > 0 && results.some((r) => !!r);
     if (invert ? !matches : matches) {
       filtered.push(row);

@@ -20,6 +20,7 @@ import {
   readCsvInput,
   safeSetRow,
   toSafeRow,
+  toTypedRow,
 } from "./csv.js";
 import {
   getMoonbladeLimits,
@@ -385,7 +386,8 @@ export async function cmdFlatmap(
 
     for (const spec of specs) {
       resultBudget.consumeWork();
-      const evalResults = evaluate(row, spec.ast, evalOptions);
+      // Rows are text; expressions see re-typed cells (numbers/booleans).
+      const evalResults = evaluate(toTypedRow(row), spec.ast, evalOptions);
       // If result is array, expand it
       const expanded =
         evalResults.length > 0 && Array.isArray(evalResults[0])
