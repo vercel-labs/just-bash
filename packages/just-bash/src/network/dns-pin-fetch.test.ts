@@ -517,7 +517,7 @@ describe("secureFetch behavior", () => {
     { url: "https://example.com/data", methods: ["GET"] },
     { url: "https://example.com/data", methods: ["POST"] },
     { url: "https://example.com/data", methods: [] },
-    { url: "https://example.com/%64ata", methods: ["GET"] },
+    { url: "https://example.com/other", methods: ["GET"] },
   ])("denies ambiguous paths on an origin with path methods %o", async (scoped) => {
     const transport = mockFetch(() => new Response("ok"));
     globalThis.fetch = transport;

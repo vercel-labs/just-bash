@@ -36,6 +36,7 @@ const DEFAULT_MAX_REDIRECTS = 20;
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_MAX_RESPONSE_SIZE = 10485760; // 10MB
 const DEFAULT_ALLOWED_METHODS: HttpMethod[] = ["GET", "HEAD"];
+const AMBIGUOUS_METHOD_PATH = /[%;\\]|\/\//;
 
 /** Load guarded-fetch before the defense-in-depth loader hook is active. */
 type GuardedFetchModule = typeof import("guarded-fetch");
@@ -108,10 +109,6 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
       entry !== null && typeof entry === "object"
         ? {
             url: entry.url,
-            // Credentials can rotate after construction; URL and methods cannot.
-            get transform() {
-              return entry.transform;
-            },
             methods: Array.isArray(entry.methods)
               ? [...entry.methods]
               : entry.methods,
@@ -162,9 +159,32 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     [...pathScopedOrigins].filter((origin) => methodOrigins.has(origin)),
   );
 
+  if (
+    !config.dangerouslyAllowFullInternetAccess &&
+    ambiguousPathDenyOrigins.size > 0
+  ) {
+    const errors: string[] = [];
+    for (const entry of entries) {
+      const url = typeof entry === "string" ? entry : entry.url;
+      const prefix = normalizeAllowListEntry(url);
+      if (
+        prefix &&
+        ambiguousPathDenyOrigins.has(prefix.origin) &&
+        AMBIGUOUS_METHOD_PATH.test(prefix.pathPrefix)
+      ) {
+        errors.push(
+          `Allow-list entry contains an ambiguous path on an origin with per-URL methods: "${url}"`,
+        );
+      }
+    }
+    if (errors.length > 0) {
+      throw new Error(`Invalid network allow-list:\n${errors.join("\n")}`);
+    }
+  }
+
   // Collect entries that carry transforms for firewall header injection.
   const transformEntries: AllowedUrl[] = [];
-  for (const entry of entries) {
+  for (const entry of config.allowedUrlPrefixes ?? []) {
     if (
       typeof entry === "object" &&
       entry.transform &&
@@ -360,7 +380,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     if (
       parsedUrl &&
       // WHATWG URL parsing normalizes raw backslashes for HTTP(S) URLs.
-      /[%;\\]|\/\//.test(parsedUrl.pathname) &&
+      AMBIGUOUS_METHOD_PATH.test(parsedUrl.pathname) &&
       ambiguousPathDenyOrigins.has(parsedUrl.origin)
     ) {
       // An empty list denies every method.

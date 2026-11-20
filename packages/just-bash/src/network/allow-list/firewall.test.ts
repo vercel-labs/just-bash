@@ -118,6 +118,8 @@ describe("firewall header transforms", () => {
     entry.transform = [{ headers: { Authorization: "Bearer new" } }];
     await secureFetch("https://api.example.com/data");
     entry.url = "https://other.example.com";
+    entry.transform = [{ headers: { Authorization: "Bearer other" } }];
+    await secureFetch("https://api.example.com/data");
     await secureFetch("https://other.example.com/data");
     await secureFetch("https://getter.example.com/data");
     token = "getter-new";
@@ -127,6 +129,7 @@ describe("firewall header transforms", () => {
       "Bearer old",
       "Bearer new",
       undefined,
+      "Bearer other",
       "Bearer getter-old",
       "Bearer getter-new",
     ]);

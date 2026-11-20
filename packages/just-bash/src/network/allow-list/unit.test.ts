@@ -1043,6 +1043,57 @@ describe("createSecureFetch allow-list validation", () => {
     ]);
   });
 
+  it("rejects unusable prefixes on origins with per-URL methods", () => {
+    const encoded = "https://example.com/%64ata";
+    const repeated = "https://example.com/data//item";
+    const other = "https://other.example.com/%64ata";
+    const broad = { url: "https://example.com", methods: ["GET" as const] };
+
+    for (const allowedUrlPrefixes of [
+      [broad, encoded, { url: repeated }, other],
+      [encoded, { url: repeated }, other, broad],
+    ]) {
+      expect(() => createSecureFetch({ allowedUrlPrefixes })).toThrow(
+        `Invalid network allow-list:\nAllow-list entry contains an ambiguous path on an origin with per-URL methods: "${encoded}"\nAllow-list entry contains an ambiguous path on an origin with per-URL methods: "${repeated}"`,
+      );
+    }
+    expect(() =>
+      createSecureFetch({ allowedUrlPrefixes: [encoded, repeated] }),
+    ).not.toThrow();
+    expect(() =>
+      createSecureFetch({
+        allowedUrlPrefixes: [
+          "https://example.com",
+          { url: encoded, methods: ["GET"] },
+        ],
+      }),
+    ).toThrow(`"${encoded}"`);
+    expect(() =>
+      createSecureFetch({
+        allowedUrlPrefixes: [
+          { url: "https://example.com/data", methods: ["GET"] },
+          other,
+        ],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      createSecureFetch({
+        allowedUrlPrefixes: [broad, "https://example.com/data\\item"],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      createSecureFetch({
+        allowedUrlPrefixes: [broad, "https://example.com/data\\\\item"],
+      }),
+    ).toThrow('"https://example.com/data\\\\item"');
+    expect(() =>
+      createSecureFetch({
+        dangerouslyAllowFullInternetAccess: true,
+        allowedUrlPrefixes: [broad, encoded, repeated],
+      }),
+    ).not.toThrow();
+  });
+
   it("skips validation when dangerouslyAllowFullInternetAccess is true", () => {
     expect(() =>
       createSecureFetch({

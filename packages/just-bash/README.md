@@ -385,7 +385,7 @@ The allow-list enforces:
 - **Redirect protection**: Redirects to non-allowed URLs are blocked
 - **Header transforms**: Firewall headers are injected at the fetch boundary and override any user-supplied headers with the same name, preventing credential substitution from inside the sandbox. Headers are re-evaluated on each redirect so credentials are never leaked to non-transform hosts
 
-The allow-list's URLs and per-entry `methods` are captured when the `Bash` instance is created. Changes to the original `allowedUrlPrefixes` array or its entries do not update those policies.
+The allow-list's URLs and per-entry `methods` are captured when the `Bash` instance is created. Changes to the original `allowedUrlPrefixes` array or its entries do not update those policies. For entries with transforms at construction, header matching uses the original entry's current `url` and `transform` on each request.
 
 #### Per-URL Methods
 
@@ -405,7 +405,7 @@ const env = new Bash({
 
 The longest matching path prefix wins, with the first entry taking precedence when prefixes have the same length. The selected entry's `methods` replaces the global list, so it can restrict methods or allow additional ones. If the selected entry has no `methods`, the global list applies, not another matching entry's methods. An empty `methods` array denies every method. Each redirect target is checked against its own method policy after any method rewrite.
 
-When allow-list enforcement is enabled, all methods are denied for a parsed pathname containing `%`, `;`, `\`, or `//` if its origin has both a path-scoped entry and an entry with `methods`. URL parsing converts raw backslashes to slashes in HTTP and HTTPS URLs before this check.
+When allow-list enforcement is enabled, all methods are denied for a parsed pathname containing `%`, `;`, `\`, or `//` if its origin has both a path-scoped entry and an entry with `methods`. Configured prefixes on those origins must also pass this check. URL parsing converts raw backslashes to slashes in HTTP and HTTPS URLs before this check.
 
 Path-prefix matching is case-sensitive and literal: `/data/` does not match `/data`. When a narrow `methods` entry shares an origin with a broader entry, its restriction is only as strong as the upstream's path normalization; for example, an upstream might treat `/DATA` or `/data` as aliases. Prefer listing only the allowed prefixes, each with its own methods, without a broader entry for that origin. See [Istio's security guidance](https://istio.io/latest/docs/ops/best-practices/security/#use-allow-with-positive-matching-and-deny-with-negative-match-patterns) for the same positive-allow pattern.
 
