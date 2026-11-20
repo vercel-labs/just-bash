@@ -27,9 +27,35 @@ import {
 } from "../parser/arithmetic-parser.js";
 import { Parser } from "../parser/parser.js";
 import { ArithmeticError, NounsetError } from "./errors.js";
-import { getArrayElements, getVariable } from "./expansion.js";
+import { expandWord, getArrayElements, getVariable } from "./expansion.js";
 import { getArrayElement, hasArray, setArrayElement } from "./helpers/array.js";
+import { recordSubstitutionExit } from "./helpers/substitution-status.js";
+import { beginIsolatedShellState } from "./state-transaction.js";
 import type { InterpreterContext } from "./types.js";
+
+async function expandArithmeticCommand(
+  ctx: InterpreterContext,
+  command: string,
+): Promise<string> {
+  const restore = beginIsolatedShellState(ctx.state);
+  try {
+    return await expandWord(ctx, {
+      type: "Word",
+      parts: [
+        {
+          type: "CommandSubstitution",
+          body: new Parser().parse(command),
+          legacy: false,
+        },
+      ],
+    });
+  } finally {
+    const { expansionStderr, lastExitCode } = ctx.state;
+    restore();
+    ctx.state.expansionStderr = expansionStderr;
+    recordSubstitutionExit(ctx.state, lastExitCode);
+  }
+}
 
 interface ArithmeticResolutionContext {
   readonly visited: Set<string>;
@@ -450,20 +476,8 @@ async function evaluateArithmeticInternal(
       return await evaluate(expr.expression);
 
     case "ArithCommandSubst": {
-      // Execute the command and parse the result as a number
-      if (ctx.execFn) {
-        const result = await ctx.execFn(expr.command, {
-          signal: ctx.state.signal,
-        });
-        // Command substitution stderr should go to the shell's stderr at expansion time
-        if (result.stderr) {
-          ctx.state.expansionStderr =
-            (ctx.state.expansionStderr || "") + result.stderr;
-        }
-        const output = result.stdout.trim();
-        return Number.parseInt(output, 10) || 0;
-      }
-      return 0;
+      const output = await expandArithmeticCommand(ctx, expr.command);
+      return Number.parseInt(output.trim(), 10) || 0;
     }
 
     case "ArithBracedExpansion": {
@@ -959,15 +973,9 @@ async function evalConcatPartToStringAsync(
       return await getVariable(ctx, expr.name);
     case "ArithBracedExpansion":
       return await expandBracedContent(ctx, expr.content);
-    case "ArithCommandSubst": {
-      if (ctx.execFn) {
-        const result = await ctx.execFn(expr.command, {
-          signal: ctx.state.signal,
-        });
-        return result.stdout.trim();
-      }
-      return "0";
-    }
+    case "ArithCommandSubst":
+      return (await expandArithmeticCommand(ctx, expr.command)).trim();
+
     case "ArithConcat": {
       let result = "";
       for (const part of expr.parts) {
