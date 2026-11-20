@@ -1,23 +1,21 @@
-import {
-  encodeUtf8ToBytes,
-  latin1FromBytes,
-  utf8ByteLength,
-} from "../../encoding.js";
+import { BoundedStringBuilder } from "../../bounded-builder.js";
+import { utf8ByteLength } from "../../encoding.js";
 import { ExecutionOutputAccumulator } from "../../execution-output.js";
 import type { ExecutionScope } from "../../execution-scope.js";
-import { FileSystemPolicyError, traverseFileTree } from "../../fs/traversal.js";
+import { traverseFileTree } from "../../fs/traversal.js";
 import {
   ExecutionAbortedError,
   ExecutionLimitError,
 } from "../../interpreter/errors.js";
-import { getErrorCode } from "../../interpreter/helpers/errors.js";
 import type {
   ExecResult,
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
+import { describeFileSystemError } from "../fs-error.js";
 import { hasHelpFlag, showHelp } from "../help.js";
+import { quotePath } from "./quote-path.js";
 
 const duHelp = {
   name: "du",
@@ -78,15 +76,14 @@ export const duCommand: RuntimeCommand = {
       targets.push(".");
     }
 
+    const startedAt = Date.now();
     let stdout = "";
     let stderr = "";
     let grandTotal = 0;
     let exitCode = 0;
-    const output = ctx.executionScope
-      ? new ExecutionOutputAccumulator(
-          ctx.executionScope as ExecutionScope,
-          "du",
-        )
+    const scope = ctx.executionScope as ExecutionScope | undefined;
+    const output = scope
+      ? new ExecutionOutputAccumulator(scope, "du")
       : undefined;
     let fallbackOutputBytes = 0;
     const append = (stream: "stdout" | "stderr", value: string): void => {
@@ -106,33 +103,83 @@ export const duCommand: RuntimeCommand = {
       if (stream === "stderr" && value) exitCode = 1;
     };
 
+    const reportError = (
+      action: string,
+      path: string,
+      reason: string,
+    ): void => {
+      const suffix = `: ${reason}\n`;
+      const remaining =
+        ctx.limits.maxOutputSize -
+        (scope?.outputBytesUsed ?? fallbackOutputBytes);
+      const memoryLimit = scope?.remainingLiveBytes ?? ctx.limits.maxLiveBytes;
+      const limitError = () => {
+        if (
+          memoryLimit < remaining &&
+          memoryLimit <= ctx.limits.maxStringLength
+        ) {
+          return new ExecutionLimitError(
+            `du: diagnostic live byte limit exceeded (${memoryLimit} bytes)`,
+            "string_length",
+          );
+        }
+        if (ctx.limits.maxStringLength < remaining) {
+          return new ExecutionLimitError(
+            `du: diagnostic string length limit exceeded (${ctx.limits.maxStringLength})`,
+            "string_length",
+          );
+        }
+        return new ExecutionLimitError(
+          scope
+            ? `du: total output size exceeded (>${ctx.limits.maxOutputSize} bytes), increase executionLimits.maxOutputSize`
+            : `du: output size limit exceeded (${ctx.limits.maxOutputSize} bytes)`,
+          "output_size",
+        );
+      };
+      try {
+        const diagnostic = new BoundedStringBuilder(
+          Math.min(remaining, ctx.limits.maxStringLength, memoryLimit),
+          "du",
+          limitError,
+          utf8ByteLength(suffix),
+        );
+        diagnostic.append(`du: cannot ${action} `);
+        quotePath(path, diagnostic, () => {
+          if (
+            ctx.signal?.aborted ||
+            Date.now() - startedAt > ctx.limits.maxExecutionTimeMs
+          )
+            throw new ExecutionAbortedError();
+          scope?.consumeWork(1, "du diagnostic");
+        });
+        append("stderr", diagnostic.build() + suffix);
+      } catch (error) {
+        output?.prependTo(error);
+        throw error;
+      }
+    };
+
     for (const target of targets) {
       const fullPath = ctx.fs.resolvePath(ctx.cwd, target);
 
       try {
         // Check if path exists first
         await ctx.fs.stat(fullPath);
-        grandTotal += await calculateSize(
-          ctx,
-          fullPath,
-          target,
-          options,
-          0,
-          append,
-        );
       } catch (error) {
-        if (
-          error instanceof ExecutionLimitError ||
-          error instanceof ExecutionAbortedError ||
-          error instanceof FileSystemPolicyError
-        ) {
-          throw error;
-        }
-        append(
-          "stderr",
-          `du: cannot access ${quotePath(target)}: No such file or directory\n`,
-        );
+        const reason = describeFileSystemError(error);
+        if (reason === null) throw error;
+        reportError("access", target, reason);
+        continue;
       }
+      grandTotal += await calculateSize(
+        ctx,
+        fullPath,
+        target,
+        options,
+        0,
+        append,
+        reportError,
+      );
     }
 
     if (options.grandTotal && targets.length > 0) {
@@ -153,13 +200,14 @@ async function calculateSize(
   options: DuOptions,
   depth: number,
   append: (stream: "stdout" | "stderr", value: string) => void,
+  reportError: (action: string, path: string, reason: string) => void,
 ): Promise<number> {
   let totalSize = 0;
   const shownPath = (path: string): string => {
     const relative = path.slice(fullPath === "/" ? 1 : fullPath.length + 1);
-    if (!relative) return displayPath.replace(/\/+$/, "/");
-    const prefix = displayPath.replace(/\/+$/, "");
-    return `${prefix}/${relative}`;
+    const root = displayPath === "//" ? "//" : displayPath.replace(/\/+$/, "/");
+    if (!relative) return root;
+    return `${root.endsWith("/") ? root : `${root}/`}${relative}`;
   };
   const directorySizes = new Map<string, number>();
 
@@ -174,20 +222,10 @@ async function calculateSize(
       symlinks: "never",
       includeLeave: true,
       onError(error, path, operation) {
-        if (
-          error instanceof ExecutionLimitError ||
-          error instanceof ExecutionAbortedError ||
-          error instanceof FileSystemPolicyError
-        )
-          throw error;
-        const code = getErrorCode(error);
-        const reason = code && TRAVERSAL_ERROR_REASONS.get(code);
-        if (!reason) throw error;
+        const reason = describeFileSystemError(error);
+        if (reason === null) throw error;
         const action = operation === "readdir" ? "read directory" : "access";
-        append(
-          "stderr",
-          `du: cannot ${action} ${quotePath(shownPath(path))}: ${reason}\n`,
-        );
+        reportError(action, shownPath(path), reason);
       },
     },
     (entry) => {
@@ -237,43 +275,6 @@ async function calculateSize(
   );
 
   return totalSize;
-}
-
-// Match find's recoverable directory-read errors; never expose backend messages.
-const TRAVERSAL_ERROR_REASONS = new Map<string, string>([
-  ["EACCES", "Permission denied"],
-  ["EIO", "Input/output error"],
-  ["ELOOP", "Too many levels of symbolic links"],
-  ["ENAMETOOLONG", "File name too long"],
-  ["ENOENT", "No such file or directory"],
-  ["ENOTDIR", "Not a directory"],
-  ["EPERM", "Permission denied"],
-]);
-
-// GNU du uses shell-escape-always quoting for diagnostics. Keep control
-// characters out of log lines while leaving the displayed path recognizable.
-function quotePath(path: string): string {
-  if (path.includes("'") && !/["\\$`\u0000-\u001f\u007f-\u009f]/.test(path)) {
-    return `"${path}"`;
-  }
-  const quoted = path
-    .replace(/'/g, "'\\''")
-    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, (controls) => {
-      let escaped = "";
-      for (const char of controls) {
-        const index = "\u0007\b\t\n\u000b\f\r".indexOf(char);
-        if (index >= 0) escaped += `\\${"abtnvfr"[index]}`;
-        else {
-          for (const byte of latin1FromBytes(encodeUtf8ToBytes(char))) {
-            escaped += `\\${byte.charCodeAt(0).toString(8).padStart(3, "0")}`;
-          }
-        }
-      }
-      return `'$'${escaped}''`;
-    });
-  return /[\u0000-\u001f\u007f-\u009f]$/.test(path)
-    ? `'${quoted.slice(0, -1)}`
-    : `'${quoted}'`;
 }
 
 function formatSize(bytes: number, humanReadable: boolean): string {

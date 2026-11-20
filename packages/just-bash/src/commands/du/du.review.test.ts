@@ -107,6 +107,7 @@ describe("du review regressions", () => {
 
   it.each([
     "/",
+    "//",
     "///",
   ])("formats root rows and diagnostics for %s", async (operand) => {
     const fs = new FaultFs({ "/data/locked/file": "x" });
@@ -118,8 +119,14 @@ describe("du review regressions", () => {
       limits: resolveLimits(),
     });
     expect(result).toMatchObject({
-      stdout: "1\t/data/locked\n1\t/data\n1\t/\n",
-      stderr: "du: cannot read directory '/data/locked': Permission denied\n",
+      stdout:
+        operand === "//"
+          ? "1\t//data/locked\n1\t//data\n1\t//\n"
+          : "1\t/data/locked\n1\t/data\n1\t/\n",
+      stderr:
+        operand === "//"
+          ? "du: cannot read directory '//data/locked': Permission denied\n"
+          : "du: cannot read directory '/data/locked': Permission denied\n",
       exitCode: 1,
     });
   });

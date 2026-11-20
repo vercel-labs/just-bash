@@ -7,8 +7,8 @@ import {
   createTestDir,
 } from "./fixture-runner.js";
 
-// Fixtures recorded with GNU coreutils 9.12 in a UTF-8 locale. Redirect stderr
-// so the comparison runner checks diagnostic text as well as the exit status.
+// Original fixtures: GNU coreutils 9.12 on macOS. Mixed/Unicode fixtures:
+// GNU coreutils 9.7 on Linux, LC_ALL=C.UTF-8. Redirect stderr to compare it too.
 describe("du diagnostic quoting - Real Bash Comparison", () => {
   let testDir: string;
   beforeEach(async () => {
@@ -37,6 +37,14 @@ describe("du diagnostic quoting - Real Bash Comparison", () => {
     "a'`b",
     "\u0085",
     "emoji\ud83d\ude42",
+    "a\n'b",
+    "'\na",
+    "a\n'",
+    "\n'\t",
+    "a\u2028b",
+    "a\u2029b",
+    "'\u2028\\",
+    "\u0085'\n",
   ])("quotes %j", async (name) => {
     await compareOutputs(
       new Bash(),

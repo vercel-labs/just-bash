@@ -5,7 +5,6 @@ import type { DirentEntry } from "../../fs/interface.js";
 import { FileTraversalBudget } from "../../fs/traversal.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
-import { getErrorCode } from "../../interpreter/helpers/errors.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -13,6 +12,7 @@ import type {
   TraceCallback,
 } from "../../types.js";
 import { formatMode } from "../format-mode.js";
+import { describeFileSystemError } from "../fs-error.js";
 
 // Use a larger batch size for find to maximize parallel I/O
 const FIND_BATCH_SIZE = 500;
@@ -475,7 +475,7 @@ export const findCommand: RuntimeCommand = {
             // directory into an empty result for the whole search, and on a
             // home directory there is always one. The message is emitted with
             // the node's effects, in traversal order, not here in batch order.
-            const reason = describeUnreadableDirectory(error);
+            const reason = describeFileSystemError(error);
             if (reason === null) throw error;
             unreadable = reason;
             traceCounters.readdirCalls++;
@@ -1178,33 +1178,6 @@ function formatCtimeDate(date: Date): string {
   const year = date.getFullYear();
 
   return `${day} ${month} ${dayNum} ${hours}:${mins}:${secs} ${year}`;
-}
-
-/**
- * The errnos a directory read can fail with that are the directory's own
- * problem, and what GNU find prints for each. Nothing else is recoverable
- * here: a cancellation, an execution limit, or a filesystem policy refusal
- * carries a code of its own and must end the search, not become a line of
- * stderr, so the phrase comes from this table and never from the error.
- */
-const UNREADABLE_DIRECTORY_REASONS = new Map<string, string>([
-  ["EACCES", "Permission denied"],
-  ["EIO", "Input/output error"],
-  ["ELOOP", "Too many levels of symbolic links"],
-  ["ENAMETOOLONG", "File name too long"],
-  ["ENOENT", "No such file or directory"],
-  ["ENOTDIR", "Not a directory"],
-  ["EPERM", "Permission denied"],
-]);
-
-/**
- * The phrase for a directory that could not be read, from the errno alone,
- * or null when the failure is not one of those, in which case it propagates.
- */
-function describeUnreadableDirectory(error: unknown): string | null {
-  const code = getErrorCode(error);
-  if (code === undefined) return null;
-  return UNREADABLE_DIRECTORY_REASONS.get(code) ?? null;
 }
 
 /**

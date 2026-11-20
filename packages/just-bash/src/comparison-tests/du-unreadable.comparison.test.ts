@@ -1,6 +1,6 @@
 import { chmod } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Bash } from "../Bash.js";
 import { ReadWriteFs } from "../fs/read-write-fs/read-write-fs.js";
 import {
@@ -35,11 +35,23 @@ describe.skipIf(process.getuid?.() === 0 || process.platform === "win32")(
         fs: new ReadWriteFs({ root: testDir }),
         cwd: "/",
       });
-      // Ignore platform-dependent allocated block sizes; retain the operand and status.
+      expect(await env.exec("du -s data")).toMatchObject({
+        stdout: "1\tdata\n",
+        stderr: "du: cannot read directory 'data/locked': Permission denied\n",
+        exitCode: 1,
+      });
+      expect(await env.exec("du data/locked/secret.txt")).toMatchObject({
+        stdout: "",
+        stderr:
+          "du: cannot access 'data/locked/secret.txt': Permission denied\n",
+        exitCode: 1,
+      });
+      // Native block allocation varies by filesystem; compare paths/diagnostics,
+      // and assert just-bash's byte-derived sizes separately above.
       await compareOutputs(
         env,
         testDir,
-        'out=$(du -s data 2>/dev/null); status=$?; echo "$out" | cut -f2; echo "status:$status"',
+        'out=$(du -s data 2>errors); status=$?; echo "$out" | cut -f2; cat errors; echo "status:$status"',
       );
     });
 
@@ -57,10 +69,26 @@ describe.skipIf(process.getuid?.() === 0 || process.platform === "win32")(
         fs: new ReadWriteFs({ root: testDir }),
         cwd: "/",
       });
+      expect(await env.exec("du data other")).toMatchObject({
+        stdout:
+          "1\tdata/a\n1\tdata/locked\n1\tdata/no-search\n1\tdata/z\n1\tdata\n1\tother\n",
+        stderr:
+          "du: cannot read directory 'data/locked': Permission denied\ndu: cannot access 'data/no-search/file': Permission denied\n",
+        exitCode: 1,
+      });
+      // Human-readable mode exposes these small byte totals without block rounding:
+      // six bytes before the failures, five after, and eleven in the parent.
+      expect(await env.exec("du -h data other")).toMatchObject({
+        stdout:
+          "6\tdata/a\n0\tdata/locked\n0\tdata/no-search\n5\tdata/z\n11\tdata\n5\tother\n",
+        stderr:
+          "du: cannot read directory 'data/locked': Permission denied\ndu: cannot access 'data/no-search/file': Permission denied\n",
+        exitCode: 1,
+      });
       await compareOutputs(
         env,
         testDir,
-        'out=$(du data other 2>errors); status=$?; echo "$out" | cut -f2 | sort; cat errors; echo "status:$status"',
+        'out=$(du data other 2>errors); status=$?; echo "$out" | cut -f2 | sort; sort errors; echo "status:$status"',
       );
     });
 

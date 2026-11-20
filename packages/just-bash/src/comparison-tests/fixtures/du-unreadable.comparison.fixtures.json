@@ -1,15 +1,4 @@
 {
-  "1a38976a8019319e": {
-    "command": "out=$(du -s data 2>/dev/null); status=$?; echo \"$out\" | cut -f2; echo \"status:$status\"",
-    "files": {
-      "data/docs/notes.txt": "notes\n",
-      "data/locked/secret.txt": "secret\n"
-    },
-    "stdout": "data\nstatus:1\n",
-    "stderr": "",
-    "exitCode": 0,
-    "locked": true
-  },
   "2ae75800e5b481a2": {
     "command": "out=$(du data/ 2>errors); status=$?; echo \"$out\" | cut -f2; cat errors; echo \"status:$status\"",
     "files": {
@@ -40,8 +29,8 @@
     "exitCode": 0,
     "locked": true
   },
-  "597a1c992bd594c5": {
-    "command": "out=$(du data other 2>errors); status=$?; echo \"$out\" | cut -f2 | sort; cat errors; echo \"status:$status\"",
+  "9d47e09855a81f73": {
+    "command": "out=$(du data other 2>errors); status=$?; echo \"$out\" | cut -f2 | sort; sort errors; echo \"status:$status\"",
     "files": {
       "data/a/file": "before",
       "data/locked/file": "locked",
@@ -49,7 +38,7 @@
       "data/z/file": "after",
       "other/file": "other"
     },
-    "stdout": "data\ndata/a\ndata/locked\ndata/no-search\ndata/z\nother\ndu: cannot read directory 'data/locked': Permission denied\ndu: cannot access 'data/no-search/file': Permission denied\nstatus:1\n",
+    "stdout": "data\ndata/a\ndata/locked\ndata/no-search\ndata/z\nother\ndu: cannot access 'data/no-search/file': Permission denied\ndu: cannot read directory 'data/locked': Permission denied\nstatus:1\n",
     "stderr": "",
     "exitCode": 0,
     "locked": true
@@ -60,6 +49,17 @@
       "data/locked/file": "locked"
     },
     "stdout": "./data/locked\n./data/\ndu: cannot read directory './data/locked': Permission denied\nstatus:1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "d0dd039dd414567f": {
+    "command": "out=$(du -s data 2>errors); status=$?; echo \"$out\" | cut -f2; cat errors; echo \"status:$status\"",
+    "files": {
+      "data/docs/notes.txt": "notes\n",
+      "data/locked/secret.txt": "secret\n"
+    },
+    "stdout": "data\ndu: cannot read directory 'data/locked': Permission denied\nstatus:1\n",
     "stderr": "",
     "exitCode": 0,
     "locked": true

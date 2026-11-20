@@ -1,4 +1,20 @@
 {
+  "0138711fd54f67ed": {
+    "command": "'du' ''\\''\n' 2>&1",
+    "files": {},
+    "stdout": "du: cannot access ''$'\\302\\205'\\'''$'\\n': No such file or directory\n",
+    "stderr": "",
+    "exitCode": 1,
+    "locked": true
+  },
+  "05cbf23901db6bc5": {
+    "command": "'du' ''\\''\na' 2>&1",
+    "files": {},
+    "stdout": "du: cannot access ''\\'''$'\\n''a': No such file or directory\n",
+    "stderr": "",
+    "exitCode": 1,
+    "locked": true
+  },
   "063826dec4ebb5b9": {
     "command": "'du' 'emoji🙂' 2>&1",
     "files": {},
@@ -47,6 +63,14 @@
     "exitCode": 1,
     "locked": true
   },
+  "309d045d0267a942": {
+    "command": "'du' ''\\'' \\' 2>&1",
+    "files": {},
+    "stdout": "du: cannot access ''\\'''$'\\342\\200\\250''\\': No such file or directory\n",
+    "stderr": "",
+    "exitCode": 1,
+    "locked": true
+  },
   "3436632b0eeaaddd": {
     "command": "'du' 'a'\\''`b' 2>&1",
     "files": {},
@@ -79,6 +103,14 @@
     "exitCode": 1,
     "locked": true
   },
+  "4f287f5701db48ba": {
+    "command": "'du' 'a\n'\\''' 2>&1",
+    "files": {},
+    "stdout": "du: cannot access 'a'$'\\n'\\''': No such file or directory\n",
+    "stderr": "",
+    "exitCode": 1,
+    "locked": true
+  },
   "523a754137ab8f6a": {
     "command": "'du' 'a'\\''b' 2>&1",
     "files": {},
@@ -103,6 +135,14 @@
     "exitCode": 1,
     "locked": true
   },
+  "b27d6fc1c5c54e53": {
+    "command": "'du' 'a\n'\\''b' 2>&1",
+    "files": {},
+    "stdout": "du: cannot access 'a'$'\\n'\\''b': No such file or directory\n",
+    "stderr": "",
+    "exitCode": 1,
+    "locked": true
+  },
   "b993c813e9457468": {
     "command": "'du' 'carriage\rreturn' 2>&1",
     "files": {},
@@ -119,6 +159,14 @@
     "exitCode": 1,
     "locked": true
   },
+  "be9d2ef87fc929d5": {
+    "command": "'du' 'a b' 2>&1",
+    "files": {},
+    "stdout": "du: cannot access 'a'$'\\342\\200\\250''b': No such file or directory\n",
+    "stderr": "",
+    "exitCode": 1,
+    "locked": true
+  },
   "c5fccc4b9cbc0a78": {
     "command": "'du' 'tab\tname' 2>&1",
     "files": {},
@@ -127,10 +175,26 @@
     "exitCode": 1,
     "locked": true
   },
+  "c6e4459857ee0f92": {
+    "command": "'du' '\n'\\''\t' 2>&1",
+    "files": {},
+    "stdout": "du: cannot access ''$'\\n'\\'''$'\\t': No such file or directory\n",
+    "stderr": "",
+    "exitCode": 1,
+    "locked": true
+  },
   "d108ece3b9f45ed7": {
     "command": "'du' 'a'\\''\\b' 2>&1",
     "files": {},
     "stdout": "du: cannot access 'a'\\''\\b': No such file or directory\n",
+    "stderr": "",
+    "exitCode": 1,
+    "locked": true
+  },
+  "d5415275b228a6ce": {
+    "command": "'du' 'a b' 2>&1",
+    "files": {},
+    "stdout": "du: cannot access 'a'$'\\342\\200\\251''b': No such file or directory\n",
     "stderr": "",
     "exitCode": 1,
     "locked": true
