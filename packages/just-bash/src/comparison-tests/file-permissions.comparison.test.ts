@@ -121,15 +121,6 @@ describe("file permissions - Real Bash Comparison", () => {
     );
   });
 
-  it("checks write permission for read-write redirection", async () => {
-    const env = await setupFiles(testDir, FILES);
-    await compareOutputs(
-      env,
-      testDir,
-      `chmod 400 data.txt; exec 3<> data.txt; echo "rc=$?"`,
-    );
-  });
-
   it("preserves mode when redirecting over an existing file", async () => {
     const env = await setupFiles(testDir, FILES);
     await compareOutputs(

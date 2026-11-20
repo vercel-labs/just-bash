@@ -72,6 +72,20 @@ describe("InMemoryFs file permissions", () => {
     );
   });
 
+  it("preserves a writable destination's mode when copying over it", async () => {
+    const fs = new InMemoryFs({
+      "/source": { content: "replacement", mode: 0o644 },
+      "/destination": { content: "original", mode: 0o200 },
+    });
+
+    await fs.cp("/source", "/destination");
+
+    expect((await fs.stat("/destination")).mode).toBe(0o200);
+    await expect(fs.readFile("/destination")).rejects.toThrow("EACCES");
+    await fs.chmod("/destination", 0o600);
+    expect(await fs.readFile("/destination")).toBe("replacement");
+  });
+
   it("moves unreadable files over read-only files and preserves their mode", async () => {
     const fs = new InMemoryFs({
       "/source": { content: "hidden", mode: 0o000 },

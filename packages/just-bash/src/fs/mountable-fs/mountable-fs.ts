@@ -561,7 +561,7 @@ export class MountableFs implements IFileSystem {
     }
 
     // Cross-mount move: copy then delete
-    await this.cp(src, dest, { recursive: true });
+    await this.crossMountCopy(src, dest, { recursive: true }, true);
     await this.rm(src, { recursive: true });
   }
 
@@ -681,13 +681,17 @@ export class MountableFs implements IFileSystem {
     src: string,
     dest: string,
     options?: CpOptions,
+    preserveSourceMode = false,
   ): Promise<void> {
     const srcStat = await this.lstat(src);
 
     if (srcStat.isFile) {
       const content = await this.readFileBuffer(src);
+      const destinationExists = await this.exists(dest);
       await this.writeFile(dest, content);
-      await this.chmod(dest, srcStat.mode);
+      if (preserveSourceMode || !destinationExists) {
+        await this.chmod(dest, srcStat.mode);
+      }
     } else if (srcStat.isDirectory) {
       if (!options?.recursive) {
         throw new Error(`cp: ${src} is a directory (not copied)`);
@@ -697,7 +701,12 @@ export class MountableFs implements IFileSystem {
       for (const child of children) {
         const srcChild = joinPath(src, child);
         const destChild = joinPath(dest, child);
-        await this.crossMountCopy(srcChild, destChild, options);
+        await this.crossMountCopy(
+          srcChild,
+          destChild,
+          options,
+          preserveSourceMode,
+        );
       }
     } else if (srcStat.isSymbolicLink) {
       const target = await this.readlink(src);

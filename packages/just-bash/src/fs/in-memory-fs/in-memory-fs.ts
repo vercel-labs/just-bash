@@ -856,6 +856,7 @@ export class InMemoryFs implements IFileSystem {
 
     if (srcEntry.type === "file") {
       this.ensureParentDirs(destNorm);
+      const mode = destEntry?.type === "file" ? destEntry.mode : srcEntry.mode;
       // Deep copy: create a new Uint8Array to avoid sharing the buffer reference
       if ("content" in srcEntry) {
         const sourceBytes =
@@ -867,10 +868,10 @@ export class InMemoryFs implements IFileSystem {
           srcEntry.content instanceof Uint8Array
             ? new Uint8Array(srcEntry.content)
             : srcEntry.content;
-        this.setEntry(destNorm, { ...srcEntry, content: contentCopy });
+        this.setEntry(destNorm, { ...srcEntry, content: contentCopy, mode });
       } else {
         // Lazy file - copy the lazy reference (will be materialized on read)
-        this.setEntry(destNorm, { ...srcEntry });
+        this.setEntry(destNorm, { ...srcEntry, mode });
       }
     } else if (srcEntry.type === "symlink") {
       // Copy the symlink itself (not its target)

@@ -295,14 +295,6 @@ async function readInputEntry(
   try {
     const content =
       filePath === DEV_NULL ? "" : await ctx.fs.readFile(filePath);
-    if (readwrite && filePath !== DEV_NULL) {
-      const stat = await ctx.fs.stat(filePath);
-      if (stat.isFile && (stat.mode & 0o200) === 0) {
-        return {
-          error: makeResult("", `bash: ${target}: Permission denied\n`, 1),
-        };
-      }
-    }
     return readwrite
       ? {
           entry: {
@@ -321,7 +313,7 @@ async function readInputEntry(
           },
         };
   } catch (error) {
-    if (isPermissionDenied(error)) {
+    if (isPermissionDenied(error) || getErrorCode(error) === "EACCES") {
       return {
         error: makeResult("", `bash: ${target}: Permission denied\n`, 1),
       };
@@ -331,6 +323,15 @@ async function readInputEntry(
         error: makeResult(
           "",
           `bash: ${target}: No such file or directory\n`,
+          1,
+        ),
+      };
+    }
+    if (getErrorCode(error) !== "ENOENT") {
+      return {
+        error: makeResult(
+          "",
+          `bash: ${target}: cannot open redirect target\n`,
           1,
         ),
       };

@@ -334,6 +334,43 @@ describe("MountableFs", () => {
       expect(stat.mode).toBe(0o755);
     });
 
+    it("preserves an existing destination mode on cross-mount copy", async () => {
+      const source = new InMemoryFs({
+        "/source": { content: "replacement", mode: 0o644 },
+      });
+      const destination = new InMemoryFs({
+        "/destination": { content: "original", mode: 0o200 },
+      });
+      const fs = new MountableFs({ base: source });
+      fs.mount("/mnt", destination);
+
+      await fs.cp("/source", "/mnt/destination");
+
+      expect((await destination.stat("/destination")).mode).toBe(0o200);
+      await expect(destination.readFile("/destination")).rejects.toThrow(
+        "EACCES",
+      );
+      await destination.chmod("/destination", 0o600);
+      expect(await destination.readFile("/destination")).toBe("replacement");
+    });
+
+    it("preserves the source mode when moving across mounts over a destination", async () => {
+      const source = new InMemoryFs({
+        "/source": { content: "replacement", mode: 0o755 },
+      });
+      const destination = new InMemoryFs({
+        "/destination": { content: "original", mode: 0o600 },
+      });
+      const fs = new MountableFs({ base: source });
+      fs.mount("/mnt", destination);
+
+      await fs.mv("/source", "/mnt/destination");
+
+      expect((await destination.stat("/destination")).mode).toBe(0o755);
+      expect(await destination.readFile("/destination")).toBe("replacement");
+      expect(await source.exists("/source")).toBe(false);
+    });
+
     it("should copy within same mount using native cp", async () => {
       const mounted = new InMemoryFs({ "/src.txt": "content" });
       const fs = new MountableFs();

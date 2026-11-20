@@ -54,16 +54,43 @@ describe("permission regressions", () => {
     });
   });
 
-  it("requires write permission for read-write redirection", async () => {
+  it("reports denied reads from sed script files", async () => {
+    const bash = new Bash({
+      files: { "/script": { content: "s/a/b/", mode: 0o000 }, "/data": "a\n" },
+    });
+    const result = await bash.exec("sed -f /script /data");
+
+    expect(result).toMatchObject({
+      stdout: "",
+      stderr: "sed: couldn't open file /script: Permission denied\n",
+      exitCode: 1,
+    });
+  });
+
+  it.each(["head", "tail"])("reports denied reads from %s", async (command) => {
+    const bash = new Bash({
+      files: { "/data": { content: "secret\n", mode: 0o000 } },
+    });
+    const result = await bash.exec(`${command} /data`);
+
+    expect(result).toMatchObject({
+      stdout: "",
+      stderr: `${command}: /data: Permission denied\n`,
+      exitCode: 1,
+    });
+  });
+
+  it("does not infer read-write open permission from owner bits", async () => {
     const bash = new Bash({
       files: { "/data.txt": { content: "original\n", mode: 0o400 } },
     });
     const result = await bash.exec('exec 3<> /data.txt; echo "rc=$?"');
 
     expect(result).toMatchObject({
-      stdout: "rc=1\n",
-      stderr: "bash: /data.txt: Permission denied\n",
+      stdout: "rc=0\n",
+      stderr: "",
       exitCode: 0,
     });
+    expect(await bash.fs.readFile("/data.txt")).toBe("original\n");
   });
 });

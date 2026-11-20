@@ -1273,6 +1273,7 @@ export class OverlayFs implements IFileSystem {
     enforcePermissions: boolean,
     preserveMode: boolean,
     operation: "cp" | "mv",
+    transferSource = false,
   ): Promise<void> {
     validatePath(src, "cp");
     validatePath(dest, "cp");
@@ -1296,12 +1297,22 @@ export class OverlayFs implements IFileSystem {
       );
       if (preserveMode) {
         this.ensureParentDirs(destNorm);
-        this.setMemoryEntry(destNorm, {
-          type: "file",
-          content: new Uint8Array(content),
-          mode: srcStat.mode & 0o7777,
-          mtime: new Date(),
-        });
+        const source = this.memory.get(srcNorm);
+        if (transferSource && source?.type === "file") {
+          // Transfer the existing body so a rename does not charge it twice.
+          this.deleteMemoryEntry(srcNorm);
+          this.setMemoryEntry(destNorm, source);
+          if (this.existsOnRealFs(srcNorm)) {
+            this.deleted.add(srcNorm);
+          }
+        } else {
+          this.setMemoryEntry(destNorm, {
+            type: "file",
+            content: new Uint8Array(content),
+            mode: srcStat.mode & 0o7777,
+            mtime: new Date(),
+          });
+        }
         this.deleted.delete(destNorm);
       } else {
         await this.writeFile(destNorm, content);
@@ -1332,8 +1343,17 @@ export class OverlayFs implements IFileSystem {
   }
 
   async mv(src: string, dest: string): Promise<void> {
-    await this.copy(src, dest, { recursive: true }, false, true, "mv");
-    await this.rm(src, { recursive: true });
+    validatePath(src, "mv");
+    validatePath(dest, "mv");
+    this.assertWritable(`mv '${dest}'`);
+    if (normalizePath(src) === normalizePath(dest)) {
+      if (!(await this.existsInOverlay(src))) {
+        throw new Error(`ENOENT: no such file or directory, mv '${src}'`);
+      }
+      return;
+    }
+    await this.copy(src, dest, { recursive: true }, false, true, "mv", true);
+    await this.rm(src, { recursive: true, force: true });
   }
 
   resolvePath(base: string, rel: string): string {

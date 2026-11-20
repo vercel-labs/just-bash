@@ -450,9 +450,12 @@ export const sedCommand: RuntimeCommand = {
         if (e instanceof SecurityViolationError) {
           throw e;
         }
+        const reason = isPermissionDenied(e)
+          ? "Permission denied"
+          : "No such file or directory";
         return {
           stdout: "",
-          stderr: `sed: couldn't open file ${scriptFile}: No such file or directory\n`,
+          stderr: `sed: couldn't open file ${scriptFile}: ${reason}\n`,
           exitCode: 1,
         };
       }

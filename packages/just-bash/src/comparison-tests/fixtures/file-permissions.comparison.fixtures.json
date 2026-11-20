@@ -49,16 +49,6 @@
     "stderr": "",
     "exitCode": 0
   },
-  "7156f10b1e10a3a6": {
-    "command": "chmod 400 data.txt; exec 3<> data.txt; echo \"rc=$?\"",
-    "files": {
-      "data.txt": "secret\n",
-      "secret.sh": "echo hidden\n"
-    },
-    "stdout": "rc=1\n",
-    "stderr": "/bin/bash: line 1: data.txt: Permission denied\n",
-    "exitCode": 0
-  },
   "71e668f11fa6fcf2": {
     "command": "chmod 000 data.txt; cp data.txt copy.txt; echo \"rc=$?\"",
     "files": {

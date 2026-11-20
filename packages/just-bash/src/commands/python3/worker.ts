@@ -200,6 +200,7 @@ interface EmscriptenStream {
   hostContent?: Uint8Array;
   hostModified?: boolean;
   hostPath?: string;
+  hostAppendOnly?: boolean;
 }
 
 interface EmscriptenMount {
@@ -530,42 +531,39 @@ function createHOSTFS(
         const flags = stream.flags;
 
         const O_WRONLY = 1;
-        const O_RDWR = 2;
-        const O_CREAT = 64;
-        const O_TRUNC = 512;
         const O_APPEND = 1024;
 
         const accessMode = flags & 3;
-        const isWrite = accessMode === O_WRONLY || accessMode === O_RDWR;
-        const isCreate = (flags & O_CREAT) !== 0;
-        const isTruncate = (flags & O_TRUNC) !== 0;
         const isAppend = (flags & O_APPEND) !== 0;
 
         if (FS.isDir(stream.node.mode)) {
           return;
         }
 
-        let content: Uint8Array;
-        try {
-          if (isTruncate && isWrite) {
-            content = new Uint8Array(0);
-          } else {
-            content = backend.readFile(path);
+        if (accessMode === O_WRONLY) {
+          const size = tryFSOperation(() => backend.stat(path).size);
+          if (size > maxFileSize) {
+            throw new FS.ErrnoError(ERRNO_CODES.EFBIG);
           }
-        } catch (_e) {
-          if (isCreate && isWrite) {
-            content = new Uint8Array(0);
+          stream.hostPath = path;
+          if (isAppend) {
+            // Append through the backend without reading or replacing its body.
+            stream.hostAppendOnly = true;
+            stream.position = size;
+          } else if (size === 0) {
+            stream.hostContent = new Uint8Array(0);
           } else {
-            throw new FS.ErrnoError(ERRNO_CODES.ENOENT);
+            stream.hostContent = tryFSOperation(() => backend.readFile(path));
           }
+          return;
         }
 
+        const content = tryFSOperation(() => backend.readFile(path));
         if (content.length > maxFileSize) {
           throw new FS.ErrnoError(ERRNO_CODES.EFBIG);
         }
 
         stream.hostContent = content;
-        stream.hostModified = isTruncate && isWrite;
         stream.hostPath = path;
 
         if (isAppend) {
@@ -582,6 +580,7 @@ function createHOSTFS(
         delete stream.hostContent;
         delete stream.hostModified;
         delete stream.hostPath;
+        delete stream.hostAppendOnly;
       },
 
       read(
@@ -609,17 +608,30 @@ function createHOSTFS(
         length: number,
         position: number,
       ) {
+        // Emscripten seeks to EOF before append writes, including pwrite.
+        const writePosition = stream.hostAppendOnly
+          ? stream.position
+          : position;
         if (
-          !Number.isSafeInteger(position) ||
+          !Number.isSafeInteger(writePosition) ||
           !Number.isSafeInteger(length) ||
           !Number.isSafeInteger(offset) ||
-          position < 0 ||
+          writePosition < 0 ||
           length < 0 ||
           offset < 0 ||
           length > buffer.length - offset ||
-          position > maxFileSize - length
+          writePosition > maxFileSize - length
         ) {
-          throw new FS.ErrnoError(ERRNO_CODES.EFBIG);
+          // CPython retries EFBIG while flushing; EIO returns the failure.
+          throw new FS.ErrnoError(
+            stream.hostAppendOnly ? ERRNO_CODES.EIO : ERRNO_CODES.EFBIG,
+          );
+        }
+        const hostPath = stream.hostPath;
+        if (stream.hostAppendOnly && hostPath) {
+          const data = buffer.slice(offset, offset + length);
+          tryFSOperation(() => backend.appendFile(hostPath, data));
+          return length;
         }
         let content = stream.hostContent || new Uint8Array(0);
         const newSize = Math.max(content.length, position + length);
@@ -650,8 +662,11 @@ function createHOSTFS(
           position += stream.position;
         } else if (whence === SEEK_END) {
           if (FS.isFile(stream.node.mode)) {
-            const content = stream.hostContent;
-            position += content ? content.length : 0;
+            const hostPath = stream.hostPath;
+            position +=
+              stream.hostAppendOnly && hostPath
+                ? tryFSOperation(() => backend.stat(hostPath).size)
+                : (stream.hostContent?.length ?? 0);
           }
         }
 
