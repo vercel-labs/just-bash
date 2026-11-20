@@ -572,13 +572,45 @@ async function listPath(
       const specialEntries = entries.filter((e) => e === "." || e === "..");
       const regularEntries = entries.filter((e) => e !== "." && e !== "..");
 
-      // Add special entries first
+      // Add special entries first: "." is the directory itself and ".." is
+      // its parent, so both print their real size and mtime like GNU ls does
+      // instead of the placeholder epoch date.
       for (const entry of specialEntries) {
-        stdout = appendLsOutput(
-          ctx,
-          stdout,
-          `drwxr-xr-x 1 user user     0 Jan  1 00:00 ${entry}\n`,
-        );
+        let targetPath =
+          entry === "." ? fullPath : ctx.fs.resolvePath(fullPath, "..");
+        if (entry === "..") {
+          // ".." names the listed directory's parent on disk. When the
+          // path reaches the directory through a symlink, the lexical
+          // parent is a different directory, so derive the parent from
+          // the canonical path, as GNU ls does. Backends that cannot
+          // resolve the path keep the lexical parent.
+          const canonical = await ctx.fs
+            .realpath(fullPath)
+            .catch(() => undefined);
+          if (canonical !== undefined) {
+            targetPath = ctx.fs.resolvePath(canonical, "..");
+          }
+        }
+        try {
+          const entryStat = await ctx.fs.stat(targetPath);
+          const size = entryStat.size ?? 0;
+          const sizeStr = humanReadable
+            ? formatHumanSize(size).padStart(5)
+            : String(size).padStart(5);
+          const mtime = entryStat.mtime ?? new Date(0);
+          const dateStr = formatDate(mtime);
+          stdout = appendLsOutput(
+            ctx,
+            stdout,
+            `drwxr-xr-x 1 user user ${sizeStr} ${dateStr} ${entry}\n`,
+          );
+        } catch {
+          stdout = appendLsOutput(
+            ctx,
+            stdout,
+            `drwxr-xr-x 1 user user     0 Jan  1 00:00 ${entry}\n`,
+          );
+        }
       }
 
       // Parallelize stat calls for regular entries
