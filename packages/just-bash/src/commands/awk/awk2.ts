@@ -342,7 +342,7 @@ export const awkCommand2: RuntimeCommand = {
         throw new ExecutionLimitError(
           e.message,
           e.limitType,
-          interp.getOutput(),
+          "",
           `awk: ${e.message}\n`,
         );
       }

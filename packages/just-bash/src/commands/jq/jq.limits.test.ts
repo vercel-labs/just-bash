@@ -25,7 +25,7 @@ describe("JQ Execution Limits", () => {
       });
       const result = await bash.exec(`${command} || echo recovered`);
       expect(result.stdout).toBe("");
-      expect(result.stderr).toContain("query depth limit exceeded (2)");
+      expect(result.stderr).toBe("jq: query depth limit exceeded (2)\n");
       expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     });
 

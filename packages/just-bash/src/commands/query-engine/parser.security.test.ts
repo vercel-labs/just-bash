@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { parse } from "./parser.js";
 
 describe("query parser limits", () => {
@@ -22,6 +23,14 @@ describe("query parser limits", () => {
     expect(() => parse(". | . | .", { maxTokens: 5 })).toThrow(
       /token limit exceeded/,
     );
+  });
+
+  it.each([
+    [".", { maxSourceLength: 0 }],
+    [".", { maxTokens: 1 }],
+    ["((.))", { maxDepth: 2 }],
+  ])("classifies configured parser limits as execution limits", (input, limits) => {
+    expect(() => parse(input, limits)).toThrow(ExecutionLimitError);
   });
 
   it("counts nested object values against the parser depth budget", () => {
