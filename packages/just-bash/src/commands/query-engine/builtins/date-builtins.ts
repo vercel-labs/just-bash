@@ -17,6 +17,7 @@ type EvalFn = (
 const MAX_DATE_MILLISECONDS = 8_640_000_000_000_000;
 const MAX_DATE_SECONDS = MAX_DATE_MILLISECONDS / 1000;
 const ISO_UTC_FORMAT = "%Y-%m-%dT%H:%M:%SZ";
+const ISO_SECONDS_FORMAT = "%Y-%m-%dT%H:%M:%S";
 
 function dateFromTimestamp(value: number, operation: string): Date {
   if (!Number.isFinite(value) || Math.abs(value) > MAX_DATE_SECONDS) {
@@ -177,10 +178,10 @@ export function evalDateBuiltin(
       if (typeof fmt !== "string") {
         throw new Error("strptime/1 requires a string format");
       }
-      if (fmt !== ISO_UTC_FORMAT) {
+      if (fmt !== ISO_UTC_FORMAT && fmt !== ISO_SECONDS_FORMAT) {
         throw new Error(`strptime format is not supported: ${fmt}`);
       }
-      const date = parseIsoUtc(value);
+      const date = parseIsoUtc(fmt === ISO_UTC_FORMAT ? value : `${value}Z`);
       if (date) {
         const year = date.getUTCFullYear();
         const month = date.getUTCMonth();
