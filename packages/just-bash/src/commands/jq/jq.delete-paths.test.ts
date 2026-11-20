@@ -50,6 +50,51 @@ describe("jq deletion paths", () => {
     });
   });
 
+  it("preserves paths selected by first(f)", async () => {
+    const bash = new Bash({
+      files: { "/input.json": '{"a":1,"b":2}' },
+    });
+    expect(
+      await bash.exec(
+        "jq -c '[[path(.a | first(.))], [path(first(.a,.b))], [path(first(empty))], del(first(.a,.b))]' /input.json",
+      ),
+    ).toMatchObject({
+      stdout: '[[["a"]],[["a"]],[],{"b":2}]\n',
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(
+      await bash.exec("jq -c 'del(first(.a + 1))' /input.json"),
+    ).toMatchObject({
+      stdout: "",
+      stderr: "jq: parse error: Unsupported path expression\n",
+      exitCode: 5,
+    });
+  });
+
+  it("preserves paths selected by limit(n; f)", async () => {
+    const bash = new Bash({
+      files: { "/input.json": '{"a":1,"b":2}' },
+    });
+    expect(
+      await bash.exec(
+        "jq -c '[[path(.a | limit(1;.))], [path(limit(1;.a,.b))], [path(limit(0;.a,.b))], [path(limit(-1;.a,.b))], [path(limit(1.5;.a,.b))], [path(limit((1,2);.a,.b))], del(limit(1;.a,.b))]' /input.json",
+      ),
+    ).toMatchObject({
+      stdout:
+        '[[["a"]],[["a"]],[],[["a"],["b"]],[["a"],["b"]],[["a"],["a"],["b"]],{"b":2}]\n',
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(
+      await bash.exec("jq -c 'del(limit(1; .a + 1))' /input.json"),
+    ).toMatchObject({
+      stdout: "",
+      stderr: "jq: parse error: Unsupported path expression\n",
+      exitCode: 5,
+    });
+  });
+
   it("rejects numeric object keys instead of deleting their string form", async () => {
     const bash = new Bash({ files: { "/input.json": '{"0":1}' } });
     const result = await bash.exec("jq 'del(.[0])' /input.json");

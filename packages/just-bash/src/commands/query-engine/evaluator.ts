@@ -2179,6 +2179,27 @@ function collectPaths(
 
   if (
     expr.type === "Call" &&
+    ((expr.name === "first" && expr.args.length === 1) ||
+      (expr.name === "limit" && expr.args.length === 2))
+  ) {
+    const counts =
+      expr.name === "first" ? [1] : evaluate(value, expr.args[0], ctx);
+    const body = expr.args[expr.name === "first" ? 0 : 1];
+    for (const count of counts) {
+      if (count === 0) continue;
+      const selected: (string | number)[][] = [];
+      // Eager collection can report errors after the last path jq would select.
+      collectPaths(value, body, ctx, [], selected, optional);
+      const length = count < 0 ? selected.length : Math.ceil(count);
+      for (let i = 0; i < Math.min(length, selected.length); i++) {
+        appendPath(selected[i]);
+      }
+    }
+    return;
+  }
+
+  if (
+    expr.type === "Call" &&
     [
       "select",
       "nulls",
