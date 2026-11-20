@@ -38,6 +38,7 @@ export interface BridgeOutput {
 export class BridgeHandler {
   private protocol: ProtocolBuffer;
   private running = false;
+  private stopped = false;
   private output: BridgeOutput = { stdout: "", stderr: "", exitCode: 0 };
   private outputLimitExceeded = false;
   private startTime = 0;
@@ -106,6 +107,9 @@ export class BridgeHandler {
    * Run the handler loop until EXIT operation or timeout.
    */
   async run(timeoutMs: number): Promise<BridgeOutput> {
+    // A stop that arrived before the loop started (the worker could not be
+    // constructed, or the command was canceled first) ends it here.
+    if (this.stopped) return this.output;
     this.running = true;
     this.startTime = Date.now();
     this.timeoutMs = timeoutMs;
@@ -139,7 +143,12 @@ export class BridgeHandler {
     return this.output;
   }
 
+  /**
+   * Ends the loop. An operation already in flight runs to completion first,
+   * so run() returns only after its host side effects have landed.
+   */
   stop(): void {
+    this.stopped = true;
     this.running = false;
     // Wake a handler blocked before the worker's first bridge operation.
     this.protocol.setStatus(Status.READY);
