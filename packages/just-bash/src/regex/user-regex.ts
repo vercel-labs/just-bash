@@ -70,11 +70,16 @@ function convertFlags(flags: string): number {
 }
 
 /**
- * Translate a JavaScript regex pattern to RE2-compatible syntax.
- * Uses RE2JS.translateRegExp to handle syntax differences.
+ * Translate JavaScript Unicode/control escapes; RE2 owns the remaining syntax.
+ * Translating the whole pattern would turn unsupported escapes into literals.
+ * Escaped backslashes and quoted RE2 literals must stay untouched.
  */
 function translatePattern(pattern: string): string {
-  return RE2JS.translateRegExp(pattern);
+  return pattern.replace(
+    /\\Q[\s\S]*?(?:\\E|$)|\\(?:(u(?:\{[0-9a-fA-F]+\}|[0-9a-fA-F]{4})|c[A-Za-z])|[\s\S])/g,
+    (token, translated: string | undefined) =>
+      translated === undefined ? token : RE2JS.translateRegExp(token),
+  );
 }
 
 // Only the immutable compiled RE2JS is shared; per-call state (lastIndex, the
@@ -121,10 +126,7 @@ export class UserRegex implements RegexLike {
   private _lastIndex = 0;
   // Cache native RegExp for compatibility - created lazily
   private _nativeRegex: RegExp | null = null;
-  // Reusable RE2 Matcher to avoid per-call allocation in tight grep loops.
-  // Matcher allocation dominates regex.test/exec cost when called once per line
-  // across thousands of lines. We mutate charSequence in-place (not resetMatcherInput,
-  // which is broken in re2js 1.2.1 — see acquireMatcher).
+  // Reuse the stateful RE2 Matcher; the public reset API replaces its input.
   private _matcher: ReturnType<RE2JS["matcher"]> | null = null;
   private _matcherInput: string | null = null;
   private readonly maxResults: number;
@@ -198,19 +200,11 @@ export class UserRegex implements RegexLike {
       return this._matcher;
     }
     if (this._matcherInput !== input) {
-      // Swap the cached Utf16MatcherInput's charSequence in-place to avoid
-      // allocating a new Matcher per call. RE2JS's resetMatcherInput is not
-      // safe with raw strings (the constructor wraps strings via
-      // MatcherInput.utf16, but resetMatcherInput assigns its argument
-      // directly and then calls .length() as a method, which throws on a
-      // raw string). MatcherInput is not exported, so we mutate the existing
-      // wrapper's charSequence field — Matcher.reset() reads matcherInput.length()
-      // afterwards, so the new length is picked up correctly.
-      // biome-ignore lint/suspicious/noExplicitAny: reaching into re2js internals
-      (this._matcher as any).matcherInput.charSequence = input;
+      this._matcher.resetMatcherInput(input);
       this._matcherInput = input;
+    } else {
+      this._matcher.reset();
     }
-    this._matcher.reset();
     return this._matcher;
   }
 
