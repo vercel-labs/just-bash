@@ -1,3 +1,4 @@
+// Automa modifications: N00b binary uploads and visible partial header output.
 /**
  * curl - Transfer data from or to a server
  *
@@ -11,7 +12,9 @@ import {
   latin1FromBytes,
   utf8ByteLength,
 } from "../../encoding.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { fromBuffer, toBuffer } from "../../fs/encoding.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import { _Headers } from "../../security/trusted-globals.js";
 import type {
@@ -28,6 +31,7 @@ import {
   extractFilename,
   formatHeaderBlock,
 } from "./response-formatting.js";
+import { curlTransportFailure, transfer } from "./transfer.js";
 import type { CurlOptions } from "./types.js";
 
 const requestDataEncoder = new TextEncoder();
@@ -131,25 +135,20 @@ async function prepareRequestBody(
   // Handle -T/--upload-file
   if (options.uploadFile) {
     const filePath = ctx.fs.resolvePath(ctx.cwd, options.uploadFile);
-    const content = await ctx.fs.readFile(filePath);
-    return { body: content };
+    const content = await ctx.fs.readFileBuffer(filePath);
+    return { body: new Uint8Array(content) };
   }
 
   // Handle -F/--form multipart data
   if (options.formFields.length > 0) {
-    const fileContents = new Map<string, string>();
+    const fileContents = new Map<string, Uint8Array>();
 
     // Read any file references
     for (const field of options.formFields) {
       if (field.value.startsWith("@") || field.value.startsWith("<")) {
         const filePath = ctx.fs.resolvePath(ctx.cwd, field.value.slice(1));
-        try {
-          const content = await ctx.fs.readFile(filePath);
-          fileContents.set(field.value.slice(1), content);
-        } catch {
-          // File not found, use empty string
-          fileContents.set(field.value.slice(1), "");
-        }
+        const content = await ctx.fs.readFileBuffer(filePath);
+        fileContents.set(field.value.slice(1), content);
       }
     }
 
@@ -212,22 +211,43 @@ function prepareHeaders(options: CurlOptions, contentType?: string): Headers {
   return headers;
 }
 
-/**
- * Save cookies from response to cookie jar file
- */
+class CurlWriteError extends Error {}
+async function writeOutput(
+  ctx: RuntimeCommandContext,
+  path: string,
+  data: string | Uint8Array,
+): Promise<void> {
+  try {
+    await ctx.fs.writeFile(path, data);
+  } catch (error) {
+    rethrowFatalExecutionError(error);
+    throw new CurlWriteError(getErrorMessage(error));
+  }
+}
+
+/** Cookie bytes come from an explicitly capable host, never Set-Cookie text. */
 async function saveCookies(
   options: CurlOptions,
-  headers: Record<string, string>,
+  jar: string | undefined,
   ctx: RuntimeCommandContext,
-): Promise<void> {
-  if (!options.cookieJar) return;
-
-  const setCookie = headers["set-cookie"];
-  if (!setCookie) return;
-
-  const filePath = ctx.fs.resolvePath(ctx.cwd, options.cookieJar);
-  // Simple format: just save the raw Set-Cookie values
-  await ctx.fs.writeFile(filePath, setCookie);
+): Promise<string> {
+  if (options.cookieJar === undefined) return "";
+  if (typeof jar !== "string")
+    throw new Error("Cookie jar export is not supported by this transport");
+  const lease = ctx.executionScope?.reserveBytes(
+    jar.length * 2,
+    "curl cookie jar",
+  );
+  try {
+    ctx.executionScope?.throwIfAborted("curl cookie jar");
+    ctx.signal?.throwIfAborted();
+    if (options.cookieJar === "-")
+      return fromBuffer(requestDataEncoder.encode(jar), "binary");
+    await writeOutput(ctx, ctx.fs.resolvePath(ctx.cwd, options.cookieJar), jar);
+    return "";
+  } finally {
+    lease?.release();
+  }
 }
 
 /** One JS character per byte for stdout (matches raw byte stream for ASCII / binary). */
@@ -285,16 +305,6 @@ function buildOutput(
     );
   }
 
-  // Write-out format
-  if (options.writeOut) {
-    output += applyWriteOut(options.writeOut, {
-      status: result.status,
-      headers: result.headers,
-      url: result.url,
-      bodyLength: result.body.byteLength,
-    });
-  }
-
   return output;
 }
 
@@ -337,9 +347,26 @@ export const curlCommand: RuntimeCommand = {
 
     // Normalize URL - add https:// if no protocol
     let url = options.url;
+    let dumpedHeaders = "";
+    let metrics = {
+      status: 0,
+      headers: Object.create(null) as Record<string, string>,
+      url,
+      bodyLength: 0,
+      timeTotal: 0,
+    };
     if (!url.match(/^https?:\/\//)) {
       url = `https://${url}`;
     }
+    metrics.url = url;
+    let pendingCookieJar: string | undefined;
+    let cookieOutput = "";
+    let cookieWriteAttempted = false;
+    const persistCookies = async () => {
+      // Never retry a jar write after an uncertain or partial filesystem error.
+      cookieWriteAttempted = true;
+      cookieOutput = await saveCookies(options, pendingCookieJar, ctx);
+    };
 
     try {
       // Resolve -d/--data* payloads (reading any @file references) once, then
@@ -354,6 +381,7 @@ export const curlCommand: RuntimeCommand = {
             : resolvedData,
         );
       }
+      metrics.url = url;
 
       // Prepare body and headers
       const { body, contentType } = await prepareRequestBody(
@@ -367,21 +395,42 @@ export const curlCommand: RuntimeCommand = {
       // failed connection does not leave stale headers from a prior run.
       if (options.dumpHeader !== undefined && options.dumpHeader !== "-") {
         const dumpPath = ctx.fs.resolvePath(ctx.cwd, options.dumpHeader);
-        await ctx.fs.writeFile(dumpPath, "");
+        await writeOutput(ctx, dumpPath, "");
       }
 
-      const result = await ctx.fetch(url, {
-        method: options.method,
-        headers,
-        body,
-        followRedirects: options.followRedirects,
-        timeoutMs: options.timeoutMs,
-        maxRedirects: options.maxRedirects,
-        signal: ctx.signal,
-      });
+      const { result, timeTotal } = await transfer(
+        url,
+        {
+          method: options.method,
+          headers,
+          body,
+          followRedirects: options.followRedirects,
+          maxRedirects: options.maxRedirects,
+          signal: ctx.signal,
+          wantCookieJar: options.cookieJar !== undefined,
+        },
+        options,
+        ctx,
+        (time) => {
+          metrics.timeTotal = time;
+        },
+      );
 
-      // Save cookies if requested
-      await saveCookies(options, result.headers, ctx);
+      // Capture transfer metrics and the explicitly exported host jar.
+      metrics = {
+        status: result.status,
+        headers: result.headers,
+        url: result.url,
+        bodyLength: result.body.byteLength,
+        timeTotal,
+      };
+      pendingCookieJar = result.cookieJar;
+      const writeOut = options.writeOut
+        ? fromBuffer(
+            requestDataEncoder.encode(applyWriteOut(options.writeOut, metrics)),
+            "binary",
+          )
+        : "";
 
       const finalHeaderBlock = formatHeaderBlock(
         result.status,
@@ -401,12 +450,13 @@ export const curlCommand: RuntimeCommand = {
         }
       }
       headerBlock += finalHeaderBlock;
+      dumpedHeaders = options.dumpHeader === "-" ? headerBlock : "";
 
       // -D/--dump-header FILE writes headers even when -f fails the transfer
       // (real curl still dumps 4xx/5xx response headers).
       if (options.dumpHeader !== undefined && options.dumpHeader !== "-") {
         const dumpPath = ctx.fs.resolvePath(ctx.cwd, options.dumpHeader);
-        await ctx.fs.writeFile(dumpPath, headerBlock);
+        await writeOutput(ctx, dumpPath, headerBlock);
       }
 
       // Check for HTTP errors with -f/--fail
@@ -415,8 +465,13 @@ export const curlCommand: RuntimeCommand = {
           options.showError || !options.silent
             ? `curl: (22) The requested URL returned error: ${result.status}\n`
             : "";
+        // Finalize the jar after the header file, including -f failures.
+        await persistCookies();
         // -D - still emits headers on stdout under -f (real curl).
-        const stdout = options.dumpHeader === "-" ? headerBlock : "";
+        const stdout =
+          (options.dumpHeader === "-" ? headerBlock : "") +
+          writeOut +
+          cookieOutput;
         return {
           stdout,
           stderr,
@@ -430,7 +485,9 @@ export const curlCommand: RuntimeCommand = {
       // so building it first would stringify the whole response body just to
       // throw the string away — a full UTF-16 copy of the payload on top of the
       // bytes we write out. Skip buildOutput entirely on that path.
-      const writesToFile = Boolean(options.outputFile || options.useRemoteName);
+      const writesToFile =
+        options.outputFile !== "-" &&
+        Boolean(options.outputFile || options.useRemoteName);
       const skipStdoutBody = writesToFile && !options.verbose;
       let output = skipStdoutBody ? "" : buildOutput(options, result, url);
 
@@ -438,7 +495,7 @@ export const curlCommand: RuntimeCommand = {
       if (writesToFile) {
         const filename = options.outputFile || extractFilename(url);
         const filePath = ctx.fs.resolvePath(ctx.cwd, filename);
-        await ctx.fs.writeFile(filePath, options.headOnly ? "" : result.body);
+        await writeOutput(ctx, filePath, options.headOnly ? "" : result.body);
 
         // Body goes to the file. stdout composition:
         // - `-D -` always emits the raw header block (even with `-v`)
@@ -452,39 +509,55 @@ export const curlCommand: RuntimeCommand = {
         } else {
           output = "";
         }
-
-        if (options.writeOut) {
-          const writeOut = applyWriteOut(options.writeOut, {
-            status: result.status,
-            headers: result.headers,
-            url: result.url,
-            bodyLength: result.body.byteLength,
-          });
-          if (options.verbose) {
-            // Preserve verbose + optional -D - block, then append -w
-            output += writeOut;
-          } else if (options.dumpHeader === "-") {
-            output = headerBlock + writeOut;
-          } else {
-            output = writeOut;
-          }
-        }
       } else if (options.dumpHeader === "-") {
         // No -o: prepend the dump block. When -i/-I/verbose already emitted
         // headers, this doubles them the way real `curl -D - -i` does.
         output = headerBlock + output;
       }
 
+      // Curl finalizes its jar after response outputs. When -c shares a path
+      // with -o or -D, the final file must still be a cookie jar.
+      await persistCookies();
       // The response body is a latin1-shaped byte buffer (see
-      // `fetchBodyToStdoutString`); any prepended headers / verbose markers are
-      // ASCII, so the whole stream is byte-shaped and must be marked "bytes".
-      return { stdout: output, stderr: "", exitCode: 0, stdoutKind: "bytes" };
+      // `fetchBodyToStdoutString`); write-out text is UTF-8 encoded separately
+      // so non-ASCII format text and effective URLs survive byte composition.
+      return {
+        stdout: output + writeOut + cookieOutput,
+        stderr: "",
+        exitCode: 0,
+        stdoutKind: "bytes",
+      };
     } catch (error) {
-      const message = getErrorMessage(error);
+      if (error instanceof ExecutionLimitError && dumpedHeaders) {
+        error.prependOutput(dumpedHeaders, "");
+      }
+      ctx.executionScope?.throwIfAborted("curl");
+      ctx.signal?.throwIfAborted();
+      rethrowFatalExecutionError(error);
+      let message = getErrorMessage(error);
+      // Ordinary output failures still finalize an available jar, as curl does.
+      // Cancellation/resource failures above never perform another write.
+      if (
+        error instanceof CurlWriteError &&
+        options.cookieJar !== undefined &&
+        pendingCookieJar !== undefined &&
+        !cookieWriteAttempted
+      ) {
+        try {
+          await persistCookies();
+        } catch (jarError) {
+          ctx.executionScope?.throwIfAborted("curl cookie jar");
+          ctx.signal?.throwIfAborted();
+          rethrowFatalExecutionError(jarError);
+          message += `; cookie jar: ${getErrorMessage(jarError)}`;
+        }
+      }
 
       // Determine exit code based on error type
       let exitCode = 1;
-      if (message.includes("Network access denied")) {
+      if (error instanceof CurlWriteError) {
+        exitCode = 23;
+      } else if (message.includes("Network access denied")) {
         exitCode = 7; // CURLE_COULDNT_CONNECT
       } else if (
         message.includes("HTTP method") &&
@@ -495,7 +568,9 @@ export const curlCommand: RuntimeCommand = {
         exitCode = 47; // CURLE_TOO_MANY_REDIRECTS-like
       } else if (message.includes("Too many redirects")) {
         exitCode = 47; // CURLE_TOO_MANY_REDIRECTS
-      } else if (message.includes("aborted")) {
+      } else if (curlTransportFailure(error) === "network") {
+        exitCode = 7;
+      } else if (curlTransportFailure(error) === "timeout") {
         exitCode = 28; // CURLE_OPERATION_TIMEDOUT
       }
 
@@ -503,7 +578,22 @@ export const curlCommand: RuntimeCommand = {
       const showErr = !options.silent || options.showError;
       const stderr = showErr ? `curl: (${exitCode}) ${message}\n` : "";
 
-      return { stdout: "", stderr, exitCode };
+      return {
+        stdout:
+          dumpedHeaders +
+          (options.writeOut
+            ? fromBuffer(
+                requestDataEncoder.encode(
+                  applyWriteOut(options.writeOut, metrics),
+                ),
+                "binary",
+              )
+            : "") +
+          cookieOutput,
+        stderr,
+        exitCode,
+        stdoutKind: "bytes",
+      };
     }
   },
 };

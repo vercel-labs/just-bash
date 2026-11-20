@@ -280,8 +280,8 @@ function formatStrftimeDirective(
     case "n":
       return "\n";
     case "N":
-      // Nanoseconds - we don't have sub-second precision
-      return "000000000";
+      // Filesystem timestamps and parsed epochs carry millisecond precision.
+      return String(date.getUTCMilliseconds() * 1_000_000).padStart(9, "0");
     case "p":
       return parts.hour < 12 ? "AM" : "PM";
     case "P":

@@ -28,7 +28,10 @@ function pushRangeValue(
   aggregateBytes: { value: number },
 ): boolean {
   if (results.length >= limits.maxResults) {
-    return false;
+    throw new ExecutionLimitError(
+      `brace expansion result limit exceeded (${limits.maxResults})`,
+      "iterations",
+    );
   }
   const bytes = utf8ByteLength(value);
   if (bytes > limits.maxStringBytes - aggregateBytes.value) {
@@ -96,20 +99,12 @@ function safeExpandNumericRange(
 
   if (start <= end) {
     // Ascending range
-    for (
-      let i = start, count = 0;
-      i <= end && count < MAX_SAFE_RANGE_ITERATIONS;
-      i += absStep, count++
-    ) {
+    for (let i = start; i <= end; i += absStep) {
       if (!pushRangeValue(results, formatNum(i), limits, aggregateBytes)) break;
     }
   } else {
     // Descending range (start > end)
-    for (
-      let i = start, count = 0;
-      i >= end && count < MAX_SAFE_RANGE_ITERATIONS;
-      i -= absStep, count++
-    ) {
+    for (let i = start; i >= end; i -= absStep) {
       if (!pushRangeValue(results, formatNum(i), limits, aggregateBytes)) break;
     }
   }
@@ -162,11 +157,7 @@ function safeExpandCharRange(
 
   if (startCode <= endCode) {
     // Ascending range
-    for (
-      let i = startCode, count = 0;
-      i <= endCode && count < MAX_SAFE_RANGE_ITERATIONS;
-      i += absStep, count++
-    ) {
+    for (let i = startCode; i <= endCode; i += absStep) {
       if (
         !pushRangeValue(results, String.fromCharCode(i), limits, aggregateBytes)
       ) {
@@ -175,11 +166,7 @@ function safeExpandCharRange(
     }
   } else {
     // Descending range
-    for (
-      let i = startCode, count = 0;
-      i >= endCode && count < MAX_SAFE_RANGE_ITERATIONS;
-      i -= absStep, count++
-    ) {
+    for (let i = startCode; i >= endCode; i -= absStep) {
       if (
         !pushRangeValue(results, String.fromCharCode(i), limits, aggregateBytes)
       ) {

@@ -1,3 +1,4 @@
+// Automa modification: opt into redirects so the original per-hop security assertions execute.
 /**
  * Tests that verify the mock is working correctly and fetch is only
  * called for allowed URLs
@@ -81,7 +82,7 @@ describe("allow-list mock verification", () => {
       network: { allowedUrlPrefixes: ["https://api.example.com"] },
     });
 
-    await env.exec("curl https://api.example.com/redirect-to-evil");
+    await env.exec("curl -L https://api.example.com/redirect-to-evil");
 
     // Should call fetch for the initial URL only
     const calledUrls = mockFetch.mock.calls.map((c) => c[0]);
@@ -96,7 +97,7 @@ describe("allow-list mock verification", () => {
       network: { allowedUrlPrefixes: ["https://api.example.com"] },
     });
 
-    await env.exec("curl https://api.example.com/redirect-to-allowed");
+    await env.exec("curl -L https://api.example.com/redirect-to-allowed");
 
     // Should call fetch for both URLs in the chain
     const calledUrls = mockFetch.mock.calls.map((c) => c[0]);

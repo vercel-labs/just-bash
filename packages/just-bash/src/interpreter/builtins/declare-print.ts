@@ -24,11 +24,12 @@ import type { InterpreterContext } from "../types.js";
  * Get the attribute flags string for a variable (e.g., "-r", "-x", "-rx", "--")
  * Order follows bash convention: a/A (array), i (integer), l (lowercase), n (nameref), r (readonly), u (uppercase), x (export)
  */
-function getVariableFlags(ctx: InterpreterContext, name: string): string {
-  let flags = "";
-
-  // Note: array flags (-a/-A) are handled separately in the caller
-  // since they require different output format
+function getVariableFlags(
+  ctx: InterpreterContext,
+  name: string,
+  arrayKind: "a" | "A" | "" = "",
+): string {
+  let flags = arrayKind;
 
   // Integer attribute
   if (ctx.state.integerVars?.has(name)) {
@@ -99,14 +100,14 @@ export function printSpecificVariables(
     if (isAssoc) {
       const keys = getAssocArrayKeys(ctx, name);
       if (keys.length === 0) {
-        stdout += `declare -A ${name}=()\n`;
+        stdout += `declare ${getVariableFlags(ctx, name, "A")} ${name}=()\n`;
       } else {
         const elements = keys.map((key) => {
           const value = getArrayElement(ctx, name, key) ?? "";
           const formattedValue = formatAssocValue(value);
           return `[${formatAssocKey(key)}]=${formattedValue}`;
         });
-        stdout += `declare -A ${name}=(${elements.join(" ")})\n`;
+        stdout += `declare ${getVariableFlags(ctx, name, "A")} ${name}=(${elements.join(" ")})\n`;
       }
       continue;
     }
@@ -118,13 +119,13 @@ export function printSpecificVariables(
         const value = getArrayElement(ctx, name, index) ?? "";
         return `[${index}]=${quoteArrayValue(value)}`;
       });
-      stdout += `declare -a ${name}=(${elements.join(" ")})\n`;
+      stdout += `declare ${getVariableFlags(ctx, name, "a")} ${name}=(${elements.join(" ")})\n`;
       continue;
     }
 
     // Check if this is a declared empty array.
     if (hasArray(ctx, name)) {
-      stdout += `declare -a ${name}=()\n`;
+      stdout += `declare ${getVariableFlags(ctx, name, "a")} ${name}=()\n`;
       continue;
     }
 
@@ -234,7 +235,7 @@ export function printAllVariables(
     if (isAssoc) {
       const keys = getAssocArrayKeys(ctx, name);
       if (keys.length === 0) {
-        stdout += `declare -A ${name}=()\n`;
+        stdout += `declare ${getVariableFlags(ctx, name, "A")} ${name}=()\n`;
       } else {
         const elements = keys.map((key) => {
           const value = getArrayElement(ctx, name, key) ?? "";
@@ -242,7 +243,7 @@ export function printAllVariables(
           const formattedValue = formatAssocValue(value);
           return `[${formatAssocKey(key)}]=${formattedValue}`;
         });
-        stdout += `declare -A ${name}=(${elements.join(" ")})\n`;
+        stdout += `declare ${getVariableFlags(ctx, name, "A")} ${name}=(${elements.join(" ")})\n`;
       }
       continue;
     }
@@ -253,13 +254,13 @@ export function printAllVariables(
         const value = getArrayElement(ctx, name, index) ?? "";
         return `[${index}]=${quoteArrayValue(value)}`;
       });
-      stdout += `declare -a ${name}=(${elements.join(" ")})\n`;
+      stdout += `declare ${getVariableFlags(ctx, name, "a")} ${name}=(${elements.join(" ")})\n`;
       continue;
     }
 
     // Check if this is an empty array
     if (hasArray(ctx, name)) {
-      stdout += `declare -a ${name}=()\n`;
+      stdout += `declare ${getVariableFlags(ctx, name, "a")} ${name}=()\n`;
       continue;
     }
 
@@ -287,7 +288,7 @@ export function listAssociativeArrays(ctx: InterpreterContext): ExecResult {
     const keys = getAssocArrayKeys(ctx, name);
     if (keys.length === 0) {
       // Empty associative array
-      stdout += `declare -A ${name}=()\n`;
+      stdout += `declare ${getVariableFlags(ctx, name, "A")} ${name}=()\n`;
     } else {
       // Non-empty associative array: format as (['key']=value ...)
       const elements = keys.map((key) => {
@@ -296,7 +297,7 @@ export function listAssociativeArrays(ctx: InterpreterContext): ExecResult {
         const formattedValue = formatAssocValue(value);
         return `[${formatAssocKey(key)}]=${formattedValue}`;
       });
-      stdout += `declare -A ${name}=(${elements.join(" ")})\n`;
+      stdout += `declare ${getVariableFlags(ctx, name, "A")} ${name}=(${elements.join(" ")})\n`;
     }
   }
 
@@ -323,14 +324,14 @@ export function listIndexedArrays(ctx: InterpreterContext): ExecResult {
     const indices = getArrayIndices(ctx, name);
     if (indices.length === 0) {
       // Empty array
-      stdout += `declare -a ${name}=()\n`;
+      stdout += `declare ${getVariableFlags(ctx, name, "a")} ${name}=()\n`;
     } else {
       // Non-empty array: format as ([index]="value" ...)
       const elements = indices.map((index) => {
         const value = getArrayElement(ctx, name, index) ?? "";
         return `[${index}]=${quoteArrayValue(value)}`;
       });
-      stdout += `declare -a ${name}=(${elements.join(" ")})\n`;
+      stdout += `declare ${getVariableFlags(ctx, name, "a")} ${name}=(${elements.join(" ")})\n`;
     }
   }
 

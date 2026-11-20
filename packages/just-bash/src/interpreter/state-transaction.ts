@@ -1,3 +1,4 @@
+import { cloneFdAliases } from "./fd-table.js";
 import { cloneArrays } from "./helpers/array.js";
 import type { CompletionSpec, InterpreterState, ShellArray } from "./types.js";
 
@@ -24,28 +25,6 @@ function cloneCompletionSpecs(
         ]),
       )
     : undefined;
-}
-
-/**
- * Copy the fd alias groups, preserving the sharing structure: descriptors
- * that shared one Set in the original must share one Set in the copy, or the
- * subshell's reads would only move some of the aliases.
- */
-function cloneFdAliases(
-  aliases: Map<number, Set<number>> | undefined,
-): Map<number, Set<number>> | undefined {
-  if (!aliases) return undefined;
-  const copiedGroups = new Map<Set<number>, Set<number>>();
-  const cloned = new Map<number, Set<number>>();
-  for (const [fd, group] of aliases) {
-    let copy = copiedGroups.get(group);
-    if (!copy) {
-      copy = new Set(group);
-      copiedGroups.set(group, copy);
-    }
-    cloned.set(fd, copy);
-  }
-  return cloned;
 }
 
 function cloneLocalArrayScopes(
@@ -87,6 +66,7 @@ function cloneLocalVarStack(
 export function beginIsolatedShellState(state: InterpreterState): () => void {
   const saved = {
     env: state.env,
+    fileCreationMask: state.fileCreationMask,
     arrays: state.arrays,
     cwd: state.cwd,
     previousDir: state.previousDir,
@@ -97,6 +77,7 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
     shoptOptions: state.shoptOptions,
     fileDescriptors: state.fileDescriptors,
     inputFds: state.inputFds,
+    fdInputSessions: state.fdInputSessions,
     deviceFds: state.deviceFds,
     fdAliases: state.fdAliases,
     closedStandardFds: state.closedStandardFds,
@@ -127,6 +108,7 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
     callLineStack: state.callLineStack,
     funcNameStack: state.funcNameStack,
     sourceStack: state.sourceStack,
+    callerFrames: state.callerFrames,
     currentSource: state.currentSource,
     inCondition: state.inCondition,
     loopDepth: state.loopDepth,
@@ -153,6 +135,9 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
     : undefined;
   // Travels with the descriptor table it classifies.
   state.inputFds = state.inputFds ? new Set(state.inputFds) : undefined;
+  state.fdInputSessions = state.fdInputSessions
+    ? new Map(state.fdInputSessions)
+    : undefined;
   state.deviceFds = state.deviceFds ? new Set(state.deviceFds) : undefined;
   state.fdAliases = cloneFdAliases(state.fdAliases);
   state.closedStandardFds = state.closedStandardFds

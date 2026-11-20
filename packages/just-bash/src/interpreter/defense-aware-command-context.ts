@@ -226,6 +226,15 @@ export function createDefenseAwareCommandContext(
     descriptors,
   ) as RuntimeCommandContext;
 
+  if (ctx.writeOutput) {
+    wrappedCtx.writeOutput = wrapFunction(
+      ctx.writeOutput,
+      ctx.requireDefenseContext,
+      component,
+      "writeOutput",
+    );
+  }
+
   if (ctx.exec) {
     wrappedCtx.exec = wrapFunction(
       ctx.exec,

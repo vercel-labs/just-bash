@@ -1,3 +1,4 @@
+// Automa modification: N00b --sort/--sortr parsing and validation.
 /**
  * Argument parsing for rg command - Declarative approach
  */
@@ -95,6 +96,13 @@ interface ValueOptDef {
 }
 
 const VALUE_OPTS: ValueOptDef[] = [
+  {
+    short: "M",
+    long: "max-columns",
+    target: "maxColumns",
+    parse: Number,
+    validate: (value) => validateNonnegativeInteger("max-columns", value),
+  },
   { short: "g", long: "glob", target: "globs", multi: true },
   { long: "iglob", target: "iglobs", multi: true },
   {
@@ -165,6 +173,13 @@ const VALUE_OPTS: ValueOptDef[] = [
 type BoolFlagHandler = (options: RgOptions) => void;
 
 const BOOL_FLAGS = new Map<string, BoolFlagHandler>([
+  // Automa private adapter; not part of ripgrep's public CLI contract.
+  [
+    "--automa-respect-ignore",
+    (o) => {
+      o.automaRespectIgnore = true;
+    },
+  ],
   [
     "--help",
     (o) => {
@@ -516,16 +531,57 @@ const BOOL_FLAGS = new Map<string, BoolFlagHandler>([
     "a",
     (o) => {
       o.searchBinary = true;
+      o.binaryAsText = true;
     },
   ],
   [
     "--text",
     (o) => {
       o.searchBinary = true;
+      o.binaryAsText = true;
+    },
+  ],
+
+  [
+    "--binary",
+    (o) => {
+      o.searchBinary = true;
+      o.binaryAsText = false;
     },
   ],
 
   // Output formatting
+  [
+    "--max-columns-preview",
+    (o) => {
+      o.maxColumnsPreview = true;
+    },
+  ],
+  [
+    "--no-max-columns-preview",
+    (o) => {
+      o.maxColumnsPreview = false;
+    },
+  ],
+  // Backported from vercel-labs/just-bash#705 and #712.
+  [
+    "--no-messages",
+    (o) => {
+      o.noMessages = true;
+    },
+  ],
+  [
+    "--messages",
+    (o) => {
+      o.noMessages = false;
+    },
+  ],
+  [
+    "--no-heading",
+    (o) => {
+      o.heading = false;
+    },
+  ],
   [
     "--heading",
     (o) => {
@@ -554,17 +610,6 @@ const BOOL_FLAGS = new Map<string, BoolFlagHandler>([
 
 // Special flags that return a value indicating line number was explicitly set
 const LINE_NUMBER_FLAGS = new Set(["n", "--line-number"]);
-
-// Handle unrestricted mode (-u, -uu, -uuu)
-function handleUnrestricted(options: RgOptions): void {
-  if (options.hidden) {
-    options.searchBinary = true;
-  } else if (options.noIgnore) {
-    options.hidden = true;
-  } else {
-    options.noIgnore = true;
-  }
-}
 
 /**
  * Try to parse a value option, returning the new index if matched
@@ -647,24 +692,33 @@ function applyValueOpt(
 function parseSort(
   args: string[],
   i: number,
-): { value: "path" | "none"; newIndex: number } | null {
-  const arg = args[i];
-
-  if (arg === "--sort" && i + 1 < args.length) {
-    const val = args[i + 1];
-    if (val === "path" || val === "none") {
-      return { value: val, newIndex: i + 1 };
-    }
+):
+  | { value: RgOptions["sort"]; reverse: boolean; newIndex: number }
+  | { error: ExecResult }
+  | null {
+  const match = /^--(sort|sortr)(?:=(.*))?$/.exec(args[i]);
+  if (!match) return null;
+  const value = match[2] === undefined ? args[i + 1] : match[2];
+  if (
+    value !== "none" &&
+    value !== "path" &&
+    value !== "modified" &&
+    value !== "accessed" &&
+    value !== "created"
+  ) {
+    return {
+      error: {
+        stdout: "",
+        stderr: "rg: invalid or missing sort value\n",
+        exitCode: 2,
+      },
+    };
   }
-
-  if (arg.startsWith("--sort=")) {
-    const val = arg.slice("--sort=".length);
-    if (val === "path" || val === "none") {
-      return { value: val, newIndex: i };
-    }
-  }
-
-  return null;
+  return {
+    value,
+    reverse: match[1] === "sortr" && value !== "none",
+    newIndex: match[2] === undefined ? i + 1 : i,
+  };
 }
 
 /**
@@ -681,6 +735,7 @@ export function parseArgs(args: string[]): ParseArgsResult {
   let explicitC = -1;
   let explicitLineNumbers = false;
   let endOfOptions = false;
+  let unrestrictedCount = 0;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -704,7 +759,11 @@ export function parseArgs(args: string[]): ParseArgsResult {
       // Try sort option
       const sortResult = parseSort(args, i);
       if (sortResult) {
+        if ("error" in sortResult)
+          return { success: false, error: sortResult.error };
         options.sort = sortResult.value;
+        options.sortRequested = true;
+        options.sortReverse = sortResult.reverse;
         i = sortResult.newIndex;
         continue;
       }
@@ -722,7 +781,13 @@ export function parseArgs(args: string[]): ParseArgsResult {
 
         // Check for unrestricted mode
         if (flag === "u" || flag === "--unrestricted") {
-          handleUnrestricted(options);
+          unrestrictedCount++;
+          options.noIgnore = true;
+          if (unrestrictedCount >= 2) options.hidden = true;
+          if (unrestrictedCount >= 3) {
+            options.searchBinary = true;
+            options.binaryAsText = false;
+          }
           continue;
         }
 

@@ -1,3 +1,5 @@
+import { createOutputSink } from "./output-sink.js";
+import { BASH_VERSION, bashVersionInfo } from "./shell-metadata.js";
 /**
  * Bash - Bash Shell Environment
  *
@@ -54,6 +56,7 @@ import {
   type InterpreterOptions,
   type InterpreterState,
 } from "./interpreter/index.js";
+import type { SharedInputSession, ShellArray } from "./interpreter/types.js";
 import {
   type ExecutionLimitProfile,
   type ExecutionLimits,
@@ -81,14 +84,25 @@ import type {
   BashExecResult,
   Command,
   CommandRegistry,
+  EnvironmentInfo,
   FeatureCoverageWriter,
   RuntimeCommand,
   TraceCallback,
+  VirtualFileMetadata,
 } from "./types.js";
 
 export type { ExecutionLimitProfile, ExecutionLimits } from "./limits.js";
 
 const DEFAULT_PATH = "/usr/bin:/bin";
+
+function versionArray(arch?: string): ShellArray {
+  return {
+    kind: "indexed",
+    elements: new Map(
+      bashVersionInfo(arch).map((value, index) => [String(index), value]),
+    ),
+  };
+}
 
 /**
  * Variables a shell sets from its build and host at startup when the
@@ -142,6 +156,8 @@ export interface JavaScriptConfig {
 }
 
 export interface BashOptions {
+  environmentInfo?: EnvironmentInfo;
+  virtualFileMetadata?: VirtualFileMetadata;
   files?: InitialFiles;
   env?: Record<string, string>;
   cwd?: string;
@@ -279,6 +295,11 @@ export interface BashOptions {
 }
 
 export interface ExecOptions {
+  /** Automa: ordered terminal output flushed at command boundaries. */
+  onOutput?: (
+    text: string,
+    stream: "stdout" | "stderr",
+  ) => void | Promise<void>;
   /**
    * Environment variables to set for this execution only.
    * These are merged with the current environment and restored after execution.
@@ -328,6 +349,8 @@ export interface ExecOptions {
 }
 
 export class Bash {
+  private environmentInfo?: EnvironmentInfo;
+  private virtualFileMetadata?: VirtualFileMetadata;
   readonly fs: IFileSystem;
   private commands: CommandRegistry = new Map();
   private useDefaultLayout: boolean = false;
@@ -351,6 +374,11 @@ export class Bash {
   private state: InterpreterState;
 
   constructor(options: BashOptions = {}) {
+    this.environmentInfo =
+      options.environmentInfo && Object.freeze({ ...options.environmentInfo });
+    this.virtualFileMetadata =
+      options.virtualFileMetadata &&
+      Object.freeze({ ...options.virtualFileMetadata });
     // Resolve limits before constructing the default filesystem so retained
     // virtual storage follows the same host-selected policy as execution.
     this.limits = resolveLimits(
@@ -389,7 +417,9 @@ export class Bash {
       ["OPTIND", "1"], // getopts option index
       // Add user-provided env vars
       ...Object.entries(options.env ?? {}),
+      ["BASH_VERSION", BASH_VERSION],
     ]);
+    env.delete("BASH_VERSINFO");
 
     // Create secure fetch: prefer explicit fetch, fall back to network config
     if (options.fetch) {
@@ -417,7 +447,9 @@ export class Bash {
     // Initialize interpreter state
     this.state = {
       env,
-      arrays: new Map(),
+      arrays: new Map([
+        ["BASH_VERSINFO", versionArray(this.environmentInfo?.arch)],
+      ]),
       cwd,
       previousDir: "/home/user",
       functions: new Map<string, FunctionDefNode>(),
@@ -430,6 +462,7 @@ export class Bash {
       lastArg: "", // $_ is initially empty (or could be shell name)
       startTime: Date.now(),
       lastBackgroundPid: 0,
+      fileCreationMask: 0o022,
       virtualPid: options.processInfo?.pid ?? 1,
       virtualPpid: options.processInfo?.ppid ?? 0,
       virtualUid: options.processInfo?.uid ?? 1000,
@@ -477,7 +510,7 @@ export class Bash {
         ...Object.keys(options.env || {}),
       ]),
       // SHELLOPTS and BASHOPTS are readonly
-      readonlyVars: new Set(["SHELLOPTS", "BASHOPTS"]),
+      readonlyVars: new Set(["SHELLOPTS", "BASHOPTS", "BASH_VERSINFO"]),
       // Hash table for PATH command lookup caching
       hashTable: new Map(),
     };
@@ -633,6 +666,10 @@ export class Bash {
     options?: ExecOptions,
   ): Promise<BashExecResult> {
     const executionScope = new ExecutionScope(this.limits, options?.signal);
+    executionScope.automaOutput = createOutputSink(
+      executionScope,
+      options?.onOutput,
+    );
     let result: BashExecResult;
     try {
       result = await this.execInScope(
@@ -666,6 +703,18 @@ export class Bash {
         exitCode: 126,
       };
     }
+    if (executionScope.failure instanceof ExecutionLimitError) {
+      finalResult = {
+        ...finalResult,
+        exitCode: 126,
+        executionFailure: {
+          kind: "resource-limit",
+          limitType: executionScope.failure.limitType,
+          message: executionScope.failure.message,
+        },
+      };
+    }
+    finalResult = await executionScope.automaOutput.finish(finalResult);
     return commandLine.trim() ? this.logResult(finalResult) : finalResult;
   }
 
@@ -678,6 +727,7 @@ export class Bash {
     stdinAlreadyAccounted = false,
     shouldLogResult = true,
     callerState?: InterpreterState,
+    inputSession?: SharedInputSession,
   ): Promise<BashExecResult> {
     const finishResult = (result: BashExecResult): BashExecResult =>
       shouldLogResult ? this.logResult(result) : result;
@@ -758,12 +808,13 @@ export class Bash {
 
       // Decide which variables the new shell exports to its children. Only
       // the host API and new shells treat `env` as the environment; internal
-      // callers such as `env` and `time` pass the full variable map and keep
+      // callers such as `time` pass the full variable map and keep
       // the caller's export set, including prefix exports (`FOO=x time ...`).
       // The set is always copied so an `export` in one exec does not leak
       // into later ones. Only valid names can be exported: nested sh/bash
       // passes positional parameters ("0", "#", "1") through env.
-      const exportsEnv = !callerState || effectiveOptions.newShell;
+      // Automa: replaceEnv (env command) supplies an exported environment.
+      const exportsEnv = !callerState || replaceEnv;
       const exportedVars =
         replaceEnv && exportsEnv
           ? new Set<string>()
@@ -799,6 +850,8 @@ export class Bash {
         execEnv.set("OPTIND", "1");
         execEnv.set("SHELLOPTS", buildShellopts(this.state.options));
         execEnv.set("BASHOPTS", buildBashopts(this.state.shoptOptions));
+        execEnv.set("BASH_VERSION", BASH_VERSION);
+        execEnv.delete("BASH_VERSINFO");
       }
 
       // A recursive exec continues the calling shell, so it inherits that
@@ -810,9 +863,16 @@ export class Bash {
 
       const execState: InterpreterState = {
         ...this.state,
+        // A new bash inherits the process mask too; unlike variables it is
+        // not reset by env -i or the newShell environment policy.
+        fileCreationMask: (callerState ?? this.state).fileCreationMask,
         env: execEnv,
         exportedVars,
-        arrays: replaceEnv ? new Map() : cloneArrays(this.state.arrays),
+        arrays: replaceEnv
+          ? new Map([
+              ["BASH_VERSINFO", versionArray(this.environmentInfo?.arch)],
+            ])
+          : cloneArrays(this.state.arrays),
         cwd: newCwd,
         previousDir:
           effectiveOptions.env?.OLDPWD ??
@@ -888,7 +948,15 @@ export class Bash {
             commands: this.commands,
             limits: this.limits,
             executionScope,
-            exec: (script, childOptions, childStdinAlreadyAccounted = false) =>
+            inputSession,
+            environmentInfo: this.environmentInfo,
+            virtualFileMetadata: this.virtualFileMetadata,
+            exec: (
+              script,
+              childOptions,
+              childStdinAlreadyAccounted = false,
+              childInputSession,
+            ) =>
               this.execInScope(
                 script,
                 childOptions,
@@ -898,6 +966,7 @@ export class Bash {
                 childStdinAlreadyAccounted,
                 true,
                 execState,
+                childInputSession,
               ),
             fetch: this.secureFetch,
             sleep: this.sleepFn,
@@ -931,6 +1000,7 @@ export class Bash {
             stderr: error.stderr,
             exitCode: error.exitCode,
             internalOutputAccounting: error.internalOutputAccounting,
+            internalOutputSegments: error.internalOutputSegments,
             env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
           });
         }
@@ -963,11 +1033,18 @@ export class Bash {
         // ExecutionLimitError is thrown when our conservative limits are exceeded
         // (command count, recursion depth, loop iterations)
         if (error instanceof ExecutionLimitError) {
+          executionScope.poisonAfterAbort(error);
           return finishResult({
             stdout: error.stdout,
             stderr: sanitizeErrorMessage(error.stderr),
             exitCode: ExecutionLimitError.EXIT_CODE,
+            executionFailure: {
+              kind: "resource-limit",
+              limitType: error.limitType,
+              message: error.message,
+            },
             internalOutputAccounting: error.internalOutputAccounting,
+            internalOutputSegments: error.internalOutputSegments,
             env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
           });
         }
@@ -1021,11 +1098,18 @@ export class Bash {
         });
       }
       if (error instanceof ExecutionLimitError) {
+        executionScope.poisonAfterAbort(error);
         return finishResult({
           stdout: error.stdout,
           stderr: sanitizeErrorMessage(error.stderr),
           exitCode: ExecutionLimitError.EXIT_CODE,
+          executionFailure: {
+            kind: "resource-limit",
+            limitType: error.limitType,
+            message: error.message,
+          },
           internalOutputAccounting: error.internalOutputAccounting,
+          internalOutputSegments: error.internalOutputSegments,
           env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
         });
       }
@@ -1211,7 +1295,10 @@ function normalizeScript(script: string): string {
 /**
  * Strict UTF-8 decoder that throws on invalid byte sequences.
  */
-const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+const strictUtf8Decoder = new TextDecoder("utf-8", {
+  fatal: true,
+  ignoreBOM: true,
+});
 
 /**
  * Decode a binary string (latin1, where each char = one byte) to UTF-8.

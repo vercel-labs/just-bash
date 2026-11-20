@@ -801,7 +801,8 @@ function tryParseHeredocTests(
  * echo 'expected' > $TEMP2
  * diff $TEMP1 $TEMP2 || fail 'BAD: T.split testname'
  *
- * Note: $TEMP0 is input file, $TEMP1 is awk output, $TEMP2 is expected output
+ * Usually $TEMP0 is input, $TEMP1 is awk output and $TEMP2 is expected output.
+ * Some tests write the expected $TEMP1 before running awk into $TEMP2.
  */
 function tryParseTempVarStyleTest(
   lines: string[],
@@ -915,6 +916,27 @@ function tryParseTempVarStyleTest(
   let expectedOutput = "";
   let testName = "";
   let nextLine = awkEndLine + 1;
+
+  // Automa modifications: preserve the source golden when actual/expected
+  // temp files are reversed. Do not mistake an earlier test's echo for it.
+  if (lines[awkEndLine].match(/>\s*\$TEMP2\b/)) {
+    let expectedStartLine = Math.max(0, startLine - 30);
+    for (let j = startLine - 1; j >= expectedStartLine; j--) {
+      if (lines[j].match(/diff\s+\$TEMP/) || lines[j].match(/fail\s+'/)) {
+        expectedStartLine = j + 1;
+        break;
+      }
+    }
+    const expectedSection = lines
+      .slice(expectedStartLine, startLine)
+      .join("\n");
+    const expectedEcho = expectedSection.match(
+      /^echo\s+'([^']*)'\s*>\s*\$TEMP1[ \t]*$/m,
+    );
+    if (expectedEcho) {
+      expectedOutput = expectedEcho[1];
+    }
+  }
 
   for (
     let j = awkEndLine + 1;

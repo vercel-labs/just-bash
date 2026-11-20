@@ -1,3 +1,9 @@
+// Automa: escape bytes remain bytes until the shell text boundary.
+function byteText(text: string): string {
+  return latin1FromBytes(encodeUtf8ToBytes(text));
+}
+
+import { encodeUtf8ToBytes, latin1FromBytes } from "../../encoding.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -7,7 +13,10 @@ import type {
 /**
  * Process echo -e escape sequences
  */
-function processEscapes(input: string): { output: string; stop: boolean } {
+function processEscapes(
+  input: string,
+  byteMode = false,
+): { output: string; stop: boolean } {
   let result = "";
   let i = 0;
 
@@ -119,7 +128,9 @@ function processEscapes(input: string): { output: string; stop: boolean } {
             i += 2;
           } else {
             const code = parseInt(hex, 16);
-            result += String.fromCodePoint(code);
+            result += byteMode
+              ? byteText(String.fromCodePoint(code))
+              : String.fromCodePoint(code);
             i = j;
           }
           break;
@@ -142,7 +153,9 @@ function processEscapes(input: string): { output: string; stop: boolean } {
           } else {
             const code = parseInt(hex, 16);
             try {
-              result += String.fromCodePoint(code);
+              result += byteMode
+                ? byteText(String.fromCodePoint(code))
+                : String.fromCodePoint(code);
             } catch {
               // Invalid code point, output as-is
               result += `\\U${hex}`;
@@ -151,14 +164,17 @@ function processEscapes(input: string): { output: string; stop: boolean } {
           }
           break;
         }
-        default:
+        default: {
           // Unknown escape - keep the backslash and character
-          result += `\\${next}`;
-          i += 2;
+          const literal = String.fromCodePoint(input.codePointAt(i + 1) ?? 0);
+          result += byteMode ? byteText(`\\${literal}`) : `\\${next}`;
+          i += byteMode ? 1 + literal.length : 2;
+        }
       }
     } else {
-      result += input[i];
-      i++;
+      const literal = String.fromCodePoint(input.codePointAt(i) ?? 0);
+      result += byteMode ? byteText(literal) : input[i];
+      i += byteMode ? literal.length : 1;
     }
   }
 
@@ -201,12 +217,13 @@ export const echoCommand: RuntimeCommand = {
     let output = args.slice(startIndex).join(" ");
 
     if (interpretEscapes) {
-      const result = processEscapes(output);
+      const result = processEscapes(output, true);
       output = result.output;
       if (result.stop) {
         // \c encountered - suppress newline and stop
         return {
           stdout: output,
+          stdoutKind: interpretEscapes ? "bytes" : "text",
           stderr: "",
           exitCode: 0,
           internalStdinConsumed: 0,
@@ -220,6 +237,7 @@ export const echoCommand: RuntimeCommand = {
 
     return {
       stdout: output,
+      stdoutKind: interpretEscapes ? "bytes" : "text",
       stderr: "",
       exitCode: 0,
       internalStdinConsumed: 0,

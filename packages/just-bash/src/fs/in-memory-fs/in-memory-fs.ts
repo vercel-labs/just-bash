@@ -257,6 +257,10 @@ export class InMemoryFs implements IFileSystem {
   ): void {
     validatePath(path, "write");
     const normalized = normalizePath(path);
+    if (this.data.get(normalized)?.type === "directory")
+      throw new Error(
+        `EISDIR: illegal operation on a directory, write '${path}'`,
+      );
     this.ensureParentDirs(normalized);
 
     // Store content - convert to Uint8Array for internal storage
@@ -270,9 +274,15 @@ export class InMemoryFs implements IFileSystem {
     this.setEntry(normalized, {
       type: "file",
       content: buffer,
-      mode: metadata?.mode ?? DEFAULT_FILE_MODE,
+      mode: metadata?.mode ?? this.existingFileMode(normalized),
       mtime: metadata?.mtime ?? new Date(),
     });
+  }
+
+  // Port the overwrite-mode preservation from upstream PR #578.
+  private existingFileMode(normalized: string): number {
+    const existing = this.data.get(normalized);
+    return existing?.type === "file" ? existing.mode : DEFAULT_FILE_MODE;
   }
 
   /**
@@ -286,12 +296,16 @@ export class InMemoryFs implements IFileSystem {
   ): void {
     validatePath(path, "write");
     const normalized = normalizePath(path);
+    if (this.data.get(normalized)?.type === "directory")
+      throw new Error(
+        `EISDIR: illegal operation on a directory, write '${path}'`,
+      );
     this.ensureParentDirs(normalized);
 
     this.setEntry(normalized, {
       type: "file",
       lazy,
-      mode: metadata?.mode ?? DEFAULT_FILE_MODE,
+      mode: metadata?.mode ?? this.existingFileMode(normalized),
       mtime: metadata?.mtime ?? new Date(),
     });
   }

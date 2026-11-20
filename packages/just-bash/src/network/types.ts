@@ -157,6 +157,8 @@ export interface NetworkConfig {
  * Result of a network fetch operation
  */
 export interface FetchResult {
+  /** Complete Netscape jar supplied by an explicitly capable trusted host. */
+  cookieJar?: string;
   status: number;
   statusText: string;
   headers: Record<string, string>;

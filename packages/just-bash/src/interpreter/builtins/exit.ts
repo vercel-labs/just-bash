@@ -11,7 +11,7 @@ export function handleExit(ctx: InterpreterContext, args: string[]): never {
 
   if (args.length === 0) {
     // Use last command's exit code when no argument given
-    exitCode = ctx.state.lastExitCode;
+    exitCode = ctx.state.automaTrapExitStatus ?? ctx.state.lastExitCode;
   } else {
     const arg = args[0];
     // Empty string or non-numeric is an error

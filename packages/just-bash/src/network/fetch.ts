@@ -81,6 +81,8 @@ export interface SecureFetchOptions {
   followRedirects?: boolean;
   /** Override timeout for this request (capped at global timeout) */
   timeoutMs?: number;
+  /** Request a host-produced Netscape jar; unsupported transports reject. */
+  wantCookieJar?: boolean;
   /** Override redirects for this request (capped at the host policy). */
   maxRedirects?: number;
   /** Abort DNS review, redirects, transport, and response-body consumption. */
@@ -394,6 +396,9 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     url: string,
     options: SecureFetchOptions = {},
   ): Promise<FetchResult> {
+    if (options.wantCookieJar) {
+      throw new Error("Cookie jar export is not supported by this transport");
+    }
     const method = options.method?.toUpperCase() ?? "GET";
     const followRedirects = options.followRedirects ?? true;
     if (

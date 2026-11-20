@@ -1,134 +1,104 @@
-/**
- * Shared checksum utilities for md5sum, sha1sum, sha256sum
- * Uses WebCrypto API for SHA algorithms, pure JS for MD5
- */
-
-import { decodeBytesToUtf8, latin1FromBytes } from "../../encoding.js";
+// Automa modifications: N00b operand boundaries; N5b hash family, bounded work,
+// byte-preserving filenames, GNU verification diagnostics and output ordering.
+import { blake2b } from "@noble/hashes/blake2.js";
+import { md5 } from "@noble/hashes/legacy.js";
+import { sha224 } from "@noble/hashes/sha2.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import type {
   ExecResult,
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { checksumIO } from "./checksum-io.js";
 
-export type HashAlgorithm = "md5" | "sha1" | "sha256";
-
-// Map prevents prototype pollution
-const WEBCRYPTO_ALGORITHMS = new Map<string, string>([
-  ["sha1", "SHA-1"],
-  ["sha256", "SHA-256"],
+export type HashAlgorithm =
+  | "md5"
+  | "sha1"
+  | "sha224"
+  | "sha256"
+  | "sha384"
+  | "sha512"
+  | "blake2b";
+const algorithms = new Map<
+  HashAlgorithm,
+  { length: number; webcrypto?: string }
+>([
+  ["md5", { length: 32 }],
+  ["sha1", { length: 40, webcrypto: "SHA-1" }],
+  ["sha224", { length: 56 }],
+  ["sha256", { length: 64, webcrypto: "SHA-256" }],
+  ["sha384", { length: 96, webcrypto: "SHA-384" }],
+  ["sha512", { length: 128, webcrypto: "SHA-512" }],
+  ["blake2b", { length: 128 }],
 ]);
-
-// Pure JS MD5 implementation (WebCrypto doesn't support MD5)
-function md5(bytes: Uint8Array): string {
-  function rotateLeft(x: number, n: number): number {
-    return (x << n) | (x >>> (32 - n));
-  }
-
-  const K = new Uint32Array([
-    0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a,
-    0xa8304613, 0xfd469501, 0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be,
-    0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821, 0xf61e2562, 0xc040b340,
-    0x265e5a51, 0xe9b6c7aa, 0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
-    0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed, 0xa9e3e905, 0xfcefa3f8,
-    0x676f02d9, 0x8d2a4c8a, 0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c,
-    0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70, 0x289b7ec6, 0xeaa127fa,
-    0xd4ef3085, 0x04881d05, 0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
-    0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039, 0x655b59c3, 0x8f0ccc92,
-    0xffeff47d, 0x85845dd1, 0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1,
-    0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391,
-  ]);
-  const S = [
-    7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5,
-    9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11,
-    16, 23, 4, 11, 16, 23, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10,
-    15, 21,
-  ];
-
-  // Padding
-  const bitLen = bytes.length * 8;
-  const paddingLen = (bytes.length % 64 < 56 ? 56 : 120) - (bytes.length % 64);
-  const padded = new Uint8Array(bytes.length + paddingLen + 8);
-  padded.set(bytes);
-  padded[bytes.length] = 0x80;
-  const view = new DataView(padded.buffer);
-  view.setUint32(padded.length - 8, bitLen >>> 0, true);
-  view.setUint32(padded.length - 4, Math.floor(bitLen / 0x100000000), true);
-
-  let a0 = 0x67452301;
-  let b0 = 0xefcdab89;
-  let c0 = 0x98badcfe;
-  let d0 = 0x10325476;
-
-  for (let i = 0; i < padded.length; i += 64) {
-    const M = new Uint32Array(16);
-    for (let j = 0; j < 16; j++) {
-      M[j] = view.getUint32(i + j * 4, true);
-    }
-
-    let A = a0,
-      B = b0,
-      C = c0,
-      D = d0;
-
-    for (let j = 0; j < 64; j++) {
-      let F: number, g: number;
-      if (j < 16) {
-        F = (B & C) | (~B & D);
-        g = j;
-      } else if (j < 32) {
-        F = (D & B) | (~D & C);
-        g = (5 * j + 1) % 16;
-      } else if (j < 48) {
-        F = B ^ C ^ D;
-        g = (3 * j + 5) % 16;
-      } else {
-        F = C ^ (B | ~D);
-        g = (7 * j) % 16;
-      }
-      F = (F + A + K[j] + M[g]) >>> 0;
-      A = D;
-      D = C;
-      C = B;
-      B = (B + rotateLeft(F, S[j])) >>> 0;
-    }
-
-    a0 = (a0 + A) >>> 0;
-    b0 = (b0 + B) >>> 0;
-    c0 = (c0 + C) >>> 0;
-    d0 = (d0 + D) >>> 0;
-  }
-
-  const result = new Uint8Array(16);
-  new DataView(result.buffer).setUint32(0, a0, true);
-  new DataView(result.buffer).setUint32(4, b0, true);
-  new DataView(result.buffer).setUint32(8, c0, true);
-  new DataView(result.buffer).setUint32(12, d0, true);
-
-  return Array.from(result)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
 
 async function computeHash(
   algorithm: HashAlgorithm,
   data: Uint8Array,
-): Promise<string> {
-  if (algorithm === "md5") {
-    return md5(data);
+  io: ReturnType<typeof checksumIO>,
+) {
+  const lease = io.reserve(data.length + 1024);
+  try {
+    let bytes: Uint8Array;
+    if (
+      algorithm === "md5" ||
+      algorithm === "sha224" ||
+      algorithm === "blake2b"
+    ) {
+      const hash =
+        algorithm === "md5"
+          ? md5.create()
+          : algorithm === "sha224"
+            ? sha224.create()
+            : blake2b.create();
+      try {
+        for (let at = 0; at < data.length; at += 65536) {
+          await io.pause(1 + Math.ceil(Math.min(65536, data.length - at) / 64));
+          hash.update(data.subarray(at, at + 65536));
+        }
+        io.check();
+        bytes = hash.digest();
+      } finally {
+        hash.destroy();
+      }
+    } else {
+      io.check(1 + Math.ceil(data.length / 64));
+      const webcrypto = algorithms.get(algorithm)?.webcrypto;
+      if (!webcrypto)
+        throw new Error(`Unsupported digest algorithm: ${algorithm}`);
+      // Keep one explicit WebCrypto call site for Automa's digest capability.
+      const hashBuffer = await globalThis.crypto.subtle.digest(
+        webcrypto,
+        new Uint8Array(data).buffer as ArrayBuffer,
+      );
+      io.check();
+      bytes = new Uint8Array(hashBuffer);
+    }
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+      "",
+    );
+  } finally {
+    lease.release();
   }
+}
 
-  const algoName = WEBCRYPTO_ALGORITHMS.get(algorithm);
-  if (!algoName) {
-    throw new Error(`Unknown algorithm: ${algorithm}`);
+const escapedName = (file: string) =>
+  file.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/\r/g, "\\r");
+function unescapeName(file: string): string | undefined {
+  let output = "";
+  for (let index = 0; index < file.length; index++) {
+    if (file[index] !== "\\") {
+      output += file[index];
+      continue;
+    }
+    const char = file[++index];
+    if (char === "\\") output += "\\";
+    else if (char === "n") output += "\n";
+    else if (char === "r") output += "\r";
+    else return undefined;
   }
-  const hashBuffer = await globalThis.crypto.subtle.digest(
-    algoName,
-    new Uint8Array(data).buffer as ArrayBuffer,
-  );
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  return output;
 }
 
 export function createChecksumCommand(
@@ -136,116 +106,180 @@ export function createChecksumCommand(
   algorithm: HashAlgorithm,
   summary: string,
 ): RuntimeCommand {
+  const definition = algorithms.get(algorithm);
+  if (!definition)
+    throw new Error(`Unsupported digest algorithm: ${algorithm}`);
   const help = {
     name,
     summary,
     usage: `${name} [OPTION]... [FILE]...`,
     options: [
       "-c, --check    read checksums from FILEs and check them",
+      "-b, --binary   mark output as binary",
+      "-t, --text     mark output as text",
       "    --help     display this help and exit",
     ],
   };
-
   return {
     name,
     async execute(
       args: string[],
       ctx: RuntimeCommandContext,
     ): Promise<ExecResult> {
-      if (hasHelpFlag(args)) return showHelp(help);
-
-      let check = false;
-      const files: string[] = [];
-
-      for (const arg of args) {
-        if (arg === "-c" || arg === "--check") check = true;
-        else if (
-          arg === "-b" ||
-          arg === "-t" ||
-          arg === "--binary" ||
-          arg === "--text"
-        ) {
-          /* ignored */
-        } else if (arg.startsWith("-") && arg !== "-")
-          return unknownOption(name, arg);
-        else files.push(arg);
-      }
-
-      if (files.length === 0) files.push("-");
-
-      // Helper to read file as binary. md5sum hashes raw bytes — pass them
-      // through without decoding.
-      const readBinary = async (file: string): Promise<Uint8Array | null> => {
-        if (file === "-") {
-          return Uint8Array.from(latin1FromBytes(ctx.stdin), (c) =>
-            c.charCodeAt(0),
-          );
+      const io = checksumIO(ctx, name);
+      try {
+        const endOptions = args.indexOf("--");
+        if (hasHelpFlag(endOptions < 0 ? args : args.slice(0, endOptions)))
+          return showHelp(help);
+        let check = false,
+          binary = false,
+          parseOptions = true,
+          exitCode = 0;
+        const files: string[] = [];
+        for (const arg of args) {
+          io.check();
+          if (!parseOptions) files.push(arg);
+          else if (arg === "--") parseOptions = false;
+          else if (arg === "-c" || arg === "--check") check = true;
+          else if (arg === "-b" || arg === "--binary") binary = true;
+          else if (arg === "-t" || arg === "--text") binary = false;
+          else if (arg.startsWith("-") && arg !== "-")
+            return unknownOption(name, arg);
+          else files.push(arg);
         }
-        try {
-          return await ctx.fs.readFileBuffer(ctx.fs.resolvePath(ctx.cwd, file));
-        } catch {
-          return null;
-        }
-      };
-
-      if (check) {
-        let failed = 0;
-        let output = "";
-
+        if (!files.length) files.push("-");
+        const fileError = (error: unknown, file: string) => {
+          rethrowFatalExecutionError(error);
+          io.check();
+          const message =
+            error instanceof Error ? error.message : String(error);
+          const code =
+            (error as { code?: string })?.code ??
+            /^(ENOENT|EACCES|EPERM|EISDIR|ENOTDIR):/.exec(message)?.[1];
+          const description =
+            code === "ENOENT"
+              ? "No such file or directory"
+              : code === "EACCES"
+                ? "Permission denied"
+                : code === "EPERM"
+                  ? "Operation not permitted"
+                  : code === "EISDIR"
+                    ? "Is a directory"
+                    : code === "ENOTDIR"
+                      ? "Not a directory"
+                      : undefined;
+          if (!description) throw error;
+          io.append("stderr", `${name}: ${file}: ${description}\n`);
+          exitCode = 1;
+        };
+        const verifyLine = async (expected: string, file: string) => {
+          const escaped = /[\\\n\r]/.test(file);
+          const label = `${escaped ? "\\" : ""}${escaped ? escapedName(file) : file}`;
+          let input: Awaited<ReturnType<typeof io.read>>;
+          try {
+            input = await io.read(file);
+          } catch (error) {
+            fileError(error, file);
+            io.append("stdout", `${label}: FAILED open or read\n`);
+            return "unreadable";
+          }
+          try {
+            const matches =
+              (await computeHash(algorithm, input.bytes, io)) ===
+              expected.toLowerCase();
+            io.append("stdout", `${label}: ${matches ? "OK" : "FAILED"}\n`);
+            if (!matches) exitCode = 1;
+            return matches ? "ok" : "mismatch";
+          } finally {
+            input.release();
+          }
+        };
         for (const file of files) {
-          // For check mode, the checksum file is text (hash + filename).
-          // Decode UTF-8 so non-ASCII filenames in the list survive.
-          const content =
-            file === "-"
-              ? decodeBytesToUtf8(ctx.stdin)
-              : await ctx.fs
-                  .readFile(ctx.fs.resolvePath(ctx.cwd, file))
-                  .catch(() => null);
-          if (content === null)
-            return {
-              stdout: "",
-              stderr: `${name}: ${file}: No such file or directory\n`,
-              exitCode: 1,
-            };
-
-          for (const line of content.split("\n")) {
-            const match = line.match(/^([a-fA-F0-9]+)\s+[* ]?(.+)$/);
-            if (!match) continue;
-
-            const [, expectedHash, targetFile] = match;
-            const fileContent = await readBinary(targetFile);
-            if (fileContent === null) {
-              output += `${targetFile}: FAILED open or read\n`;
-              failed++;
+          let input: Awaited<ReturnType<typeof io.read>>;
+          try {
+            input = await io.read(file);
+          } catch (error) {
+            fileError(error, file);
+            continue;
+          }
+          try {
+            if (!check) {
+              const hash = await computeHash(algorithm, input.bytes, io);
+              const escaped = /[\\\n\r]/.test(file);
+              io.append(
+                "stdout",
+                `${escaped ? "\\" : ""}${hash} ${binary ? "*" : " "}${escaped ? escapedName(file) : file}\n`,
+              );
               continue;
             }
-            const ok =
-              (await computeHash(algorithm, fileContent)) ===
-              expectedHash.toLowerCase();
-            output += `${targetFile}: ${ok ? "OK" : "FAILED"}\n`;
-            if (!ok) failed++;
+            const textLease = io.reserve(input.bytes.length * 4);
+            try {
+              const content = new TextDecoder().decode(input.bytes);
+              let valid = 0,
+                malformed = 0,
+                mismatch = 0,
+                unreadable = 0;
+              const pattern = /^(\\?)([a-fA-F0-9]+) [ *](.+)$/;
+              for (let at = 0; at < content.length; ) {
+                await io.pause();
+                const end = content.indexOf("\n", at);
+                const line = content.slice(at, end < 0 ? content.length : end);
+                at = end < 0 ? content.length : end + 1;
+                if (!line || line.startsWith("#")) continue;
+                io.check(1 + Math.ceil(line.length / 1024));
+                const match = pattern.exec(line);
+                const target = match
+                  ? match[1]
+                    ? unescapeName(match[3])
+                    : match[3]
+                  : undefined;
+                if (
+                  !match ||
+                  match[2].length !== definition.length ||
+                  target === undefined ||
+                  target.includes("\0") ||
+                  (file === "-" && target === "-")
+                ) {
+                  malformed++;
+                  continue;
+                }
+                valid++;
+                const outcome = await verifyLine(match[2], target);
+                if (outcome === "mismatch") mismatch++;
+                else if (outcome === "unreadable") unreadable++;
+              }
+              if (!valid) {
+                io.append(
+                  "stderr",
+                  `${name}: ${file === "-" ? "'standard input'" : file}: no properly formatted checksum lines found\n`,
+                );
+                exitCode = 1;
+              } else if (malformed)
+                io.append(
+                  "stderr",
+                  `${name}: WARNING: ${malformed} line${malformed === 1 ? " is" : "s are"} improperly formatted\n`,
+                );
+              if (unreadable)
+                io.append(
+                  "stderr",
+                  `${name}: WARNING: ${unreadable} listed file${unreadable === 1 ? "" : "s"} could not be read\n`,
+                );
+              if (mismatch)
+                io.append(
+                  "stderr",
+                  `${name}: WARNING: ${mismatch} computed checksum${mismatch === 1 ? "" : "s"} did NOT match\n`,
+                );
+            } finally {
+              textLease.release();
+            }
+          } finally {
+            input.release();
           }
         }
-
-        if (failed > 0)
-          output += `${name}: WARNING: ${failed} computed checksum${failed > 1 ? "s" : ""} did NOT match\n`;
-        return { stdout: output, stderr: "", exitCode: failed > 0 ? 1 : 0 };
+        return io.result(exitCode);
+      } finally {
+        io.dispose();
       }
-
-      let output = "";
-      let exitCode = 0;
-
-      for (const file of files) {
-        const content = await readBinary(file);
-        if (content === null) {
-          output += `${name}: ${file}: No such file or directory\n`;
-          exitCode = 1;
-          continue;
-        }
-        output += `${await computeHash(algorithm, content)}  ${file}\n`;
-      }
-
-      return { stdout: output, stderr: "", exitCode };
     },
   };
 }

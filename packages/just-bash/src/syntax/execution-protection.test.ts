@@ -292,8 +292,9 @@ describe("Execution Protection", () => {
       // {1..10000} would generate 10000 items
       const result = await env.exec("echo {1..100000}");
 
-      // Should either truncate or error, not hang
-      expect(result.exitCode).toBe(0); // Brace expansion truncates, doesn't error
+      // Automa: exhausted expansion must fail visibly, never run a clipped command.
+      expect(result.exitCode).toBe(126);
+      expect(result.executionFailure?.kind).toBe("resource-limit");
     });
 
     it("should protect against nested brace expansion explosion", async () => {
@@ -323,8 +324,9 @@ describe("Execution Protection", () => {
       const env = new Bash();
       const result = await env.exec("echo {1..1000000..1}");
 
-      // Should be limited, not hang
-      expect(result.exitCode).toBe(0);
+      // Automa: the configured result cap is a typed resource failure.
+      expect(result.exitCode).toBe(126);
+      expect(result.executionFailure?.kind).toBe("resource-limit");
     });
 
     it("should protect against character range explosion", async () => {

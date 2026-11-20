@@ -120,7 +120,7 @@ describe("curl timeouts", () => {
       });
       const result = await env.exec("curl -m 1 https://api.example.com/slow");
 
-      expect(result.exitCode).toBe(28); // CURLE_OPERATION_TIMEDOUT
+      expect(result).toMatchObject({ exitCode: 28, stdout: "" }); // CURLE_OPERATION_TIMEDOUT
       expect(result.stderr).toContain("aborted");
 
       // Restore mock

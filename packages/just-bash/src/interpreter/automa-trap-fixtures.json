@@ -1,0 +1,2134 @@
+[
+  {
+    "name": "EXIT body",
+    "script": "trap 'echo bye' EXIT; echo body",
+    "expected": {
+      "stdout": "body\nbye\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "EXIT explicit",
+    "script": "trap 'echo X:$?' EXIT; echo body; exit 7",
+    "expected": {
+      "stdout": "body\nX:7\n",
+      "stderr": "",
+      "exitCode": 7,
+      "files": {}
+    }
+  },
+  {
+    "name": "EXIT errexit",
+    "script": "set -e; trap 'echo X:$?' EXIT; false; echo unreachable",
+    "expected": {
+      "stdout": "X:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "EXIT keeps failed status",
+    "script": "trap 'echo X:$?; true' EXIT; false",
+    "expected": {
+      "stdout": "X:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "EXIT ignores ordinary trap status",
+    "script": "trap 'echo X:$?; false' EXIT; true",
+    "expected": {
+      "stdout": "X:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "EXIT explicit status override",
+    "script": "trap 'echo X:$?; exit 9' EXIT; false",
+    "expected": {
+      "stdout": "X:1\n",
+      "stderr": "",
+      "exitCode": 9,
+      "files": {}
+    }
+  },
+  {
+    "name": "EXIT failure under errexit",
+    "script": "set -e; trap 'echo X:$?; false; echo unreachable' EXIT; true",
+    "expected": {
+      "stdout": "X:0\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "EXIT replace and disable",
+    "script": "trap 'echo old' EXIT; trap 'echo new' EXIT; trap - EXIT; echo body",
+    "expected": {
+      "stdout": "body\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "EXIT no recursive replacement",
+    "script": "trap \"echo first; trap 'echo second' EXIT\" EXIT; true",
+    "expected": {
+      "stdout": "first\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "EXIT side effect",
+    "script": "trap 'echo cleanup > cleaned' EXIT; echo body",
+    "expected": {
+      "stdout": "body\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {
+        "cleaned": "cleanup\n"
+      }
+    }
+  },
+  {
+    "name": "ERR final",
+    "script": "trap 'echo E:$?' ERR; false",
+    "expected": {
+      "stdout": "E:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR continues",
+    "script": "trap 'echo E:$?' ERR; false; echo later",
+    "expected": {
+      "stdout": "E:1\nlater\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR errexit",
+    "script": "set -e; trap 'echo E:$?' ERR; false; echo unreachable",
+    "expected": {
+      "stdout": "E:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR action failure",
+    "script": "trap 'echo E:$?; false; echo handler-after' ERR; false; echo later",
+    "expected": {
+      "stdout": "E:1\nhandler-after\nlater\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR action failure errexit",
+    "script": "set -e; trap 'echo E:$?; false; echo unreachable' ERR; false; echo unreachable",
+    "expected": {
+      "stdout": "E:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR explicit exit",
+    "script": "trap 'echo E:$?; exit 4' ERR; trap 'echo X:$?' EXIT; false; echo unreachable",
+    "expected": {
+      "stdout": "E:1\nX:4\n",
+      "stderr": "",
+      "exitCode": 4,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR disable",
+    "script": "trap 'echo E' ERR; trap - ERR; false; echo later",
+    "expected": {
+      "stdout": "later\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR replace",
+    "script": "trap 'echo old' ERR; trap 'echo new:$?' ERR; false",
+    "expected": {
+      "stdout": "new:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR empty",
+    "script": "trap '' ERR; false",
+    "expected": {
+      "stdout": "",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR trap disables itself",
+    "script": "trap 'echo once; trap - ERR' ERR; false; false",
+    "expected": {
+      "stdout": "once\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR return status retained",
+    "script": "trap 'true' ERR; false; echo status:$?",
+    "expected": {
+      "stdout": "status:1\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR stderr",
+    "script": "trap 'echo E:$? >&2' ERR; false",
+    "expected": {
+      "stdout": "",
+      "stderr": "E:1\n",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "if condition",
+    "script": "trap 'echo E' ERR; if false; then :; fi",
+    "expected": {
+      "stdout": "",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "elif condition",
+    "script": "trap 'echo E' ERR; if false; then :; elif false; then :; else echo recovered; fi",
+    "expected": {
+      "stdout": "recovered\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "if body",
+    "script": "trap 'echo E' ERR; if true; then false; fi",
+    "expected": {
+      "stdout": "E\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "while condition",
+    "script": "trap 'echo E' ERR; while false; do :; done",
+    "expected": {
+      "stdout": "",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "until condition",
+    "script": "trap 'echo E' ERR; until false; do echo loop; break; done",
+    "expected": {
+      "stdout": "loop\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "while body",
+    "script": "trap 'echo E' ERR; n=0; while test $n -eq 0; do n=1; false; done",
+    "expected": {
+      "stdout": "E\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "until body",
+    "script": "trap 'echo E' ERR; until false; do false; break; done",
+    "expected": {
+      "stdout": "E\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "for body",
+    "script": "trap 'echo E' ERR; for n in a b; do false; done",
+    "expected": {
+      "stdout": "E\nE\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "case body",
+    "script": "trap 'echo E' ERR; case a in a) false;; esac",
+    "expected": {
+      "stdout": "E\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "group body",
+    "script": "trap 'echo E' ERR; { false; }",
+    "expected": {
+      "stdout": "E\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "AND non-final",
+    "script": "trap 'echo E' ERR; false && echo unreachable",
+    "expected": {
+      "stdout": "",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "AND final",
+    "script": "trap 'echo E' ERR; true && false",
+    "expected": {
+      "stdout": "E\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "OR recovered",
+    "script": "trap 'echo E' ERR; false || echo recovered",
+    "expected": {
+      "stdout": "recovered\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "OR final",
+    "script": "trap 'echo E' ERR; false || false",
+    "expected": {
+      "stdout": "E\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "mixed chain",
+    "script": "trap 'echo E' ERR; true && false || echo recovered",
+    "expected": {
+      "stdout": "recovered\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "negated false",
+    "script": "trap 'echo E' ERR; ! false",
+    "expected": {
+      "stdout": "",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "negated true",
+    "script": "trap 'echo E' ERR; ! true",
+    "expected": {
+      "stdout": "",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "pipeline ignored first",
+    "script": "trap 'echo E' ERR; false | true",
+    "expected": {
+      "stdout": "",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "pipeline failed final",
+    "script": "trap 'echo E' ERR; true | false",
+    "expected": {
+      "stdout": "E\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "pipeline pipefail",
+    "script": "set -o pipefail; trap 'echo E:$?' ERR; false | true",
+    "expected": {
+      "stdout": "E:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "pipeline pipefail negate",
+    "script": "set -o pipefail; trap 'echo E' ERR; ! false | true",
+    "expected": {
+      "stdout": "",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "function changes ERR",
+    "script": "trap 'echo P:$?' ERR; f(){ trap 'echo F:$?' ERR; false; }; f; false",
+    "expected": {
+      "stdout": "F:1\nF:1\nF:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "function disables ERR",
+    "script": "trap 'echo P' ERR; f(){ trap - ERR; false; }; f; false",
+    "expected": {
+      "stdout": "P\nP\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "function EXIT registration",
+    "script": "trap 'echo P' EXIT; f(){ trap 'echo F' EXIT; }; f; echo body",
+    "expected": {
+      "stdout": "body\nF\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "child EXIT independent",
+    "script": "trap 'echo P:$?' EXIT; (trap 'echo C:$?' EXIT; false); false",
+    "expected": {
+      "stdout": "C:1\nP:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "command EXIT independent",
+    "script": "trap 'echo P:$?' EXIT; x=$(trap 'echo C:$?' EXIT; false); echo \"x=$x\"",
+    "expected": {
+      "stdout": "x=C:1\nP:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "eval EXIT ownership",
+    "script": "trap 'echo P' EXIT; eval 'echo body'; echo after",
+    "expected": {
+      "stdout": "body\nafter\nP\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "trap listing",
+    "script": "trap 'echo bye' EXIT; trap 'echo err' ERR; trap -p; trap - EXIT ERR",
+    "expected": {
+      "stdout": "trap -- 'echo bye' EXIT\ntrap -- 'echo err' ERR\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "short errtrace flag",
+    "script": "set -E; case $- in *E*) echo enabled;; esac; set +E; case $- in *E*) echo bad;; *) echo disabled;; esac",
+    "expected": {
+      "stdout": "enabled\ndisabled\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "errtrace shopt query",
+    "script": "set -E; shopt -qo errtrace; echo enabled:$?; set +E; shopt -qo errtrace; echo disabled:$?",
+    "expected": {
+      "stdout": "enabled:0\ndisabled:1\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "inherit_errexit query",
+    "script": "shopt -s inherit_errexit; shopt -p inherit_errexit; shopt -u inherit_errexit; shopt -p inherit_errexit",
+    "expected": {
+      "stdout": "shopt -s inherit_errexit\nshopt -u inherit_errexit\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "function E=False e=False inherit=False",
+    "script": "trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false; echo inner; }; f; echo outer",
+    "expected": {
+      "stdout": "inner\nouter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "subshell E=False e=False inherit=False",
+    "script": "trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false; echo inner); echo outer",
+    "expected": {
+      "stdout": "inner\nouter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "command E=False e=False inherit=False",
+    "script": "trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; x=$(false; echo inner); printf \"value=%s\\n\" \"$x\"; echo outer",
+    "expected": {
+      "stdout": "value=inner\nouter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "function E=False e=False inherit=True",
+    "script": "shopt -s inherit_errexit; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false; echo inner; }; f; echo outer",
+    "expected": {
+      "stdout": "inner\nouter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "subshell E=False e=False inherit=True",
+    "script": "shopt -s inherit_errexit; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false; echo inner); echo outer",
+    "expected": {
+      "stdout": "inner\nouter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "command E=False e=False inherit=True",
+    "script": "shopt -s inherit_errexit; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; x=$(false; echo inner); printf \"value=%s\\n\" \"$x\"; echo outer",
+    "expected": {
+      "stdout": "value=inner\nouter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "function E=False e=True inherit=False",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false; echo inner; }; f; echo outer",
+    "expected": {
+      "stdout": "X:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "subshell E=False e=True inherit=False",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false; echo inner); echo outer",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "command E=False e=True inherit=False",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; x=$(false; echo inner); printf \"value=%s\\n\" \"$x\"; echo outer",
+    "expected": {
+      "stdout": "value=inner\nouter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "function E=False e=True inherit=True",
+    "script": "set -e; shopt -s inherit_errexit; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false; echo inner; }; f; echo outer",
+    "expected": {
+      "stdout": "X:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "subshell E=False e=True inherit=True",
+    "script": "set -e; shopt -s inherit_errexit; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false; echo inner); echo outer",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "command E=False e=True inherit=True",
+    "script": "set -e; shopt -s inherit_errexit; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; x=$(false; echo inner); printf \"value=%s\\n\" \"$x\"; echo outer",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "function E=True e=False inherit=False",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false; echo inner; }; f; echo outer",
+    "expected": {
+      "stdout": "E:1\ninner\nouter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "subshell E=True e=False inherit=False",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false; echo inner); echo outer",
+    "expected": {
+      "stdout": "E:1\ninner\nouter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "command E=True e=False inherit=False",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; x=$(false; echo inner); printf \"value=%s\\n\" \"$x\"; echo outer",
+    "expected": {
+      "stdout": "value=E:1\ninner\nouter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "function E=True e=False inherit=True",
+    "script": "set -E; shopt -s inherit_errexit; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false; echo inner; }; f; echo outer",
+    "expected": {
+      "stdout": "E:1\ninner\nouter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "subshell E=True e=False inherit=True",
+    "script": "set -E; shopt -s inherit_errexit; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false; echo inner); echo outer",
+    "expected": {
+      "stdout": "E:1\ninner\nouter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "command E=True e=False inherit=True",
+    "script": "set -E; shopt -s inherit_errexit; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; x=$(false; echo inner); printf \"value=%s\\n\" \"$x\"; echo outer",
+    "expected": {
+      "stdout": "value=E:1\ninner\nouter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "function E=True e=True inherit=False",
+    "script": "set -E; set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false; echo inner; }; f; echo outer",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "subshell E=True e=True inherit=False",
+    "script": "set -E; set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false; echo inner); echo outer",
+    "expected": {
+      "stdout": "E:1\nE:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "command E=True e=True inherit=False",
+    "script": "set -E; set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; x=$(false; echo inner); printf \"value=%s\\n\" \"$x\"; echo outer",
+    "expected": {
+      "stdout": "value=E:1\ninner\nouter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "function E=True e=True inherit=True",
+    "script": "set -E; set -e; shopt -s inherit_errexit; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false; echo inner; }; f; echo outer",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "subshell E=True e=True inherit=True",
+    "script": "set -E; set -e; shopt -s inherit_errexit; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false; echo inner); echo outer",
+    "expected": {
+      "stdout": "E:1\nE:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "command E=True e=True inherit=True",
+    "script": "set -E; set -e; shopt -s inherit_errexit; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; x=$(false; echo inner); printf \"value=%s\\n\" \"$x\"; echo outer",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "function AST if f; then echo yes; fi",
+    "script": "set -Ee; trap 'echo E:$?' ERR; f(){ false; echo inner; }; if f; then echo yes; fi; echo outer",
+    "expected": {
+      "stdout": "inner\nyes\nouter\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "function AST while f; do break; done",
+    "script": "set -Ee; trap 'echo E:$?' ERR; f(){ false; echo inner; }; while f; do break; done; echo outer",
+    "expected": {
+      "stdout": "inner\nouter\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "function AST until f; do break; done",
+    "script": "set -Ee; trap 'echo E:$?' ERR; f(){ false; echo inner; }; until f; do break; done; echo outer",
+    "expected": {
+      "stdout": "inner\nouter\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "function AST f || echo recovered",
+    "script": "set -Ee; trap 'echo E:$?' ERR; f(){ false; echo inner; }; f || echo recovered; echo outer",
+    "expected": {
+      "stdout": "inner\nouter\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "function AST f && echo after",
+    "script": "set -Ee; trap 'echo E:$?' ERR; f(){ false; echo inner; }; f && echo after; echo outer",
+    "expected": {
+      "stdout": "inner\nafter\nouter\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "function AST ! f",
+    "script": "set -Ee; trap 'echo E:$?' ERR; f(){ false; echo inner; }; ! f; echo outer",
+    "expected": {
+      "stdout": "inner\nouter\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "function AST f | cat",
+    "script": "set -Ee; trap 'echo E:$?' ERR; f(){ false; echo inner; }; f | cat; echo outer",
+    "expected": {
+      "stdout": "E:1\nouter\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "function AST true | f",
+    "script": "set -Ee; trap 'echo E:$?' ERR; f(){ false; echo inner; }; true | f; echo outer",
+    "expected": {
+      "stdout": "E:1\nE:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "EXIT bare exit preserves entry",
+    "script": "trap 'echo X; exit' EXIT; false",
+    "expected": {
+      "stdout": "X\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "EXIT bare exit non-one",
+    "script": "trap 'true; exit' EXIT; exit 9",
+    "expected": {
+      "stdout": "",
+      "stderr": "",
+      "exitCode": 9,
+      "files": {}
+    }
+  },
+  {
+    "name": "EXIT explicit zero",
+    "script": "trap 'echo X; exit 0' EXIT; false",
+    "expected": {
+      "stdout": "X\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR bare exit uses latest status",
+    "script": "trap 'echo E; exit' ERR; false",
+    "expected": {
+      "stdout": "E\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR eval completion",
+    "script": "trap 'echo E:$?' ERR; eval false",
+    "expected": {
+      "stdout": "E:1\nE:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR function return",
+    "script": "set -E; trap 'echo E:$?' ERR; f(){ return 2; }; f",
+    "expected": {
+      "stdout": "E:2\n",
+      "stderr": "",
+      "exitCode": 2,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR subshell exit",
+    "script": "set -E; trap 'echo E:$?' ERR; (exit 3)",
+    "expected": {
+      "stdout": "E:3\n",
+      "stderr": "",
+      "exitCode": 3,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR command substitution exit",
+    "script": "set -E; trap 'echo E:$?' ERR; x=$(exit 3)",
+    "expected": {
+      "stdout": "E:3\n",
+      "stderr": "",
+      "exitCode": 3,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR handler command substitution recursion excluded",
+    "script": "set -E; trap 'echo E; x=$(false)' ERR; false",
+    "expected": {
+      "stdout": "E\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function default false && true",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false && true; }; f; echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell default false && true",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false && true); echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group default false && true",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { false && true; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function default true && false",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ true && false; }; f; echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell default true && false",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (true && false); echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group default true && false",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { true && false; }; echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function default ! true",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ ! true; }; f; echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell default ! true",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (! true); echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group default ! true",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { ! true; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function default ! false",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ ! false; }; f; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell default ! false",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (! false); echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group default ! false",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { ! false; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function default false || false",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false || false; }; f; echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell default false || false",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false || false); echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group default false || false",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { false || false; }; echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function default if true; then false; fi",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ if true; then false; fi; }; f; echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell default if true; then false; fi",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (if true; then false; fi); echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group default if true; then false; fi",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { if true; then false; fi; }; echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function default while false; do :; done",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ while false; do :; done; }; f; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell default while false; do :; done",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (while false; do :; done); echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group default while false; do :; done",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { while false; do :; done; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function default false | true",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false | true; }; f; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell default false | true",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false | true); echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group default false | true",
+    "script": " trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { false | true; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -e; false && true",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false && true; }; f; echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -e; false && true",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false && true); echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -e; false && true",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { false && true; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -e; true && false",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ true && false; }; f; echo after",
+    "expected": {
+      "stdout": "X:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -e; true && false",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (true && false); echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -e; true && false",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { true && false; }; echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -e; ! true",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ ! true; }; f; echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -e; ! true",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (! true); echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -e; ! true",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { ! true; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -e; ! false",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ ! false; }; f; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -e; ! false",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (! false); echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -e; ! false",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { ! false; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -e; false || false",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false || false; }; f; echo after",
+    "expected": {
+      "stdout": "X:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -e; false || false",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false || false); echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -e; false || false",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { false || false; }; echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -e; if true; then false; fi",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ if true; then false; fi; }; f; echo after",
+    "expected": {
+      "stdout": "X:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -e; if true; then false; fi",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (if true; then false; fi); echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -e; if true; then false; fi",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { if true; then false; fi; }; echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -e; while false; do :; done",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ while false; do :; done; }; f; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -e; while false; do :; done",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (while false; do :; done); echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -e; while false; do :; done",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { while false; do :; done; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -e; false | true",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false | true; }; f; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -e; false | true",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false | true); echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -e; false | true",
+    "script": "set -e; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { false | true; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -E; false && true",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false && true; }; f; echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -E; false && true",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false && true); echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -E; false && true",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { false && true; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -E; true && false",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ true && false; }; f; echo after",
+    "expected": {
+      "stdout": "E:1\nE:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -E; true && false",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (true && false); echo after",
+    "expected": {
+      "stdout": "E:1\nE:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -E; true && false",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { true && false; }; echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -E; ! true",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ ! true; }; f; echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -E; ! true",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (! true); echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -E; ! true",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { ! true; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -E; ! false",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ ! false; }; f; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -E; ! false",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (! false); echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -E; ! false",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { ! false; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -E; false || false",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false || false; }; f; echo after",
+    "expected": {
+      "stdout": "E:1\nE:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -E; false || false",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false || false); echo after",
+    "expected": {
+      "stdout": "E:1\nE:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -E; false || false",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { false || false; }; echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -E; if true; then false; fi",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ if true; then false; fi; }; f; echo after",
+    "expected": {
+      "stdout": "E:1\nE:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -E; if true; then false; fi",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (if true; then false; fi); echo after",
+    "expected": {
+      "stdout": "E:1\nE:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -E; if true; then false; fi",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { if true; then false; fi; }; echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -E; while false; do :; done",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ while false; do :; done; }; f; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -E; while false; do :; done",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (while false; do :; done); echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -E; while false; do :; done",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { while false; do :; done; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -E; false | true",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false | true; }; f; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -E; false | true",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false | true); echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -E; false | true",
+    "script": "set -E; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { false | true; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -Ee; false && true",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false && true; }; f; echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -Ee; false && true",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false && true); echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -Ee; false && true",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { false && true; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -Ee; true && false",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ true && false; }; f; echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -Ee; true && false",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (true && false); echo after",
+    "expected": {
+      "stdout": "E:1\nE:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -Ee; true && false",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { true && false; }; echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -Ee; ! true",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ ! true; }; f; echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -Ee; ! true",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (! true); echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -Ee; ! true",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { ! true; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -Ee; ! false",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ ! false; }; f; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -Ee; ! false",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (! false); echo after",
+    "expected": {
+      "stdout": "E:1\nafter\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -Ee; ! false",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { ! false; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -Ee; false || false",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false || false; }; f; echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -Ee; false || false",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false || false); echo after",
+    "expected": {
+      "stdout": "E:1\nE:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -Ee; false || false",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { false || false; }; echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -Ee; if true; then false; fi",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ if true; then false; fi; }; f; echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -Ee; if true; then false; fi",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (if true; then false; fi); echo after",
+    "expected": {
+      "stdout": "E:1\nE:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -Ee; if true; then false; fi",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { if true; then false; fi; }; echo after",
+    "expected": {
+      "stdout": "E:1\nX:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -Ee; while false; do :; done",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ while false; do :; done; }; f; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -Ee; while false; do :; done",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (while false; do :; done); echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -Ee; while false; do :; done",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { while false; do :; done; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested function set -Ee; false | true",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; f(){ false | true; }; f; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested subshell set -Ee; false | true",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; (false | true); echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "nested group set -Ee; false | true",
+    "script": "set -Ee; trap 'echo E:$?' ERR; trap 'echo X:$?' EXIT; { false | true; }; echo after",
+    "expected": {
+      "stdout": "after\nX:0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "command substitution effective SHELLOPTS",
+    "script": "set -e; x=$(echo \"$SHELLOPTS\"); echo \"$x\"",
+    "expected": {
+      "stdout": "braceexpand:hashall:interactive-comments\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "POSIX enables inherited errexit",
+    "script": "set -o posix; shopt -p inherit_errexit; set +o posix; shopt -p inherit_errexit",
+    "expected": {
+      "stdout": "shopt -s inherit_errexit\nshopt -s inherit_errexit\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "POSIX explicit inheritance disable",
+    "script": "set -e; set -o posix; shopt -u inherit_errexit; x=$(false; echo inside); echo \"$x\"",
+    "expected": {
+      "stdout": "inside\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR reentrant eval plain",
+    "script": "trap 'echo recovery:$?' ERR; eval false",
+    "expected": {
+      "stdout": "recovery:1\nrecovery:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR reentrant eval set -e; ",
+    "script": "set -e; trap 'echo recovery:$?' ERR; eval false; echo unreachable",
+    "expected": {
+      "stdout": "recovery:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR reentrant eval set -E; ",
+    "script": "set -E; trap 'echo recovery:$?' ERR; eval false; echo unreachable",
+    "expected": {
+      "stdout": "recovery:1\nrecovery:1\nunreachable\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR reentrant eval set -eE; ",
+    "script": "set -eE; trap 'echo recovery:$?' ERR; eval false; echo unreachable",
+    "expected": {
+      "stdout": "recovery:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR reentrant source plain",
+    "script": "printf 'false\\n' > job; trap 'echo recovery:$?' ERR; source ./job",
+    "expected": {
+      "stdout": "recovery:1\nrecovery:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {
+        "job": "false\n"
+      }
+    }
+  },
+  {
+    "name": "ERR reentrant source set -e; ",
+    "script": "printf 'false\\n' > job; set -e; trap 'echo recovery:$?' ERR; source ./job; echo unreachable",
+    "expected": {
+      "stdout": "recovery:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {
+        "job": "false\n"
+      }
+    }
+  },
+  {
+    "name": "ERR reentrant source set -E; ",
+    "script": "printf 'false\\n' > job; set -E; trap 'echo recovery:$?' ERR; source ./job; echo unreachable",
+    "expected": {
+      "stdout": "recovery:1\nrecovery:1\nunreachable\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {
+        "job": "false\n"
+      }
+    }
+  },
+  {
+    "name": "ERR reentrant source set -eE; ",
+    "script": "printf 'false\\n' > job; set -eE; trap 'echo recovery:$?' ERR; source ./job; echo unreachable",
+    "expected": {
+      "stdout": "recovery:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {
+        "job": "false\n"
+      }
+    }
+  },
+  {
+    "name": "ERR reentrant dot plain",
+    "script": "printf 'false\\n' > job; trap 'echo recovery:$?' ERR; . ./job",
+    "expected": {
+      "stdout": "recovery:1\nrecovery:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {
+        "job": "false\n"
+      }
+    }
+  },
+  {
+    "name": "ERR reentrant dot set -e; ",
+    "script": "printf 'false\\n' > job; set -e; trap 'echo recovery:$?' ERR; . ./job; echo unreachable",
+    "expected": {
+      "stdout": "recovery:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {
+        "job": "false\n"
+      }
+    }
+  },
+  {
+    "name": "ERR reentrant dot set -E; ",
+    "script": "printf 'false\\n' > job; set -E; trap 'echo recovery:$?' ERR; . ./job; echo unreachable",
+    "expected": {
+      "stdout": "recovery:1\nrecovery:1\nunreachable\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {
+        "job": "false\n"
+      }
+    }
+  },
+  {
+    "name": "ERR reentrant dot set -eE; ",
+    "script": "printf 'false\\n' > job; set -eE; trap 'echo recovery:$?' ERR; . ./job; echo unreachable",
+    "expected": {
+      "stdout": "recovery:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {
+        "job": "false\n"
+      }
+    }
+  },
+  {
+    "name": "ERR reentrant nested eval plain",
+    "script": "trap 'echo recovery:$?' ERR; eval 'eval false'",
+    "expected": {
+      "stdout": "recovery:1\nrecovery:1\nrecovery:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR reentrant nested eval set -e; ",
+    "script": "set -e; trap 'echo recovery:$?' ERR; eval 'eval false'; echo unreachable",
+    "expected": {
+      "stdout": "recovery:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR reentrant nested eval set -eE; ",
+    "script": "set -eE; trap 'echo recovery:$?' ERR; eval 'eval false'; echo unreachable",
+    "expected": {
+      "stdout": "recovery:1\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR reentrant eval conditional exclusion",
+    "script": "set -e; trap 'echo recovery:$?' ERR; if eval false; then echo unexpected; fi; echo after",
+    "expected": {
+      "stdout": "after\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {}
+    }
+  },
+  {
+    "name": "ERR reentrant source conditional exclusion",
+    "script": "printf 'false\\n' > job; set -e; trap 'echo recovery:$?' ERR; if source ./job; then echo unexpected; fi; echo after",
+    "expected": {
+      "stdout": "after\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {
+        "job": "false\n"
+      }
+    }
+  },
+  {
+    "name": "ERR reentrant dot conditional exclusion",
+    "script": "printf 'false\\n' > job; set -e; trap 'echo recovery:$?' ERR; if . ./job; then echo unexpected; fi; echo after",
+    "expected": {
+      "stdout": "after\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {
+        "job": "false\n"
+      }
+    }
+  }
+]

@@ -77,6 +77,7 @@ export interface DirentEntry {
 /**
  * Stat result from the filesystem
  */
+// Automa modification: optional backend timestamps; absent values are never inferred.
 export interface FsStat {
   isFile: boolean;
   isDirectory: boolean;
@@ -84,6 +85,8 @@ export interface FsStat {
   mode: number;
   size: number;
   mtime: Date;
+  atime?: Date;
+  birthtime?: Date;
   /** Stable filesystem identity when the backend can expose it safely. */
   dev?: number | bigint;
   ino?: number | bigint;

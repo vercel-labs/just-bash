@@ -1,12 +1,12 @@
+// Automa modifications: N00b source migration of shell compatibility patches.
 import { decodeBytesToUtf8 } from "../../encoding.js";
-import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { ExecutionLimits } from "../../limits.js";
 import {
   assertDefenseContext,
   awaitWithDefenseContext,
 } from "../../security/defense-context.js";
-import { SecurityViolationError } from "../../security/defense-in-depth-box.js";
 import type {
   ExecResult,
   FeatureCoverageWriter,
@@ -207,9 +207,7 @@ async function processContent(
               }
             }
           } catch (e) {
-            if (e instanceof SecurityViolationError) {
-              throw e;
-            }
+            rethrowFatalExecutionError(e);
             // File not found - silently ignore (matches GNU sed behavior)
           }
         }
@@ -319,9 +317,7 @@ async function processContent(
           fs.writeFile(filePath, fileContent),
         );
       } catch (e) {
-        if (e instanceof SecurityViolationError) {
-          throw e;
-        }
+        rethrowFatalExecutionError(e);
         // Write error - silently ignore for now
       }
     }
@@ -361,6 +357,7 @@ export const sedCommand: RuntimeCommand = {
     const scriptFiles: string[] = [];
     let silent = false;
     let inPlace = false;
+    let backupSuffix = "";
     let extendedRegex = false;
     const files: string[] = [];
 
@@ -371,8 +368,10 @@ export const sedCommand: RuntimeCommand = {
         silent = true;
       } else if (arg === "-i" || arg === "--in-place") {
         inPlace = true;
-      } else if (arg.startsWith("-i")) {
+        backupSuffix = "";
+      } else if (arg.startsWith("-i") || arg.startsWith("--in-place=")) {
         inPlace = true;
+        backupSuffix = arg.startsWith("-i") ? arg.slice(2) : arg.slice(11);
       } else if (arg === "-E" || arg === "-r" || arg === "--regexp-extended") {
         extendedRegex = true;
       } else if (arg === "-e") {
@@ -440,9 +439,7 @@ export const sedCommand: RuntimeCommand = {
           }
         }
       } catch (e) {
-        if (e instanceof SecurityViolationError) {
-          throw e;
-        }
+        rethrowFatalExecutionError(e);
         return {
           stdout: "",
           stderr: `sed: couldn't open file ${scriptFile}: No such file or directory\n`,
@@ -516,21 +513,44 @@ export const sedCommand: RuntimeCommand = {
               exitCode: result.exitCode ?? 1,
             };
           }
+          if (backupSuffix) {
+            const backup = backupSuffix.includes("*")
+              ? backupSuffix.replaceAll("*", file)
+              : file + backupSuffix;
+            const backupPath = ctx.fs.resolvePath(ctx.cwd, backup);
+            const original = await withDefenseContext(
+              "in-place backup input read",
+              () => ctx.fs.readFileBuffer(filePath),
+            );
+            let symlink = false;
+            try {
+              symlink = (
+                await withDefenseContext("in-place backup stat", () =>
+                  ctx.fs.lstat(backupPath),
+                )
+              ).isSymbolicLink;
+            } catch (error) {
+              rethrowFatalExecutionError(error);
+              const missing =
+                error instanceof Error &&
+                (("code" in error && error.code === "ENOENT") ||
+                  error.message.startsWith("ENOENT"));
+              if (!missing) throw error;
+            }
+            if (symlink)
+              await withDefenseContext("in-place backup unlink", () =>
+                ctx.fs.rm(backupPath),
+              );
+            await withDefenseContext("in-place backup write", () =>
+              ctx.fs.writeFile(backupPath, original),
+            );
+          }
           await withDefenseContext("in-place output write", () =>
             ctx.fs.writeFile(filePath, result.output),
           );
         } catch (e) {
-          if (e instanceof SecurityViolationError) {
-            throw e;
-          }
-          if (e instanceof ExecutionLimitError) {
-            const message = sanitizeErrorMessage(e.message);
-            return {
-              stdout: "",
-              stderr: `sed: ${message}\n`,
-              exitCode: ExecutionLimitError.EXIT_CODE,
-            };
-          }
+          rethrowFatalExecutionError(e);
+
           return {
             stdout: "",
             stderr: `sed: ${file}: No such file or directory\n`,
@@ -548,36 +568,21 @@ export const sedCommand: RuntimeCommand = {
     // latin1 bytes.
     if (files.length === 0) {
       content = decodeBytesToUtf8(ctx.stdin);
-      try {
-        const result = await withDefenseContext("stdin processing", () =>
-          processContent(content, commands, effectiveSilent, {
-            limits: ctx.limits,
-            fs: ctx.fs,
-            cwd: ctx.cwd,
-            coverage: ctx.coverage,
-            requireDefenseContext: ctx.requireDefenseContext,
-          }),
-        );
-        // sed emits text; the pipeline handles encoding.
-        return {
-          stdout: result.output,
-          stderr: result.errorMessage ? `${result.errorMessage}\n` : "",
-          exitCode: result.exitCode ?? 0,
-        };
-      } catch (e) {
-        if (e instanceof SecurityViolationError) {
-          throw e;
-        }
-        if (e instanceof ExecutionLimitError) {
-          const message = sanitizeErrorMessage(e.message);
-          return {
-            stdout: "",
-            stderr: `sed: ${message}\n`,
-            exitCode: ExecutionLimitError.EXIT_CODE,
-          };
-        }
-        throw e;
-      }
+      const result = await withDefenseContext("stdin processing", () =>
+        processContent(content, commands, effectiveSilent, {
+          limits: ctx.limits,
+          fs: ctx.fs,
+          cwd: ctx.cwd,
+          coverage: ctx.coverage,
+          requireDefenseContext: ctx.requireDefenseContext,
+        }),
+      );
+      // sed emits text; the pipeline handles encoding.
+      return {
+        stdout: result.output,
+        stderr: result.errorMessage ? `${result.errorMessage}\n` : "",
+        exitCode: result.exitCode ?? 0,
+      };
     }
 
     // Read all files and process
@@ -600,17 +605,8 @@ export const sedCommand: RuntimeCommand = {
             ctx.fs.readFile(filePath),
           );
         } catch (e) {
-          if (e instanceof SecurityViolationError) {
-            throw e;
-          }
-          if (e instanceof ExecutionLimitError) {
-            const message = sanitizeErrorMessage(e.message);
-            return {
-              stdout: "",
-              stderr: `sed: ${message}\n`,
-              exitCode: ExecutionLimitError.EXIT_CODE,
-            };
-          }
+          rethrowFatalExecutionError(e);
+
           return {
             stdout: "",
             stderr: `sed: ${file}: No such file or directory\n`,
@@ -630,36 +626,21 @@ export const sedCommand: RuntimeCommand = {
       content += fileContent;
     }
 
-    try {
-      const result = await withDefenseContext("final processing", () =>
-        processContent(content, commands, effectiveSilent, {
-          limits: ctx.limits,
-          filename: files.length === 1 ? files[0] : undefined,
-          fs: ctx.fs,
-          cwd: ctx.cwd,
-          coverage: ctx.coverage,
-          requireDefenseContext: ctx.requireDefenseContext,
-        }),
-      );
-      return {
-        stdout: result.output,
-        stderr: result.errorMessage ? `${result.errorMessage}\n` : "",
-        exitCode: result.exitCode ?? 0,
-      };
-    } catch (e) {
-      if (e instanceof SecurityViolationError) {
-        throw e;
-      }
-      if (e instanceof ExecutionLimitError) {
-        const message = sanitizeErrorMessage(e.message);
-        return {
-          stdout: "",
-          stderr: `sed: ${message}\n`,
-          exitCode: ExecutionLimitError.EXIT_CODE,
-        };
-      }
-      throw e;
-    }
+    const result = await withDefenseContext("final processing", () =>
+      processContent(content, commands, effectiveSilent, {
+        limits: ctx.limits,
+        filename: files.length === 1 ? files[0] : undefined,
+        fs: ctx.fs,
+        cwd: ctx.cwd,
+        coverage: ctx.coverage,
+        requireDefenseContext: ctx.requireDefenseContext,
+      }),
+    );
+    return {
+      stdout: result.output,
+      stderr: result.errorMessage ? `${result.errorMessage}\n` : "",
+      exitCode: result.exitCode ?? 0,
+    };
   },
 };
 

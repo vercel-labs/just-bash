@@ -54,14 +54,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   // def call-by-name semantics
   // ============================================================
   [
-    "jq.test:def f(x): x | x; f([.], . + [42])",
-    "def: requires call-by-name semantics for filter parameters",
-  ],
-  [
-    "jq.test:def x(a;b): a as $a | b as $b | $a + $b; def y($a;$b): $a + $b; def check(a;b): [x(a;b)] == [y(a;b)]; check(.[];.[]*2)",
-    "def: requires call-by-name semantics for filter parameters",
-  ],
-  [
     "jq.test:def inc(x): x |= .+1; inc(.[].a)",
     "def: update operator on parameter requires call-by-name",
   ],
@@ -86,32 +78,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "jq.test:. as $foo | [$foo, $bar]",
     "Undefined variable $bar behavior differs",
   ],
-
-  // ============================================================
-  // NUL character handling
-  // ============================================================
-  ['jq.test:"\\u0000\\u0020\\u0000" + .', "NUL character handling differs"],
-  [
-    'jq.test:[contains("cd"), contains("b\\u0000"), contains("b\\u0000c"), contains("d")]',
-    "contains with NUL character",
-  ],
-  [
-    'jq.test:[contains("b\\u0000c"), contains("b\\u0000cd"), contains("cd")]',
-    "contains with NUL character",
-  ],
-  [
-    'jq.test:[contains(""), contains("\\u0000")]',
-    "contains with NUL character edge case",
-  ],
-
-  // ============================================================
-  // walk edge cases
-  // ============================================================
-  [
-    "jq.test:walk(select(IN({}, []) | not))",
-    "walk replaces filtered values with null instead of removing",
-  ],
-  ["jq.test:[walk(.,1)]", "walk with generator argument"],
 
   // ============================================================
   // getpath/setpath/delpaths edge cases
@@ -166,10 +132,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   [
     'jq.test:try ([range(10)] | .[1.5:3.5] = ["xyz"]) catch .',
     "Float slice assignment on array",
-  ],
-  [
-    'jq.test:try ("foobar" | .[1.5]) catch .',
-    "Float index on string should error",
   ],
 
   // ============================================================
@@ -275,10 +237,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "@sh format with string interpolation not supported",
   ],
   [
-    'man.test:. == {"b": {"d": (4 + 1e-20), "c": 3}, "a":1}',
-    "floating point comparison with epsilon",
-  ],
-  [
     "man.test:.[] as {$a, $b, c: {$d, $e}} ?// {$a, $b, c: [{$d, $e}]} | {$a, $b, $d, $e}",
     "?// alternative with complex destructuring patterns",
   ],
@@ -321,10 +279,6 @@ const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
 
   // Environment/stdin access - sandboxed environment
   { pattern: /\binputs\b/, reason: "inputs not implemented" },
-  { pattern: /\binput\s*[|)]/, reason: "input not implemented (no stdin)" },
-  { pattern: /\binput\s*$/, reason: "input not implemented (no stdin)" },
-  { pattern: /\binput\s+catch\b/, reason: "input not implemented (no stdin)" },
-  { pattern: /[|;(]\s*input\b/, reason: "input not implemented (no stdin)" },
 
   // Debug introspection
   { pattern: /\$__loc__/, reason: "$__loc__ not implemented" },
@@ -461,10 +415,6 @@ const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /"[^"]*\t[^"]*"/, reason: "Literal tab in test input" },
   { pattern: /"u\\vw"/, reason: "\\v escape sequence test" },
 
-  // NUL character handling
-  { pattern: /"\\u0000.*" \+ \./, reason: "NUL character string concat" },
-  { pattern: /contains\("b\\u0000/, reason: "contains with NUL char" },
-
   // String interpolation edge cases
   {
     pattern: /\{"[^"]*",\w+,"[^"]*\$\\/,
@@ -540,9 +490,6 @@ const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
 
   // Undefined variable
   { pattern: /\[\$foo, \$bar\]/, reason: "undefined variable" },
-
-  // walk with generator
-  { pattern: /walk\(\.,\d+\)/, reason: "walk with generator argument" },
 ];
 
 /**

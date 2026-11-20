@@ -69,6 +69,8 @@ export interface CurlOptions {
   writeOut?: string;
   verbose: boolean;
   timeoutMs?: number;
+  connectTimeoutMs?: number;
+  retry: number;
   maxRedirects?: number;
   url?: string;
 }

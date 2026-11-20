@@ -1,3 +1,4 @@
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { createExclusiveOn } from "../../fs/create-exclusive.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
@@ -395,8 +396,13 @@ export const mktempCommand: RuntimeCommand = {
         if (!parentStat.isDirectory) {
           return creationFailure("Not a directory");
         }
-      } catch {
-        return creationFailure("No such file or directory");
+      } catch (error) {
+        rethrowFatalExecutionError(error);
+        return creationFailure(
+          isErrno(error, "ENOENT")
+            ? "No such file or directory"
+            : sanitizeErrorMessage(getErrorMessage(error)),
+        );
       }
     }
 
@@ -412,18 +418,25 @@ export const mktempCommand: RuntimeCommand = {
           if (await pathIsTaken(ctx, fullPath)) continue;
         } else {
           await createExclusiveOn(ctx.fs, fullPath, {
-            mode: flags.directory ? DIR_MODE : FILE_MODE,
+            mode:
+              (flags.directory ? DIR_MODE : FILE_MODE) &
+              ~(ctx.fileCreationMask ?? 0o022),
             directory: flags.directory,
           });
         }
       } catch (error) {
+        rethrowFatalExecutionError(error);
         // Match the errno, not the message body: diagnostics embed the
         // caller-supplied path, so a template containing "EEXIST" would make
         // unrelated failures look like collisions and be retried silently.
         if (isErrno(error, "EEXIST")) {
           continue; // name was taken between candidates: try another
         }
-        return creationFailure(sanitizeErrorMessage(getErrorMessage(error)));
+        return creationFailure(
+          isErrno(error, "ENOENT")
+            ? "No such file or directory"
+            : sanitizeErrorMessage(getErrorMessage(error)),
+        );
       }
 
       return { stdout: `${name}\n`, stderr: "", exitCode: 0 };

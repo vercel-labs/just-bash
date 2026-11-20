@@ -1,3 +1,4 @@
+// Automa modifications: N00b C locale and unique check semantics.
 import { decodeBytesToUtf8 } from "../../encoding.js";
 import type {
   ExecResult,
@@ -55,6 +56,12 @@ export const sortCommand: RuntimeCommand = {
     }
 
     const options: SortOptions = {
+      cLocale: /^(?:C(?:[.-]UTF-?8)?|POSIX)$/i.test(
+        ctx.env.get("LC_ALL") ||
+          ctx.env.get("LC_COLLATE") ||
+          ctx.env.get("LANG") ||
+          "",
+      ),
       reverse: false,
       numeric: false,
       unique: false,
@@ -184,7 +191,8 @@ export const sortCommand: RuntimeCommand = {
     if (options.checkOnly) {
       const checkFile = files.length > 0 ? files[0] : "-";
       for (let i = 1; i < lines.length; i++) {
-        if (comparator(lines[i - 1], lines[i]) > 0) {
+        const order = comparator(lines[i - 1], lines[i]);
+        if (options.unique ? order >= 0 : order > 0) {
           return {
             stdout: "",
             stderr: `sort: ${checkFile}:${i + 1}: disorder: ${lines[i]}\n`,

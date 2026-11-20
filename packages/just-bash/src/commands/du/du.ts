@@ -1,14 +1,13 @@
+import { BoundedStringBuilder } from "../../bounded-builder.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { traverseFileTree } from "../../fs/traversal.js";
-import {
-  ExecutionAbortedError,
-  ExecutionLimitError,
-} from "../../interpreter/errors.js";
 import type {
   ExecResult,
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
+import { allocatedFileBytes, formatHumanSize } from "../file-metadata.js";
 import { hasHelpFlag, showHelp } from "../help.js";
 
 const duHelp = {
@@ -20,6 +19,8 @@ const duHelp = {
     "-h          print sizes in human readable format",
     "-s          display only a total for each argument",
     "-c          produce a grand total",
+    "-k          display sizes in 1024-byte units",
+    "-d N        print totals at most N levels below each argument",
     "--max-depth=N  print total for directory only if N or fewer levels deep",
     "    --help  display this help and exit",
   ],
@@ -30,7 +31,8 @@ const argDefs = {
   humanReadable: { short: "h", type: "boolean" as const },
   summarize: { short: "s", type: "boolean" as const },
   grandTotal: { short: "c", type: "boolean" as const },
-  maxDepth: { long: "max-depth", type: "number" as const },
+  maxDepth: { short: "d", long: "max-depth", type: "number" as const },
+  kilobytes: { short: "k", type: "boolean" as const },
 };
 
 interface DuOptions {
@@ -63,6 +65,33 @@ export const duCommand: RuntimeCommand = {
       maxDepth: parsed.result.flags.maxDepth ?? null,
     };
 
+    if (
+      options.maxDepth !== null &&
+      (!Number.isInteger(options.maxDepth) || options.maxDepth < 0)
+    )
+      return {
+        stdout: "",
+        stderr: `du: invalid maximum depth '${options.maxDepth}'\n`,
+        exitCode: 1,
+      };
+    if (
+      options.summarize &&
+      options.maxDepth !== null &&
+      options.maxDepth !== 0
+    )
+      return {
+        stdout: "",
+        stderr: `du: warning: summarizing conflicts with --max-depth=${options.maxDepth}\nTry 'du --help' for more information.\n`,
+        exitCode: 1,
+      };
+    for (const arg of args) {
+      if (arg === "--") break;
+      if (arg.startsWith("-") && !arg.startsWith("--"))
+        for (const flag of arg.slice(1)) {
+          if (flag === "h") options.humanReadable = true;
+          else if (flag === "k") options.humanReadable = false;
+        }
+    }
     const targets = parsed.result.positional;
 
     // Default to current directory
@@ -70,8 +99,14 @@ export const duCommand: RuntimeCommand = {
       targets.push(".");
     }
 
-    let stdout = "";
-    let stderr = "";
+    const output = new BoundedStringBuilder(
+      Math.min(ctx.limits.maxOutputSize, ctx.limits.maxStringLength),
+      "du",
+    );
+    const errors = new BoundedStringBuilder(
+      ctx.limits.maxOutputSize,
+      "du diagnostics",
+    );
     let grandTotal = 0;
 
     for (const target of targets) {
@@ -79,32 +114,37 @@ export const duCommand: RuntimeCommand = {
 
       try {
         // Check if path exists first
-        await ctx.fs.stat(fullPath);
-        const result = await calculateSize(ctx, fullPath, target, options, 0);
-        stdout += result.output;
+        await ctx.fs.lstat(fullPath);
+        const result = await calculateSize(
+          ctx,
+          fullPath,
+          target,
+          options,
+          output,
+          0,
+        );
         grandTotal += result.totalSize;
-        stderr += result.stderr;
+        errors.append(result.stderr);
       } catch (error) {
-        if (
-          error instanceof ExecutionLimitError ||
-          error instanceof ExecutionAbortedError
-        ) {
-          throw error;
-        }
-        stderr += `du: cannot access '${target}': No such file or directory\n`;
+        rethrowFatalExecutionError(error);
+        errors.append(
+          `du: cannot access '${target}': ${String(error).includes("ENOENT") ? "No such file or directory" : "cannot read file or directory"}\n`,
+        );
       }
     }
 
     if (options.grandTotal && targets.length > 0) {
-      stdout += `${formatSize(grandTotal, options.humanReadable)}\ttotal\n`;
+      output.append(
+        `${formatSize(grandTotal, options.humanReadable)}\ttotal\n`,
+      );
     }
 
-    return { stdout, stderr, exitCode: stderr ? 1 : 0 };
+    const stderr = errors.build();
+    return { stdout: output.build(), stderr, exitCode: stderr ? 1 : 0 };
   },
 };
 
 interface SizeResult {
-  output: string;
   totalSize: number;
   stderr: string;
 }
@@ -114,9 +154,10 @@ async function calculateSize(
   fullPath: string,
   displayPath: string,
   options: DuOptions,
+  output: BoundedStringBuilder,
   depth: number,
 ): Promise<SizeResult> {
-  const result: SizeResult = { output: "", totalSize: 0, stderr: "" };
+  const result: SizeResult = { totalSize: 0, stderr: "" };
   const directorySizes = new Map<string, number>();
 
   await traverseFileTree(
@@ -132,33 +173,42 @@ async function calculateSize(
     },
     (entry) => {
       const relative = entry.path.slice(fullPath.length).replace(/^\//, "");
-      const shown = relative
-        ? displayPath === "."
-          ? relative
-          : `${displayPath}/${relative}`
-        : displayPath;
+      const shown = relative ? `${displayPath}/${relative}` : displayPath;
       const parent =
         entry.path === "/"
           ? "/"
           : entry.path.slice(0, entry.path.lastIndexOf("/")) || "/";
 
       if (entry.phase === "enter") {
+        const entrySize = allocatedFileBytes(
+          entry.stat,
+          ctx.virtualFileMetadata,
+        );
         if (entry.stat.isDirectory) {
-          directorySizes.set(entry.path, 0);
+          directorySizes.set(entry.path, entrySize);
           return;
         }
         directorySizes.set(
           parent,
-          (directorySizes.get(parent) ?? 0) + entry.stat.size,
+          (directorySizes.get(parent) ?? 0) + entrySize,
         );
-        if ((options.allFiles || entry.depth === depth) && !options.summarize) {
-          result.output += `${formatSize(entry.stat.size, options.humanReadable)}\t${shown}\n`;
+        if (
+          entry.depth === depth ||
+          (options.allFiles &&
+            !options.summarize &&
+            (options.maxDepth === null ||
+              entry.depth - depth <= options.maxDepth))
+        ) {
+          output.append(
+            `${formatSize(entrySize, options.humanReadable)}\t${shown}\n`,
+          );
         }
-        if (entry.depth === depth) result.totalSize = entry.stat.size;
+        if (entry.depth === depth) result.totalSize = entrySize;
         return;
       }
 
       const size = directorySizes.get(entry.path) ?? 0;
+      directorySizes.delete(entry.path);
       if (entry.depth > depth) {
         directorySizes.set(parent, (directorySizes.get(parent) ?? 0) + size);
       } else {
@@ -170,7 +220,7 @@ async function calculateSize(
         (!options.summarize &&
           (options.maxDepth === null || relativeDepth <= options.maxDepth))
       ) {
-        result.output += `${formatSize(size, options.humanReadable)}\t${shown}\n`;
+        output.append(`${formatSize(size, options.humanReadable)}\t${shown}\n`);
       }
     },
   );
@@ -179,20 +229,9 @@ async function calculateSize(
 }
 
 function formatSize(bytes: number, humanReadable: boolean): string {
-  if (!humanReadable) {
-    // Return size in 1K blocks
-    return String(Math.ceil(bytes / 1024) || 1);
-  }
-
-  if (bytes < 1024) {
-    return `${bytes}`;
-  } else if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)}K`;
-  } else if (bytes < 1024 * 1024 * 1024) {
-    return `${(bytes / (1024 * 1024)).toFixed(1)}M`;
-  } else {
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}G`;
-  }
+  return humanReadable
+    ? formatHumanSize(bytes)
+    : String(Math.ceil(bytes / 1024));
 }
 
 import type { CommandFuzzInfo } from "../fuzz-flags-types.js";

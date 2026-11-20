@@ -90,7 +90,7 @@ describe("find predicates", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it("should return nothing when reference file does not exist", async () => {
+    it("should fail when reference file does not exist", async () => {
       const env = new Bash({
         files: {
           "/dir/file.txt": "content",
@@ -100,7 +100,7 @@ describe("find predicates", () => {
         "find /dir -type f -newer /nonexistent.txt",
       );
       expect(result.stdout).toBe("");
-      expect(result.exitCode).toBe(0);
+      expect(result.exitCode).toBe(1);
     });
   });
 

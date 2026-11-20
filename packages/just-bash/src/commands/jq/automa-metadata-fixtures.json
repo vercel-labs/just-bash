@@ -1,0 +1,655 @@
+{
+  "provenance": "Automa modifications: N00b migration of jqInputMetadata.test.ts; golden outputs independently checked with GNU jq 1.7",
+  "cases": [
+    {
+      "id": "null-input",
+      "args": ["-c", "-n", "[input_filename,input_line_number,.]"],
+      "stdin": "",
+      "files": {},
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[null,0,null]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "null-ignores-stdin",
+      "args": ["-c", "-n", "[input_filename,input_line_number,.]"],
+      "stdin": "1\n2\n",
+      "files": {},
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[null,0,null]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "null-ignores-missing-file",
+      "args": [
+        "-c",
+        "-n",
+        "[input_filename,input_line_number,.]",
+        "does-not-exist.json"
+      ],
+      "stdin": "",
+      "files": {},
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[null,0,null]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "null-slurp-ignores-file",
+      "args": [
+        "-c",
+        "-n",
+        "-s",
+        "[input_filename,input_line_number,.]",
+        "a.json"
+      ],
+      "stdin": "",
+      "files": {
+        "a.json": "1\n2\n"
+      },
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[null,0,null]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "null-raw-ignores-file",
+      "args": [
+        "-c",
+        "-n",
+        "-R",
+        "[input_filename,input_line_number,.]",
+        "a.json"
+      ],
+      "stdin": "",
+      "files": {
+        "a.json": "1\n2\n"
+      },
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[null,0,null]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "stdin-json-lines",
+      "args": ["-c", "[input_filename,input_line_number,.]"],
+      "stdin": "1\n2\n",
+      "files": {},
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"<stdin>\",1,1]\n[\"<stdin>\",2,2]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "stdin-json-single-no-newline",
+      "args": ["-c", "[input_filename,input_line_number,.]"],
+      "stdin": "1",
+      "files": {},
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"<stdin>\",0,1]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "stdin-json-multiple-same-line",
+      "args": ["-c", "[input_filename,input_line_number,.]"],
+      "stdin": "1 2 3\n",
+      "files": {},
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"<stdin>\",1,1]\n[\"<stdin>\",1,2]\n[\"<stdin>\",1,3]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "stdin-json-multiline",
+      "args": ["-c", "[input_filename,input_line_number,.]"],
+      "stdin": "\n{\n \"é\": [1,2]\n}\n\n3\n",
+      "files": {},
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"<stdin>\",4,{\"é\":[1,2]}]\n[\"<stdin>\",6,3]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "stdin-json-crlf",
+      "args": ["-c", "[input_filename,input_line_number,.]"],
+      "stdin": "1\r\n{\r\n\"x\":2\r\n}\r\n",
+      "files": {},
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"<stdin>\",1,1]\n[\"<stdin>\",4,{\"x\":2}]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "explicit-stdin",
+      "args": ["-c", "[input_filename,input_line_number,.]", "-"],
+      "stdin": "1\n2\n",
+      "files": {},
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"<stdin>\",1,1]\n[\"<stdin>\",2,2]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "files-json-line-reset",
+      "args": [
+        "-c",
+        "[input_filename,input_line_number,.]",
+        "a.json",
+        "b.json"
+      ],
+      "stdin": "",
+      "files": {
+        "a.json": "1\n2\n",
+        "b.json": "\n{\n  \"x\": 3\n}\n4"
+      },
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"a.json\",1,1]\n[\"a.json\",2,2]\n[\"b.json\",4,{\"x\":3}]\n[\"b.json\",4,4]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "file-stdin-file",
+      "args": [
+        "-c",
+        "[input_filename,input_line_number,.]",
+        "a.json",
+        "-",
+        "b.json"
+      ],
+      "stdin": "9\n10",
+      "files": {
+        "a.json": "1\n2\n",
+        "b.json": "\n{\n  \"x\": 3\n}\n4"
+      },
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"a.json\",1,1]\n[\"a.json\",2,2]\n[\"<stdin>\",1,9]\n[\"b.json\",1,10]\n[\"b.json\",4,{\"x\":3}]\n[\"b.json\",4,4]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "slurp-files",
+      "args": [
+        "-c",
+        "-s",
+        "[input_filename,input_line_number,.]",
+        "a.json",
+        "b.json"
+      ],
+      "stdin": "",
+      "files": {
+        "a.json": "1\n2\n",
+        "b.json": "\n{\n  \"x\": 3\n}\n4"
+      },
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"b.json\",4,[1,2,{\"x\":3},4]]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "slurp-files-empty-after",
+      "args": [
+        "-c",
+        "-s",
+        "[input_filename,input_line_number,.]",
+        "a.json",
+        "empty.json"
+      ],
+      "stdin": "",
+      "files": {
+        "a.json": "1\n2\n",
+        "empty.json": ""
+      },
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"empty.json\",0,[1,2]]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "slurp-blank-file",
+      "args": [
+        "-c",
+        "-s",
+        "[input_filename,input_line_number,.]",
+        "blank.json"
+      ],
+      "stdin": "",
+      "files": {
+        "blank.json": "\n\n"
+      },
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"blank.json\",2,[]]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "raw-stdin-no-final-newline",
+      "args": ["-c", "-R", "[input_filename,input_line_number,.]"],
+      "stdin": "α\nb",
+      "files": {},
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"<stdin>\",1,\"α\"]\n[\"<stdin>\",1,\"b\"]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "raw-stdin-crlf",
+      "args": ["-c", "-R", "[input_filename,input_line_number,.]"],
+      "stdin": "a\r\nb\r\n",
+      "files": {},
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"<stdin>\",1,\"a\\r\"]\n[\"<stdin>\",2,\"b\\r\"]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "raw-files-no-newline-boundary",
+      "args": [
+        "-c",
+        "-R",
+        "[input_filename,input_line_number,.]",
+        "left.txt",
+        "right.txt"
+      ],
+      "stdin": "",
+      "files": {
+        "left.txt": "left",
+        "right.txt": "right\nlast"
+      },
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"right.txt\",1,\"leftright\"]\n[\"right.txt\",1,\"last\"]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "raw-files-empty-after",
+      "args": [
+        "-c",
+        "-R",
+        "[input_filename,input_line_number,.]",
+        "a.txt",
+        "empty.txt"
+      ],
+      "stdin": "",
+      "files": {
+        "a.txt": "α\nb\n",
+        "empty.txt": ""
+      },
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"a.txt\",1,\"α\"]\n[\"a.txt\",2,\"b\"]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "raw-slurp-files",
+      "args": [
+        "-c",
+        "-R",
+        "-s",
+        "[input_filename,input_line_number,.]",
+        "a.txt",
+        "b.txt"
+      ],
+      "stdin": "",
+      "files": {
+        "a.txt": "α\nb\n",
+        "b.txt": "\nc"
+      },
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"b.txt\",1,\"α\\nb\\n\\nc\"]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "raw-slurp-empty-file",
+      "args": [
+        "-c",
+        "-R",
+        "-s",
+        "[input_filename,input_line_number,.]",
+        "empty.txt"
+      ],
+      "stdin": "",
+      "files": {
+        "empty.txt": ""
+      },
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"empty.txt\",0,\"\"]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "same-values-different-lines-and-files",
+      "args": [
+        "-c",
+        "[input_filename,input_line_number,.]",
+        "a.json",
+        "empty.json",
+        "b.json"
+      ],
+      "stdin": "",
+      "files": {
+        "a.json": "{}\n{}\n",
+        "b.json": "\n{}\n",
+        "empty.json": ""
+      },
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"a.json\",1,{}]\n[\"a.json\",2,{}]\n[\"b.json\",2,{}]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "nested-array-filter",
+      "args": [
+        "-c",
+        "[. | [input_filename,input_line_number,.]]",
+        "a.json",
+        "empty.json",
+        "b.json"
+      ],
+      "stdin": "",
+      "files": {
+        "a.json": "{}\n{}\n",
+        "b.json": "\n{}\n",
+        "empty.json": ""
+      },
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[[\"a.json\",1,{}]]\n[[\"a.json\",2,{}]]\n[[\"b.json\",2,{}]]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "transformed-dot-does-not-change-source",
+      "args": [
+        "-c",
+        "42 | [input_filename,input_line_number,.]",
+        "a.json",
+        "empty.json",
+        "b.json"
+      ],
+      "stdin": "",
+      "files": {
+        "a.json": "{}\n{}\n",
+        "b.json": "\n{}\n",
+        "empty.json": ""
+      },
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"a.json\",1,42]\n[\"a.json\",2,42]\n[\"b.json\",2,42]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "variable-binding-does-not-change-source",
+      "args": [
+        "-c",
+        ". as $original | \"changed\" | [input_filename,input_line_number,.]",
+        "a.json",
+        "empty.json",
+        "b.json"
+      ],
+      "stdin": "",
+      "files": {
+        "a.json": "{}\n{}\n",
+        "b.json": "\n{}\n",
+        "empty.json": ""
+      },
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"a.json\",1,\"changed\"]\n[\"a.json\",2,\"changed\"]\n[\"b.json\",2,\"changed\"]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "def-zero-args-current-input",
+      "args": [
+        "-c",
+        "def metadata: [input_filename,input_line_number,.]; metadata",
+        "a.json",
+        "empty.json",
+        "b.json"
+      ],
+      "stdin": "",
+      "files": {
+        "a.json": "{}\n{}\n",
+        "b.json": "\n{}\n",
+        "empty.json": ""
+      },
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"a.json\",1,{}]\n[\"a.json\",2,{}]\n[\"b.json\",2,{}]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "def-argument-current-source",
+      "args": [
+        "-c",
+        "def metadata(f): f | [input_filename,input_line_number,.]; metadata(\"changed\")",
+        "a.json",
+        "empty.json",
+        "b.json"
+      ],
+      "stdin": "",
+      "files": {
+        "a.json": "{}\n{}\n",
+        "b.json": "\n{}\n",
+        "empty.json": ""
+      },
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"a.json\",1,\"changed\"]\n[\"a.json\",2,\"changed\"]\n[\"b.json\",2,\"changed\"]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "nested-def-same-metadata",
+      "args": [
+        "-c",
+        "def inner: [input_filename,input_line_number,.]; def outer: [inner]; outer",
+        "a.json",
+        "empty.json",
+        "b.json"
+      ],
+      "stdin": "",
+      "files": {
+        "a.json": "{}\n{}\n",
+        "b.json": "\n{}\n",
+        "empty.json": ""
+      },
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[[\"a.json\",1,{}]]\n[[\"a.json\",2,{}]]\n[[\"b.json\",2,{}]]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "multivalue-filter-same-metadata",
+      "args": [
+        "-c",
+        "(1,2) | [input_filename,input_line_number,.]",
+        "a.json",
+        "empty.json",
+        "b.json"
+      ],
+      "stdin": "",
+      "files": {
+        "a.json": "{}\n{}\n",
+        "b.json": "\n{}\n",
+        "empty.json": ""
+      },
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"a.json\",1,1]\n[\"a.json\",1,2]\n[\"a.json\",2,1]\n[\"a.json\",2,2]\n[\"b.json\",2,1]\n[\"b.json\",2,2]\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "number",
+      "files": {
+        "a": "10",
+        "b": "\n{}\n"
+      },
+      "args": ["-c", "[input_filename,input_line_number,.]", "a", "b"],
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"b\",1,10]\n[\"b\",2,{}]\n",
+        "stderr": ""
+      },
+      "stdin": ""
+    },
+    {
+      "id": "boolean",
+      "files": {
+        "a": "true",
+        "b": "\n{}\n"
+      },
+      "args": ["-c", "[input_filename,input_line_number,.]", "a", "b"],
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"b\",1,true]\n[\"b\",2,{}]\n",
+        "stderr": ""
+      },
+      "stdin": ""
+    },
+    {
+      "id": "null",
+      "files": {
+        "a": "null",
+        "b": "\n{}\n"
+      },
+      "args": ["-c", "[input_filename,input_line_number,.]", "a", "b"],
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"b\",1,null]\n[\"b\",2,{}]\n",
+        "stderr": ""
+      },
+      "stdin": ""
+    },
+    {
+      "id": "string",
+      "files": {
+        "a": "\"x\"",
+        "b": "\n{}\n"
+      },
+      "args": ["-c", "[input_filename,input_line_number,.]", "a", "b"],
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"a\",0,\"x\"]\n[\"b\",2,{}]\n",
+        "stderr": ""
+      },
+      "stdin": ""
+    },
+    {
+      "id": "array",
+      "files": {
+        "a": "[]",
+        "b": "\n{}\n"
+      },
+      "args": ["-c", "[input_filename,input_line_number,.]", "a", "b"],
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"a\",0,[]]\n[\"b\",2,{}]\n",
+        "stderr": ""
+      },
+      "stdin": ""
+    },
+    {
+      "id": "object",
+      "files": {
+        "a": "{}",
+        "b": "\n{}\n"
+      },
+      "args": ["-c", "[input_filename,input_line_number,.]", "a", "b"],
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"a\",0,{}]\n[\"b\",2,{}]\n",
+        "stderr": ""
+      },
+      "stdin": ""
+    },
+    {
+      "id": "next-empty-last",
+      "files": {
+        "a": "10",
+        "b": ""
+      },
+      "args": ["-c", "[input_filename,input_line_number,.]", "a", "b"],
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"b\",0,10]\n",
+        "stderr": ""
+      },
+      "stdin": ""
+    },
+    {
+      "id": "next-empty-then-delimiter",
+      "files": {
+        "a": "10",
+        "b": "",
+        "c": "\n{}\n"
+      },
+      "args": ["-c", "[input_filename,input_line_number,.]", "a", "b", "c"],
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"c\",1,10]\n[\"c\",2,{}]\n",
+        "stderr": ""
+      },
+      "stdin": ""
+    },
+    {
+      "id": "next-first-line-no-LF",
+      "files": {
+        "a": "10",
+        "b": " {}"
+      },
+      "args": ["-c", "[input_filename,input_line_number,.]", "a", "b"],
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"b\",0,10]\n[\"b\",0,{}]\n",
+        "stderr": ""
+      },
+      "stdin": ""
+    },
+    {
+      "id": "next-first-line-with-LF",
+      "files": {
+        "a": "10",
+        "b": " {}\n"
+      },
+      "args": ["-c", "[input_filename,input_line_number,.]", "a", "b"],
+      "expected": {
+        "exitCode": 0,
+        "stdout": "[\"b\",1,10]\n[\"b\",1,{}]\n",
+        "stderr": ""
+      },
+      "stdin": ""
+    }
+  ]
+}

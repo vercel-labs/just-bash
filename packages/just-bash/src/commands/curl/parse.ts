@@ -1,3 +1,4 @@
+// Automa modification: N00b redirects require explicit -L.
 /**
  * Option parsing for curl command
  */
@@ -7,6 +8,32 @@ import type { ExecResult } from "../../types.js";
 import { unknownOption } from "../help.js";
 import { encodeFormData, parseFormField } from "./form.js";
 import type { CurlOptions } from "./types.js";
+
+const valueOptions = new Set([
+  "-X",
+  "--request",
+  "-H",
+  "--header",
+  "-d",
+  "--data",
+  "--data-raw",
+  "--data-binary",
+  "--data-urlencode",
+  "-F",
+  "--form",
+  "-u",
+  "--user",
+  "-A",
+  "--user-agent",
+  "-e",
+  "--referer",
+  "-T",
+  "--upload-file",
+  "-o",
+  "--output",
+  "-w",
+  "--write-out",
+]);
 
 /**
  * Push a `-d`/`--data`/`--data-binary`/`--data-raw` value as a data part.
@@ -87,8 +114,9 @@ export function parseOptions(args: string[]): CurlOptions | ExecResult {
     silent: false,
     showError: false,
     failSilently: false,
-    followRedirects: true,
+    followRedirects: false,
     verbose: false,
+    retry: 0,
   };
 
   let impliesPost = false;
@@ -96,6 +124,12 @@ export function parseOptions(args: string[]): CurlOptions | ExecResult {
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+    if (valueOptions.has(arg) && i + 1 === args.length)
+      return {
+        stdout: "",
+        stderr: `curl: option ${arg}: requires parameter\n`,
+        exitCode: 2,
+      };
 
     if (arg === "-X" || arg === "--request") {
       options.method = args[++i] ?? "GET";
@@ -195,16 +229,38 @@ export function parseOptions(args: string[]): CurlOptions | ExecResult {
       options.headers.set("Referer", arg.slice(2));
     } else if (arg.startsWith("--referer=")) {
       options.headers.set("Referer", arg.slice(10));
-    } else if (arg === "-b" || arg === "--cookie") {
-      options.headers.set("Cookie", args[++i] ?? "");
-    } else if (arg.startsWith("-b")) {
-      options.headers.set("Cookie", arg.slice(2));
-    } else if (arg.startsWith("--cookie=")) {
-      options.headers.set("Cookie", arg.slice(9));
-    } else if (arg === "-c" || arg === "--cookie-jar") {
-      options.cookieJar = args[++i];
-    } else if (arg.startsWith("--cookie-jar=")) {
-      options.cookieJar = arg.slice(13);
+    } else if (
+      arg === "--cookie" ||
+      arg.startsWith("--cookie=") ||
+      arg.startsWith("-b") ||
+      arg === "--junk-session-cookies" ||
+      arg === "-j"
+    ) {
+      return {
+        stdout: "",
+        stderr:
+          "curl: cookie input and session-cookie filtering are not supported\n",
+        exitCode: 2,
+      };
+    } else if (
+      arg === "-c" ||
+      arg === "--cookie-jar" ||
+      arg.startsWith("-c") ||
+      arg.startsWith("--cookie-jar=")
+    ) {
+      const value =
+        arg === "-c" || arg === "--cookie-jar"
+          ? args[++i]
+          : arg.startsWith("--cookie-jar=")
+            ? arg.slice(13)
+            : arg.slice(2);
+      if (!value)
+        return {
+          stdout: "",
+          stderr: "curl: option --cookie-jar: requires a non-empty parameter\n",
+          exitCode: 2,
+        };
+      options.cookieJar = value;
     } else if (arg === "-T" || arg === "--upload-file") {
       options.uploadFile = args[++i];
       if (options.method === "GET") {
@@ -215,31 +271,47 @@ export function parseOptions(args: string[]): CurlOptions | ExecResult {
       if (options.method === "GET") {
         options.method = "PUT";
       }
-    } else if (arg === "-m" || arg === "--max-time") {
-      const secs = parseFloat(args[++i] ?? "0");
-      if (!Number.isNaN(secs) && secs > 0) {
-        options.timeoutMs = secs * 1000;
-      }
-    } else if (arg.startsWith("--max-time=")) {
-      const secs = parseFloat(arg.slice(11));
-      if (!Number.isNaN(secs) && secs > 0) {
-        options.timeoutMs = secs * 1000;
-      }
-    } else if (arg === "--connect-timeout") {
-      const secs = parseFloat(args[++i] ?? "0");
-      if (!Number.isNaN(secs) && secs > 0) {
-        // Use connect-timeout as overall timeout if max-time not set
-        if (options.timeoutMs === undefined) {
-          options.timeoutMs = secs * 1000;
-        }
-      }
-    } else if (arg.startsWith("--connect-timeout=")) {
-      const secs = parseFloat(arg.slice(18));
-      if (!Number.isNaN(secs) && secs > 0) {
-        if (options.timeoutMs === undefined) {
-          options.timeoutMs = secs * 1000;
-        }
-      }
+    } else if (arg === "--retry" || arg.startsWith("--retry=")) {
+      const value = arg === "--retry" ? args[++i] : arg.slice(8);
+      if (
+        value === undefined ||
+        !/^\d+$/.test(value) ||
+        !Number.isSafeInteger(Number(value))
+      )
+        return {
+          stdout: "",
+          stderr: "curl: option --retry: expected a non-negative integer\n",
+          exitCode: 2,
+        };
+      options.retry = Number(value);
+    } else if (
+      arg === "-m" ||
+      arg.startsWith("-m") ||
+      arg === "--max-time" ||
+      arg.startsWith("--max-time=") ||
+      arg === "--connect-timeout" ||
+      arg.startsWith("--connect-timeout=")
+    ) {
+      const connect = arg.startsWith("--connect-timeout");
+      const value =
+        arg === "-m" || arg === "--max-time" || arg === "--connect-timeout"
+          ? args[++i]
+          : arg.startsWith("--")
+            ? arg.slice(arg.indexOf("=") + 1)
+            : arg.slice(2);
+      if (
+        value === undefined ||
+        !/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(value) ||
+        !Number.isFinite(Number(value) * 1000)
+      )
+        return {
+          stdout: "",
+          stderr: "curl: timeout must be a non-negative finite number\n",
+          exitCode: 2,
+        };
+      const milliseconds = Number(value) * 1000 || undefined;
+      if (connect) options.connectTimeoutMs = milliseconds;
+      else options.timeoutMs = milliseconds;
     } else if (arg === "-o" || arg === "--output") {
       options.outputFile = args[++i];
     } else if (arg.startsWith("--output=")) {
@@ -376,5 +448,12 @@ export function parseOptions(args: string[]): CurlOptions | ExecResult {
     options.method = "POST";
   }
 
+  if (options.headers.has("Cookie")) {
+    return {
+      stdout: "",
+      stderr: "curl: Cookie header overrides are not supported\n",
+      exitCode: 2,
+    };
+  }
   return options;
 }

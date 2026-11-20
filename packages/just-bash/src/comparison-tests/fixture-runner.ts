@@ -447,6 +447,14 @@ async function compareOutputsInternal(
     );
   }
 
+  if (options?.compareStderr && bashEnvResult.stderr !== realBashStderr) {
+    throw new Error(
+      `stderr mismatch for "${command}"\n` +
+        `Expected (recorded bash): ${JSON.stringify(realBashStderr)}\n` +
+        `Received (BashEnv):       ${JSON.stringify(bashEnvResult.stderr)}`,
+    );
+  }
+
   if (options?.compareExitCode !== false) {
     if (bashEnvResult.exitCode !== realBashExitCode) {
       throw new Error(

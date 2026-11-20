@@ -1,3 +1,4 @@
+// Automa modification: GNU uniq -c emits a seven-column count.
 import { describe, expect, it } from "vitest";
 import { Bash } from "../Bash.js";
 
@@ -349,9 +350,9 @@ Error: Inventory check failed: Item out of stock
     const result = await env.exec(
       'grep -o "at [A-Za-z.]*" /app/logs/error.log | sort | uniq -c | sort -rn | head -3',
     );
-    expect(result.stdout).toBe(`   2 at OrderService.processOrder
-   2 at OrderController.create
-   1 at UserRepository.findById
+    expect(result.stdout).toBe(`      2 at OrderService.processOrder
+      2 at OrderController.create
+      1 at UserRepository.findById
 `);
     expect(result.exitCode).toBe(0);
   });

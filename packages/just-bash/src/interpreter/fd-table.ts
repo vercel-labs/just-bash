@@ -24,7 +24,29 @@
  */
 
 import { checkFdLimit } from "./helpers/result.js";
-import type { InterpreterContext } from "./types.js";
+import type { InterpreterContext, SharedInputSession } from "./types.js";
+
+/**
+ * Copy the fd alias groups, preserving the sharing structure: descriptors
+ * that shared one Set in the original must share one Set in the copy, or the
+ * subshell's reads would only move some of the aliases.
+ */
+export function cloneFdAliases(
+  aliases: Map<number, Set<number>> | undefined,
+): Map<number, Set<number>> | undefined {
+  if (!aliases) return undefined;
+  const copiedGroups = new Map<Set<number>, Set<number>>();
+  const cloned = new Map<number, Set<number>>();
+  for (const [fd, group] of aliases) {
+    let copy = copiedGroups.get(group);
+    if (!copy) {
+      copy = new Set(group);
+      copiedGroups.set(group, copy);
+    }
+    cloned.set(fd, copy);
+  }
+  return cloned;
+}
 
 const FILE_PREFIX = "__file__:";
 const FILE_APPEND_PREFIX = "__file_append__:";
@@ -54,6 +76,7 @@ export type FdEntry =
  * other descriptors shared its open file description.
  */
 interface FdSnapshotEntry {
+  inputSession?: SharedInputSession;
   raw: string | undefined;
   isInput: boolean;
   isDevice: boolean;
@@ -211,7 +234,10 @@ export function getRawFd(
   ctx: InterpreterContext,
   fd: number,
 ): string | undefined {
-  return ctx.state.fileDescriptors?.get(fd);
+  return (
+    ctx.state.fdInputSessions?.get(fd)?.remaining ??
+    ctx.state.fileDescriptors?.get(fd)
+  );
 }
 
 /** Typed entry for `fd`, or undefined when the fd is not open. */
@@ -272,6 +298,7 @@ export function setRawFd(
   isInput = false,
   isDevice = false,
 ): void {
+  ctx.state.fdInputSessions?.delete(fd);
   leaveAliasGroup(ctx, fd);
   writeRawFd(ctx, fd, raw, isInput, isDevice);
 }
@@ -293,6 +320,7 @@ export function setFdEntry(
 
 export function closeFd(ctx: InterpreterContext, fd: number): void {
   ctx.state.fileDescriptors?.delete(fd);
+  ctx.state.fdInputSessions?.delete(fd);
   ctx.state.inputFds?.delete(fd);
   ctx.state.deviceFds?.delete(fd);
   leaveAliasGroup(ctx, fd);
@@ -309,8 +337,10 @@ export function dupFd(
   fd: number,
   sourceFd: number,
 ): boolean {
+  const inputSession = ctx.state.fdInputSessions?.get(sourceFd);
   const raw = getRawFd(ctx, sourceFd);
   if (raw === undefined) return false;
+  if (fd === sourceFd) return true;
   setRawFd(
     ctx,
     fd,
@@ -318,6 +348,10 @@ export function dupFd(
     ctx.state.inputFds?.has(sourceFd) === true,
     ctx.state.deviceFds?.has(sourceFd) === true,
   );
+  if (inputSession) {
+    ctx.state.fdInputSessions ??= new Map();
+    ctx.state.fdInputSessions.set(fd, inputSession);
+  }
   joinAliasGroup(ctx, fd, sourceFd);
   return true;
 }
@@ -327,6 +361,7 @@ export function moveFd(
   fd: number,
   sourceFd: number,
 ): boolean {
+  const inputSession = ctx.state.fdInputSessions?.get(sourceFd);
   const raw = getRawFd(ctx, sourceFd);
   if (raw === undefined) return false;
   if (fd === sourceFd) return true;
@@ -337,6 +372,10 @@ export function moveFd(
   );
   closeFd(ctx, sourceFd);
   setRawFd(ctx, fd, raw, isInput, isDevice);
+  if (inputSession) {
+    ctx.state.fdInputSessions ??= new Map();
+    ctx.state.fdInputSessions.set(fd, inputSession);
+  }
   const survivor = aliases.find((member) => isFdOpen(ctx, member));
   if (survivor !== undefined) joinAliasGroup(ctx, fd, survivor);
   return true;
@@ -390,6 +429,9 @@ export function advanceFd(
   } else {
     return;
   }
+  const inputSession = ctx.state.fdInputSessions?.get(fd);
+  if (inputSession && advanced.kind === "input")
+    inputSession.remaining = advanced.content;
   const raw = encodeFdEntry(advanced);
   const isInput = advanced.kind === "input";
   // The offset lives in the open file description, not the descriptor, so
@@ -406,10 +448,10 @@ export async function writeFdEntry(
   descriptors: number[],
   content: string,
   encoding: "binary" | "utf8",
-): Promise<boolean> {
+): Promise<FdEntry | false> {
   if (entry.kind === "output") {
     await ctx.fs.appendFile(entry.path, content, encoding);
-    return true;
+    return entry;
   }
   const liveEntry = descriptors
     .map((fd) => getFdEntry(ctx, fd))
@@ -435,7 +477,7 @@ export async function writeFdEntry(
     if (isFdOpen(ctx, fd))
       writeRawFd(ctx, fd, raw, false, updated.device === true);
   }
-  return true;
+  return updated;
 }
 
 /**
@@ -452,6 +494,7 @@ export function rememberFd(
   const group = aliasGroup(ctx, fd);
   snapshot.set(fd, {
     raw: getRawFd(ctx, fd),
+    inputSession: ctx.state.fdInputSessions?.get(fd),
     isInput: ctx.state.inputFds?.has(fd) === true,
     isDevice: ctx.state.deviceFds?.has(fd) === true,
     aliases: group ? [...group].filter((member) => member !== fd) : [],
@@ -484,16 +527,43 @@ export function restoreFds(
 ): void {
   const fds = ctx.state.fileDescriptors;
   if (!fds) return;
-  for (const [fd, { raw, isInput, isDevice, aliases }] of snapshot) {
+  for (const [
+    fd,
+    { raw, isInput, isDevice, aliases, inputSession },
+  ] of snapshot) {
     if (raw === undefined) {
       closeFd(ctx, fd);
       continue;
     }
     // Re-opening the saved value detaches fd from whatever it aliases now.
-    setRawFd(ctx, fd, raw, isInput, isDevice);
+    setRawFd(ctx, fd, inputSession?.remaining ?? raw, isInput, isDevice);
+    if (inputSession) {
+      ctx.state.fdInputSessions ??= new Map();
+      ctx.state.fdInputSessions.set(fd, inputSession);
+    }
     // Then re-attach it to whichever of its original co-members is still
     // open — they all share one description, so any survivor will do.
     const survivor = aliases.find((member) => fds.has(member));
     if (survivor !== undefined) joinAliasGroup(ctx, fd, survivor);
   }
+}
+
+/** Give a child its own fd table while retaining one shared stdin description. */
+export function attachInputSession(
+  ctx: InterpreterContext,
+  inputSession: SharedInputSession,
+): void {
+  const state = ctx.state;
+  state.fileDescriptors = new Map(state.fileDescriptors);
+  state.inputFds = new Set(state.inputFds);
+  state.deviceFds = new Set(state.deviceFds);
+  state.fdAliases = cloneFdAliases(state.fdAliases);
+  state.fdInputSessions = new Map(state.fdInputSessions);
+  state.closedStandardFds = new Set(state.closedStandardFds);
+  state.closedStandardFds.delete(0);
+  setFdEntry(ctx, 0, { kind: "input", content: inputSession.remaining });
+  state.fdInputSessions.set(0, inputSession);
+  // fd 0 supplies the input, including EOF; no legacy content fallback.
+  state.groupStdin = undefined;
+  state.groupStdinSourceFd = undefined;
 }

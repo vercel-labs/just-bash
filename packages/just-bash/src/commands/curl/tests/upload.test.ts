@@ -1,3 +1,4 @@
+// Automa modification: assert byte-preserving multipart and file upload bodies.
 /**
  * Tests for curl upload options
  */
@@ -52,7 +53,9 @@ describe("curl upload", () => {
       );
 
       expect(lastRequest?.options.method).toBe("PUT");
-      expect(lastRequest?.options.body).toBe("upload content");
+      expect(lastRequest?.options.body).toEqual(
+        new TextEncoder().encode("upload content"),
+      );
     });
 
     it("uploads file with --upload-file", async () => {
@@ -68,7 +71,9 @@ describe("curl upload", () => {
       );
 
       expect(lastRequest?.options.method).toBe("PUT");
-      expect(lastRequest?.options.body).toBe("binary data");
+      expect(lastRequest?.options.body).toEqual(
+        new TextEncoder().encode("binary data"),
+      );
     });
 
     it("supports --upload-file=value format", async () => {
@@ -83,7 +88,9 @@ describe("curl upload", () => {
         "curl --upload-file=/file.txt https://api.example.com/files/file.txt",
       );
 
-      expect(lastRequest?.options.body).toBe("file data");
+      expect(lastRequest?.options.body).toEqual(
+        new TextEncoder().encode("file data"),
+      );
     });
 
     it("allows explicit method override with -X", async () => {
@@ -99,7 +106,9 @@ describe("curl upload", () => {
       );
 
       expect(lastRequest?.options.method).toBe("POST");
-      expect(lastRequest?.options.body).toBe("content");
+      expect(lastRequest?.options.body).toEqual(
+        new TextEncoder().encode("content"),
+      );
     });
 
     it("fails if file does not exist", async () => {

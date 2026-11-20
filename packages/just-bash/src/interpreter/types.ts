@@ -15,9 +15,11 @@ import type { SecureFetch } from "../network/index.js";
 import type {
   CommandExecOptions,
   CommandRegistry,
+  EnvironmentInfo,
   ExecResult,
   FeatureCoverageWriter,
   TraceCallback,
+  VirtualFileMetadata,
 } from "../types.js";
 import type { ProcessSubstitutionEntry } from "./process-substitution.js";
 
@@ -44,6 +46,8 @@ export interface CompletionSpec {
 }
 
 export interface ShellOptions {
+  /** Automa: inherit ERR traps into functions and child shells. */
+  errtrace?: boolean;
   /** set -e: Exit immediately if a command exits with non-zero status */
   errexit: boolean;
   /** set -o pipefail: Return the exit status of the last (rightmost) command in a pipeline that fails */
@@ -71,6 +75,8 @@ export interface ShellOptions {
 }
 
 export interface ShoptOptions {
+  /** Automa: retain errexit in command substitutions. */
+  inherit_errexit?: boolean;
   /** shopt -s extglob: Enable extended globbing patterns @(), *(), +(), ?(), !() */
   extglob: boolean;
   /** shopt -s dotglob: Include dotfiles in glob expansion */
@@ -239,6 +245,8 @@ export interface CallStackState {
   funcNameStack?: string[];
   /** Stack of source files for BASH_SOURCE (tracks where functions were defined) */
   sourceStack?: string[];
+  /** caller includes source invocations as well as function invocations. */
+  callerFrames?: ReadonlyArray<{ name: string; source: string; line: number }>;
   /** Current source file context (for function definitions) */
   currentSource?: string;
 }
@@ -281,6 +289,8 @@ export interface ControlFlowState {
  * Powers special variables like $$, $BASHPID, $!, and $SECONDS.
  */
 export interface ProcessState {
+  /** Interpreter-local file creation mask; never reads or mutates host umask. */
+  fileCreationMask?: number;
   /** Total commands executed (for execution limits) */
   commandCount: number;
   /** Time when shell started (for $SECONDS) */
@@ -309,10 +319,12 @@ export interface ProcessState {
 // - Here-documents
 // - Compound command stdin piping
 
-/**
- * Tracks file descriptors and stdin content for I/O operations.
- * Used for process substitution, here-documents, and compound command stdin.
- */
+/** Private input description shared by nested command invocations. */
+export interface SharedInputSession {
+  remaining: string;
+}
+
+/** File descriptors and stdin for substitutions and compound commands. */
 export interface IOState {
   /** Stdin available for commands in compound commands (groups, subshells, while loops with piped input) */
   groupStdin?: string;
@@ -328,6 +340,8 @@ export interface IOState {
    * for one. Maintained exclusively by `fd-table.ts`.
    */
   inputFds?: Set<number>;
+  /** Internal open-input identities; clones retain the shared read position. */
+  fdInputSessions?: Map<number, SharedInputSession>;
   /** Character-device metadata kept separate from public descriptor content. */
   deviceFds?: Set<number>;
   /**
@@ -399,6 +413,13 @@ export interface InterpreterState
     ProcessState,
     IOState,
     ExpansionState {
+  /** Automa: shell-local EXIT/ERR lifecycle state. */
+  automaTraps?: Map<string, string>;
+  automaTrapVersions?: Map<string, number>;
+  automaTrapRunning?: Set<string>;
+  automaTrapScriptDepth?: number;
+  automaTrapExiting?: boolean;
+  automaTrapExitStatus?: number;
   // ---- Core Environment ----
   /** Environment variables (exported to commands) - uses Map to prevent prototype pollution */
   env: Map<string, string>;
@@ -469,8 +490,12 @@ export interface ShellArray {
 }
 
 export interface InterpreterContext {
+  environmentInfo?: EnvironmentInfo;
+  virtualFileMetadata?: VirtualFileMetadata;
   state: InterpreterState;
   fs: IFileSystem;
+  /** Identity of the backend before interpreter-local filesystem facades. */
+  fsIdentity?: object;
   commands: CommandRegistry;
   /** Execution limits configuration */
   limits: Required<ExecutionLimits>;
@@ -480,6 +505,7 @@ export interface InterpreterContext {
     script: string,
     options?: InterpreterExecOptions,
     stdinAlreadyAccounted?: boolean,
+    inputSession?: SharedInputSession,
   ) => Promise<ExecResult>;
   executeScript: (node: ScriptNode) => Promise<ExecResult>;
   executeStatement: (node: StatementNode) => Promise<ExecResult>;

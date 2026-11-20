@@ -1,0 +1,210 @@
+{
+  "0fb012d3c3df4150": {
+    "command": "printf payload | xargs -a args -n1 bash -c 'if [ \"$0\" = one ]; then echo skip; else cat; fi'",
+    "files": {
+      "args": "one two\n",
+      "cats": "-\n-\n",
+      "heads": "-c2\n-c2\n",
+      "other": "OTHER"
+    },
+    "stdout": "skip\npayload",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "1b1418170d99d0d6": {
+    "command": "printf payload | xargs -a args -n1 bash -c 'printf x | { cat; }; cat'",
+    "files": {
+      "args": "one two\n",
+      "cats": "-\n-\n",
+      "heads": "-c2\n-c2\n",
+      "other": "OTHER"
+    },
+    "stdout": "xpayloadx",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "29997590e29e91d4": {
+    "command": "printf abcdef | xargs -a args -n1 bash -c 'head -c2; cat'",
+    "files": {
+      "args": "one two\n",
+      "cats": "-\n-\n",
+      "heads": "-c2\n-c2\n",
+      "other": "OTHER"
+    },
+    "stdout": "abcdef",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "2ff6f178a0e49542": {
+    "command": "printf '__file__:/secret' | xargs -a cats -n1 cat",
+    "files": {
+      "args": "one two\n",
+      "cats": "-\n-\n",
+      "heads": "-c2\n-c2\n",
+      "other": "OTHER"
+    },
+    "stdout": "__file__:/secret",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "33bce6bdfb959c72": {
+    "command": "printf payload | xargs -a args -n1 bash -c 'printf x | cat; cat'",
+    "files": {
+      "args": "one two\n",
+      "cats": "-\n-\n",
+      "heads": "-c2\n-c2\n",
+      "other": "OTHER"
+    },
+    "stdout": "xpayloadx",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "34c13df5331e6ba1": {
+    "command": "printf payload | xargs -a args -n1 bash -c '{ cat; } <other; cat'",
+    "files": {
+      "args": "one two\n",
+      "cats": "-\n-\n",
+      "heads": "-c2\n-c2\n",
+      "other": "OTHER"
+    },
+    "stdout": "OTHERpayloadOTHER",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "3ca52a6362a87fcd": {
+    "command": "printf abcdef | xargs -a args -n1 bash -c 'exec 0<&0; read -r -n2 x; echo \"$x\"'",
+    "files": {
+      "args": "one two\n",
+      "cats": "-\n-\n",
+      "heads": "-c2\n-c2\n",
+      "other": "OTHER"
+    },
+    "stdout": "ab\ncd\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "453981f13d583d76": {
+    "command": "printf abcdef | xargs -a args -n1 bash -c 'read -r -n2 x; echo \"$x\"; exit 0'",
+    "files": {
+      "args": "one two\n",
+      "cats": "-\n-\n",
+      "heads": "-c2\n-c2\n",
+      "other": "OTHER"
+    },
+    "stdout": "ab\ncd\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "4614183f2e5e747e": {
+    "command": "printf abcdef | xargs -a args -n1 bash -c '(head -c2)'",
+    "files": {
+      "args": "one two\n",
+      "cats": "-\n-\n",
+      "heads": "-c2\n-c2\n",
+      "other": "OTHER"
+    },
+    "stdout": "abcd",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "72ac2a173b1fc092": {
+    "command": "printf abcdef | xargs -a args -n1 bash -c 'exec 3<&0; exec 0<&-; read -r -u3 -n2 x; echo \"$x\"'",
+    "files": {
+      "args": "one two\n",
+      "cats": "-\n-\n",
+      "heads": "-c2\n-c2\n",
+      "other": "OTHER"
+    },
+    "stdout": "ab\ncd\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "7a7e335a50d16dc0": {
+    "command": "printf abcdef | xargs -a heads -n1 head",
+    "files": {
+      "args": "one two\n",
+      "cats": "-\n-\n",
+      "heads": "-c2\n-c2\n",
+      "other": "OTHER"
+    },
+    "stdout": "abcd",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "8e13425d73374189": {
+    "command": "printf payload | xargs -a args -n1 bash -c 'if [ \"$0\" = one ]; then cat <other; else cat; fi'",
+    "files": {
+      "args": "one two\n",
+      "cats": "-\n-\n",
+      "heads": "-c2\n-c2\n",
+      "other": "OTHER"
+    },
+    "stdout": "OTHERpayload",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "c119a58f4ad54644": {
+    "command": "printf abcdef | xargs -a args -n1 bash -c 'read -r -n 2 x; echo \"$x\"'",
+    "files": {
+      "args": "one two\n",
+      "cats": "-\n-\n",
+      "heads": "-c2\n-c2\n",
+      "other": "OTHER"
+    },
+    "stdout": "ab\ncd\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "ccfff28b7929b3f2": {
+    "command": "printf abcdef | xargs -a args -n1 bash -c 'exec 3<&0; read -r -n 2 x <&3; echo \"$x\"'",
+    "files": {
+      "args": "one two\n",
+      "cats": "-\n-\n",
+      "heads": "-c2\n-c2\n",
+      "other": "OTHER"
+    },
+    "stdout": "ab\ncd\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "ce02258355e8f055": {
+    "command": "printf abcdef | xargs -a args -n1 bash -c 'exec {fd}<&0; read -r -u \"$fd\" -n2 x; echo \"$x\"'",
+    "files": {
+      "args": "one two\n",
+      "cats": "-\n-\n",
+      "heads": "-c2\n-c2\n",
+      "other": "OTHER"
+    },
+    "stdout": "ab\ncd\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "f76d426416bcc8e5": {
+    "command": "printf payload | xargs -a cats -n1 cat",
+    "files": {
+      "args": "one two\n",
+      "cats": "-\n-\n",
+      "heads": "-c2\n-c2\n",
+      "other": "OTHER"
+    },
+    "stdout": "payload",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}

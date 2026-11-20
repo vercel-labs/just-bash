@@ -1,3 +1,4 @@
+import type { RecordStream } from "../records.js";
 /**
  * AWK Runtime Context
  *
@@ -18,6 +19,12 @@ const DEFAULT_FIELD_SEP = new ConstantRegex(/\s+/);
 export interface AwkRuntimeContext {
   // Built-in variables
   FS: string;
+  /** Automa modifications: shared main/getline record cursor. */
+  RS: string;
+  RT: string;
+  inputLimit: number;
+  inputBytes: number;
+  readMain?: () => Promise<string | null>;
   OFS: string;
   ORS: string;
   OFMT: string;
@@ -53,8 +60,8 @@ export interface AwkRuntimeContext {
   lines?: string[];
   lineIndex?: number;
   /** Internal getline streams, isolated from the AWK variable namespace. */
-  getlineCommandStreams: Map<string, { lines: string[]; index: number }>;
-  getlineFileStreams: Map<string, { lines: string[]; index: number }>;
+  getlineCommandStreams: Map<string, RecordStream>;
+  getlineFileStreams: Map<string, RecordStream>;
   fieldSep: RegexLike;
 
   // Execution limits
@@ -135,6 +142,10 @@ export function createRuntimeContext(
 
   return {
     FS: " ",
+    RS: "\n",
+    RT: "",
+    inputLimit: Infinity,
+    inputBytes: 0,
     OFS: " ",
     ORS: "\n",
     OFMT: "%.6g",

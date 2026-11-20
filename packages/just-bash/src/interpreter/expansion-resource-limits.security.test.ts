@@ -182,12 +182,13 @@ describe("interpreter expansion resource limits", () => {
   });
 
   it("stops range generation at the configured result limit", () => {
-    const result = expandBraceRange(1, 10_000, undefined, "1", "10000", {
-      maxResults: 3,
-      maxStringBytes: 64,
-    });
-
-    expect(result.expanded).toEqual(["1", "2", "3"]);
+    // Automa: a clipped command must never run successfully.
+    expect(() =>
+      expandBraceRange(1, 10_000, undefined, "1", "10000", {
+        maxResults: 3,
+        maxStringBytes: 64,
+      }),
+    ).toThrow("brace expansion result limit exceeded (3)");
   });
 
   it("rejects attacker-controlled range padding before padStart", () => {

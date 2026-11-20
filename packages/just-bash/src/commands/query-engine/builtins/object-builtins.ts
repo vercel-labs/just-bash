@@ -95,12 +95,12 @@ export function evalObjectBuiltin(
       if (Array.isArray(value)) return [value.map((_, i) => i)];
       if (value && typeof value === "object")
         return [Object.keys(value).sort()];
-      return [null];
+      throw new Error(`${value === null ? "null" : typeof value} has no keys`);
 
     case "keys_unsorted":
       if (Array.isArray(value)) return [value.map((_, i) => i)];
       if (value && typeof value === "object") return [Object.keys(value)];
-      return [null];
+      throw new Error(`${value === null ? "null" : typeof value} has no keys`);
 
     case "length":
       if (typeof value === "string") return [value.length];
@@ -147,7 +147,7 @@ export function evalObjectBuiltin(
         }
         return [keys.map((key) => makeEntry(key, toEntriesObj[key]))];
       }
-      return [null];
+      throw new Error("Cannot apply to_entries to a non-object/array");
     }
 
     case "from_entries":
@@ -264,6 +264,11 @@ export function evalObjectBuiltin(
     }
 
     case "fromjson": {
+      // Automa modifications: reject non-string input through the original error path.
+      if (typeof value !== "string")
+        throw new Error(
+          `${value === null ? "null" : Array.isArray(value) ? "array" : typeof value} only strings can be parsed`,
+        );
       if (typeof value === "string") {
         // jq extension: "nan" and "inf"/"infinity" are valid
         const trimmed = value.trim().toLowerCase();

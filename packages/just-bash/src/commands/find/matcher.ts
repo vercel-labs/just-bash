@@ -115,8 +115,9 @@ export function evaluateExpressionWithPrune(
     case "empty":
       return { matches: ctx.isEmpty, pruned: false, printed: false };
     case "mtime": {
-      const now = Date.now();
-      const fileAgeDays = (now - ctx.mtime) / (1000 * 60 * 60 * 24);
+      const fileAgeDays = Math.floor(
+        (ctx.now - ctx.mtime) / (1000 * 60 * 60 * 24),
+      );
       let matches: boolean;
       if (expr.comparison === "more") {
         matches = fileAgeDays > expr.days;
@@ -127,6 +128,22 @@ export function evaluateExpressionWithPrune(
       }
       return { matches, pruned: false, printed: false };
     }
+    case "mmin": {
+      // GNU find -mmin N selects the preceding minute window (30s old is 1).
+      // Signed comparisons use the unrounded elapsed minutes.
+      const fileAgeMinutes = (ctx.now - ctx.mtime) / (1000 * 60);
+      let matches: boolean;
+      if (expr.comparison === "more") {
+        matches = fileAgeMinutes > expr.minutes;
+      } else if (expr.comparison === "less") {
+        matches = fileAgeMinutes < expr.minutes;
+      } else {
+        matches = Math.ceil(fileAgeMinutes) === expr.minutes;
+      }
+      return { matches, pruned: false, printed: false };
+    }
+    case "newermt":
+      return { matches: ctx.mtime > expr.time, pruned: false, printed: false };
     case "newer": {
       const refMtime = ctx.newerRefTimes.get(expr.refPath);
       if (refMtime === undefined)
@@ -187,6 +204,7 @@ export function evaluateExpressionWithPrune(
         pruned: false,
         printed: false,
         actions: [expr.action],
+        quit: expr.action.type === "quit",
       };
     case "not": {
       const inner = evaluateExpressionWithPrune(expr.expr, ctx);
@@ -195,10 +213,12 @@ export function evaluateExpressionWithPrune(
         pruned: inner.pruned,
         printed: false,
         actions: inner.actions,
+        quit: inner.quit,
       };
     }
     case "and": {
       const left = evaluateExpressionWithPrune(expr.left, ctx);
+      if (left.quit) return left;
       if (!left.matches) {
         // Short-circuit: if left is false, prune from left is still propagated
         return {
@@ -214,11 +234,12 @@ export function evaluateExpressionWithPrune(
         pruned: left.pruned || right.pruned,
         printed: left.printed || right.printed,
         actions: [...(left.actions ?? []), ...(right.actions ?? [])],
+        quit: right.quit,
       };
     }
     case "or": {
       const left = evaluateExpressionWithPrune(expr.left, ctx);
-      if (left.matches) {
+      if (left.quit || left.matches) {
         // Short-circuit: return left result (including prune and printed)
         return left;
       }
@@ -228,6 +249,7 @@ export function evaluateExpressionWithPrune(
         pruned: left.pruned || right.pruned,
         printed: right.printed, // Only use right's printed since left didn't match
         actions: [...(left.actions ?? []), ...(right.actions ?? [])],
+        quit: right.quit,
       };
     }
   }
@@ -254,7 +276,9 @@ export function expressionNeedsStatMetadata(expr: Expression | null): boolean {
     // These need stat metadata
     case "empty": // needs size for files
     case "mtime":
+    case "mmin":
     case "newer":
+    case "newermt":
     case "size":
     case "perm":
       return true;
@@ -345,7 +369,9 @@ export function isSimpleExpression(expr: Expression | null): boolean {
     // These need stat metadata or directory contents
     case "empty":
     case "mtime":
+    case "mmin":
     case "newer":
+    case "newermt":
     case "size":
     case "perm":
       return false;
@@ -473,6 +499,7 @@ export function evaluateSimpleExpression(
         pruned: false,
         printed: false,
         actions: [expr.action],
+        quit: expr.action.type === "quit",
       };
     case "not": {
       const inner = evaluateSimpleExpression(
@@ -487,6 +514,7 @@ export function evaluateSimpleExpression(
         pruned: inner.pruned,
         printed: false,
         actions: inner.actions,
+        quit: inner.quit,
       };
     }
     case "and": {
@@ -497,6 +525,7 @@ export function evaluateSimpleExpression(
         isFile,
         isDirectory,
       );
+      if (left.quit) return left;
       if (!left.matches) {
         return {
           matches: false,
@@ -517,6 +546,7 @@ export function evaluateSimpleExpression(
         pruned: left.pruned || right.pruned,
         printed: left.printed || right.printed,
         actions: [...(left.actions ?? []), ...(right.actions ?? [])],
+        quit: right.quit,
       };
     }
     case "or": {
@@ -527,7 +557,7 @@ export function evaluateSimpleExpression(
         isFile,
         isDirectory,
       );
-      if (left.matches) {
+      if (left.quit || left.matches) {
         return left;
       }
       const right = evaluateSimpleExpression(
@@ -542,6 +572,7 @@ export function evaluateSimpleExpression(
         pruned: left.pruned || right.pruned,
         printed: right.printed,
         actions: [...(left.actions ?? []), ...(right.actions ?? [])],
+        quit: right.quit,
       };
     }
     default:
@@ -589,7 +620,9 @@ function canEvaluateExpressionEarly(expr: Expression): boolean {
     // These need stat metadata or directory contents
     case "empty":
     case "mtime":
+    case "mmin":
     case "newer":
+    case "newermt":
     case "size":
     case "perm":
       return false;
@@ -643,6 +676,7 @@ export function evaluateForEarlyPrune(
     size: 0,
     mode: 0,
     newerRefTimes: new Map(),
+    now: 0,
   };
 
   const result = evaluateExpressionWithPrune(expr, evalCtx);
@@ -674,6 +708,7 @@ function evaluatePruneBranchEarly(
           size: 0,
           mode: 0,
           newerRefTimes: new Map(),
+          now: 0,
         };
         const leftResult = evaluateExpressionWithPrune(expr.left, evalCtx);
         if (leftResult.pruned) {
@@ -700,6 +735,7 @@ function evaluatePruneBranchEarly(
           size: 0,
           mode: 0,
           newerRefTimes: new Map(),
+          now: 0,
         };
         const result = evaluateExpressionWithPrune(expr, evalCtx);
         return { shouldPrune: result.pruned };
@@ -716,6 +752,7 @@ function evaluatePruneBranchEarly(
           size: 0,
           mode: 0,
           newerRefTimes: new Map(),
+          now: 0,
         };
         const leftResult = evaluateExpressionWithPrune(expr.left, evalCtx);
         // If left doesn't match, AND will be false, no pruning

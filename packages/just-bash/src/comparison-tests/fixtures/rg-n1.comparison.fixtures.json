@@ -1,0 +1,670 @@
+{
+  "0d8604c089ce7a9b": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -uuu -l two .",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "./.hidden\n./a.ts\n./binary\n./f.txt\n./ignored.txt\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "0fdddd0354eabaaf": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M2 -o --max-columns-preview two f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:tw [... 0 more matches]\n1:tw [... 0 more matches]\n3:tw [... 0 more matches]\n4:tw [... 0 more matches]\n5:tw [... 0 more matches]\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "10616d036488b00d": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never --hidden -u two .",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "./.hidden:1:two\n./a.ts:2:two\n./f.txt:1:aaa two two zzz\n./f.txt:3:two\n./f.txt:4:你好two好\n./f.txt:5:😀two\n./ignored.txt:1:two\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "1352f10253f7c9bd": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never --max-columns=5 --max-columns-preview --no-max-columns-preview two f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:[Omitted long matching line]\n3:two\n4:[Omitted long matching line]\n5:[Omitted long matching line]\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "15244e459313a23f": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never --no-ignore -u two .",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "./a.ts:2:two\n./f.txt:1:aaa two two zzz\n./f.txt:3:two\n./f.txt:4:你好two好\n./f.txt:5:😀two\n./ignored.txt:1:two\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "1fed5a5c7cf3ffda": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M5 -U two f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:[Omitted long matching line]\n3:two\n4:[Omitted long matching line]\n5:[Omitted long matching line]\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "203958d8a8445394": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M5 --max-columns-preview two f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:aaa t [... omitted end of long line]\n3:two\n4:你好two [... omitted end of long line]\n5:😀two [... omitted end of long line]\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "2262ae581ba15b08": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never two .",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "./a.ts:2:two\n./f.txt:1:aaa two two zzz\n./f.txt:3:two\n./f.txt:4:你好two好\n./f.txt:5:😀two\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "271cdd19fbb2c3f7": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never --no-heading --heading two .",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "./a.ts\n2:two\n\n./f.txt\n1:aaa two two zzz\n3:two\n4:你好two好\n5:😀two\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "2ac55e38501fdaf5": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M5 --max-columns-preview -A1 short f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "2:short [... omitted end of long line]\n3-two\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "2fa0c783432065ba": {
+    "command": "RIPGREP_CONFIG_PATH= rg -n -M5 --vimgrep  two f",
+    "files": {
+      "f": "aaa two two zzz\ntwo\n"
+    },
+    "stdout": "f:1:5:[Omitted long line with 2 matches]\nf:1:9:[Omitted long line with 2 matches]\nf:2:1:two\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "312844fdf6869321": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M2 -o two f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:[Omitted long matching line]\n1:[Omitted long matching line]\n3:[Omitted long matching line]\n4:[Omitted long matching line]\n5:[Omitted long matching line]\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "329ffbbae429f8fb": {
+    "command": "RIPGREP_CONFIG_PATH= rg -n -M5 --vimgrep --max-columns-preview two f",
+    "files": {
+      "f": "aaa two two zzz\ntwo\n"
+    },
+    "stdout": "f:1:5:aaa t [... 1 more match]\nf:1:9:aaa t [... 1 more match]\nf:2:1:two\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "3c188aa34012acd9": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never --no-messages two f.txt missing",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "f.txt:1:aaa two two zzz\nf.txt:3:two\nf.txt:4:你好two好\nf.txt:5:😀two\n",
+    "stderr": "",
+    "exitCode": 2,
+    "locked": true
+  },
+  "40a5ed657f07952d": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M5 --max-columns-preview . f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:aaa t [... omitted end of long line]\n2:short [... omitted end of long line]\n3:two\n4:你好two [... omitted end of long line]\n5:😀two [... omitted end of long line]\n6:lastx\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "4a940ac2e2757d07": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never two < /dev/null",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "a.ts:2:two\nf.txt:1:aaa two two zzz\nf.txt:3:two\nf.txt:4:你好two好\nf.txt:5:😀two\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "4b3a2df75fd257d6": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never --text -uuu two binary",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "binary file matches (found \"\\0\" byte around offset 3)\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "4db665d973222584": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never --max-columns 5 two f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:[Omitted long matching line]\n3:two\n4:[Omitted long matching line]\n5:[Omitted long matching line]\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "56415feb9554c711": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M5 -C1 two f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:[Omitted long matching line]\n2-[Omitted long context line]\n3:two\n4:[Omitted long matching line]\n5:[Omitted long matching line]\n6-lastx\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "56ae89d247213178": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M5 --max-columns-preview -r x two f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:aaa x [... 1 more match]\n3:x\n4:你好x好 [... 0 more matches]\n5:😀x\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "63cf3926cefed77e": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never --heading --no-heading two .",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "./a.ts:2:two\n./f.txt:1:aaa two two zzz\n./f.txt:3:two\n./f.txt:4:你好two好\n./f.txt:5:😀two\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "64130dc36507b7b6": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M5 -U --max-columns-preview two f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:aaa t [... omitted end of long line]\n3:two\n4:你好two [... omitted end of long line]\n5:😀two [... omitted end of long line]\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "66a05072047c3703": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -F -i two a.ts",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:Two\n2:two\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "88481378338f0703": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never --no-messages --files missing",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 2,
+    "locked": true
+  },
+  "901a7fb9423aed83": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M+5 two f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:[Omitted long matching line]\n3:two\n4:[Omitted long matching line]\n5:[Omitted long matching line]\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "901c7a9d64ade8b9": {
+    "command": "ln -s target.txt link; RIPGREP_CONFIG_PATH= rg -n -L two link",
+    "files": {
+      "target.txt": "two\n"
+    },
+    "stdout": "1:two\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "90f8f705e28132ca": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M0 two f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:aaa two two zzz\n3:two\n4:你好two好\n5:😀two\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "944ace18626e51d2": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M5 . f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:[Omitted long matching line]\n2:[Omitted long matching line]\n3:two\n4:[Omitted long matching line]\n5:[Omitted long matching line]\n6:lastx\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "973ced13193cd07f": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -uu two .",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "./.hidden:1:two\n./a.ts:2:two\n./f.txt:1:aaa two two zzz\n./f.txt:3:two\n./f.txt:4:你好two好\n./f.txt:5:😀two\n./ignored.txt:1:two\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "9787512347ebce00": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never --binary two binary",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "binary file matches (found \"\\0\" byte around offset 3)\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "ad7908a68816f51e": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never --files -g '!*.ts'",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "binary\nf.txt\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "b717cb694c42b5d4": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never two ./f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:aaa two two zzz\n3:two\n4:你好two好\n5:😀two\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "b7535af080c87e41": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -uuu --text two binary",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:two\u0000two\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "c0ea8b4ad00c8b7e": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M3 -o two f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:two\n1:two\n3:two\n4:two\n5:two\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "c5c0824bf23d2ed8": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M5 -r x two f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:[Omitted long line with 2 matches]\n3:x\n4:[Omitted long line with 1 matches]\n5:😀x\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "c967b46e4f13f37b": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M5 --max-columns-preview -B1 short f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1-aaa t [... omitted end of long line]\n2:short [... omitted end of long line]\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "cd2b5a3739e8d48d": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M5 -v two f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "2:[Omitted long matching line]\n6:lastx\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "d23424d0a7b701a0": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -uuu two .",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "./.hidden:1:two\n./a.ts:2:two\n./binary: binary file matches (found \"\\0\" byte around offset 3)\n./f.txt:1:aaa two two zzz\n./f.txt:3:two\n./f.txt:4:你好two好\n./f.txt:5:😀two\n./ignored.txt:1:two\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "d3afea30dd50adfa": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M5 --passthru two f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:[Omitted long matching line]\n2-[Omitted long context line]\n3:two\n4:[Omitted long matching line]\n5:[Omitted long matching line]\n6-lastx\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "d5d01cc8728181c5": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M2 -v -r x two f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "2:[Omitted long matching line]\n6:[Omitted long matching line]\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "ddd1df20403dfe85": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -uuu -c two .",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "./.hidden:1\n./a.ts:1\n./binary:2\n./f.txt:4\n./ignored.txt:1\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "e5fe9aaa141138ed": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -nM5 two f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "1:[Omitted long matching line]\n3:two\n4:[Omitted long matching line]\n5:[Omitted long matching line]\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "ea977796a193eba6": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M5 -c two f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "4\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "eb15b4cd1003de9f": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never --no-messages two missing",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 2,
+    "locked": true
+  },
+  "f5d52b4ae759a763": {
+    "command": "printf 'long two\ntwo\n' | RIPGREP_CONFIG_PATH= rg -n -M5 two",
+    "files": {},
+    "stdout": "1:[Omitted long matching line]\n2:two\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "fbc7114ac80f9eed": {
+    "command": "RIPGREP_CONFIG_PATH= rg --sort path -n -s --color never -M5 -l two f.txt",
+    "files": {
+      "f.txt": "aaa two two zzz\nshort\ntwo\n你好two好\n😀two\nlastx",
+      "a.ts": "Two\ntwo\n",
+      ".hidden": "two\n",
+      "ignored.txt": "two\n",
+      ".ignore": "ignored.txt\n",
+      "binary": "two\u0000two\n"
+    },
+    "stdout": "f.txt\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}

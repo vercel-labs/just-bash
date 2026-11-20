@@ -1,3 +1,9 @@
+import {
+  outputSegments,
+  outputSize,
+  prependOutputFrom,
+} from "../execution-output.js";
+import type { OutputSegment } from "../types.js";
 /**
  * Control Flow Execution
  *
@@ -20,7 +26,6 @@ import type {
   UntilNode,
   WhileNode,
 } from "../ast/types.js";
-import { utf8ByteLength } from "../encoding.js";
 import type { ExecResult } from "../types.js";
 import { evaluateArithmetic } from "./arithmetic.js";
 import { matchPattern } from "./conditionals.js";
@@ -84,14 +89,18 @@ function resolveLoopStdin(
 }
 
 class CompoundOutput {
+  internalOutputSegments: OutputSegment[] = [];
   private stdoutChunks: string[] = [];
   private stderrChunks: string[] = [];
   private totalBytes = 0;
 
   constructor(private readonly ctx: InterpreterContext) {}
 
-  append(stdout: string, stderr: string): void {
-    const addedBytes = utf8ByteLength(stdout) + utf8ByteLength(stderr);
+  append(stdout: string, stderr: string, parts?: OutputSegment[]): void {
+    const source = { stdout, stderr, internalOutputSegments: parts };
+    const addedBytes =
+      outputSize(source, "stdout") + outputSize(source, "stderr");
+    this.internalOutputSegments.push(...outputSegments(source));
     if (addedBytes > this.ctx.limits.maxOutputSize - this.totalBytes) {
       throwExecutionLimit(
         `total output size exceeded (>${this.ctx.limits.maxOutputSize} bytes), increase executionLimits.maxOutputSize`,
@@ -110,11 +119,12 @@ class CompoundOutput {
     this.append(stdout, stderr);
   }
 
-  replace(stdout: string, stderr: string): void {
+  replace(stdout: string, stderr: string, parts?: OutputSegment[]): void {
+    this.internalOutputSegments = [];
     this.stdoutChunks = [];
     this.stderrChunks = [];
     this.totalBytes = 0;
-    this.append(stdout, stderr);
+    this.append(stdout, stderr, parts);
   }
 
   get stdout(): string {
@@ -133,9 +143,10 @@ class CompoundOutput {
       stdout,
       stderr,
       exitCode,
+      internalOutputSegments: this.internalOutputSegments.slice(),
       internalOutputAccounting: {
-        stdout: utf8ByteLength(stdout),
-        stderr: utf8ByteLength(stderr),
+        stdout: outputSize(this, "stdout"),
+        stderr: outputSize(this, "stderr"),
       },
     };
   }
@@ -150,7 +161,11 @@ async function executeBoundedStatements(
   try {
     for (const statement of statements) {
       const statementResult = await ctx.executeStatement(statement);
-      output.append(statementResult.stdout, statementResult.stderr);
+      output.append(
+        statementResult.stdout,
+        statementResult.stderr,
+        statementResult.internalOutputSegments,
+      );
       exitCode = statementResult.exitCode;
     }
   } catch (error) {
@@ -161,7 +176,7 @@ async function executeBoundedStatements(
       error instanceof ExecutionLimitError ||
       error instanceof SubshellExitError
     ) {
-      error.prependOutput(output.stdout, output.stderr);
+      prependOutputFrom(error, output);
       throw error;
     }
     output.appendUnaccounted("", `${getErrorMessage(error)}\n`);
@@ -188,7 +203,11 @@ async function executeIfBody(
   for (const clause of node.clauses) {
     // Condition evaluation should not trigger errexit
     const condResult = await executeCondition(ctx, clause.condition);
-    output.append(condResult.stdout, condResult.stderr);
+    output.append(
+      condResult.stdout,
+      condResult.stderr,
+      condResult.internalOutputSegments,
+    );
 
     if (condResult.exitCode === 0) {
       return executeBoundedStatements(ctx, clause.body, output);
@@ -267,7 +286,11 @@ async function executeForBody(
       try {
         for (const stmt of node.body) {
           const stmtResult = await ctx.executeStatement(stmt);
-          output.append(stmtResult.stdout, stmtResult.stderr);
+          output.append(
+            stmtResult.stdout,
+            stmtResult.stderr,
+            stmtResult.internalOutputSegments,
+          );
           exitCode = stmtResult.exitCode;
         }
       } catch (error) {
@@ -276,8 +299,13 @@ async function executeForBody(
           output.stdout,
           output.stderr,
           ctx.state.loopDepth,
+          output.internalOutputSegments,
         );
-        output.replace(loopResult.stdout, loopResult.stderr);
+        output.replace(
+          loopResult.stdout,
+          loopResult.stderr,
+          loopResult.internalOutputSegments,
+        );
         // `break`/`continue` are builtins that return 0, and they were the
         // last command this body ran - so they, not the command that failed
         // before them, set the loop's status. `$?` moves with it, or the next
@@ -358,7 +386,11 @@ async function executeCStyleForBody(
       try {
         for (const stmt of node.body) {
           const stmtResult = await ctx.executeStatement(stmt);
-          output.append(stmtResult.stdout, stmtResult.stderr);
+          output.append(
+            stmtResult.stdout,
+            stmtResult.stderr,
+            stmtResult.internalOutputSegments,
+          );
           exitCode = stmtResult.exitCode;
         }
       } catch (error) {
@@ -367,8 +399,13 @@ async function executeCStyleForBody(
           output.stdout,
           output.stderr,
           ctx.state.loopDepth,
+          output.internalOutputSegments,
         );
-        output.replace(loopResult.stdout, loopResult.stderr);
+        output.replace(
+          loopResult.stdout,
+          loopResult.stderr,
+          loopResult.internalOutputSegments,
+        );
         // `break`/`continue` are builtins that return 0, and they were the
         // last command this body ran - so they, not the command that failed
         // before them, set the loop's status. `$?` moves with it, or the next
@@ -405,9 +442,14 @@ export async function executeWhile(
   ctx: InterpreterContext,
   node: WhileNode,
   stdin = "",
+  stdinProvided = false,
 ): Promise<ExecResult> {
-  return withPreparedRedirections(ctx, node.redirections, stdin, (prepared) =>
-    executeWhileBody(ctx, node, stdin, prepared),
+  return withPreparedRedirections(
+    ctx,
+    node.redirections,
+    stdin,
+    (prepared) => executeWhileBody(ctx, node, stdin, prepared),
+    stdinProvided,
   );
 }
 
@@ -451,13 +493,21 @@ async function executeWhileBody(
       try {
         for (const stmt of node.condition) {
           const result = await ctx.executeStatement(stmt);
-          output.append(result.stdout, result.stderr);
+          output.append(
+            result.stdout,
+            result.stderr,
+            result.internalOutputSegments,
+          );
           conditionExitCode = result.exitCode;
         }
       } catch (error) {
         // break/continue in condition should affect THIS while loop
         if (error instanceof BreakError) {
-          output.append(error.stdout, error.stderr);
+          output.append(
+            error.stdout,
+            error.stderr,
+            error.internalOutputSegments,
+          );
           if (error.levels > 1 && ctx.state.loopDepth > 1) {
             error.levels--;
             error.stdout = output.stdout;
@@ -467,7 +517,11 @@ async function executeWhileBody(
           }
           shouldBreak = true;
         } else if (error instanceof ContinueError) {
-          output.append(error.stdout, error.stderr);
+          output.append(
+            error.stdout,
+            error.stderr,
+            error.internalOutputSegments,
+          );
           if (error.levels > 1 && ctx.state.loopDepth > 1) {
             error.levels--;
             error.stdout = output.stdout;
@@ -496,7 +550,11 @@ async function executeWhileBody(
       try {
         for (const stmt of node.body) {
           const stmtResult = await ctx.executeStatement(stmt);
-          output.append(stmtResult.stdout, stmtResult.stderr);
+          output.append(
+            stmtResult.stdout,
+            stmtResult.stderr,
+            stmtResult.internalOutputSegments,
+          );
           exitCode = stmtResult.exitCode;
         }
       } catch (error) {
@@ -505,8 +563,13 @@ async function executeWhileBody(
           output.stdout,
           output.stderr,
           ctx.state.loopDepth,
+          output.internalOutputSegments,
         );
-        output.replace(loopResult.stdout, loopResult.stderr);
+        output.replace(
+          loopResult.stdout,
+          loopResult.stderr,
+          loopResult.internalOutputSegments,
+        );
         // `break`/`continue` are builtins that return 0, and they were the
         // last command this body ran - so they, not the command that failed
         // before them, set the loop's status. `$?` moves with it, or the next
@@ -536,9 +599,14 @@ export async function executeUntil(
   ctx: InterpreterContext,
   node: UntilNode,
   stdin = "",
+  stdinProvided = false,
 ): Promise<ExecResult> {
-  return withPreparedRedirections(ctx, node.redirections, stdin, (prepared) =>
-    executeUntilBody(ctx, node, stdin, prepared),
+  return withPreparedRedirections(
+    ctx,
+    node.redirections,
+    stdin,
+    (prepared) => executeUntilBody(ctx, node, stdin, prepared),
+    stdinProvided,
   );
 }
 
@@ -574,14 +642,22 @@ async function executeUntilBody(
 
       // Condition evaluation should not trigger errexit
       const condResult = await executeCondition(ctx, node.condition);
-      output.append(condResult.stdout, condResult.stderr);
+      output.append(
+        condResult.stdout,
+        condResult.stderr,
+        condResult.internalOutputSegments,
+      );
 
       if (condResult.exitCode === 0) break;
 
       try {
         for (const stmt of node.body) {
           const stmtResult = await ctx.executeStatement(stmt);
-          output.append(stmtResult.stdout, stmtResult.stderr);
+          output.append(
+            stmtResult.stdout,
+            stmtResult.stderr,
+            stmtResult.internalOutputSegments,
+          );
           exitCode = stmtResult.exitCode;
         }
       } catch (error) {
@@ -590,8 +666,13 @@ async function executeUntilBody(
           output.stdout,
           output.stderr,
           ctx.state.loopDepth,
+          output.internalOutputSegments,
         );
-        output.replace(loopResult.stdout, loopResult.stderr);
+        output.replace(
+          loopResult.stdout,
+          loopResult.stderr,
+          loopResult.internalOutputSegments,
+        );
         // `break`/`continue` are builtins that return 0, and they were the
         // last command this body ran - so they, not the command that failed
         // before them, set the loop's status. `$?` moves with it, or the next
@@ -670,7 +751,11 @@ async function executeCaseBody(
 
     if (matched) {
       const bodyResult = await executeBoundedStatements(ctx, item.body, output);
-      output.replace(bodyResult.stdout, bodyResult.stderr);
+      output.replace(
+        bodyResult.stdout,
+        bodyResult.stderr,
+        bodyResult.internalOutputSegments,
+      );
       exitCode = bodyResult.exitCode;
 
       // Handle different terminators:

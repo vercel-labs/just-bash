@@ -1,3 +1,4 @@
+// Automa modifications: N00b bounded rg ordering and zero-directory globstar.
 /**
  * Core search logic for rg command
  */
@@ -223,7 +224,7 @@ export async function executeSearch(
           patternSourceLeases.push(reservePatternSource(ctx, contentBytes));
         }
 
-        const content = decodeBytesToUtf8(
+        const content = decodeSearchText(
           rawContent,
           ctx.limits.maxStringLength,
         );
@@ -288,7 +289,7 @@ export async function executeSearch(
   // Skip when `-f -` already consumed stdin for patterns to avoid
   // double-consuming it as both pattern source and search input.
   const stdinConsumedByPatternFile = options.patternFiles.includes("-");
-  const stdinText = decodeBytesToUtf8(ctx.stdin);
+  const stdinText = decodeSearchText(ctx.stdin);
   // Ripgrep treats character devices and closed descriptors as absent input.
   // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/cli/src/lib.rs#L204-L208
   if (
@@ -299,6 +300,8 @@ export async function executeSearch(
   ) {
     const content = stdinText;
     const result = searchContent(content, regex, {
+      maxColumns: options.json ? 0 : options.maxColumns,
+      maxColumnsPreview: options.maxColumnsPreview,
       invertMatch: options.invertMatch,
       showLineNumbers: options.lineNumber,
       countOnly: options.count,
@@ -378,13 +381,20 @@ export async function executeSearch(
   );
 
   if (files.length === 0) {
-    return { stdout: "", stderr, exitCode: stderr ? 2 : 1 };
+    return {
+      stdout: "",
+      stderr: options.noMessages ? "" : stderr,
+      exitCode: stderr ? 2 : 1,
+    };
   }
 
   // Determine output settings
   const showFilename =
     !options.noFilename &&
-    (options.withFilename || !singleExplicitFile || files.length > 1);
+    (options.withFilename ||
+      options.vimgrep ||
+      !singleExplicitFile ||
+      files.length > 1);
 
   let effectiveLineNumbers = options.lineNumber;
   if (!explicitLineNumbers) {
@@ -465,6 +475,79 @@ interface CollectFilesResult {
 /**
  * Collect files to search based on paths and options
  */
+// Ripgrep consumes a leading UTF-8 BOM at its text boundary, independently of
+// the shell decoder (which preserves bytes for the other commands).
+function decodeSearchText(
+  ...args: Parameters<typeof decodeBytesToUtf8>
+): string {
+  return decodeBytesToUtf8(...args).replace(/^\uFEFF/, "");
+}
+
+function compareNames(
+  left: string,
+  right: string,
+  budget: FileTraversalBudget,
+): number {
+  let a = 0,
+    b = 0;
+  while (a < left.length && b < right.length) {
+    budget.checkpoint();
+    const x = left.codePointAt(a) ?? 0,
+      y = right.codePointAt(b) ?? 0;
+    if (x !== y) return x < y ? -1 : 1;
+    a += x > 0xffff ? 2 : 1;
+    b += y > 0xffff ? 2 : 1;
+  }
+  return a < left.length ? 1 : b < right.length ? -1 : 0;
+}
+
+async function sortFiles(
+  ctx: RuntimeCommandContext,
+  files: string[],
+  options: RgOptions,
+  budget: FileTraversalBudget,
+): Promise<string[]> {
+  if (!options.sortRequested)
+    return options.sort === "path" ? files.sort() : files;
+  if (options.sort === "path" || options.sort === "none") return files;
+  const field =
+    options.sort === "modified"
+      ? "mtime"
+      : options.sort === "accessed"
+        ? "atime"
+        : "birthtime";
+  const lease = ctx.executionScope?.reserveBytes(
+    "rg sort metadata",
+    files.length * 32,
+    "rg",
+  );
+  try {
+    const records: { file: string; time: number }[] = [];
+    for (const file of files) {
+      budget.checkpoint();
+      const stat = await ctx.fs.stat(ctx.fs.resolvePath(ctx.cwd, file));
+      const timestamp = stat[field];
+      const time = timestamp?.getTime();
+      if (time === undefined || !Number.isFinite(time))
+        throw new Error(`${options.sort} timestamp is unavailable`);
+      records.push({ file, time });
+    }
+    records.sort((left, right) => {
+      budget.checkpoint();
+      return options.sortReverse
+        ? right.time - left.time
+        : left.time - right.time;
+    });
+    for (let index = 0; index < records.length; index++) {
+      budget.checkpoint();
+      files[index] = records[index].file;
+    }
+    return files;
+  } finally {
+    lease?.release();
+  }
+}
+
 async function collectFiles(
   ctx: RuntimeCommandContext,
   paths: string[],
@@ -530,7 +613,7 @@ async function collectFiles(
     }
   }
 
-  const sortedFiles = options.sort === "path" ? files.sort() : files;
+  const sortedFiles = await sortFiles(ctx, files, options, traversalBudget);
 
   return {
     files: sortedFiles,
@@ -591,6 +674,13 @@ async function walkDirectory(
           name,
           isFile: undefined as boolean | undefined,
         }));
+
+    if (options.sortRequested && options.sort !== "none") {
+      entries.sort((left, right) => {
+        const order = compareNames(left.name, right.name, budget);
+        return options.sort === "path" && options.sortReverse ? -order : order;
+      });
+    }
 
     for (const entry of entries) {
       budget.checkpoint();
@@ -684,7 +774,10 @@ async function walkDirectory(
         entryAbsolutePath,
         isDirectory,
       );
-      if (gitignoreIgnored && globOverride !== true) {
+      if (
+        gitignoreIgnored &&
+        (options.automaRespectIgnore || globOverride !== true)
+      ) {
         continue;
       }
 
@@ -772,6 +865,10 @@ function shouldIncludeFile(
   const filename = relativePath.split("/").pop() || relativePath;
 
   const globOverride = matchGlobOverride(relativePath, options);
+  // Automa's selected search tools promise ignore-aware glob filtering. Keep
+  // native rg's override default and its existing single traversal otherwise.
+  if (options.automaRespectIgnore && gitignore?.matches(absolutePath, false))
+    return false;
   if (globOverride !== undefined) return globOverride;
   if (
     options.globs.some((glob) => !glob.startsWith("!")) ||
@@ -836,8 +933,13 @@ function matchGlob(str: string, pattern: string, ignoreCase = false): boolean {
     const char = pattern[i];
     if (char === "*") {
       if (pattern[i + 1] === "*") {
-        regexStr += ".*";
-        i++;
+        if ((i === 0 || pattern[i - 1] === "/") && pattern[i + 2] === "/") {
+          regexStr += "(?:.*/)?";
+          i += 2;
+        } else {
+          regexStr += ".*";
+          i++;
+        }
       } else {
         regexStr += "[^/]*";
       }
@@ -901,7 +1003,11 @@ async function listFiles(
   );
 
   if (files.length === 0) {
-    return { stdout: "", stderr, exitCode: stderr ? 2 : 1 };
+    return {
+      stdout: "",
+      stderr: options.noMessages ? "" : stderr,
+      exitCode: stderr ? 2 : 1,
+    };
   }
 
   // In quiet mode, just indicate success without output
@@ -918,7 +1024,11 @@ async function listFiles(
   for (const file of files) output.append(file).append(sep);
   const stdout = output.build();
 
-  return { stdout, stderr, exitCode: stderr ? 2 : 0 };
+  return {
+    stdout,
+    stderr: options.noMessages ? "" : stderr,
+    exitCode: stderr ? 2 : 0,
+  };
 }
 
 /**
@@ -969,7 +1079,7 @@ async function readFileContent(
             result.stdout.length,
             "rg preprocessor",
           );
-          const content = decodeBytesToUtf8(
+          const content = decodeSearchText(
             unsafeBytesFromLatin1(result.stdout),
           );
           ctx.executionScope?.consumeInput(
@@ -1057,7 +1167,7 @@ async function readFileContent(
       );
     }
     ctx.executionScope?.consumeInput(contentBytes, "rg");
-    const content = decodeBytesToUtf8(rawContent, ctx.limits.maxStringLength);
+    const content = decodeSearchText(rawContent, ctx.limits.maxStringLength);
     const sample = content.slice(0, 8192);
     return { content, isBinary: sample.includes("\0"), lease };
   } catch (error) {
@@ -1153,7 +1263,7 @@ async function searchFiles(
         const { content, isBinary, lease } = fileData;
         bytesSearched += content.length;
 
-        // Skip binary files unless -a/--text is specified.
+        // -a searches as text; --binary/-uuu searches and reports a binary match.
         if (isBinary && !options.searchBinary) {
           lease?.release();
           return null;
@@ -1164,8 +1274,22 @@ async function searchFiles(
           (!options.heading || options.count || options.countMatches)
             ? file
             : "";
+        let binaryLease: ResourceLease | undefined;
         try {
-          const result = searchContent(content, regex, {
+          if (isBinary && !options.binaryAsText) {
+            binaryLease = ctx.executionScope?.reserveBytes(
+              "rg binary text",
+              content.length * 2,
+              "rg",
+            );
+          }
+          const searchText =
+            isBinary && !options.binaryAsText
+              ? content.replace(/\0/g, "\n")
+              : content;
+          const result = searchContent(searchText, regex, {
+            maxColumns: options.json ? 0 : options.maxColumns,
+            maxColumnsPreview: options.maxColumnsPreview,
             invertMatch: options.invertMatch,
             showLineNumbers: effectiveLineNumbers,
             countOnly: options.count,
@@ -1197,11 +1321,17 @@ async function searchFiles(
             return { file, result, content, isBinary: false, lease };
           }
 
+          const binaryOffset =
+            isBinary && !options.binaryAsText
+              ? utf8ByteLength(content.slice(0, content.indexOf("\0")))
+              : undefined;
           lease?.release();
-          return { file, result };
+          return { file, result, binaryOffset };
         } catch (error) {
           lease?.release();
           throw error;
+        } finally {
+          binaryLease?.release();
         }
       }),
     );
@@ -1291,6 +1421,13 @@ async function searchFiles(
         } else if (options.filesWithMatches) {
           const sep = options.nullSeparator ? "\0" : "\n";
           stdout += `${file}${sep}`;
+        } else if (
+          !options.filesWithoutMatch &&
+          res.binaryOffset !== undefined &&
+          !options.count &&
+          !options.countMatches
+        ) {
+          stdout += `${showFilename ? `${file}: ` : ""}binary file matches (found "\\0" byte around offset ${res.binaryOffset})\n`;
         } else if (!options.filesWithoutMatch) {
           // Filename visibility still controls headings for one explicit file.
           // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/core/flags/hiargs.rs#L176-L195
@@ -1382,7 +1519,7 @@ async function searchFiles(
   // rg emits text; the pipeline handles encoding.
   return {
     stdout: finalStdout,
-    stderr,
+    stderr: options.noMessages ? "" : stderr,
     exitCode,
   };
 }

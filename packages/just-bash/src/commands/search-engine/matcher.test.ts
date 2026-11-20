@@ -154,7 +154,8 @@ describe("searchContentMultiline — file-level preFilter", () => {
       showLineNumbers: true,
     });
     expect(result.matched).toBe(true);
-    expect(result.output).toBe("1:class Foo:\n--\n3:def bar():\n");
+    // No context was requested: native rg -U does not emit group separators.
+    expect(result.output).toBe("1:class Foo:\n3:def bar():\n");
   });
 
   it("does NOT skip when invertMatch=true even if needle absent", () => {

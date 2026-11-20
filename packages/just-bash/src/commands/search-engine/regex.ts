@@ -1,3 +1,4 @@
+// Automa modifications: N00b source migration of shell compatibility patches.
 /**
  * Regex building utilities for search commands
  */
@@ -886,6 +887,13 @@ function escapeRegexForBasicGrep(str: string): string {
 
     if (char === "\\" && i + 1 < str.length) {
       const nextChar = str[i + 1];
+      // GNU BRE recognizes escaped repetition except at the start of an atom.
+      if (nextChar === "+" || nextChar === "?") {
+        result += atPatternStart ? `\\${nextChar}` : nextChar;
+        i += 2;
+        atPatternStart = false;
+        continue;
+      }
       // BRE: \| becomes | (alternation)
       if (nextChar === "|") {
         result += "|";

@@ -1,0 +1,561 @@
+{
+  "084d0e2bc2ea007c": {
+    "command": "ln -sr f d/link; readlink d/link; cat d/link",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "../f\none\ntwo\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "08bd14a5b276ab67": {
+    "command": "touch -d '2000-01-01T00:00:00Z' s; cp -u f s; cat s",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "one\ntwo\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "0bf33f855a5fdcd2": {
+    "command": "ln -s f link; cp link copy; stat -c '%F %s' copy",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "regular file 8\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "10aa589eabf8c19f": {
+    "command": "mkdir -pv new/a new/b",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "mkdir: created directory 'new'\nmkdir: created directory 'new/a'\nmkdir: created directory 'new/b'\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "1100a2a5ad9df19b": {
+    "command": "mkdir -p -m700 d; stat -c %a d",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "755\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "15d8e5726a204d1d": {
+    "command": "cp -a d d2; ls d2",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "e\ng.ts\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "2cfba48763360333": {
+    "command": "chmod 640 f; chmod 600 s; cp f s; stat -c %a s",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "600\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "3718ee611cc5c52f": {
+    "command": "chmod 640 f; touch -d '2020-01-01T00:00:00Z' f; cp -p f copy; stat -c '%a %Y' copy",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "640 1577836800\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "3aa08f173b76c74b": {
+    "command": "touch -d '2000-01-01T00:00:00Z' f; cp -u f s; cat s",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "x y\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "3e59ba2b3e77dba4": {
+    "command": "cp -n f s; cat s; echo $?",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "x y\n0\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "40a1f2802f9e31f2": {
+    "command": "mkdir out; cp -a d out; ls out/d",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "e\ng.ts\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "46fe1a130c14312b": {
+    "command": "p=$(mktemp -u -p . x.XXXX); test ! -e \"$p\" && echo absent",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "absent\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "4d985df71616f619": {
+    "command": "p=$(mktemp -d); test -d \"$p\" && stat -c %a \"$p\"",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "700\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "4edb68e33d3c9965": {
+    "command": "ln -sn f d; readlink d/f",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "f\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "4f007dc891d3c0e1": {
+    "command": "mkdir -p -m700 new/child; stat -c %a new new/child",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "755\n700\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "5a8015a2dbd02b12": {
+    "command": "p=$(mktemp -p . x.XXXX); case \"$p\" in ./x.????) echo matched;; esac; stat -c %a \"$p\"",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "matched\n600\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "651242528864e8fd": {
+    "command": "cp -dR --preserve=all d d2; ls d2",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "e\ng.ts\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "6679adebd26f0f42": {
+    "command": "ln -s missing link; cp -d link copy; readlink copy",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "missing\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "6b415dc6e6207c31": {
+    "command": "ln -s d alias; cp alias/e copy; cat copy",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "e\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "6f7d2dd600b21ff5": {
+    "command": "ln -s d link; ln -sfn f link; readlink link; test -d d && echo kept",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "f\nkept\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "735d5f227f695878": {
+    "command": "mkdir -m 700 m; stat -c %a m",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "700\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "7dd8056e78bb5ead": {
+    "command": "p=$(TMPDIR=. mktemp --tmpdir x.XXXX); case \"$p\" in ./x.????) echo matched;; esac",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "matched\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "84a1d95c965befa4": {
+    "command": "mkdir out; cp -aT d out; ls out",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "e\ng.ts\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "910d46e002ba2ce6": {
+    "command": "ln -s d link; ln -s f link; readlink d/f",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "f\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "9552ef08da8bc5b0": {
+    "command": "cp -v f copy",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "'f' -> 'copy'\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "a662a87d5117688f": {
+    "command": "ln -srv f d/link",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "'d/link' -> '../f'\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "a6a4e6562d4d1267": {
+    "command": "ln -s d alias; cp f alias/copy; cat d/copy",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "one\ntwo\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "a78ff33385ae3790": {
+    "command": "cp --no-clobber f s; cat s",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "x y\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "ab84b8a535336719": {
+    "command": "ln -s d alias; ln -sr f alias/link; readlink d/link",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "../f\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "b71367ab6240e69a": {
+    "command": "ln -s missing link; ln -sf f link; readlink link",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "f\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "b9577eb6a463cb2e": {
+    "command": "mkdir -v m",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "mkdir: created directory 'm'\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "c2c25bb7c689e0af": {
+    "command": "cp -aT d d2; ls d2",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "e\ng.ts\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "c397ef82ada02a37": {
+    "command": "mkdir -pv ./new/a",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "mkdir: created directory './new'\nmkdir: created directory './new/a'\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "c423040a6aaaa5d3": {
+    "command": "mkdir --mode=750 m; stat -c %a m",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "750\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "cf2c3eb2e6c7af9a": {
+    "command": "mkdir out; cp -rn d out; printf changed > d/e; cp -rn d out; cat out/d/e",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "e\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "d1c1614428c1c036": {
+    "command": "mkdir -m u=rwx,g=rx,o= m; stat -c %a m",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "750\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "d82728d9aa00029e": {
+    "command": "mkdir out; cp --target-directory=out f s; ls out",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "f\ns\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "d8626550df17b8d4": {
+    "command": "ln --symbolic --relative missing d/link; readlink d/link",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "../missing\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "deddd75d3adadc89": {
+    "command": "p=$(TMPDIR=. mktemp -t x.XXXX); case \"$p\" in ./x.????) echo matched;; esac",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "matched\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "e071f99552c1d08d": {
+    "command": "p=$(mktemp --tmpdir=. x.XXXX); case \"$p\" in ./x.????) echo matched;; esac; test -f \"$p\" && echo file",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "matched\nfile\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "e9cc5f17509d2e06": {
+    "command": "ln -sf f link; ln -sf s link; readlink link",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "s\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "f4e5d8228ff5cfa3": {
+    "command": "mkdir -m +X m; stat -c %a m",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "777\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "fd263f6567358c04": {
+    "command": "mkdir out; cp -v -t out f s",
+    "files": {
+      "f": "one\ntwo\n",
+      "s": "x y\n",
+      "d/e": "e\n",
+      "d/g.ts": "type\n"
+    },
+    "stdout": "'f' -> 'out/f'\n's' -> 'out/s'\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}

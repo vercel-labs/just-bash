@@ -332,7 +332,8 @@ describe("Information Disclosure Prevention", () => {
       // Returns a virtual version, not the host's real bash version
       // This is safe as it doesn't expose host system details
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("5.1.0");
+      expect(result.stdout).toBe("5.2.37(1)-release\n");
+      expect(result.stderr).toBe("");
     });
 
     it("should not leak $0 with full path", async () => {

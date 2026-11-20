@@ -1,3 +1,4 @@
+import { createRecordStream, readRecord } from "../records.js";
 /**
  * AWK Expression Evaluation
  *
@@ -670,27 +671,16 @@ async function evalGetline(
     return evalGetlineFromFile(ctx, variable, file);
   }
 
-  // Plain getline - read from current input
-  if (!ctx.lines || ctx.lineIndex === undefined) {
-    return -1;
-  }
-
-  const nextLineIndex = ctx.lineIndex + 1;
-  if (nextLineIndex >= ctx.lines.length) {
-    return 0; // No more lines
-  }
-
-  const nextLine = ctx.lines[nextLineIndex];
-
-  if (variable) {
-    setVariable(ctx, variable, nextLine);
-  } else {
-    setCurrentLine(ctx, nextLine);
-  }
-
+  // Automa modifications: BEGIN, normal records and getline share one cursor.
+  if (!ctx.readMain) return -1;
+  const record = await withDefenseContext(ctx, "main getline", () =>
+    ctx.readMain ? ctx.readMain() : Promise.resolve(null),
+  );
+  if (record === null) return 0;
+  if (variable) setVariable(ctx, variable, record);
+  else setCurrentLine(ctx, record);
   ctx.NR++;
-  ctx.lineIndex = nextLineIndex;
-
+  ctx.FNR++;
   return 1;
 }
 
@@ -726,38 +716,23 @@ async function evalGetlineFromCommand(
       // awk processes lines with regex / FS — decode bytes to UTF-8 so
       // `getline cmd |` from a piped command keeps multibyte fields whole.
       const output = decodeBytesToUtf8(unsafeBytesFromLatin1(result.stdout));
-      const lines = output.split("\n");
-      // Remove trailing empty line if output ends with newline
-      if (lines.length > 0 && lines[lines.length - 1] === "") {
-        lines.pop();
-      }
-      stream = { lines, index: -1 };
+      stream = createRecordStream(ctx, output);
       ctx.getlineCommandStreams.set(cmd, stream);
     } catch (e) {
-      if (e instanceof SecurityViolationError) {
+      if (
+        e instanceof SecurityViolationError ||
+        e instanceof ExecutionLimitError
+      ) {
         throw e;
       }
       return -1; // Error running command
     }
   }
 
-  // Get next line
-  const nextIndex = stream.index + 1;
-  if (nextIndex >= stream.lines.length) {
-    return 0; // EOF
-  }
-
-  const line = stream.lines[nextIndex];
-  stream.index = nextIndex;
-
-  if (variable) {
-    setVariable(ctx, variable, line);
-  } else {
-    setCurrentLine(ctx, line);
-  }
-
-  // Note: command pipe getline does NOT update NR
-
+  const record = readRecord(ctx, stream);
+  if (record === null) return 0;
+  if (variable) setVariable(ctx, variable, record);
+  else setCurrentLine(ctx, record);
   return 1;
 }
 
@@ -795,38 +770,23 @@ async function evalGetlineFromFile(
       const content = await withDefenseContext(ctx, "getline file read", () =>
         fs.readFile(filePath),
       );
-      const lines = content.split("\n");
-      // Remove trailing empty line if file ends with newline
-      if (lines.length > 0 && lines[lines.length - 1] === "") {
-        lines.pop();
-      }
-      stream = { lines, index: -1 };
+      stream = createRecordStream(ctx, content);
       ctx.getlineFileStreams.set(filePath, stream);
     } catch (e) {
-      if (e instanceof SecurityViolationError) {
+      if (
+        e instanceof SecurityViolationError ||
+        e instanceof ExecutionLimitError
+      ) {
         throw e;
       }
       return -1; // Error reading file
     }
   }
 
-  // Get next line
-  const nextIndex = stream.index + 1;
-  if (nextIndex >= stream.lines.length) {
-    return 0; // EOF
-  }
-
-  const line = stream.lines[nextIndex];
-  stream.index = nextIndex;
-
-  if (variable) {
-    setVariable(ctx, variable, line);
-  } else {
-    setCurrentLine(ctx, line);
-  }
-
-  // Note: getline from file does NOT update NR
-
+  const record = readRecord(ctx, stream);
+  if (record === null) return 0;
+  if (variable) setVariable(ctx, variable, record);
+  else setCurrentLine(ctx, record);
   return 1;
 }
 

@@ -1,3 +1,4 @@
+import { automaTrapBuiltin } from "./traps.js";
 /**
  * Builtin Command Dispatch
  *
@@ -6,7 +7,9 @@
  */
 
 import { isBrowserExcludedCommand } from "../commands/browser-excluded.js";
+import { isSafeKey } from "../commands/query-engine/safe-object.js";
 import { latin1FromBytes, unsafeBytesFromLatin1 } from "../encoding.js";
+import { ExecutionOutputAccumulator } from "../execution-output.js";
 import {
   createCommandExecutionBudget,
   type ExecutionScope,
@@ -25,6 +28,7 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../types.js";
+import { handleCaller } from "./builtins/caller.js";
 import {
   handleBreak,
   handleCd,
@@ -53,7 +57,11 @@ import {
   handleSource,
   handleUnset,
 } from "./builtins/index.js";
+import { handleKill } from "./builtins/kill.js";
 import { handleShopt } from "./builtins/shopt.js";
+import { handleTimes } from "./builtins/times.js";
+import { handleUlimit } from "./builtins/ulimit.js";
+import { handleUmask } from "./builtins/umask.js";
 import {
   findCommandInPath as findCommandInPathHelper,
   resolveCommand as resolveCommandHelper,
@@ -78,7 +86,7 @@ import {
   handleCommandV as handleCommandVHelper,
   handleType as handleTypeHelper,
 } from "./type-command.js";
-import type { InterpreterContext } from "./types.js";
+import type { InterpreterContext, SharedInputSession } from "./types.js";
 
 /**
  * Type for the function that runs a command recursively
@@ -193,9 +201,18 @@ function createRevocableCommandContext(
       const copy: object = Array.isArray(value) ? [] : Object.create(prototype);
       wrappedValues.set(value, copy);
       const descriptors = Object.getOwnPropertyDescriptors(value);
-      for (const descriptor of Object.values(descriptors)) {
+      for (const [key, descriptor] of Object.entries(descriptors)) {
         if ("value" in descriptor) {
-          const member = descriptor.value;
+          // A filesystem facade can interpose on method access (for example,
+          // to invalidate process capture credits). Its backing descriptor
+          // alone does not represent the capability granted to this command.
+          let member = descriptor.value;
+          if (value === context.fs && typeof member === "function") {
+            if (!isSafeKey(key))
+              throw new Error(`${commandName}: unsafe filesystem method`);
+            // @banned-pattern-ignore: validated own key of the host filesystem facade.
+            member = Reflect.get(context.fs, key);
+          }
           descriptor.value =
             typeof member === "function"
               ? (...args: unknown[]) => {
@@ -307,6 +324,7 @@ function createRevocableCommandContext(
     coverage: dataDescriptor(
       context.coverage ? wrapCapability(context.coverage) : undefined,
     ),
+    writeOutput: dataDescriptor(wrapFunction(context.writeOutput)),
     assignShellVariable: dataDescriptor(
       wrapFunction(context.assignShellVariable),
     ),
@@ -467,6 +485,7 @@ export async function dispatchBuiltin(
   stdinUnavailable = false,
 ): Promise<ExecResult | null> {
   const { ctx, runCommand } = dispatchCtx;
+  if (commandName === "trap") return automaTrapBuiltin(ctx, args);
 
   // Coverage tracking for builtins (lightweight: only fires when coverage is enabled)
   if (ctx.coverage && SHELL_BUILTINS.has(commandName)) {
@@ -654,6 +673,11 @@ export async function dispatchBuiltin(
   if (commandName === "hash") {
     return handleHash(ctx, args);
   }
+  if (commandName === "caller") return handleCaller(ctx, args);
+  if (commandName === "times") return handleTimes(args);
+  if (commandName === "umask") return handleUmask(ctx, args);
+  if (commandName === "ulimit") return handleUlimit(ctx, args);
+  if (commandName === "kill") return handleKill(ctx, args);
   if (commandName === "help") {
     return handleHelp(ctx, args);
   }
@@ -862,6 +886,7 @@ export async function executeExternalCommand(
     commandStdinProvided ? stdin : ctx.state.groupStdin || "",
   );
   let stdinAccessed = false;
+  let inheritedInputSession: SharedInputSession | undefined;
 
   // Build exported environment for commands that need it (printenv, env, etc.)
   // Most builtins need access to the full env to modify state
@@ -870,9 +895,40 @@ export async function executeExternalCommand(
   // Give extensions one stable, revocable descriptor capability even when
   // this invocation has not created any extra descriptors yet.
   ctx.state.fileDescriptors ??= new Map();
+  const observeWrite = ctx.executionScope.automaOutput?.commandWriter();
+  let streamed: ExecutionOutputAccumulator | undefined;
+  const finishOutput = (result: ExecResult): ExecResult => {
+    if (!streamed) return result;
+    streamed.appendResult(result);
+    return { ...result, ...streamed.build(result.exitCode) };
+  };
   const cmdCtx: RuntimeCommandContext = {
+    writeOutput: async (text, stream, kind = "text") => {
+      if (
+        typeof text !== "string" ||
+        (stream !== "stdout" && stream !== "stderr") ||
+        (kind !== "text" && kind !== "bytes")
+      )
+        throw new TypeError(
+          "writeOutput requires a string, stdout or stderr, and text or bytes",
+        );
+      if (!text) return;
+      ctx.executionScope.consumeLimited(
+        "output chunks",
+        1,
+        ctx.limits.maxArrayElements,
+        commandName,
+      );
+      streamed ??= new ExecutionOutputAccumulator(
+        ctx.executionScope,
+        commandName,
+      );
+      streamed.append(stream, text, 0, kind);
+      await observeWrite?.(text, stream, kind);
+    },
     fs: ctx.fs,
-    fsIdentity: getFileSystemIdentity(ctx.fs),
+    fsIdentity: ctx.fsIdentity ?? getFileSystemIdentity(ctx.fs),
+    fileCreationMask: ctx.state.fileCreationMask ?? 0o022,
     cwd: ctx.state.cwd,
     env: ctx.state.env,
     assignShellVariable: async (name, value, subscript) => {
@@ -924,6 +980,8 @@ export async function executeExternalCommand(
       }
     },
     exportedEnv,
+    environmentInfo: ctx.environmentInfo,
+    virtualFileMetadata: ctx.virtualFileMetadata,
     get stdin() {
       stdinAccessed = true;
       return effectiveStdin;
@@ -935,16 +993,10 @@ export async function executeExternalCommand(
       ? createCommandExecutionBudget(ctx.executionScope)
       : ctx.executionScope,
     exec: (script, options) => ctx.execFn(script, options, false),
-    execWithInheritedStdin: (script, options) =>
-      ctx.execFn(
-        script,
-        {
-          ...options,
-          stdin: latin1FromBytes(effectiveStdin),
-          stdinKind: "bytes",
-        },
-        true,
-      ),
+    execWithInheritedStdin: (script, options) => {
+      inheritedInputSession ??= { remaining: latin1FromBytes(effectiveStdin) };
+      return ctx.execFn(script, options, true, inheritedInputSession);
+    },
     fetch: ctx.fetch,
     getRegisteredCommands: () => Array.from(ctx.commands.keys()),
     sleep: ctx.sleep,
@@ -1022,12 +1074,19 @@ export async function executeExternalCommand(
         await DefenseInDepthBox.runTrustedAsync(runBoundedCommand)
       : await runBoundedCommand();
     return {
-      ...commandResult,
+      ...finishOutput(commandResult),
       internalStdinConsumed:
         commandResult.internalStdinConsumed ??
-        (stdinAccessed ? stdin.length : 0),
+        Math.max(
+          stdinAccessed ? stdin.length : 0,
+          inheritedInputSession
+            ? latin1FromBytes(effectiveStdin).length -
+                inheritedInputSession.remaining.length
+            : 0,
+        ),
     };
   } catch (error) {
+    streamed?.prependTo(error);
     // ExecutionLimitError must propagate - these are safety limits
     if (error instanceof ExecutionLimitError) {
       throw error;
@@ -1039,8 +1098,10 @@ export async function executeExternalCommand(
     if (error instanceof SecurityViolationError) {
       throw error;
     }
-    return failure(
-      `${commandName}: ${sanitizeErrorMessage(getErrorMessage(error))}\n`,
+    return finishOutput(
+      failure(
+        `${commandName}: ${sanitizeErrorMessage(getErrorMessage(error))}\n`,
+      ),
     );
   }
 }

@@ -1,0 +1,578 @@
+{
+  "02cfd429eef3a9dc": {
+    "command": "sha512sum data empty 中文; sha512sum -b data; sha512sum -- --help",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "e7c22b994c59d9cf2b48e549b1e24666636045930d3da7c1acb299d1c3b7f931f94aae41edda2c2b207a36e10f8bcb8d45223e54878f5b316e7ce3b6bc019629  data\ncf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e  empty\n4bc213ddc97f119472241cf24deacfc18b159ececbd76c8bbf1089b5565d00207f5a311e325062f7ee823494235ee80ca49a65aa4b526f19a6b74bb8a7bf17c4  中文\ne7c22b994c59d9cf2b48e549b1e24666636045930d3da7c1acb299d1c3b7f931f94aae41edda2c2b207a36e10f8bcb8d45223e54878f5b316e7ce3b6bc019629 *data\n8971275f31047f3697616edde22be2cadabfe586e362f078f428ace566d303b537d43f75a01acb2a9ea15e5dcbd0e037a9c9ff7f0121390b9973207376d19a03  --help\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "05cc95c69e235101": {
+    "command": "b2sum data 'back\\slash' 'line\nname' > sums; b2sum -c sums",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "data: OK\n\\back\\\\slash: OK\n\\line\\nname: OK\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "0c9ccf917f5d5cb1": {
+    "command": "b2sum data | b2sum -c",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "data: OK\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "1adfc1d617434abe": {
+    "command": "sha512sum data | sha512sum -c",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "data: OK\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "2be3687f0d671224": {
+    "command": "sha512sum empty | sed 's/empty$/-/' | sha512sum -c",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "",
+    "stderr": "sha512sum: 'standard input': no properly formatted checksum lines found\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "34f728e42ee15bf3": {
+    "command": "b2sum missing data 2>&1 | cat",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "b2sum: missing: No such file or directory\nf60ce482e5cc1229f39d71313171a8d9f4ca3a87d066bf4b205effb528192a75f14f3271e2c1a90e1de53f275b4d4793eef2f5e31ea90d2ce29d2e481c36435f  data\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "354a6bce7eb8dab9": {
+    "command": "b2sum data empty 中文; b2sum -b data; b2sum -- --help",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "f60ce482e5cc1229f39d71313171a8d9f4ca3a87d066bf4b205effb528192a75f14f3271e2c1a90e1de53f275b4d4793eef2f5e31ea90d2ce29d2e481c36435f  data\n786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce  empty\n7a66197da3b0af8be1bfd0b283a251713874d445540baf6c6941df6dc29f6b0609f1bccf2dd85bc54839f03fdf363f2020bb64499649e2c32566fc258f11ed7e  中文\nf60ce482e5cc1229f39d71313171a8d9f4ca3a87d066bf4b205effb528192a75f14f3271e2c1a90e1de53f275b4d4793eef2f5e31ea90d2ce29d2e481c36435f *data\nac2130a59ec5d990a34fb221b8b57bd9af3406db01e280b761e6191bc2f86961933418f2c39b2f7ba12834f9a4e7e0ea645ced8df14420269a2a57541c81068e  --help\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "441e6e4a4f9e5a1a": {
+    "command": "sha384sum data | sha384sum -c",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "data: OK\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "48dbfe522ce91483": {
+    "command": "sha224sum missing data 2>&1 | cat",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "sha224sum: missing: No such file or directory\n2d6d67d91d0badcdd06cbbba1fe11538a68a37ec9c2e26457ceff12b  data\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "5127d600d29acc71": {
+    "command": "sha224sum -c empty; sha224sum -c malformed",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "",
+    "stderr": "sha224sum: empty: no properly formatted checksum lines found\nsha224sum: malformed: no properly formatted checksum lines found\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "5332ac583b4e0174": {
+    "command": "sha224sum -c bad; sha224sum -c missing good",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "data: FAILED\nmissing: FAILED open or read\n",
+    "stderr": "sha224sum: missing: No such file or directory\nsha224sum: WARNING: 1 line is improperly formatted\nsha224sum: WARNING: 1 listed file could not be read\nsha224sum: WARNING: 1 computed checksum did NOT match\nsha224sum: missing: No such file or directory\nsha224sum: good: no properly formatted checksum lines found\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "555bcc74eeb4217f": {
+    "command": "sha224sum data | sha224sum -c",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "data: OK\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "571a26c83eeab1ad": {
+    "command": "printf '\\000\\377abc' | sha512sum - -",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "f89b1e4a938a43fed9084c55cf8d35c0f0384e2745173d40cbdc14ba9c6bb7dfb0e78e2d69cc51a6f7c3e02f96edf01d2fbfe18f89121599b7c2b12065356114  -\ncf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e  -\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "58c4889b6af89372": {
+    "command": "sha384sum missing data 2>&1 | cat",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "sha384sum: missing: No such file or directory\n1d0f284efe3edea4b9ca3bd514fa134b17eae361ccc7a1eefeff801b9bd6604e01f21f6bf249ef030599f0c218f2ba8c  data\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "597403999e15ca7b": {
+    "command": "sha512sum data 'back\\slash' 'line\nname' > sums; sha512sum -c sums",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "data: OK\n\\back\\\\slash: OK\n\\line\\nname: OK\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "5ccad5b1e36da294": {
+    "command": "printf '\\000\\377abc' | sha224sum - -",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "9652fdf9133cae470be955b5eb6be05cb1aa2d351c414fb5c938da80  -\nd14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f  -\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "6218206fbebe3441": {
+    "command": "b2sum -c bad; b2sum -c missing good",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "data: FAILED\nmissing: FAILED open or read\n",
+    "stderr": "b2sum: missing: No such file or directory\nb2sum: WARNING: 1 line is improperly formatted\nb2sum: WARNING: 1 listed file could not be read\nb2sum: WARNING: 1 computed checksum did NOT match\nb2sum: missing: No such file or directory\nb2sum: good: no properly formatted checksum lines found\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "64eda2daa9791371": {
+    "command": "sha384sum -c bad; sha384sum -c missing good",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "data: FAILED\nmissing: FAILED open or read\n",
+    "stderr": "sha384sum: missing: No such file or directory\nsha384sum: WARNING: 1 line is improperly formatted\nsha384sum: WARNING: 1 listed file could not be read\nsha384sum: WARNING: 1 computed checksum did NOT match\nsha384sum: missing: No such file or directory\nsha384sum: good: no properly formatted checksum lines found\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "68a585ed2f80f939": {
+    "command": "printf '\\000\\377abc' | sha384sum - -",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "9e0a62f3165a58e2191e83dd7043f59294f7c7b2db335f9014a91afb65a7e17ab94814136ec424695263b6de3c1b7102  -\n38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b  -\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "6e1cbf59abc6298f": {
+    "command": "sha512sum missing data 2>&1 | cat",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "sha512sum: missing: No such file or directory\ne7c22b994c59d9cf2b48e549b1e24666636045930d3da7c1acb299d1c3b7f931f94aae41edda2c2b207a36e10f8bcb8d45223e54878f5b316e7ce3b6bc019629  data\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "720bdf7ceda7be07": {
+    "command": "b2sum -c empty; b2sum -c malformed",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "",
+    "stderr": "b2sum: empty: no properly formatted checksum lines found\nb2sum: malformed: no properly formatted checksum lines found\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "7fb59aa7b59d2fd4": {
+    "command": "sha512sum -c bad; sha512sum -c missing good",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "data: FAILED\nmissing: FAILED open or read\n",
+    "stderr": "sha512sum: missing: No such file or directory\nsha512sum: WARNING: 1 line is improperly formatted\nsha512sum: WARNING: 1 listed file could not be read\nsha512sum: WARNING: 1 computed checksum did NOT match\nsha512sum: missing: No such file or directory\nsha512sum: good: no properly formatted checksum lines found\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "88db1d3bde40fcab": {
+    "command": "sha384sum data empty 中文; sha384sum -b data; sha384sum -- --help",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "1d0f284efe3edea4b9ca3bd514fa134b17eae361ccc7a1eefeff801b9bd6604e01f21f6bf249ef030599f0c218f2ba8c  data\n38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b  empty\nefdf37ae94ef7a1710b42e911a794cd59dc6511076262772f81db50ccfa21c8237ab506b7f255afd71fc92f4f0542168  中文\n1d0f284efe3edea4b9ca3bd514fa134b17eae361ccc7a1eefeff801b9bd6604e01f21f6bf249ef030599f0c218f2ba8c *data\n90a60ecab81f135b44b076f1f78ca019ac23aec01ee2f1327a2fb66337a48ed47b6481b93cf6cf2fafc4cdc488bea67d  --help\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "8dc7ceb7951b430f": {
+    "command": "sha512sum -c empty; sha512sum -c malformed",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "",
+    "stderr": "sha512sum: empty: no properly formatted checksum lines found\nsha512sum: malformed: no properly formatted checksum lines found\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "99a1656e69ce4440": {
+    "command": "sha384sum -c empty; sha384sum -c malformed",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "",
+    "stderr": "sha384sum: empty: no properly formatted checksum lines found\nsha384sum: malformed: no properly formatted checksum lines found\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "9c22182caabf8d26": {
+    "command": "printf '\\000\\377abc' | b2sum - -",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "d0ce4408afb25ef8114e9ccca6bd53da04b3d1e1b72bd1d19ff543caeee871ed07aa30e0ce05e9396c2fc3c9f0f145a5d7582fa48cb415726d9dac7a0c208776  -\n786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce  -\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "a0a8754a1abb05ab": {
+    "command": "b2sum empty | sed 's/empty$/-/' | b2sum -c",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "",
+    "stderr": "b2sum: 'standard input': no properly formatted checksum lines found\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "a21a583fd99b6eb3": {
+    "command": "sha224sum data 'back\\slash' 'line\nname' > sums; sha224sum -c sums",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "data: OK\n\\back\\\\slash: OK\n\\line\\nname: OK\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "aba8db9688e9a1b7": {
+    "command": "sha224sum empty | sed 's/empty$/-/' | sha224sum -c",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "",
+    "stderr": "sha224sum: 'standard input': no properly formatted checksum lines found\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "c9e4729f34c889a3": {
+    "command": "sha384sum empty | sed 's/empty$/-/' | sha384sum -c",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "",
+    "stderr": "sha384sum: 'standard input': no properly formatted checksum lines found\n",
+    "exitCode": 1,
+    "locked": true
+  },
+  "e953923d2fbf3987": {
+    "command": "sha224sum data empty 中文; sha224sum -b data; sha224sum -- --help",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "00000000000000000000000000000000000000000000000000000000  data\n00000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "2d6d67d91d0badcdd06cbbba1fe11538a68a37ec9c2e26457ceff12b  data\nd14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f  empty\n8da21a30a6db1b74576b2f2edec216448d538b13503eca407ef6ae78  中文\n2d6d67d91d0badcdd06cbbba1fe11538a68a37ec9c2e26457ceff12b *data\ne1a4d80643ebbea3fcd11a6bd7813a5c8a7103b268110cebde13c777  --help\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "f72be83dc86cb099": {
+    "command": "sha384sum data 'back\\slash' 'line\nname' > sums; sha384sum -c sums",
+    "files": {
+      "data": "hello\n",
+      "empty": "",
+      "中文": "中文 é\n",
+      "back\\slash": "back",
+      "line\nname": "line",
+      "--help": "operand",
+      "malformed": "bad input\n",
+      "bad": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  data\n000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000  missing\nbad input\n",
+      "good": "# comment\n"
+    },
+    "stdout": "data: OK\n\\back\\\\slash: OK\n\\line\\nname: OK\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}

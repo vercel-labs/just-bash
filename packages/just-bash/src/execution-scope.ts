@@ -1,9 +1,11 @@
 import { utf8ByteLength } from "./encoding.js";
+import { accountOutputSegments } from "./execution-output.js";
 import {
   ExecutionAbortedError,
   ExecutionLimitError,
 } from "./interpreter/errors.js";
 import type { ExecutionLimits } from "./limits.js";
+import type { createOutputSink } from "./output-sink.js";
 import { _clearFiniteTimeout, _setTimeoutIfFinite } from "./timers.js";
 import type { ExecResult } from "./types.js";
 
@@ -16,6 +18,8 @@ export interface ResourceLease {
  * result-accounting operations intentionally remain on ExecutionScope only.
  */
 export interface CommandExecutionBudget {
+  /** Automa: only batching is exposed, not terminal routing or publication. */
+  readonly automaOutput?: Pick<ReturnType<typeof createOutputSink>, "buffer">;
   readonly remainingLiveBytes: number;
   consumeWork(units?: number, site?: string): number;
   consumeLimited(
@@ -46,6 +50,8 @@ const OUTPUT_RELEASE_AUTHORITY = Object.freeze(Object.create(null) as object);
  * cannot accidentally be refreshed by starting a child interpreter.
  */
 export class ExecutionScope {
+  /** Automa: scope-local terminal output, never ambient state. */
+  automaOutput?: ReturnType<typeof createOutputSink>;
   private commandCount = 0;
   private workUnits = 0;
   private liveBytes = 0;
@@ -56,6 +62,10 @@ export class ExecutionScope {
   private readonly depthByKind = new Map<string, number>();
   private readonly cleanupCallbacks: Cleanup[] = [];
   private poisoned: ExecutionLimitError | ExecutionAbortedError | undefined;
+  /** Automa: expose the terminal failure without allowing it to be cleared. */
+  get failure(): ExecutionLimitError | ExecutionAbortedError | undefined {
+    return this.poisoned;
+  }
   private closed = false;
   private readonly startedAt = Date.now();
 
@@ -71,7 +81,7 @@ export class ExecutionScope {
 
   constructor(
     private readonly limits: Required<ExecutionLimits>,
-    private readonly signal: AbortSignal | undefined = undefined,
+    readonly signal: AbortSignal | undefined = undefined,
   ) {}
 
   private fail(error: ExecutionLimitError | ExecutionAbortedError): never {
@@ -80,7 +90,7 @@ export class ExecutionScope {
   }
 
   /** Permanently reject later work after an extension misses cancellation. */
-  poisonAfterAbort(error: ExecutionAbortedError): void {
+  poisonAfterAbort(error: ExecutionAbortedError | ExecutionLimitError): void {
     this.poisoned ??= error;
   }
 
@@ -270,18 +280,17 @@ export class ExecutionScope {
       prior?.stderr ?? 0,
       Math.max(0, maximumPriorBytes - creditedStdout),
     );
-    const stdout = this.appendOutput(
+    const stdout = accountOutputSegments(
+      this,
+      result,
       "stdout",
-      result.stdout,
       site,
       creditedStdout,
-      result.stdoutKind === "bytes" || result.stdoutEncoding === "binary"
-        ? "bytes"
-        : "text",
     );
-    const stderr = this.appendOutput(
+    const stderr = accountOutputSegments(
+      this,
+      result,
       "stderr",
-      result.stderr,
       site,
       creditedStderr,
     );
@@ -462,6 +471,14 @@ export function createCommandExecutionBudget(
 ): CommandExecutionBudget {
   const budget = Object.create(null) as CommandExecutionBudget;
   Object.defineProperties(budget, {
+    automaOutput: {
+      enumerable: true,
+      value: scope.automaOutput
+        ? Object.freeze({
+            buffer: scope.automaOutput.buffer.bind(scope.automaOutput),
+          })
+        : undefined,
+    },
     remainingLiveBytes: {
       enumerable: true,
       get: () => scope.remainingLiveBytes,

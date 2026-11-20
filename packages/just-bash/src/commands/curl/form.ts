@@ -1,3 +1,4 @@
+// Automa modifications: N00b byte-preserving multipart bodies.
 /**
  * Form data handling for curl command
  */
@@ -43,10 +44,10 @@ export function parseFormField(spec: string): FormField | null {
   let contentType: string | undefined;
 
   // Check for ;type= suffix
-  const typeMatch = value.match(/;type=([^;]+)$/);
+  const typeMatch = value.match(/;type=([^;]+)/);
   if (typeMatch) {
     contentType = typeMatch[1];
-    value = value.slice(0, -typeMatch[0].length);
+    value = value.replace(typeMatch[0], "");
   }
 
   // Check for ;filename= suffix
@@ -70,33 +71,34 @@ export function parseFormField(spec: string): FormField | null {
  */
 export function generateMultipartBody(
   fields: FormField[],
-  fileContents: Map<string, string>,
-): { body: string; boundary: string } {
+  fileContents: Map<string, Uint8Array>,
+): { body: Uint8Array<ArrayBuffer>; boundary: string } {
   const boundary = `----CurlFormBoundary${Date.now().toString(36)}`;
-  const parts: string[] = [];
-
+  const encoder = new TextEncoder();
+  const parts: Uint8Array[] = [];
   for (const field of fields) {
-    let value = field.value;
-
-    // Replace file references with content
-    if (value.startsWith("@") || value.startsWith("<")) {
-      const filePath = value.slice(1);
-      value = fileContents.get(filePath) ?? "";
-    }
-
-    let part = `--${boundary}\r\n`;
-    if (field.filename) {
-      part += `Content-Disposition: form-data; name="${field.name}"; filename="${field.filename}"\r\n`;
-      if (field.contentType) {
-        part += `Content-Type: ${field.contentType}\r\n`;
-      }
-    } else {
-      part += `Content-Disposition: form-data; name="${field.name}"\r\n`;
-    }
-    part += `\r\n${value}\r\n`;
-    parts.push(part);
+    let value: Uint8Array;
+    if (field.value.startsWith("@") || field.value.startsWith("<")) {
+      const filePath = field.value.slice(1);
+      const content = fileContents.get(filePath);
+      if (content === undefined)
+        throw new Error(`curl: missing form file: ${filePath}`);
+      value = content;
+    } else value = encoder.encode(field.value);
+    let header = `--${boundary}\r\nContent-Disposition: form-data; name="${field.name}"`;
+    if (field.filename) header += `; filename="${field.filename}"`;
+    header += "\r\n";
+    if (field.contentType) header += `Content-Type: ${field.contentType}\r\n`;
+    parts.push(encoder.encode(`${header}\r\n`), value, encoder.encode("\r\n"));
   }
-
-  parts.push(`--${boundary}--\r\n`);
-  return { body: parts.join(""), boundary };
+  parts.push(encoder.encode(`--${boundary}--\r\n`));
+  const body = new Uint8Array(
+    parts.reduce((size, part) => size + part.byteLength, 0),
+  );
+  let offset = 0;
+  for (const part of parts) {
+    body.set(part, offset);
+    offset += part.byteLength;
+  }
+  return { body, boundary };
 }

@@ -16,7 +16,7 @@ describe("mktemp", () => {
     expect(path).toMatch(/^\/tmp\/tmp\.[0-9A-Za-z]{10}$/);
 
     const stat = await env.exec(`stat -c '%F %a %s' ${path}`);
-    expect(stat.stdout).toBe("regular file 600 0\n");
+    expect(stat.stdout).toBe("regular empty file 600 0\n");
     expect(stat.stderr).toBe("");
     expect(stat.exitCode).toBe(0);
   });
@@ -100,7 +100,7 @@ describe("mktemp", () => {
     expect(path).toMatch(/^\/tmp\/build-[0-9A-Za-z]{6}\.log$/);
 
     const stat = await env.exec(`stat -c '%F' ${path}`);
-    expect(stat.stdout).toBe("regular file\n");
+    expect(stat.stdout).toBe("regular empty file\n");
   });
 
   it("should append --suffix after the random characters", async () => {

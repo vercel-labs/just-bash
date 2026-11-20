@@ -286,6 +286,8 @@ function tokenize(input: string): Token[] {
       // Track \( ... ) interpolation depth so an inner `"` (nested string
       // literal) inside the interpolation doesn't terminate the outer string.
       let interpDepth = 0;
+      // Automa modifications: only source escapes may start interpolation.
+      const interpolationOffsets: number[] = [];
       while (!isEof()) {
         const ch = peek();
         if (interpDepth === 0 && ch === '"') break;
@@ -310,9 +312,36 @@ function tokenize(input: string): Token[] {
               str += '"';
               break;
             case "(":
+              interpolationOffsets.push(str.length);
               str += "\\(";
               interpDepth = 1;
               break; // Keep for string interpolation
+            case "u": {
+              const hex = input.slice(pos, pos + 4);
+              if (!/^[0-9a-fA-F]{4}$/.test(hex))
+                throw new Error(
+                  "Invalid Unicode escape: expected four hexadecimal digits",
+                );
+              const code = Number.parseInt(hex, 16);
+              pos += 4;
+              if (code >= 0xd800 && code <= 0xdbff) {
+                const lowHex = input.slice(pos + 2, pos + 6);
+                const low = Number.parseInt(lowHex, 16);
+                if (
+                  input.slice(pos, pos + 2) !== "\\u" ||
+                  !/^[0-9a-fA-F]{4}$/.test(lowHex) ||
+                  low < 0xdc00 ||
+                  low > 0xdfff
+                )
+                  throw new Error("Invalid Unicode surrogate pair escape");
+                str += String.fromCharCode(code, low);
+                pos += 6;
+              } else
+                str += String.fromCharCode(
+                  code >= 0xdc00 && code <= 0xdfff ? 0xfffd : code,
+                );
+              break;
+            }
             default:
               str += escaped;
           }
@@ -344,7 +373,12 @@ function tokenize(input: string): Token[] {
         str += advance();
       }
       if (!isEof()) advance(); // closing quote
-      tokens.push({ type: "STRING", value: str, pos: start });
+      tokens.push({
+        type: "STRING",
+        value: str,
+        pos: start,
+        interpolationOffsets,
+      });
       continue;
     }
 
@@ -885,8 +919,8 @@ class Parser {
       const tok = this.advance();
       const str = tok.value as string;
       // Check for string interpolation
-      if (str.includes("\\(")) {
-        return this.parseStringInterpolation(str);
+      if (tok.interpolationOffsets?.length) {
+        return this.parseStringInterpolation(str, tok.interpolationOffsets);
       }
       return { type: "Literal", value: str };
     }
@@ -1169,13 +1203,17 @@ class Parser {
     return { type: "Cond", cond, then, elifs, else: elseExpr };
   }
 
-  private parseStringInterpolation(str: string): StringInterpNode {
+  private parseStringInterpolation(
+    str: string,
+    offsets: number[],
+  ): StringInterpNode {
+    const starts = new Set(offsets);
     const parts: (string | AstNode)[] = [];
     let current = "";
     let i = 0;
 
     while (i < str.length) {
-      if (str[i] === "\\" && str[i + 1] === "(") {
+      if (str[i] === "\\" && str[i + 1] === "(" && starts.has(i)) {
         if (current) {
           parts.push(current);
           current = "";

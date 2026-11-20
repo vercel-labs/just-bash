@@ -39,6 +39,7 @@ const SHOPT_OPTIONS = [
   "expand_aliases",
   "lastpipe",
   "xpg_echo",
+  "inherit_errexit",
 ] as const;
 
 // Options that are recognized but not implemented (stubs that return current state)
@@ -71,7 +72,6 @@ const STUB_OPTIONS = [
   "histverify",
   "hostcomplete",
   "huponexit",
-  "inherit_errexit",
   "interactive_comments",
   "lithist",
   "localvar_inherit",
@@ -336,6 +336,7 @@ function handleSetOptions(
   );
   // Map set -o option names to ShellOptions (implemented options)
   const SET_OPTIONS = new Map<string, keyof typeof ctx.state.options>([
+    ["errtrace", "errtrace"],
     ["errexit", "errexit"],
     ["pipefail", "pipefail"],
     ["nounset", "nounset"],
@@ -353,7 +354,6 @@ function handleSetOptions(
   // No-op options (recognized but always off, for compatibility with set -o)
   const NOOP_OPTIONS = [
     "braceexpand",
-    "errtrace",
     "functrace",
     "hashall",
     "histexpand",

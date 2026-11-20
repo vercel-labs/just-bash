@@ -7,6 +7,7 @@ import {
   ExecutionLimitError,
 } from "../../interpreter/errors.js";
 import type { UserRegex } from "../../regex/index.js";
+import { formatSearchLine, type LineFormatOptions } from "./line-format.js";
 import type { PreFilter } from "./regex.js";
 
 /**
@@ -47,7 +48,7 @@ function applyReplacement(replacement: string, match: RegExpExecArray): string {
   );
 }
 
-export interface SearchOptions {
+export interface SearchOptions extends LineFormatOptions {
   /** Select non-matching lines */
   invertMatch?: boolean;
   /** Print line number with output lines */
@@ -168,6 +169,8 @@ export function searchContent(
       maxWork,
       maxMatches,
       signal,
+      maxColumns: options.maxColumns,
+      maxColumnsPreview: options.maxColumnsPreview,
     });
   }
 
@@ -190,6 +193,44 @@ export function searchContent(
       );
     }
     lines.push(value);
+  };
+
+  const formatLine = (
+    line: string,
+    index: number,
+    matching: boolean,
+    starts?: number[],
+    fragment = false,
+  ): string =>
+    formatSearchLine(
+      line,
+      options,
+      matching,
+      !fragment && (index < lastIdx - 1 || content.endsWith("\n")),
+      starts,
+      chargeWork,
+    );
+  const matchStartsForLine = (line: string): number[] => {
+    const starts: number[] = [];
+    const savedIndex = regex.lastIndex;
+    regex.lastIndex = 0;
+    for (
+      let match = regex.exec(line);
+      match !== null;
+      match = regex.exec(line)
+    ) {
+      chargeWork();
+      if (maxMatches !== undefined && starts.length >= maxMatches) {
+        throw new ExecutionLimitError(
+          `search: result limit exceeded (${maxMatches})`,
+          "array_elements",
+        );
+      }
+      starts.push(match.index);
+      if (match[0].length === 0) regex.lastIndex++;
+    }
+    regex.lastIndex = savedIndex;
+    return starts;
   };
 
   let prospectiveLineCount = 1;
@@ -304,10 +345,16 @@ export function searchContent(
             if (showByteOffset) prefix += `${byteOffset + match.index}:`;
             if (showLineNumbers) prefix += `${i + 1}:`;
             if (showColumn) prefix += `${match.index + 1}:`;
-            pushOutput(outputLines, prefix + matchText);
+            pushOutput(
+              outputLines,
+              prefix + formatLine(matchText, i, true, [0], true),
+            );
             if (match[0].length === 0) regex.lastIndex++;
           }
         } else if (vimgrep) {
+          const starts = options.maxColumns
+            ? matchStartsForLine(line)
+            : undefined;
           // Vimgrep mode: output each match separately with full line
           for (
             let match = firstMatch;
@@ -319,7 +366,7 @@ export function searchContent(
             if (showByteOffset) prefix += `${byteOffset + match.index}:`;
             if (showLineNumbers) prefix += `${i + 1}:`;
             if (showColumn) prefix += `${match.index + 1}:`;
-            pushOutput(outputLines, prefix + line);
+            pushOutput(outputLines, prefix + formatLine(line, i, true, starts));
             if (match[0].length === 0) regex.lastIndex++;
           }
         } else {
@@ -328,6 +375,9 @@ export function searchContent(
 
           // Apply replacement if specified
           let outputLine = line;
+          const replacementStarts: number[] | undefined =
+            options.maxColumns && replace !== null ? [] : undefined;
+          let replacementDelta = 0;
           if (replace !== null) {
             regex.lastIndex = 0;
             // Use replacer function to skip empty matches (ripgrep behavior)
@@ -350,7 +400,22 @@ export function searchContent(
                 match.input = args[args.length - 1] as string;
                 match.index = args[args.length - 2] as number;
               }
-              return applyReplacement(replace, match);
+              const replacementText = applyReplacement(replace, match);
+              if (replacementStarts) {
+                chargeWork();
+                if (
+                  maxMatches !== undefined &&
+                  replacementStarts.length >= maxMatches
+                ) {
+                  throw new ExecutionLimitError(
+                    `search: result limit exceeded (${maxMatches})`,
+                    "array_elements",
+                  );
+                }
+                replacementStarts.push(match.index + replacementDelta);
+                replacementDelta += replacementText.length - matchText.length;
+              }
+              return replacementText;
             });
           }
 
@@ -359,7 +424,17 @@ export function searchContent(
             prefix += `${byteOffset + (firstMatch ? firstMatch.index : 0)}:`;
           if (showLineNumbers) prefix += `${i + 1}:`;
           if (showColumn) prefix += `${column}:`;
-          pushOutput(outputLines, prefix + outputLine);
+          pushOutput(
+            outputLines,
+            prefix +
+              formatLine(
+                outputLine,
+                i,
+                true,
+                replacementStarts,
+                replace !== null && !invertMatch,
+              ),
+          );
         }
       }
 
@@ -402,7 +477,7 @@ export function searchContent(
 
       let prefix = filename ? `${filename}${sep}` : "";
       if (showLineNumbers) prefix += `${i + 1}${sep}`;
-      pushOutput(outputLines, prefix + line);
+      pushOutput(outputLines, prefix + formatLine(line, i, isMatch));
     }
 
     return {
@@ -491,11 +566,14 @@ export function searchContent(
           let prefix = filename ? `${filename}:` : "";
           if (showLineNumbers) prefix += `${i + 1}:`;
           if (showColumn) prefix += `${match.index + 1}:`;
-          pushOutput(outputLines, prefix + matchText);
+          pushOutput(
+            outputLines,
+            prefix + formatLine(matchText, i, true, [0], true),
+          );
           if (match[0].length === 0) regex.lastIndex++;
         }
       } else {
-        let outputLine = line;
+        let outputLine = formatLine(line, i, isMatch);
         const separator = isMatch ? ":" : "-";
         if (showLineNumbers) outputLine = `${i + 1}${separator}${outputLine}`;
         if (filename) outputLine = `${filename}${separator}${outputLine}`;
@@ -518,7 +596,7 @@ export function searchContent(
 function searchContentMultiline(
   content: string,
   regex: UserRegex,
-  options: {
+  options: LineFormatOptions & {
     invertMatch: boolean;
     showLineNumbers: boolean;
     countOnly: boolean;
@@ -601,6 +679,22 @@ function searchContentMultiline(
   const lineCount = lines.length;
   const lastIdx =
     lineCount > 0 && lines[lineCount - 1] === "" ? lineCount - 1 : lineCount;
+
+  const formatLine = (
+    line: string,
+    index: number,
+    matching: boolean,
+    starts?: number[],
+    fragment = false,
+  ): string =>
+    formatSearchLine(
+      line,
+      options,
+      matching,
+      !fragment && (index < lastIdx - 1 || content.endsWith("\n")),
+      starts,
+      chargeWork,
+    );
 
   // Helper: convert byte offset to line number (0-indexed)
   const getLineIndex = (byteOffset: number): number => {
@@ -726,7 +820,7 @@ function searchContentMultiline(
     for (let i = 0; i < lastIdx; i++) {
       chargeWork();
       if (!matchedLines.has(i)) {
-        let line = lines[i];
+        let line = formatLine(lines[i], i, true);
         if (showLineNumbers) line = `${i + 1}:${line}`;
         if (filename) line = `${filename}:${line}`;
         outputLines.push(line);
@@ -756,7 +850,11 @@ function searchContentMultiline(
     const contextEnd = Math.min(lastIdx - 1, span.endLine + afterContext);
 
     // Add separator if there's a gap
-    if (lastPrintedLine >= 0 && contextStart > lastPrintedLine + 1) {
+    if (
+      (beforeContext > 0 || afterContext > 0) &&
+      lastPrintedLine >= 0 &&
+      contextStart > lastPrintedLine + 1
+    ) {
       outputLines.push(contextSeparator);
     }
 
@@ -766,7 +864,7 @@ function searchContentMultiline(
       if (!printedLines.has(i)) {
         printedLines.add(i);
         lastPrintedLine = i;
-        let line = lines[i];
+        let line = formatLine(lines[i], i, false);
         if (showLineNumbers) line = `${i + 1}-${line}`;
         if (filename) line = `${filename}-${line}`;
         outputLines.push(line);
@@ -781,7 +879,9 @@ function searchContentMultiline(
       if (showByteOffset) prefix += `${span.byteOffset}:`;
       if (showLineNumbers) prefix += `${span.startLine + 1}:`;
       if (showColumn) prefix += `${span.column}:`;
-      outputLines.push(prefix + matchText);
+      outputLines.push(
+        prefix + formatLine(matchText, span.startLine, true, [0], true),
+      );
       // Mark lines as printed to handle context correctly
       for (let i = span.startLine; i <= span.endLine; i++) {
         chargeWork();
@@ -806,7 +906,7 @@ function searchContentMultiline(
             prefix += `${span.byteOffset}:`;
           if (showLineNumbers) prefix += `${i + 1}:`;
           if (showColumn && i === span.startLine) prefix += `${span.column}:`;
-          outputLines.push(prefix + line);
+          outputLines.push(prefix + formatLine(line, i, true));
         }
       }
     }
@@ -817,7 +917,7 @@ function searchContentMultiline(
       if (!printedLines.has(i)) {
         printedLines.add(i);
         lastPrintedLine = i;
-        let line = lines[i];
+        let line = formatLine(lines[i], i, false);
         if (showLineNumbers) line = `${i + 1}-${line}`;
         if (filename) line = `${filename}-${line}`;
         outputLines.push(line);

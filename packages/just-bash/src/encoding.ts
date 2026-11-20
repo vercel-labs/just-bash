@@ -21,7 +21,10 @@ export interface ByteString {
   readonly [__byteString]: true;
 }
 
-const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+const strictUtf8Decoder = new TextDecoder("utf-8", {
+  fatal: true,
+  ignoreBOM: true,
+});
 const utf8Encoder = new TextEncoder();
 const DEFAULT_MAX_CONVERSION_BYTES = 512 * 1024 * 1024;
 

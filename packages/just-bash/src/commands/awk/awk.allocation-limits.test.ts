@@ -11,7 +11,7 @@ describe("AWK prospective allocation limits", () => {
     const result = await bash.exec(script);
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe(
-      `awk: printf ${_kind} limit exceeded (64 bytes)\n`,
+      `bash: printf ${_kind} limit exceeded (64 bytes)\n`,
     );
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
@@ -23,7 +23,7 @@ describe("AWK prospective allocation limits", () => {
     );
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe(
-      "awk: formatted string size limit exceeded (64 bytes)\n",
+      "bash: formatted string size limit exceeded (64 bytes)\n",
     );
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
@@ -33,7 +33,7 @@ describe("AWK prospective allocation limits", () => {
     const result = await bash.exec(`awk 'BEGIN { s=sprintf("%.101f", 1) }'`);
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe(
-      "awk: printf floating-point precision limit exceeded (100 digits)\n",
+      "bash: printf floating-point precision limit exceeded (100 digits)\n",
     );
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
@@ -45,7 +45,9 @@ describe("AWK prospective allocation limits", () => {
       `awk 'BEGIN { s="${target}"; gsub(/a/, "xxx", s) }'`,
     );
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe("awk: string size limit exceeded (128 bytes)\n");
+    expect(result.stderr).toBe(
+      "bash: string size limit exceeded (128 bytes)\n",
+    );
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 
@@ -55,7 +57,7 @@ describe("AWK prospective allocation limits", () => {
       `awk 'BEGIN { split("a,b,c,d", values, ",") }'`,
     );
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe("awk: array element limit exceeded (3)\n");
+    expect(result.stderr).toBe("bash: array element limit exceeded (3)\n");
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 
@@ -65,18 +67,18 @@ describe("AWK prospective allocation limits", () => {
       stdin: "one\ntwo\nthree\n",
     });
     expect(result.stdout).toBe("one\ntwo\n");
-    expect(result.stderr).toBe("awk: record limit exceeded (2)\n");
+    expect(result.stderr).toBe("bash: record limit exceeded (2)\n");
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 
-  it("rejects record arrays before splitting beyond maxArrayElements", async () => {
+  it("stops the lazy record cursor at maxArrayElements", async () => {
     const bash = new Bash({
       files: { "/records": "one\ntwo\nthree\n" },
       executionLimits: { maxArrayElements: 2 },
     });
     const result = await bash.exec("awk '{ print }' /records");
-    expect(result.stdout).toBe("");
-    expect(result.stderr).toBe("awk: record array limit exceeded (2)\n");
+    expect(result.stdout).toBe("one\ntwo\n");
+    expect(result.stderr).toBe("bash: record array limit exceeded (2)\n");
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 
@@ -91,7 +93,7 @@ describe("AWK prospective allocation limits", () => {
     const result = await bash.exec("awk '{ print }' /first /second");
     expect(result.stdout).toBe("aaaaaaaaaaaaaaaaaaaa\n");
     expect(result.stderr).toBe(
-      "awk: aggregate input size limit exceeded (32 bytes)\n",
+      "bash: aggregate input size limit exceeded (32 bytes)\n",
     );
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
@@ -108,7 +110,7 @@ describe("AWK prospective allocation limits", () => {
     const bash = new Bash({ executionLimits: { maxArrayElements: 10 } });
     const result = await bash.exec(script);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe("awk: field count limit exceeded (10)\n");
+    expect(result.stderr).toBe("bash: field count limit exceeded (10)\n");
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 
@@ -128,7 +130,7 @@ describe("AWK prospective allocation limits", () => {
       `awk 'BEGIN { OFS = "xxxxxxxxxx"; NF = 10 }'`,
     );
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe("awk: record size limit exceeded (64 bytes)\n");
+    expect(result.stderr).toBe("bash: record size limit exceeded (64 bytes)\n");
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 
@@ -136,7 +138,7 @@ describe("AWK prospective allocation limits", () => {
     const bash = new Bash({ executionLimits: { maxArrayElements: 10 } });
     const result = await bash.exec(`awk 'BEGIN { NF = sqrt(-1) }'`);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe("awk: field count limit exceeded (10)\n");
+    expect(result.stderr).toBe("bash: field count limit exceeded (10)\n");
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 
@@ -159,7 +161,7 @@ describe("AWK prospective allocation limits", () => {
     const bash = new Bash({ executionLimits: { maxArrayElements: 3 } });
     const result = await bash.exec(script, stdin ? { stdin } : {});
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe("awk: field count limit exceeded (3)\n");
+    expect(result.stderr).toBe("bash: field count limit exceeded (3)\n");
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 
@@ -167,7 +169,7 @@ describe("AWK prospective allocation limits", () => {
     const bash = new Bash({ executionLimits: { maxStringLength: 64 } });
     const result = await bash.exec(`awk 'BEGIN { OFS = "€"; NF = 30 }'`);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe("awk: record size limit exceeded (64 bytes)\n");
+    expect(result.stderr).toBe("bash: record size limit exceeded (64 bytes)\n");
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 
@@ -177,7 +179,7 @@ describe("AWK prospective allocation limits", () => {
     });
     const result = await bash.exec(`awk 'BEGIN { NF = 1e400 }'`);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe("awk: field count limit exceeded (Infinity)\n");
+    expect(result.stderr).toBe("bash: field count limit exceeded (Infinity)\n");
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 
@@ -187,7 +189,7 @@ describe("AWK prospective allocation limits", () => {
       `echo a b | awk '{ sub(/a/, "x", $(1e21)) }'`,
     );
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe("awk: field count limit exceeded (10)\n");
+    expect(result.stderr).toBe("bash: field count limit exceeded (10)\n");
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 
@@ -200,7 +202,7 @@ describe("AWK prospective allocation limits", () => {
     });
     const result = await bash.exec(`awk 'BEGIN { NF = 100000000 }'`);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe("awk: record size limit exceeded (64 bytes)\n");
+    expect(result.stderr).toBe("bash: record size limit exceeded (64 bytes)\n");
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 

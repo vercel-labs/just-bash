@@ -4,7 +4,7 @@ import { Bash } from "../../Bash.js";
 describe("od reads UTF-8 from stdin", () => {
   it("dumps the raw UTF-8 bytes byte-by-byte (3-digit octal)", async () => {
     const env = new Bash({ files: { "/in.txt": "한" } });
-    const r = await env.exec("cat /in.txt | od");
+    const r = await env.exec("cat /in.txt | od -to1");
     expect(r.exitCode).toBe(0);
     // 한 = bytes 0xED 0x95 0x9C → octal 355 225 234. The fact that we see
     // these specific bytes (not e.g. 303 255 — UTF-8 of U+00ED) proves the

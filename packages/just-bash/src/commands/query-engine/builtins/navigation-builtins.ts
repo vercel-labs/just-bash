@@ -142,21 +142,26 @@ export function evalNavigationBuiltin(
       return evalBuiltin(value, "recurse", args, ctx);
 
     case "walk": {
+      // Automa modifications: visit scalar children and preserve filter streams.
       if (args.length === 0) return [value];
       const limits = resourceLimits(ctx);
-      const scheduled = new WeakSet<object>();
-      const transformed = new WeakMap<object, QueryValue>();
-      const stack: Array<{
+      interface Frame {
         value: QueryValue;
         depth: number;
         expanded: boolean;
-      }> = [{ value, depth: 0, expanded: false }];
-      let rootResult: QueryValue = value;
-      let iterations = 0;
-      while (stack.length > 0) {
+        key?: string | number;
+        children?: Frame[];
+        results?: QueryValue[];
+      }
+      const root: Frame = { value, depth: 0, expanded: false };
+      const stack: Frame[] = [root];
+      const active = new WeakSet<object>();
+      let work = 0;
+      while (stack.length) {
         const frame = stack.pop();
         if (!frame) break;
-        if (++iterations > limits.maxIterations) {
+        const current = frame.value;
+        if (++work > limits.maxIterations) {
           throw new ExecutionLimitError(
             `query iteration limit exceeded (${limits.maxIterations})`,
             "iterations",
@@ -168,63 +173,61 @@ export function evalNavigationBuiltin(
             "recursion",
           );
         }
-        const container =
-          frame.value !== null && typeof frame.value === "object"
-            ? (frame.value as object)
-            : null;
-        if (!frame.expanded && container) {
-          if (scheduled.has(container)) continue;
-          scheduled.add(container);
-          stack.push({ ...frame, expanded: true });
-          const record = asQueryRecord(frame.value);
-          const children = Array.isArray(frame.value)
-            ? frame.value
-            : Object.keys(record ?? {}).map((key) => {
-                return record?.[key];
-              });
-          if (stack.length > limits.maxResults - children.length) {
+        const container = current !== null && typeof current === "object";
+        if (container && !frame.expanded) {
+          if (active.has(current))
+            throw new ExecutionLimitError(
+              "query cyclic value cannot be walked",
+              "recursion",
+            );
+          active.add(current);
+          frame.expanded = true;
+          const keys = Array.isArray(current)
+            ? Array.from({ length: current.length }, (_, i) => i)
+            : Object.keys(current).filter(isSafeKey);
+          if (stack.length + 1 > limits.maxResults - keys.length)
             throwTraversalLimit(
               `query traversal queue limit exceeded (${limits.maxResults})`,
             );
-          }
-          for (let i = children.length - 1; i >= 0; i--) {
-            stack.push({
-              value: children[i],
-              depth: frame.depth + 1,
-              expanded: false,
-            });
-          }
+          const record = asQueryRecord(current);
+          frame.children = keys.map((key) => ({
+            key,
+            value: Array.isArray(current)
+              ? current[Number(key)]
+              : record?.[key],
+            depth: frame.depth + 1,
+            expanded: false,
+          }));
+          stack.push(frame);
+          for (let i = frame.children.length - 1; i >= 0; i--)
+            stack.push(frame.children[i]);
           continue;
         }
-
-        let childResult: QueryValue = frame.value;
-        if (Array.isArray(frame.value)) {
-          childResult = frame.value.map((child) =>
-            child !== null && typeof child === "object"
-              ? (transformed.get(child) ?? child)
-              : child,
-          );
-        } else if (container) {
-          const objectResult: Record<string, unknown> = Object.create(null);
-          const record = asQueryRecord(frame.value);
-          for (const key of Object.keys(record ?? {})) {
-            if (!isSafeKey(key)) continue;
-            const child = record?.[key];
-            safeSet(
-              objectResult,
-              key,
-              child !== null && typeof child === "object"
-                ? (transformed.get(child) ?? child)
-                : child,
-            );
+        let prepared = current;
+        if (Array.isArray(current)) {
+          const array: QueryValue[] = [];
+          for (const child of frame.children ?? []) {
+            const results = child.results ?? [];
+            if (array.length > limits.maxResults - results.length)
+              throwTraversalLimit(
+                `query walk result limit exceeded (${limits.maxResults})`,
+              );
+            for (const result of results) array.push(result);
           }
-          childResult = objectResult;
+          prepared = array;
+        } else if (container) {
+          const object: Record<string, unknown> = Object.create(null);
+          for (const child of frame.children ?? []) {
+            if (child.results?.length)
+              safeSet(object, String(child.key), child.results[0]);
+          }
+          prepared = object;
         }
-        const evaluated = evaluate(childResult, args[0], ctx)[0];
-        if (container) transformed.set(container, evaluated);
-        if (frame.depth === 0) rootResult = evaluated;
+        frame.results = evaluate(prepared, args[0], ctx);
+        if (container) active.delete(current);
+        delete frame.children;
       }
-      return [rootResult];
+      return root.results ?? [];
     }
 
     case "transpose": {

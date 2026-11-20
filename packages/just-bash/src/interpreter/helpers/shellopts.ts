@@ -18,6 +18,7 @@ import type {
 const SHELLOPTS_OPTIONS: (keyof ShellOptions)[] = [
   "allexport",
   "errexit",
+  "errtrace",
   "noglob",
   "noclobber",
   "noexec",
@@ -75,6 +76,7 @@ const BASHOPTS_OPTIONS: (keyof ShoptOptions)[] = [
   "failglob",
   "globskipdots",
   "globstar",
+  "inherit_errexit",
   "lastpipe",
   "nocaseglob",
   "nocasematch",
