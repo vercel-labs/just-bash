@@ -78,13 +78,20 @@ describe("jq deletion paths", () => {
     });
     expect(
       await bash.exec(
-        "jq -c '[[path(.a | limit(1;.))], [path(limit(1;.a,.b))], [path(limit(0;.a,.b))], [path(limit(-1;.a,.b))], [path(limit(1.5;.a,.b))], [path(limit((1,2);.a,.b))], del(limit(1;.a,.b))]' /input.json",
+        "jq -c '[[path(.a | limit(1;.))], [path(limit(1;.a,.b))], [path(limit(0;.a,.b))], [path(limit(1.5;.a,.b))], [path(limit((1,2);.a,.b))], del(limit(1;.a,.b))]' /input.json",
       ),
     ).toMatchObject({
       stdout:
-        '[[["a"]],[["a"]],[],[["a"],["b"]],[["a"],["b"]],[["a"],["a"],["b"]],{"b":2}]\n',
+        '[[["a"]],[["a"]],[],[["a"],["b"]],[["a"],["a"],["b"]],{"b":2}]\n',
       stderr: "",
       exitCode: 0,
+    });
+    expect(
+      await bash.exec("jq -c '[path(limit(-1;.a,.b))]' /input.json"),
+    ).toMatchObject({
+      stdout: "",
+      stderr: "jq: parse error: limit doesn't support negative count\n",
+      exitCode: 5,
     });
     expect(
       await bash.exec("jq -c 'del(limit(1; .a + 1))' /input.json"),

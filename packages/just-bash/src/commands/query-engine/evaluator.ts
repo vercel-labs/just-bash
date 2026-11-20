@@ -2186,11 +2186,14 @@ function collectPaths(
       expr.name === "first" ? [1] : evaluate(value, expr.args[0], ctx);
     const body = expr.args[expr.name === "first" ? 0 : 1];
     for (const count of counts) {
-      if (count === 0) continue;
+      const n = count as number;
+      // Match the value form of limit.
+      if (n < 0) throw new Error("limit doesn't support negative count");
+      if (n === 0) continue;
       const selected: (string | number)[][] = [];
       // Eager collection can report errors after the last path jq would select.
       collectPaths(value, body, ctx, [], selected, optional);
-      const length = count < 0 ? selected.length : Math.ceil(count);
+      const length = Math.ceil(n);
       for (let i = 0; i < Math.min(length, selected.length); i++) {
         appendPath(selected[i]);
       }
