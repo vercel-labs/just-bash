@@ -720,6 +720,9 @@ async function evalGetlineFromCommand(
   if (!stream) {
     // First time running this command
     try {
+      // Flush point (issue #769): the command may read a file awk has
+      // written to, so buffered output must reach the filesystem first.
+      await ctx.fs?.flushOutput?.();
       const result = await withDefenseContext(ctx, "getline command exec", () =>
         execFn(cmd),
       );
@@ -792,6 +795,9 @@ async function evalGetlineFromFile(
   if (!stream) {
     // First time reading this file
     try {
+      // Flush point (issue #769): buffered output for this file must reach
+      // the filesystem before it is read back.
+      await ctx.fs?.flushOutput?.(filePath);
       const content = await withDefenseContext(ctx, "getline file read", () =>
         fs.readFile(filePath),
       );
