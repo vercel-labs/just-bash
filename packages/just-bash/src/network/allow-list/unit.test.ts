@@ -497,6 +497,56 @@ describe("validateAllowList", () => {
       const errors = validateAllowList([{ url: "https://api.example.com" }]);
       expect(errors).toEqual([]);
     });
+
+    it("accepts an empty methods array", () => {
+      expect(
+        validateAllowList([{ url: "https://api.example.com", methods: [] }]),
+      ).toEqual([]);
+    });
+
+    it.each([
+      null,
+      false,
+      0,
+      "",
+      "GET",
+      {},
+      new Set(["GET"]),
+    ])("rejects non-array methods at configuration time: %s", (methods) => {
+      expect(() =>
+        createSecureFetch({
+          allowedUrlPrefixes: [
+            {
+              url: "https://api.example.com",
+              methods: methods as unknown as import("../types.js").HttpMethod[],
+            },
+          ],
+        }),
+      ).toThrow("methods must be an array");
+    });
+
+    it("rejects non-string array members", () => {
+      const invalidMethods: unknown[] = [
+        Symbol("method"),
+        Object.create(null),
+        1,
+      ];
+      for (const method of invalidMethods) {
+        expect(
+          validateAllowList([
+            {
+              url: "https://api.example.com",
+              methods: [
+                "GET",
+                method,
+              ] as unknown as import("../types.js").HttpMethod[],
+            },
+          ]),
+        ).toEqual([
+          'Invalid HTTP method in allow-list entry for "https://api.example.com": must be a string',
+        ]);
+      }
+    });
   });
 });
 

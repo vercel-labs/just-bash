@@ -385,6 +385,29 @@ The allow-list enforces:
 - **Redirect protection**: Redirects to non-allowed URLs are blocked
 - **Header transforms**: Firewall headers are injected at the fetch boundary and override any user-supplied headers with the same name, preventing credential substitution from inside the sandbox. Headers are re-evaluated on each redirect so credentials are never leaked to non-transform hosts
 
+The allow-list's URLs and per-entry `methods` are captured when the `Bash` instance is created. Changes to the original `allowedUrlPrefixes` array or its entries do not update those policies.
+
+#### Per-URL Methods
+
+Set `methods` on an allow-list entry to override the global `allowedMethods` for that URL prefix:
+
+```typescript
+const env = new Bash({
+  network: {
+    allowedUrlPrefixes: [
+      "https://api.example.com",
+      { url: "https://api.example.com/read", methods: ["GET"] },
+      { url: "https://api.example.com/write", methods: ["GET", "POST"] },
+    ],
+    allowedMethods: ["GET", "HEAD"],
+  },
+});
+```
+
+The longest matching path prefix wins, with the first entry taking precedence when prefixes have the same length. The selected entry's `methods` replaces the global list, so it can restrict methods or allow additional ones. If the selected entry has no `methods`, the global list applies, not another matching entry's methods. An empty `methods` array denies every method. Each redirect target is checked against its own method policy after any method rewrite.
+
+When allow-list enforcement is enabled, all methods are denied for a pathname containing `%` if its origin has any path-scoped entry with `methods`.
+
 #### Using curl
 
 ```bash

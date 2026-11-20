@@ -16,7 +16,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createSecureFetch } from "./fetch.js";
-import type { AllowedUrlEntry } from "./types.js";
+import type { AllowedUrl, AllowedUrlEntry } from "./types.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -383,9 +383,37 @@ describe("secureFetch behavior", () => {
     expect(seenMethods).toEqual(["POST"]);
   });
 
-  it("rejects a stricter redirect target before requesting it, in either order", async () => {
+  it.each([
+    {
+      status: 307,
+      source: "",
+      target: "/data",
+      deniedMethod: "POST",
+      allowed: "GET",
+    },
+    {
+      status: 307,
+      source: "/start",
+      target: "/%64ata",
+      deniedMethod: "POST",
+      allowed: "",
+    },
+    {
+      status: 303,
+      source: "/start",
+      target: "/%64ata",
+      deniedMethod: "GET",
+      allowed: "",
+    },
+  ])("rejects a $status redirect to $target before requesting it, in either order", async ({
+    status,
+    source,
+    target,
+    deniedMethod,
+    allowed,
+  }) => {
     const broad: AllowedUrlEntry = {
-      url: "https://example.com",
+      url: `https://example.com${source}`,
       methods: ["GET", "POST"],
     };
     const narrow: AllowedUrlEntry = {
@@ -393,7 +421,7 @@ describe("secureFetch behavior", () => {
       methods: ["GET"],
     };
 
-    // The narrower prefix must govern whichever order the entries are declared.
+    // Check both declaration orders for the source and target policies.
     for (const allowedUrlPrefixes of [
       [broad, narrow],
       [narrow, broad],
@@ -403,8 +431,8 @@ describe("secureFetch behavior", () => {
         requested.push({ url: u, method: init.method ?? "GET" });
         if (u === "https://example.com/start") {
           return new Response("", {
-            status: 307,
-            headers: { location: "https://example.com/data" },
+            status,
+            headers: { location: `https://example.com${target}` },
           });
         }
         return new Response("ok", { status: 200 });
@@ -420,14 +448,229 @@ describe("secureFetch behavior", () => {
           method: "POST",
           body: "payload",
         }),
-      ).rejects.toThrow("HTTP method 'POST' not allowed. Allowed methods: GET");
+      ).rejects.toMatchObject({
+        name: "MethodNotAllowedError",
+        message: `HTTP method '${deniedMethod}' not allowed. Allowed methods: ${allowed}`,
+      });
 
-      // The source received the POST, and the stricter target was never
-      // requested at all.
       expect(requested).toEqual([
         { url: "https://example.com/start", method: "POST" },
       ]);
     }
+  });
+
+  it.each([
+    "restrict",
+    "widen",
+  ] as const)("%s initial request methods", async (policy) => {
+    const broad: AllowedUrlEntry = {
+      url: "https://example.com",
+      methods: ["GET", "POST"],
+    };
+    const narrow: AllowedUrlEntry = {
+      url: "https://example.com/data",
+      methods: policy === "restrict" ? ["GET"] : ["POST"],
+    };
+
+    for (const allowedUrlPrefixes of [
+      [broad, narrow],
+      [narrow, broad],
+    ]) {
+      const transport = mockFetch(() => new Response("ok"));
+      globalThis.fetch = transport;
+      const secureFetch = createSecureFetch({
+        allowedUrlPrefixes,
+        allowedMethods: policy === "restrict" ? ["GET", "POST"] : ["GET"],
+        denyPrivateRanges: false,
+      });
+
+      const request = secureFetch("https://example.com/data", {
+        method: "POST",
+      });
+      if (policy === "restrict") {
+        await expect(request).rejects.toThrow(
+          "HTTP method 'POST' not allowed. Allowed methods: GET",
+        );
+        expect(transport).not.toHaveBeenCalled();
+      } else {
+        expect((await request).status).toBe(200);
+        expect(transport).toHaveBeenCalledTimes(1);
+      }
+    }
+  });
+
+  it.each<AllowedUrlEntry>([
+    { url: "https://example.com/data", methods: ["GET"] },
+    { url: "https://example.com/data", methods: ["POST"] },
+    { url: "https://example.com/data", methods: [] },
+    { url: "https://example.com/%64ata", methods: ["GET"] },
+  ])("denies encoded paths on an origin with path methods %o", async (scoped) => {
+    const transport = mockFetch(() => new Response("ok"));
+    globalThis.fetch = transport;
+    const secureFetch = createSecureFetch({
+      allowedUrlPrefixes: [
+        { url: "https://example.com", methods: ["GET", "POST"] },
+        scoped,
+      ],
+      denyPrivateRanges: false,
+    });
+
+    for (const path of ["/%64ata", "/%6Fther", "/data/file%20name"]) {
+      for (const method of ["GET", "POST"]) {
+        await expect(
+          secureFetch(`https://example.com${path}`, { method }),
+        ).rejects.toMatchObject({
+          name: "MethodNotAllowedError",
+          message: `HTTP method '${method}' not allowed. Allowed methods: `,
+        });
+      }
+    }
+    expect(transport).not.toHaveBeenCalled();
+
+    for (const path of ["/other", "/other?x=%2f#%25"]) {
+      expect((await secureFetch(`https://example.com${path}`)).status).toBe(
+        200,
+      );
+    }
+    expect(transport).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects an encoded path before URL matching with scoped-only entries", async () => {
+    const transport = mockFetch(() => new Response("unexpected"));
+    globalThis.fetch = transport;
+    const secureFetch = createSecureFetch({
+      allowedUrlPrefixes: [
+        { url: "https://example.com/data", methods: ["GET"] },
+      ],
+      denyPrivateRanges: false,
+    });
+
+    await expect(
+      secureFetch("https://example.com/%64ata"),
+    ).rejects.toMatchObject({
+      name: "MethodNotAllowedError",
+      message: "HTTP method 'GET' not allowed. Allowed methods: ",
+    });
+    expect(transport).not.toHaveBeenCalled();
+  });
+
+  it.each<AllowedUrlEntry>([
+    "https://example.com/data",
+    { url: "https://example.com/data" },
+  ])("uses the origin-wide policy for encoded paths with method-less entry %o", async (scoped) => {
+    const transport = mockFetch(() => new Response("ok"));
+    globalThis.fetch = transport;
+    const secureFetch = createSecureFetch({
+      allowedUrlPrefixes: [
+        { url: "https://example.com", methods: ["POST"] },
+        scoped,
+        { url: "https://other.example.com/data", methods: ["GET"] },
+      ],
+      allowedMethods: ["GET"],
+      denyPrivateRanges: false,
+    });
+
+    expect(
+      (await secureFetch("https://example.com/%64ata", { method: "POST" }))
+        .status,
+    ).toBe(200);
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the allow-list policy when the caller mutates its entries", async () => {
+    const transport = mockFetch(() => new Response("ok"));
+    globalThis.fetch = transport;
+    const methods: NonNullable<AllowedUrl["methods"]> = ["GET"];
+    const scoped: AllowedUrl = {
+      url: "https://example.com/data",
+      methods,
+    };
+    const allowedUrlPrefixes: AllowedUrlEntry[] = [
+      "https://example.com",
+      scoped,
+      "https://other.example.com",
+    ];
+    const secureFetch = createSecureFetch({
+      allowedUrlPrefixes,
+      allowedMethods: ["GET", "POST"],
+      denyPrivateRanges: false,
+    });
+
+    methods.push("POST");
+    scoped.methods = ["GET", "POST"];
+    await expect(
+      secureFetch("https://example.com/data", { method: "POST" }),
+    ).rejects.toThrow("HTTP method 'POST' not allowed. Allowed methods: GET");
+    await expect(
+      secureFetch("https://example.com/%64ata", { method: "POST" }),
+    ).rejects.toThrow("HTTP method 'POST' not allowed. Allowed methods: ");
+    scoped.url = "https://example.com/changed";
+    await expect(
+      secureFetch("https://example.com/data", { method: "POST" }),
+    ).rejects.toThrow("HTTP method 'POST' not allowed. Allowed methods: GET");
+    allowedUrlPrefixes[1] = "https://new.example.com";
+    allowedUrlPrefixes.push({
+      url: "https://other.example.com/data",
+      methods: ["GET"],
+    });
+
+    await expect(
+      secureFetch("https://example.com/%64ata", { method: "POST" }),
+    ).rejects.toThrow("HTTP method 'POST' not allowed. Allowed methods: ");
+    await expect(
+      secureFetch("https://example.com/data", { method: "POST" }),
+    ).rejects.toThrow("HTTP method 'POST' not allowed. Allowed methods: GET");
+    expect(
+      (
+        await secureFetch("https://other.example.com/%64ata", {
+          method: "POST",
+        })
+      ).status,
+    ).toBe(200);
+    expect((await secureFetch("https://example.com/other")).status).toBe(200);
+    await expect(secureFetch("https://new.example.com/")).rejects.toThrow(
+      "Network access denied",
+    );
+    expect(transport).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    { status: 307, expectedMethod: "POST" as const, target: "/data" },
+    { status: 303, expectedMethod: "GET" as const, target: "/data" },
+    { status: 307, expectedMethod: "POST" as const, target: "/other" },
+  ])("allows $expectedMethod on a $status redirect to $target", async ({
+    status,
+    expectedMethod,
+    target,
+  }) => {
+    const requested: Array<{ url: string; method: string }> = [];
+    globalThis.fetch = mockFetch((url, init) => {
+      requested.push({ url, method: init.method ?? "GET" });
+      return url === "https://example.com/start"
+        ? new Response("", {
+            status,
+            headers: { location: `https://example.com${target}` },
+          })
+        : new Response("ok");
+    });
+    const secureFetch = createSecureFetch({
+      allowedUrlPrefixes: [
+        { url: "https://example.com", methods: ["POST"] },
+        { url: "https://example.com/start", methods: ["POST"] },
+        { url: "https://example.com/data", methods: [expectedMethod] },
+      ],
+      allowedMethods: ["HEAD"],
+      denyPrivateRanges: false,
+    });
+
+    expect(
+      (await secureFetch("https://example.com/start", { method: "POST" }))
+        .status,
+    ).toBe(200);
+    expect(requested).toEqual([
+      { url: "https://example.com/start", method: "POST" },
+      { url: `https://example.com${target}`, method: expectedMethod },
+    ]);
   });
 
   it("denies every method when the selected entry lists none", async () => {

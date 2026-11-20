@@ -518,7 +518,13 @@ export function validateAllowList(
     }
 
     // Validate per-URL methods field
-    if (typeof rawEntry === "object" && rawEntry.methods) {
+    if (typeof rawEntry === "object" && rawEntry.methods !== undefined) {
+      if (!Array.isArray(rawEntry.methods)) {
+        errors.push(
+          `Invalid allow-list entry for "${rawEntry.url}": methods must be an array`,
+        );
+        continue;
+      }
       const validMethods = new Set([
         "GET",
         "HEAD",
@@ -529,7 +535,11 @@ export function validateAllowList(
         "OPTIONS",
       ]);
       for (const m of rawEntry.methods) {
-        if (typeof m !== "string" || !validMethods.has(m)) {
+        if (typeof m !== "string") {
+          errors.push(
+            `Invalid HTTP method in allow-list entry for "${rawEntry.url}": must be a string`,
+          );
+        } else if (!validMethods.has(m)) {
           errors.push(
             `Invalid HTTP method "${m}" in allow-list entry for "${rawEntry.url}"`,
           );

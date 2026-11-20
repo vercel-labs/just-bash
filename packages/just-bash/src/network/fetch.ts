@@ -14,6 +14,8 @@ import {
   isPrivateIp,
   isUrlAllowed,
   matchesAllowListEntry,
+  normalizeAllowListEntry,
+  parseUrl,
   validateAllowList,
 } from "./allow-list.js";
 import type { AllowedUrl, AllowedUrlEntry } from "./types.js";
@@ -100,7 +102,18 @@ export type SecureFetch = (
  * Creates a secure fetch function that enforces the allow-list.
  */
 export function createSecureFetch(config: NetworkConfig): SecureFetch {
-  const entries: AllowedUrlEntry[] = config.allowedUrlPrefixes ?? [];
+  // Keep URL and method enforcement consistent with the construction-time caches.
+  const entries: AllowedUrlEntry[] = (config.allowedUrlPrefixes ?? []).map(
+    (entry) =>
+      entry !== null && typeof entry === "object"
+        ? {
+            ...entry,
+            methods: Array.isArray(entry.methods)
+              ? [...entry.methods]
+              : entry.methods,
+          }
+        : entry,
+  );
 
   // guarded-fetch resolves and pins internally with no seam for these, so
   // accepting them would silently downgrade an embedder's own policy.
@@ -126,6 +139,15 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     const errors = validateAllowList(entries);
     if (errors.length > 0) {
       throw new Error(`Invalid network allow-list:\n${errors.join("\n")}`);
+    }
+  }
+
+  const encodedPathDenyOrigins = new Set<string>();
+  for (const entry of entries) {
+    if (typeof entry === "string" || entry.methods === undefined) continue;
+    const prefix = normalizeAllowListEntry(entry.url);
+    if (prefix && prefix.pathPrefix !== "/" && prefix.pathPrefix !== "") {
+      encodedPathDenyOrigins.add(prefix.origin);
     }
   }
 
@@ -322,6 +344,17 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     }
   }
 
+  function checkEncodedPathMethod(url: string, method: string): void {
+    const parsedUrl = parseUrl(url);
+    if (
+      parsedUrl?.pathname.includes("%") &&
+      encodedPathDenyOrigins.has(parsedUrl.origin)
+    ) {
+      // An empty list denies every method.
+      checkMethodAllowed(method, []);
+    }
+  }
+
   /**
    * Returns the methods a URL may use. A matching allow-list entry with its
    * own `methods` overrides the global list for that prefix, so it can widen
@@ -440,6 +473,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
 
     try {
       // Keep preflight inside finally so rejected requests clean up.
+      checkEncodedPathMethod(url, method);
       checkPathAllowed(url);
       checkPrivateLiteral(url);
       checkMethodAllowed(method, getEffectiveMethods(url));
@@ -566,6 +600,21 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
             combinedAbort.signal,
           );
 
+          // Per the fetch standard and curl: 301/302 rewrite POST only, 303
+          // rewrites all but GET/HEAD, 307/308 preserve method and body.
+          const status = response.status;
+          const rewriteToGet =
+            ((status === 301 || status === 302) && currentMethod === "POST") ||
+            (status === 303 &&
+              currentMethod !== "GET" &&
+              currentMethod !== "HEAD");
+          if (rewriteToGet) {
+            currentMethod = "GET";
+            currentBody = undefined;
+          }
+
+          checkEncodedPathMethod(redirectUrl, currentMethod);
+
           // Re-check path-prefix allow-list and private literal for the hop.
           try {
             checkPathAllowed(redirectUrl);
@@ -578,19 +627,6 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
               throw new RedirectNotAllowedError(redirectUrl);
             }
             throw error;
-          }
-
-          // Per the fetch standard and curl: 301/302 rewrite POST only, 303
-          // rewrites all but GET/HEAD, 307/308 preserve method and body.
-          const status = response.status;
-          const rewriteToGet =
-            ((status === 301 || status === 302) && currentMethod === "POST") ||
-            (status === 303 &&
-              currentMethod !== "GET" &&
-              currentMethod !== "HEAD");
-          if (rewriteToGet) {
-            currentMethod = "GET";
-            currentBody = undefined;
           }
 
           // The hop is a new request, so the method it will send must satisfy

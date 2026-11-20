@@ -504,6 +504,24 @@ function runAllowListTests(name: string, createAdapter: AdapterFactory) {
         );
       });
 
+      it("denies encoded paths when an origin has path-scoped methods", async () => {
+        const env = await createAdapter({
+          network: {
+            allowedUrlPrefixes: [
+              "https://api.example.com",
+              { url: "https://api.example.com/data", methods: ["GET"] },
+            ],
+          },
+        });
+
+        const result = await env.exec("curl https://api.example.com/%6Fther");
+        expect(result.exitCode).toBe(3);
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toBe(
+          "curl: (3) HTTP method 'GET' not allowed. Allowed methods: \n",
+        );
+      });
+
       it("falls back to global allowedMethods when entry has no methods", async () => {
         const env = await createAdapter({
           network: {
