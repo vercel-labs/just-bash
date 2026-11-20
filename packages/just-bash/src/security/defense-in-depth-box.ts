@@ -146,6 +146,8 @@ interface DefenseContext {
   sandboxActive: true;
   /** Unique ID for this execution, useful for correlating violations */
   executionId: string;
+  /** Original execution to report when work has an independent lifetime. */
+  originatingExecutionId?: string;
   /** When true, blocking is suspended (trusted infrastructure code) */
   trusted?: boolean;
   /** When true, blocking is enforced even inside an outer trusted scope. */
@@ -809,14 +811,21 @@ export class DefenseInDepthBox {
    */
   static async runInOwnExecution<T>(fn: () => Promise<T>): Promise<T> {
     const box = DefenseInDepthBox.instance;
-    if (!box || executionContext?.getStore()?.sandboxActive !== true) {
+    const storage = executionContext;
+    const caller = storage?.getStore();
+    if (!box || !storage || caller?.sandboxActive !== true) {
       return await fn();
     }
     const handle = box.activate();
+    const context = box.getCachedContext(handle.executionId);
+    context.originatingExecutionId =
+      caller.originatingExecutionId ?? caller.executionId;
     try {
-      return await handle.run(fn);
+      return await handle.run(() => storage.run(context, fn));
     } finally {
-      handle.deactivate();
+      // Teardown changes protected intrinsics; it must not run as the
+      // untrusted caller, whose execution may already have ended.
+      DefenseInDepthBox.runTrusted(() => handle.deactivate());
     }
   }
 
@@ -871,13 +880,14 @@ export class DefenseInDepthBox {
     path: string,
     message: string,
   ): SecurityViolation {
+    const context = executionContext?.getStore();
     const violation: SecurityViolation = {
       timestamp: getSafeTimestamp(),
       type,
       message,
       path,
       stack: new Error().stack,
-      executionId: executionContext?.getStore()?.executionId,
+      executionId: context?.originatingExecutionId ?? context?.executionId,
     };
 
     // Store violation (with cap to prevent memory issues)

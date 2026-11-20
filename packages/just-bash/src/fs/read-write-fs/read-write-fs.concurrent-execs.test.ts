@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { setImmediate } from "node:timers/promises";
 import {
   afterEach,
   beforeEach,
@@ -117,12 +118,16 @@ describe("ReadWriteFs mutations from concurrent executions", () => {
       defenseInDepth: { onViolation },
     });
     const [execWrite, directWrite] = holdStagedWrites(2);
+    onTestFinished(() => {
+      execWrite.release();
+      directWrite.release();
+    });
 
     const exec = bash.exec("save");
-    await execWrite.inFlight;
+    expect(await settleWithin(execWrite.inFlight)).toBeUndefined();
     const direct = rwfs.writeFile("/direct.txt", "d");
     execWrite.release();
-    await directWrite.inFlight;
+    expect(await settleWithin(directWrite.inFlight)).toBeUndefined();
     expect(await settleWithin(exec)).toMatchObject(OK);
     directWrite.release();
 
@@ -137,15 +142,82 @@ describe("ReadWriteFs mutations from concurrent executions", () => {
     const bash = sandbox([saveCommand("/saved.txt", trusted)]);
     const [write] = holdStagedWrites(1);
     const controller = new AbortController();
+    onTestFinished(() => {
+      controller.abort();
+      write.release();
+    });
 
     const stopped = bash.exec("save", { signal: controller.signal });
-    await write.inFlight;
+    expect(await settleWithin(write.inFlight)).toBeUndefined();
     controller.abort();
     expect(await settleWithin(stopped)).toMatchObject(ABORTED);
     write.release();
 
     const later = await settleWithin(bash.exec("echo b > /b && cat /b"));
     expect(later).toMatchObject({ ...OK, stdout: "b\n" });
+  });
+
+  it.each([
+    ["succeeds", false],
+    ["fails", true],
+  ])("does not resume the caller when an aborted in-flight mutation %s", async (_result, fails) => {
+    const rwfs = new ReadWriteFs({ root });
+    const reflectSet = Object.getOwnPropertyDescriptor(Reflect, "set");
+    const [held] = holdStagedWrites(1);
+    const controller = new AbortController();
+    let outcome = "not resumed";
+    onTestFinished(() => {
+      controller.abort();
+      held.release();
+    });
+    const probe = defineCommand(
+      "probe",
+      async (_args, ctx) => {
+        try {
+          await ctx.fs.writeFile("/p", "p");
+        } catch {
+          outcome = "rejected";
+          return OK;
+        }
+        try {
+          // @banned-pattern-ignore: detects code resumed after sandbox deactivation
+          new Function("return 1")();
+          outcome = "allowed";
+        } catch {
+          outcome = "blocked";
+        }
+        return OK;
+      },
+      { trusted: false },
+    );
+    const bash = new Bash({
+      fs: rwfs,
+      customCommands: [probe],
+      defenseInDepth: { onViolation },
+    });
+
+    const { rejections } = await withUnhandledRejectionsTracked(async () => {
+      const stopped = bash.exec("probe", { signal: controller.signal });
+      expect(await settleWithin(held.inFlight)).toBeUndefined();
+      const rename = fails
+        ? vi.spyOn(fs.promises, "rename").mockRejectedValueOnce(
+            Object.assign(new Error("EACCES: test failure"), {
+              code: "EACCES",
+            }),
+          )
+        : undefined;
+      controller.abort();
+      expect(await settleWithin(stopped)).toMatchObject(ABORTED);
+      held.release();
+      expect(await settleWithin(rwfs.writeFile("/later", "l"))).toBeUndefined();
+      if (rename) expect(rename).toHaveBeenCalledTimes(2);
+      await setImmediate();
+    });
+
+    expect(outcome).toBe("not resumed");
+    expect(fs.existsSync(path.join(root, "p"))).toBe(!fails);
+    expect(rejections).toEqual([]);
+    expect(Object.getOwnPropertyDescriptor(Reflect, "set")).toEqual(reflectSet);
   });
 
   it.each([
@@ -182,13 +254,17 @@ describe("ReadWriteFs mutations from concurrent executions", () => {
       { trusted: false },
     );
     const controller = new AbortController();
+    onTestFinished(() => {
+      controller.abort();
+      held.release();
+    });
 
     const { result, rejections } = await withUnhandledRejectionsTracked(
       async () => {
         const holder = sandbox().exec("echo a > /a");
-        await settleWithin(held.inFlight);
+        expect(await settleWithin(held.inFlight)).toBeUndefined();
         const b = sandbox([queue]).exec("queue", { signal: controller.signal });
-        await settleWithin(queued.inFlight);
+        expect(await settleWithin(queued.inFlight)).toBeUndefined();
         const queuedBehindHolder = queuedMutations(root);
         controller.abort();
         const aborted = await settleWithin(b);
@@ -206,11 +282,57 @@ describe("ReadWriteFs mutations from concurrent executions", () => {
     expect(result.aborted).toMatchObject(ABORTED);
     expect(result.holder).toMatchObject(OK);
     expect(result.later).toMatchObject({ ...OK, stdout: "c\n" });
-    // The queued mutation was dropped with its execution, not run for it.
-    expect(outcome).toEqual([
-      expect.objectContaining({ message: expect.stringMatching(/^ECANCELED/) }),
-    ]);
+    // The queued mutation was dropped without resuming its abandoned caller.
+    expect(outcome).toEqual([]);
     expect(untouched()).toBe(true);
+    expect(rejections).toEqual([]);
+  });
+
+  it("does not reject Promise.all inputs after their execution is aborted while queued", async () => {
+    const [held] = holdStagedWrites(1);
+    const queued = createGate();
+    const controller = new AbortController();
+    let resumed = false;
+    onTestFinished(() => {
+      controller.abort();
+      held.release();
+    });
+    const queue = defineCommand(
+      "queue",
+      async (_args, ctx) => {
+        const pending = Promise.all([
+          ctx.fs.writeFile("/b", "b"),
+          ctx.fs.writeFile("/c", "c"),
+        ]);
+        queued.reached();
+        await pending;
+        resumed = true;
+        return OK;
+      },
+      { trusted: false },
+    );
+
+    const { rejections } = await withUnhandledRejectionsTracked(async () => {
+      const holder = sandbox().exec("echo a > /a");
+      expect(await settleWithin(held.inFlight)).toBeUndefined();
+      const stopped = sandbox([queue]).exec("queue", {
+        signal: controller.signal,
+      });
+      expect(await settleWithin(queued.inFlight)).toBeUndefined();
+      expect(queuedMutations(root)).toBe(2);
+      controller.abort();
+      expect(await settleWithin(stopped)).toMatchObject(ABORTED);
+      held.release();
+      expect(await settleWithin(holder)).toMatchObject(OK);
+      expect(
+        await settleWithin(sandbox().exec("echo d > /d && cat /d")),
+      ).toMatchObject({ ...OK, stdout: "d\n" });
+      await setImmediate();
+    });
+
+    expect(resumed).toBe(false);
+    expect(fs.existsSync(path.join(root, "b"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "c"))).toBe(false);
     expect(rejections).toEqual([]);
   });
 
@@ -231,6 +353,7 @@ describe("ReadWriteFs mutations from concurrent executions", () => {
     const noAtime = constants.O_NOATIME;
     const originalOpen = fs.promises.open.bind(fs.promises);
     const fallback = createGate();
+    onTestFinished(() => fallback.release());
     vi.spyOn(fs.promises, "open").mockImplementation(
       async (filePath, flags, mode) => {
         if (String(filePath).endsWith("src.txt")) {
@@ -256,9 +379,10 @@ describe("ReadWriteFs mutations from concurrent executions", () => {
     );
     fs.writeFileSync(path.join(root, "src.txt"), "s");
     const controller = new AbortController();
+    onTestFinished(() => controller.abort());
 
     const stopped = sandbox([copy]).exec("copy", { signal: controller.signal });
-    await settleWithin(fallback.inFlight);
+    expect(await settleWithin(fallback.inFlight)).toBeUndefined();
     controller.abort();
     expect(await settleWithin(stopped)).toMatchObject(ABORTED);
     fallback.release();
@@ -271,12 +395,16 @@ describe("ReadWriteFs mutations from concurrent executions", () => {
 
   it("keeps an untrusted command restricted while its write is pending", async () => {
     const [write] = holdStagedWrites(1);
+    onTestFinished(() => write.release());
+    const writeInFlight = settleWithin(write.inFlight);
     let blocked: unknown;
     const probe = defineCommand(
       "probe",
       async (_args, ctx) => {
         const pending = ctx.fs.writeFile("/p.txt", "p");
-        await write.inFlight;
+        if ((await writeInFlight) === "hung") {
+          throw new Error("write gate did not open");
+        }
         try {
           // @banned-pattern-ignore: asserts the sandbox still blocks this
           new Function("return 1")();
@@ -290,9 +418,9 @@ describe("ReadWriteFs mutations from concurrent executions", () => {
       { trusted: false },
     );
 
-    expect(await settleWithin(sandbox([probe]).exec("probe"))).toMatchObject(
-      OK,
-    );
+    const exec = sandbox([probe]).exec("probe");
+    expect(await writeInFlight).toBeUndefined();
+    expect(await settleWithin(exec)).toMatchObject(OK);
     expect(blocked).toBeInstanceOf(SecurityViolationError);
   });
 });

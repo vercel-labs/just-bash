@@ -1,13 +1,22 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 import { Bash } from "../../Bash.js";
 import { defineCommand } from "../../custom-commands.js";
 import {
   DefenseInDepthBox,
   SecurityViolationError,
 } from "../../security/defense-in-depth-box.js";
+import type { SecurityViolation } from "../../security/types.js";
 import { createGate, settleWithin } from "../../test-utils/fs-gates.js";
 import type { IFileSystem } from "../interface.js";
 import { ReadWriteFs } from "./read-write-fs.js";
@@ -123,16 +132,30 @@ describe("ReadWriteFs mutations reading a planted prototype getter", () => {
     ],
   ])("keeps a getter on %s blocked", async (_name, mutate, label, applied) => {
     fs.writeFileSync(path.join(root, "existing"), "old");
+    const violations: SecurityViolation[] = [];
+    let originatingExecutionId: string | undefined;
     const bash = new Bash({
       fs: new ReadWriteFs({ root }),
-      customCommands: [untrusted("mutate", mutate)],
-      defenseInDepth: true,
+      customCommands: [
+        untrusted("mutate", (cmdFs) => {
+          originatingExecutionId = DefenseInDepthBox.getCurrentExecutionId();
+          return mutate(cmdFs);
+        }),
+      ],
+      defenseInDepth: {
+        onViolation: (violation) => violations.push(violation),
+      },
     });
 
     expect(await settleWithin(bash.exec("mutate"))).toMatchObject(OK);
     unplant();
     expect([...hookRuns]).toEqual([`${label}: blocked`]);
     expect(applied()).toBe(true);
+    expect(originatingExecutionId).toBeDefined();
+    expect(violations.length).toBeGreaterThan(0);
+    expect(violations.map((violation) => violation.executionId)).toEqual(
+      violations.map(() => originatingExecutionId),
+    );
   });
 
   it("keeps a planted getter blocked after the caller's execution ends", async () => {
@@ -141,6 +164,13 @@ describe("ReadWriteFs mutations reading a planted prototype getter", () => {
     const originalMkdir = fs.promises.mkdir.bind(fs.promises);
     const held = createGate();
     const finished = createGate();
+    const controller = new AbortController();
+    onTestFinished(() => {
+      controller.abort();
+      held.release();
+    });
+    const violations: SecurityViolation[] = [];
+    let originatingExecutionId: string | undefined;
     vi.spyOn(fs.promises, "mkdir").mockImplementation(async (dir, options) => {
       const orphan = String(dir).endsWith(`${path.sep}orphan`);
       if (orphan) {
@@ -155,16 +185,18 @@ describe("ReadWriteFs mutations reading a planted prototype getter", () => {
       fs: new ReadWriteFs({ root }),
       customCommands: [
         untrusted("orphan", (cmdFs) => {
+          originatingExecutionId = DefenseInDepthBox.getCurrentExecutionId();
           plant(Object.prototype, "mode", "mode");
           return cmdFs.mkdir("/orphan");
         }),
       ],
-      defenseInDepth: true,
+      defenseInDepth: {
+        onViolation: (violation) => violations.push(violation),
+      },
     });
-    const controller = new AbortController();
 
     const stopped = bash.exec("orphan", { signal: controller.signal });
-    await settleWithin(held.inFlight);
+    expect(await settleWithin(held.inFlight)).toBeUndefined();
     controller.abort();
     expect(await settleWithin(stopped)).toMatchObject(ABORTED);
     held.release();
@@ -181,5 +213,10 @@ describe("ReadWriteFs mutations reading a planted prototype getter", () => {
     expect(later).toMatchObject({ ...OK, stdout: "b\n" });
     expect([...hookRuns]).toEqual(["mode: blocked"]);
     expect(fs.statSync(path.join(root, "orphan")).isDirectory()).toBe(true);
+    expect(originatingExecutionId).toBeDefined();
+    expect(violations.length).toBeGreaterThan(0);
+    expect(violations.map((violation) => violation.executionId)).toEqual(
+      violations.map(() => originatingExecutionId),
+    );
   });
 });

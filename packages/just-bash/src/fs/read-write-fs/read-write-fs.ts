@@ -462,18 +462,23 @@ export class ReadWriteFs implements IFileSystem {
       ReadWriteFs.drainMutationQueue();
     });
     try {
-      // The caller's execution ended while this waited: do nothing for it.
-      // A plain fs error, not ExecutionAbortedError: cp and mv rethrow that,
-      // and nothing awaits a dead execution, so it would be unhandled.
-      if (DefenseInDepthBox.hasCurrentExecutionEnded()) {
-        throw new Error("ECANCELED: operation canceled, its execution ended");
+      if (!DefenseInDepthBox.hasCurrentExecutionEnded()) {
+        // Node's own fs promises settle each other through `.then`, which an
+        // execution's context drops once it deactivates. The operation runs in
+        // a sandboxed execution of its own that lasts until it settles, so it
+        // always releases the root, whatever happens to the caller's, and
+        // anything it reaches stays as restricted as the caller.
+        try {
+          const result = await DefenseInDepthBox.runInOwnExecution(operation);
+          if (!DefenseInDepthBox.hasCurrentExecutionEnded()) return result;
+        } catch (error) {
+          if (!DefenseInDepthBox.hasCurrentExecutionEnded()) throw error;
+        }
       }
-      // Node's own fs promises settle each other through `.then`, which an
-      // execution's context drops once it deactivates. The operation runs in
-      // a sandboxed execution of its own that lasts until it settles, so it
-      // always releases the root, whatever happens to the caller's, and
-      // anything it reaches stays as restricted as the caller.
-      return await DefenseInDepthBox.runInOwnExecution(operation);
+      // Do not settle an abandoned caller's result. Rejecting can cause an
+      // unhandled rejection in Promise.all, while resolving can resume code
+      // after its execution has ended. The finally block still frees the root.
+      return new Promise<T>(() => {});
     } finally {
       ReadWriteFs.activeMutationRoots.delete(this.canonicalRoot);
       ReadWriteFs.drainMutationQueue();

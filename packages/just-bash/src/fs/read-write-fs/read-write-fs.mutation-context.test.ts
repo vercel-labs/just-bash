@@ -1,7 +1,15 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 import { Bash } from "../../Bash.js";
 import { defineCommand } from "../../custom-commands.js";
 import {
@@ -151,7 +159,7 @@ describe("ReadWriteFs mutations that outlive the caller's execution", () => {
     // Queued: every call is made at once, behind a held root.
     const queuedArguments = argumentsFor("queued");
     const issued = createGate();
-    const settled = createGate();
+    let queuedResumed = false;
     const queued = defineCommand(
       "queued",
       async (_args, ctx) => {
@@ -160,7 +168,7 @@ describe("ReadWriteFs mutations that outlive the caller's execution", () => {
         );
         issued.reached();
         for (const call of calls) await call;
-        settled.reached();
+        queuedResumed = true;
         return OK;
       },
       { trusted: false },
@@ -190,16 +198,22 @@ describe("ReadWriteFs mutations that outlive the caller's execution", () => {
     // A host write holds the root, so every call that passes its checks
     // queues; it is released only after the caller's execution has ended.
     const [held] = holdStagedWrites(1);
-    const holder = rwfs.writeFile("/held", "h");
-    await settleWithin(held.inFlight);
     const controller = new AbortController();
+    onTestFinished(() => {
+      controller.abort();
+      held.release();
+    });
+    const holder = rwfs.writeFile("/held", "h");
+    expect(await settleWithin(held.inFlight)).toBeUndefined();
     const stopped = bash.exec("queued", { signal: controller.signal });
-    await settleWithin(issued.inFlight);
+    expect(await settleWithin(issued.inFlight)).toBeUndefined();
     controller.abort();
     expect(await settleWithin(stopped)).toMatchObject(ABORTED);
     held.release();
     expect(await settleWithin(holder)).toBeUndefined();
-    expect(await settleWithin(settled.inFlight)).toBeUndefined();
+    const later = await settleWithin(bash.exec("echo b > /b && cat /b"));
+    expect(later).toMatchObject({ ...OK, stdout: "b\n" });
+    expect(queuedResumed).toBe(false);
 
     // Every hook ran at its call, where the sandbox blocked it, and none ran
     // later. Paths, content objects, modes and times never reach a hook, and
@@ -230,18 +244,18 @@ describe("ReadWriteFs mutations that outlive the caller's execution", () => {
     ]);
     const calls = mutations(rwfs, liveArguments).map(([call]) => call);
     expect(outcomes).toEqual(
-      new Map(
-        ["live", "queued"].flatMap((phase) =>
-          calls.map((call) => [
-            `${phase} ${call}`,
-            rejectedAtCall.has(call)
-              ? "TypeError"
-              : phase === "live"
-                ? "done"
-                : "ECANCELED",
-          ]),
+      new Map([
+        ...calls.map(
+          (call) =>
+            [
+              `live ${call}`,
+              rejectedAtCall.has(call) ? "TypeError" : "done",
+            ] as const,
         ),
-      ),
+        ...calls
+          .filter((call) => rejectedAtCall.has(call))
+          .map((call) => [`queued ${call}`, "TypeError"] as const),
+      ]),
     );
     // The owned copies kept the caller's values.
     expect(liveResults).toEqual({
@@ -251,8 +265,6 @@ describe("ReadWriteFs mutations that outlive the caller's execution", () => {
       removed: true,
       exclusiveMode: 0o600,
     });
-    const later = await settleWithin(bash.exec("echo b > /b && cat /b"));
-    expect(later).toMatchObject({ ...OK, stdout: "b\n" });
   });
 
   it("releases the root when rm -rf of a large tree is aborted midway", async () => {
