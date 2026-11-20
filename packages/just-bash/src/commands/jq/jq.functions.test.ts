@@ -102,6 +102,13 @@ describe("jq builtin functions", () => {
       expect(result.stdout).toBe("[\n  1,\n  2,\n  3\n]\n");
       expect(result.exitCode).toBe(0);
     });
+
+    it("should return unique values sorted, not in first-seen order (fixes #736)", async () => {
+      const env = new Bash();
+      const result = await env.exec("echo '[3,1,2,1]' | jq -c 'unique'");
+      expect(result.stdout).toBe("[1,2,3]\n");
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("add", () => {
@@ -192,6 +199,61 @@ describe("jq builtin functions", () => {
         'echo \'[{"n":1},{"n":2},{"n":1}]\' | jq -c \'unique_by(.n)\'',
       );
       expect(result.stdout).toBe('[{"n":1},{"n":2}]\n');
+    });
+
+    it("should return group_by groups sorted by key (fixes #736)", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo '[{"a":2},{"a":1},{"a":2}]' | jq -c 'group_by(.a) | map(.[0].a)'`,
+      );
+      expect(result.stdout).toBe("[1,2]\n");
+    });
+
+    it("should sort_by on every key after the first (fixes #736)", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo '[{"a":1,"b":2},{"a":1,"b":1}]' | jq -c 'sort_by(.a, .b) | map(.b)'`,
+      );
+      expect(result.stdout).toBe("[1,2]\n");
+    });
+
+    it("should reject sort_by with a semicolon-separated second key", async () => {
+      const env = new Bash();
+      // Real jq rejects sort_by/2 at compile time (exit 3); only the
+      // comma form is a valid multi-key sort.
+      const result = await env.exec(
+        `echo '[{"a":1,"b":2},{"a":1,"b":1}]' | jq -c 'sort_by(.a; .b) | map(.b)'`,
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("jq: parse error: sort_by/2 is not defined\n");
+      expect(result.exitCode).toBe(5);
+    });
+
+    it("should reject the other _by builtins with anything but one key", async () => {
+      const env = new Bash();
+      // Real jq rejects group_by/2, unique_by/2, min_by/2, max_by/2 and
+      // the /0 forms at compile time (exit 3).
+      const cases: Array<[string, string]> = [
+        ["group_by/2", "group_by(.[0]; .[0])"],
+        ["unique_by/2", "unique_by(.a; .b)"],
+        ["min_by/2", "min_by(.a; .b)"],
+        ["max_by/2", "max_by(.a; .b)"],
+        ["sort_by/0", "sort_by"],
+        ["group_by/0", "group_by"],
+        ["unique_by/0", "unique_by"],
+        ["min_by/0", "min_by"],
+        ["max_by/0", "max_by"],
+      ];
+      for (const [arity, program] of cases) {
+        const result = await env.exec(
+          `echo '[{"a":1,"b":2}]' | jq -c '${program}'`,
+        );
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toBe(
+          `jq: parse error: ${arity} is not defined\n`,
+        );
+        expect(result.exitCode).toBe(5);
+      }
     });
   });
 

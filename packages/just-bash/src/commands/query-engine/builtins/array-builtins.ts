@@ -8,8 +8,8 @@ import { mergeToNullPrototype } from "../../../helpers/env.js";
 import { ExecutionLimitError as QueryExecutionLimitError } from "../../../interpreter/errors.js";
 import type { EvalContext } from "../evaluator.js";
 import type { AstNode } from "../parser.js";
-import { isSafeKey, safeSet } from "../safe-object.js";
-import type { QueryValue } from "../value-operations.js";
+import { asQueryRecord, isSafeKey, safeSet } from "../safe-object.js";
+import { compareStrings, type QueryValue } from "../value-operations.js";
 
 type EvalFn = (
   value: QueryValue,
@@ -46,9 +46,98 @@ function assertResultCapacity(
 }
 
 /**
- * Handle array builtins that need evaluate function for arguments.
- * Returns null if the builtin name is not an array builtin handled here.
+ * Keys for a `_by` builtin: every value produced by every key expression, in
+ * order. A comma expression (`.a, .b`) yields several values from one
+ * argument, so the flattened sequence is the sort key — jq sorts by the
+ * whole sequence, not just the first value.
+ *
+ * Each argument's output is capped on its own, so the running total is
+ * checked as well: without it, a key built from many generator arguments
+ * (e.g. `sort_by(range(100000); range(100000); …)`) could exceed
+ * maxArrayElements many times over.
  */
+function sortKeys(
+  value: QueryValue,
+  args: AstNode[],
+  ctx: EvalContext,
+  evaluate: EvalFn,
+): QueryValue[] {
+  const keys: QueryValue[] = [];
+  for (const arg of args) {
+    const values = evaluate(value, arg, ctx);
+    assertResultCapacity(ctx, keys.length, values.length);
+    for (const produced of values) keys.push(produced);
+  }
+  return keys;
+}
+
+/**
+ * Aggregate accounting for group_by / unique_by keys. Keys are retained
+ * for every input item, so the total across all keys in one call — not
+ * just within a single key, which sortKeys already caps — must fit the
+ * limits: retained key elements against maxArrayElements, and retained
+ * key encoding (structuralKey output, held as Map keys) against
+ * maxStringLength.
+ */
+function chargeGroupKey(
+  ctx: EvalContext,
+  totals: { elements: number; encoding: number },
+  keyVal: QueryValue[],
+  keyStr: string,
+): void {
+  assertResultCapacity(ctx, totals.elements, keyVal.length);
+  totals.elements += keyVal.length;
+  if (totals.encoding > ctx.limits.maxStringLength - keyStr.length) {
+    throw new QueryExecutionLimitError(
+      `query key encoding size limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+      "string_length",
+    );
+  }
+  totals.encoding += keyStr.length;
+}
+
+/**
+ * The `_by` builtins take exactly one key expression in jq; a second
+ * argument (`sort_by(.a; .b)`) is a compile error there, while the comma
+ * form (`sort_by(.a, .b)`) is a single argument producing several key
+ * values. Anything else is rejected with jq's "not defined" wording.
+ */
+function assertSingleKeyArg(name: string, args: AstNode[]): void {
+  if (args.length !== 1) {
+    throw new Error(`${name}/${args.length} is not defined`);
+  }
+}
+
+/**
+ * Injective structural encoding of a key value, for group_by / unique_by.
+ * JSON.stringify is not injective over the values jq expressions can
+ * produce: it maps Infinity, -Infinity and NaN to `null`, so keys
+ * [Infinity] and [null] collided into a single group. Type tags plus
+ * exact string escaping keep distinct values distinct.
+ */
+function structuralKey(value: QueryValue): string {
+  if (value === null) return "null";
+  if (typeof value === "number") {
+    if (Number.isNaN(value)) return "num:NaN";
+    if (value === Number.POSITIVE_INFINITY) return "num:Infinity";
+    if (value === Number.NEGATIVE_INFINITY) return "num:-Infinity";
+    return `num:${value}`;
+  }
+  if (typeof value === "string") return `str:${JSON.stringify(value)}`;
+  if (typeof value === "boolean") return `bool:${value}`;
+  if (Array.isArray(value)) {
+    return `arr:[${value.map((item) => structuralKey(item)).join(",")}]`;
+  }
+  const record = asQueryRecord(value);
+  if (record) {
+    const keys = Object.keys(record).sort(compareStrings);
+    const parts = keys.map(
+      (key) => `${JSON.stringify(key)}:${structuralKey(record[key])}`,
+    );
+    return `obj:{${parts.join(",")}}`;
+  }
+  return `other:${String(value)}`;
+}
 export function evalArrayBuiltin(
   value: QueryValue,
   name: string,
@@ -57,22 +146,27 @@ export function evalArrayBuiltin(
   evaluate: EvalFn,
   evaluateWithPartialResults: EvalWithPartialFn,
   compareJq: CompareFn,
+  compareJqSort: CompareFn,
   isTruthy: IsTruthyFn,
   containsDeep: ContainsDeepFn,
   ExecutionLimitError: ExecutionLimitErrorClass,
 ): QueryValue[] | null {
   switch (name) {
     case "sort":
-      if (Array.isArray(value)) return [[...value].sort(compareJq)];
+      if (Array.isArray(value)) return [[...value].sort(compareJqSort)];
       return [null];
 
     case "sort_by": {
-      if (!Array.isArray(value) || args.length === 0) return [null];
-      const sorted = [...value].sort((a, b) => {
-        const aKey = evaluate(a, args[0], ctx)[0];
-        const bKey = evaluate(b, args[0], ctx)[0];
-        return compareJq(aKey, bKey);
-      });
+      assertSingleKeyArg("sort_by", args);
+      if (!Array.isArray(value)) return [null];
+      // compareJq orders arrays element-wise, which is the lexicographic
+      // key-sequence comparison jq uses.
+      const sorted = [...value].sort((a, b) =>
+        compareJqSort(
+          sortKeys(a, args, ctx, evaluate),
+          sortKeys(b, args, ctx, evaluate),
+        ),
+      );
       return [sorted];
     }
 
@@ -114,30 +208,45 @@ export function evalArrayBuiltin(
     }
 
     case "unique_by": {
-      if (!Array.isArray(value) || args.length === 0) return [null];
-      const seen = new Map<string, { item: QueryValue; key: QueryValue }>();
+      assertSingleKeyArg("unique_by", args);
+      if (!Array.isArray(value)) return [null];
+      const seen = new Map<string, { item: QueryValue; key: QueryValue[] }>();
+      const totals = { elements: 0, encoding: 0 };
       for (const item of value) {
-        const keyVal = evaluate(item, args[0], ctx)[0];
-        const keyStr = JSON.stringify(keyVal);
+        const keyVal = sortKeys(item, args, ctx, evaluate);
+        const keyStr = structuralKey(keyVal);
+        chargeGroupKey(ctx, totals, keyVal, keyStr);
         if (!seen.has(keyStr)) {
           seen.set(keyStr, { item, key: keyVal });
         }
       }
       // Sort by key value and return items
       const entries = [...seen.values()];
-      entries.sort((a, b) => compareJq(a.key, b.key));
+      entries.sort((a, b) => compareJqSort(a.key, b.key));
       return [entries.map((e) => e.item)];
     }
 
     case "group_by": {
-      if (!Array.isArray(value) || args.length === 0) return [null];
-      const groups = new Map<string, QueryValue[]>();
+      assertSingleKeyArg("group_by", args);
+      if (!Array.isArray(value)) return [null];
+      const groups = new Map<
+        string,
+        { key: QueryValue[]; items: QueryValue[] }
+      >();
+      const totals = { elements: 0, encoding: 0 };
       for (const item of value) {
-        const key = JSON.stringify(evaluate(item, args[0], ctx)[0]);
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key)?.push(item);
+        const keyVal = sortKeys(item, args, ctx, evaluate);
+        const key = structuralKey(keyVal);
+        chargeGroupKey(ctx, totals, keyVal, key);
+        if (!groups.has(key)) groups.set(key, { key: keyVal, items: [] });
+        groups.get(key)?.items.push(item);
       }
-      return [[...groups.values()]];
+      // jq defines group_by(f) as sort_by(f) followed by grouping, so the
+      // groups come out ordered by key rather than in first-seen order.
+      const ordered = [...groups.values()].sort((a, b) =>
+        compareJqSort(a.key, b.key),
+      );
+      return [ordered.map((g) => g.items)];
     }
 
     case "max":
@@ -147,12 +256,12 @@ export function evalArrayBuiltin(
       return [null];
 
     case "max_by": {
-      if (!Array.isArray(value) || value.length === 0 || args.length === 0)
-        return [null];
+      assertSingleKeyArg("max_by", args);
+      if (!Array.isArray(value) || value.length === 0) return [null];
       return [
         value.reduce((a, b) => {
-          const aKey = evaluate(a, args[0], ctx)[0];
-          const bKey = evaluate(b, args[0], ctx)[0];
+          const aKey = sortKeys(a, args, ctx, evaluate);
+          const bKey = sortKeys(b, args, ctx, evaluate);
           return compareJq(aKey, bKey) > 0 ? a : b;
         }),
       ];
@@ -165,12 +274,12 @@ export function evalArrayBuiltin(
       return [null];
 
     case "min_by": {
-      if (!Array.isArray(value) || value.length === 0 || args.length === 0)
-        return [null];
+      assertSingleKeyArg("min_by", args);
+      if (!Array.isArray(value) || value.length === 0) return [null];
       return [
         value.reduce((a, b) => {
-          const aKey = evaluate(a, args[0], ctx)[0];
-          const bKey = evaluate(b, args[0], ctx)[0];
+          const aKey = sortKeys(a, args, ctx, evaluate);
+          const bKey = sortKeys(b, args, ctx, evaluate);
           return compareJq(aKey, bKey) < 0 ? a : b;
         }),
       ];

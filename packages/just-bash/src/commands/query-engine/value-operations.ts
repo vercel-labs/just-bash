@@ -178,11 +178,79 @@ export function getValueDepth(value: QueryValue, maxCheck = 3000): number {
 }
 
 /**
+ * Sink for comparison work accounting. Receives the number of code points
+ * a comparison examined, so callers can charge long comparisons to their
+ * evaluation budget instead of letting a sort of long shared-prefix
+ * strings run unbounded.
+ */
+export type CompareChargeFn = (count: number) => void;
+
+/**
+ * Compare two strings by Unicode code point, as jq does.
+ * `localeCompare` is locale-dependent and canonically equates distinct
+ * strings (e.g. NFC vs NFD forms of the same glyph), while the default
+ * `<` compares UTF-16 code units, which misorders astral characters
+ * against U+E000–U+FFFF. Code point order matches jq (and UTF-8 byte
+ * order). Identical strings short-circuit: sorting an array with many
+ * duplicates must not re-walk a long string on every comparison. The
+ * code points examined are reported to `charge` (flushed every 1024
+ * and at return), so a caller can bound the work of long shared
+ * prefixes.
+ */
+export function compareStrings(
+  a: string,
+  b: string,
+  charge?: CompareChargeFn,
+): number {
+  if (a === b) return 0;
+  const aIter = a[Symbol.iterator]();
+  const bIter = b[Symbol.iterator]();
+  let compared = 0;
+  for (;;) {
+    const aNext = aIter.next();
+    const bNext = bIter.next();
+    if (aNext.done || bNext.done) {
+      if (compared > 0) charge?.(compared);
+      if (aNext.done && bNext.done) return 0;
+      return aNext.done ? -1 : 1;
+    }
+    const aCp = aNext.value.codePointAt(0) ?? 0;
+    const bCp = bNext.value.codePointAt(0) ?? 0;
+    compared++;
+    if (compared % 1024 === 0) {
+      charge?.(1024);
+      compared = 0;
+    }
+    if (aCp !== bCp) {
+      if (compared > 0) charge?.(compared);
+      return aCp - bCp;
+    }
+  }
+}
+
+export interface CompareJqState {
+  /**
+   * Set when the comparison's decisive step compared NaN with NaN.
+   * jq's number comparison is not antisymmetric there (NaN < NaN both
+   * ways), so a pair decided by it has no order — compareJqSort uses
+   * this to report it equal instead.
+   */
+  nanPair?: boolean;
+}
+
+/**
  * Compare two values using jq's comparison semantics.
  * jq sorts by type first (null < bool < number < string < array < object),
- * then by value within type.
+ * then by value within type. `charge` receives the string code points
+ * examined, so callers can bound comparison work (see compareStrings).
+ * `state`, when given, records whether the decisive step was NaN-vs-NaN.
  */
-export function compareJq(a: QueryValue, b: QueryValue): number {
+export function compareJq(
+  a: QueryValue,
+  b: QueryValue,
+  charge?: CompareChargeFn,
+  state?: CompareJqState,
+): number {
   const typeOrder = (v: QueryValue): number => {
     if (v === null) return 0;
     if (typeof v === "boolean") return 1;
@@ -197,13 +265,28 @@ export function compareJq(a: QueryValue, b: QueryValue): number {
   const tb = typeOrder(b);
   if (ta !== tb) return ta - tb;
 
-  if (typeof a === "number" && typeof b === "number") return a - b;
-  if (typeof a === "string" && typeof b === "string") return a.localeCompare(b);
+  if (typeof a === "number" && typeof b === "number") {
+    // jq orders NaN below every other number — including NaN itself, so
+    // NaN never compares equal: [nan,nan] | unique keeps both elements,
+    // and arrays whose first differing element is NaN keep input order
+    // under a stable sort. (`a - b` returns NaN for Infinity - Infinity,
+    // which callers such as `unique` read as "not equal", so duplicate
+    // infinities survived deduplication.)
+    if (Number.isNaN(a)) {
+      if (Number.isNaN(b) && state) state.nanPair = true;
+      return -1;
+    }
+    if (Number.isNaN(b)) return 1;
+    if (a === b) return 0;
+    return a < b ? -1 : 1;
+  }
+  if (typeof a === "string" && typeof b === "string")
+    return compareStrings(a, b, charge);
   if (typeof a === "boolean" && typeof b === "boolean")
     return (a ? 1 : 0) - (b ? 1 : 0);
   if (Array.isArray(a) && Array.isArray(b)) {
     for (let i = 0; i < Math.min(a.length, b.length); i++) {
-      const cmp = compareJq(a[i], b[i]);
+      const cmp = compareJq(a[i], b[i], charge, state);
       if (cmp !== 0) return cmp;
     }
     return a.length - b.length;
@@ -212,22 +295,48 @@ export function compareJq(a: QueryValue, b: QueryValue): number {
   const aObj = asQueryRecord(a);
   const bObj = asQueryRecord(b);
   if (aObj && bObj) {
-    const aKeys = Object.keys(aObj).sort();
-    const bKeys = Object.keys(bObj).sort();
+    const aKeys = Object.keys(aObj).sort((x, y) =>
+      compareStrings(x, y, charge),
+    );
+    const bKeys = Object.keys(bObj).sort((x, y) =>
+      compareStrings(x, y, charge),
+    );
     // First compare keys
     for (let i = 0; i < Math.min(aKeys.length, bKeys.length); i++) {
-      const keyCmp = aKeys[i].localeCompare(bKeys[i]);
+      const keyCmp = compareStrings(aKeys[i], bKeys[i], charge);
       if (keyCmp !== 0) return keyCmp;
     }
     if (aKeys.length !== bKeys.length) return aKeys.length - bKeys.length;
     // Then compare values for each key
     for (const key of aKeys) {
-      const cmp = compareJq(aObj[key], bObj[key]);
+      const cmp = compareJq(aObj[key], bObj[key], charge, state);
       if (cmp !== 0) return cmp;
     }
   }
 
   return 0;
+}
+
+/**
+ * Comparator for sorting with jq's semantics.
+ * Same as compareJq, except a pair whose decisive step compared NaN with
+ * NaN reports equal (0) instead of -1. jq's number comparison is not
+ * antisymmetric there (NaN < NaN both ways), and jq's sort preserves
+ * input order for such pairs — while V8's sort does not, because its
+ * insertion sort compares later elements against earlier ones. Reporting
+ * them equal lets the stable sort keep input order, as jq does.
+ * Deduplication must NOT use this: `unique` relies on the raw comparator
+ * so NaN values are never merged.
+ */
+export function compareJqSort(
+  a: QueryValue,
+  b: QueryValue,
+  charge?: CompareChargeFn,
+): number {
+  const state: CompareJqState = { nanPair: false };
+  const cmp = compareJq(a, b, charge, state);
+  if (cmp !== 0 && state.nanPair) return 0;
+  return cmp;
 }
 
 /**

@@ -251,10 +251,10 @@ describe("jq", () => {
       );
       expect(result.exitCode).toBe(0);
       const output = JSON.parse(result.stdout);
-      // group_by sorts by key: false < true (alphabetically)
+      // group_by sorts by key: false < true, so the false group comes first
       expect(output).toEqual([
-        { merged: true, count: 2 },
         { merged: false, count: 1 },
+        { merged: true, count: 2 },
       ]);
     });
 
