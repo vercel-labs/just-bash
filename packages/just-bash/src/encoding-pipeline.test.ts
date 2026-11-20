@@ -206,6 +206,40 @@ echo 한 | f`,
     });
   });
 
+  describe("exec() returns already-decoded text verbatim", () => {
+    // Text made only of U+0080..U+00FF characters spells valid UTF-8 when
+    // read as a latin1 byte view (e.g. "Ã©" is the bytes of "é"), so the
+    // output boundary must not guess at the shape again: the interpreter
+    // already decoded each statement's output via its stdoutKind (#661).
+    it("echo of U+00C3/U+00A9 text keeps both characters", async () => {
+      const env = new Bash();
+      const r = await env.exec("echo 'Ã©'");
+      expect(r).toMatchObject({ stdout: "Ã©\n", stderr: "", exitCode: 0 });
+    });
+
+    // Byte-shaped stdout that is redirected to stderr has no shape metadata
+    // on the stderr side, so the output boundary is still the only place it
+    // is decoded. Keep that decode until the redirection itself does it.
+    it("UTF-8 file contents sent to stderr still come back as text", async () => {
+      const env = new Bash({ files: { "/utf8.txt": "한\n" } });
+      const r = await env.exec("cat /utf8.txt >&2");
+      expect(r).toMatchObject({ stdout: "", stderr: "한\n", exitCode: 0 });
+    });
+
+    it("bytes written to a file are the UTF-8 encoding of the text", async () => {
+      const env = new Bash();
+      await env.exec("echo 'Ã©' > /f");
+      const bytes = await env.fs.readFileBuffer("/f");
+      expect(Array.from(bytes)).toEqual([0xc3, 0x83, 0xc2, 0xa9, 0x0a]);
+    });
+
+    it("non-Latin-1 text still passes through", async () => {
+      const env = new Bash();
+      const r = await env.exec("echo 'שלום'");
+      expect(r.stdout).toBe("שלום\n");
+    });
+  });
+
   describe("public encoding exports", () => {
     // The byte/text helpers are part of the package's public API.
     // Custom-command authors and downstream tools import them by name;

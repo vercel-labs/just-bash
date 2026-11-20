@@ -618,12 +618,13 @@ export class Bash {
       }
       this.logger.info("exit", { exitCode: result.exitCode });
     }
-    // Decode binary strings (latin1) to UTF-8 at the output boundary.
-    // Internally, the pipeline uses binary strings where each char = one byte
-    // for byte transparency. At the output boundary, we convert valid UTF-8
-    // byte sequences back to proper Unicode characters (e.g., CJK, emoji).
+    // stdout is not guessed at here: the interpreter has already decoded it
+    // through its stdoutKind, and a second guess rewrites text that only looks
+    // like UTF-8 bytes (e.g. "Ã©" would come back as "é").
+    // stderr has no shape metadata, and byte-shaped stdout redirected to it
+    // (`cat file >&2`) is still a latin1 binary string (one char = one byte),
+    // so this is the only place it is converted back to proper Unicode.
     // Invalid UTF-8 (e.g., raw compressed data) is left as binary.
-    result.stdout = decodeBinaryToUtf8(result.stdout);
     result.stderr = decodeBinaryToUtf8(result.stderr);
     return result;
   }
