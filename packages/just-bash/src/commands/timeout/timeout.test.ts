@@ -190,7 +190,62 @@ describe("timeout command", () => {
     });
   });
 
+  describe("option parsing", () => {
+    it.each([
+      ["timeout 5 echo --help", "--help\n"],
+      ["timeout -- 5 echo --help", "--help\n"],
+      ["timeout -- 5 echo hello", "hello\n"],
+      ["timeout --foreground -- 5 echo --help", "--help\n"],
+      ["timeout --foreground 5 echo --help", "--help\n"],
+      [
+        "timeout -k 1 -s TERM 5 echo before --help after",
+        "before --help after\n",
+      ],
+      ["timeout --kill-after=1 --signal=TERM 5 echo --help", "--help\n"],
+      ["timeout 5 echo -h --version --help", "-h --version --help\n"],
+    ])("should forward child arguments in %s", async (script, stdout) => {
+      const result = await new Bash().exec(script);
+
+      expect(result.stdout).toBe(stdout);
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it.each([
+      [
+        "timeout invalid echo --help",
+        "timeout: invalid time interval 'invalid'\n",
+      ],
+      ["timeout -- --help", "timeout: invalid time interval '--help'\n"],
+      ["timeout --", "timeout: missing operand\n"],
+      ["timeout -- 5", "timeout: missing operand\n"],
+      [
+        "timeout --unknown 5 echo --help",
+        "timeout: unrecognized option '--unknown'\n",
+      ],
+    ])("should report timeout errors in %s", async (script, stderr) => {
+      const result = await new Bash().exec(script);
+
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(stderr);
+      expect(result.exitCode).toBe(1);
+    });
+  });
+
   describe("help", () => {
+    it.each([
+      "timeout --foreground --help",
+      "timeout -s TERM --help",
+    ])("should show timeout help in %s", async (script) => {
+      const bash = new Bash();
+      const help = await bash.exec("timeout --help");
+      const result = await bash.exec(script);
+
+      expect(result.stdout).toBe(help.stdout);
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should show help with --help", async () => {
       const env = new Bash();
 

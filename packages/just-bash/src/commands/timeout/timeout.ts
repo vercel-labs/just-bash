@@ -8,7 +8,7 @@ import type {
   RuntimeCommandContext,
 } from "../../types.js";
 import { parseDuration } from "../duration.js";
-import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { showHelp, unknownOption } from "../help.js";
 
 const timeoutHelp = {
   name: "timeout",
@@ -37,17 +37,20 @@ export const timeoutCommand: RuntimeCommand = {
     args: string[],
     ctx: RuntimeCommandContext,
   ): Promise<ExecResult> {
-    if (hasHelpFlag(args)) {
-      return showHelp(timeoutHelp);
-    }
-
     let commandStart = 0;
 
     // Parse timeout options
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
 
-      if (arg === "--preserve-status") {
+      if (arg === "--help") {
+        // Only handle help before DURATION; later arguments belong to COMMAND.
+        return showHelp(timeoutHelp);
+      } else if (arg === "--") {
+        // End option parsing; the next argument is DURATION.
+        commandStart = i + 1;
+        break;
+      } else if (arg === "--preserve-status") {
         // Accepted but not implemented (always exits 124 on timeout)
         commandStart = i + 1;
       } else if (arg === "--foreground") {
