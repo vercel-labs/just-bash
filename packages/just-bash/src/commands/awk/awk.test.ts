@@ -642,7 +642,7 @@ describe("awk command", () => {
         files: { "/data.txt": "test\n" },
       });
       const result = await env.exec("awk 'BEGIN{printf \"%.2e\\n\", 1234}'");
-      expect(result.stdout).toBe("1.23e+3\n");
+      expect(result.stdout).toBe("1.23e+03\n");
       expect(result.exitCode).toBe(0);
     });
   });
