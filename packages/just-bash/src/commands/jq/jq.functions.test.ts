@@ -102,6 +102,13 @@ describe("jq builtin functions", () => {
       expect(result.stdout).toBe("[\n  1,\n  2,\n  3\n]\n");
       expect(result.exitCode).toBe(0);
     });
+
+    it("should return unique values sorted, not in first-seen order (fixes #736)", async () => {
+      const env = new Bash();
+      const result = await env.exec("echo '[3,1,2,1]' | jq -c 'unique'");
+      expect(result.stdout).toBe("[1,2,3]\n");
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("add", () => {
@@ -192,6 +199,26 @@ describe("jq builtin functions", () => {
         'echo \'[{"n":1},{"n":2},{"n":1}]\' | jq -c \'unique_by(.n)\'',
       );
       expect(result.stdout).toBe('[{"n":1},{"n":2}]\n');
+    });
+
+    it("should return group_by groups sorted by key (fixes #736)", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo '[{"a":2},{"a":1},{"a":2}]' | jq -c 'group_by(.a) | map(.[0].a)'`,
+      );
+      expect(result.stdout).toBe("[1,2]\n");
+    });
+
+    it("should sort_by on every key after the first (fixes #736)", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo '[{"a":1,"b":2},{"a":1,"b":1}]' | jq -c 'sort_by(.a, .b) | map(.b)'`,
+      );
+      expect(result.stdout).toBe("[1,2]\n");
+      const semicolon = await env.exec(
+        `echo '[{"a":1,"b":2},{"a":1,"b":1}]' | jq -c 'sort_by(.a; .b) | map(.b)'`,
+      );
+      expect(semicolon.stdout).toBe("[1,2]\n");
     });
   });
 
