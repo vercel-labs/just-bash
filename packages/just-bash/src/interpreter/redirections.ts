@@ -179,7 +179,10 @@ type RedirectionTransactionState = {
 };
 
 export type RedirectionTransaction = {
-  prepare: (inheritedStdin?: string) => Promise<PreparedRedirections>;
+  prepare: (
+    inheritedStdin?: string,
+    stdinOwned?: boolean,
+  ) => Promise<PreparedRedirections>;
   finish: () => void;
 };
 
@@ -368,6 +371,7 @@ async function prepareRedirectionsWithState(
   redirections: RedirectionNode[],
   inheritedStdin: string,
   transaction: RedirectionTransactionState,
+  stdinOwned: boolean,
 ): Promise<PreparedRedirections> {
   const standardRoute = (fd: number, fallback: FdEntry): FdEntry =>
     ctx.state.closedStandardFds?.has(fd)
@@ -415,7 +419,10 @@ async function prepareRedirectionsWithState(
   let stdinSourceFd = -1;
   let stdinReplaced = false;
   let stdinUnavailable = false;
-  const initialStdin = standardRoutes.get(0);
+  // A pipeline stage reads the previous stage's output, so a persistent
+  // `exec <` must not replace it. That fd 0 only stands in when nothing else
+  // gave the command its stdin.
+  const initialStdin = stdinOwned ? undefined : standardRoutes.get(0);
   if (initialStdin?.kind === "input") {
     stdin = initialStdin.content;
     stdinSourceFd = 0;
@@ -1100,8 +1107,14 @@ export function createRedirectionTransaction(
   };
   let finished = false;
   return {
-    prepare: (inheritedStdin = "") =>
-      prepareRedirectionsWithState(ctx, redirections, inheritedStdin, state),
+    prepare: (inheritedStdin = "", stdinOwned = false) =>
+      prepareRedirectionsWithState(
+        ctx,
+        redirections,
+        inheritedStdin,
+        state,
+        stdinOwned,
+      ),
     finish: () => {
       if (finished) return;
       finished = true;

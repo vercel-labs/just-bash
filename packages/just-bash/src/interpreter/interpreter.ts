@@ -874,7 +874,10 @@ export class Interpreter {
         : SIMPLE_REDIRECTION_POLICY,
     );
     onTransaction(transaction);
-    const preparedRedirections = await transaction.prepare(stdin);
+    const preparedRedirections = await transaction.prepare(
+      stdin,
+      stdinProvided,
+    );
     if (preparedRedirections.error) {
       restoreTempAssignments();
       if (!preparedRedirections.errorCause) {
