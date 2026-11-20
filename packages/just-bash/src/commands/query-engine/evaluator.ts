@@ -330,7 +330,8 @@ function getValueAtPath(
     if (v && typeof v === "object") {
       if (Array.isArray(v)) {
         if (typeof key === "number") {
-          v = v[key];
+          const index = Math.trunc(key);
+          v = v[index < 0 ? v.length + index : index];
         } else {
           return undefined;
         }
@@ -1332,254 +1333,51 @@ function applyDel(
   pathExpr: AstNode,
   ctx: EvalContext,
 ): QueryValue {
-  // Helper to set a value at an AST path
-  function setAtPath(
-    obj: QueryValue,
-    pathNode: AstNode,
-    newVal: QueryValue,
-  ): QueryValue {
-    switch (pathNode.type) {
-      case "Identity":
-        return newVal;
-      case "Field": {
-        // Defense against prototype pollution: skip dangerous keys
-        if (!isSafeKey(pathNode.name)) {
-          return obj;
-        }
-        if (pathNode.base) {
-          // Nested field: recurse into base
-          const nested = evaluate(obj, pathNode.base, ctx)[0];
-          const modified = setAtPath(
-            nested,
-            { type: "Field", name: pathNode.name },
-            newVal,
-          );
-          return setAtPath(obj, pathNode.base, modified);
-        }
-        // Direct field
-        if (obj && typeof obj === "object" && !Array.isArray(obj)) {
-          const result = nullPrototypeCopy(obj);
-          safeSet(result, pathNode.name, newVal);
-          return result;
-        }
-        return obj;
+  const selected: (string | number)[][] = [];
+  collectPaths(root, pathExpr, ctx, [], selected);
+  const paths = new Map<string, (string | number)[]>();
+  for (const path of selected) {
+    let parent = root;
+    const normalized: (string | number)[] = [];
+    let outsideArray = false;
+    for (const rawComponent of path) {
+      chargeQueryWork(ctx);
+      const component =
+        typeof rawComponent === "number"
+          ? Math.trunc(rawComponent)
+          : rawComponent;
+      const key =
+        Array.isArray(parent) && typeof component === "number" && component < 0
+          ? parent.length + component
+          : component;
+      if (
+        Array.isArray(parent) &&
+        typeof key === "number" &&
+        (Number.isNaN(key) || key < 0 || key >= parent.length)
+      ) {
+        outsideArray = true;
+        break;
       }
-      case "Index": {
-        if (pathNode.base) {
-          // Nested index: recurse into base
-          const nested = evaluate(obj, pathNode.base, ctx)[0];
-          const modified = setAtPath(
-            nested,
-            { type: "Index", index: pathNode.index },
-            newVal,
-          );
-          return setAtPath(obj, pathNode.base, modified);
-        }
-        // Direct index
-        const indices = evaluate(root, pathNode.index, ctx);
-        const idx = indices[0];
-        if (typeof idx === "number" && Array.isArray(obj)) {
-          const arr = [...obj];
-          const i = idx < 0 ? arr.length + idx : idx;
-          if (i >= 0 && i < arr.length) {
-            arr[i] = newVal;
-          }
-          return arr;
-        }
-        if (
-          typeof idx === "string" &&
-          obj &&
-          typeof obj === "object" &&
-          !Array.isArray(obj)
-        ) {
-          // Defense against prototype pollution: skip dangerous keys
-          if (!isSafeKey(idx)) {
-            return obj;
-          }
-          const result = nullPrototypeCopy(obj);
-          safeSet(result, idx, newVal);
-          return result;
-        }
-        return obj;
-      }
-      default:
-        return obj;
+      normalized.push(key);
+      parent = getValueAtPath(parent, [key]);
     }
+    if (!outsideArray) paths.set(JSON.stringify(normalized), normalized);
   }
-
-  function deleteAt(val: QueryValue, path: AstNode): QueryValue {
-    switch (path.type) {
-      case "Identity":
-        return null;
-
-      case "Field": {
-        // Defense against prototype pollution: skip dangerous keys
-        if (!isSafeKey(path.name)) {
-          return val;
-        }
-        // If there's a base (nested field like .a.b), recurse
-        if (path.base) {
-          // Evaluate base to get the nested object
-          const nested = evaluate(val, path.base, ctx)[0];
-          if (nested === null || nested === undefined) {
-            return val;
-          }
-          // Delete field from nested object
-          const modified = deleteAt(nested, { type: "Field", name: path.name });
-          // Set the modified value back at the base path
-          return setAtPath(val, path.base, modified);
-        }
-        // Direct field deletion (no base)
-        if (val && typeof val === "object" && !Array.isArray(val)) {
-          // Defense against prototype pollution: skip dangerous keys
-          if (!isSafeKey(path.name)) {
-            return val;
-          }
-          const obj = nullPrototypeCopy(val);
-          delete obj[path.name];
-          return obj;
-        }
-        return val;
-      }
-
-      case "Index": {
-        // If there's a base (nested index like .[0].a), recurse
-        if (path.base) {
-          // Evaluate base to get the nested object/array
-          const nested = evaluate(val, path.base, ctx)[0];
-          if (nested === null || nested === undefined) {
-            return val;
-          }
-          // Delete at index from nested value
-          const modified = deleteAt(nested, {
-            type: "Index",
-            index: path.index,
-          });
-          // Set the modified value back at the base path
-          return setAtPath(val, path.base, modified);
-        }
-
-        const indices = evaluate(root, path.index, ctx);
-        const idx = indices[0];
-
-        if (typeof idx === "number" && Array.isArray(val)) {
-          const arr = [...val];
-          const i = idx < 0 ? arr.length + idx : idx;
-          if (i >= 0 && i < arr.length) {
-            arr.splice(i, 1);
-          }
-          return arr;
-        }
-        if (
-          typeof idx === "string" &&
-          val &&
-          typeof val === "object" &&
-          !Array.isArray(val)
-        ) {
-          // Defense against prototype pollution: skip dangerous keys
-          if (!isSafeKey(idx)) {
-            return val;
-          }
-          const obj = nullPrototypeCopy(val);
-          delete obj[idx];
-          return obj;
-        }
-        return val;
-      }
-
-      case "Iterate": {
-        if (Array.isArray(val)) {
-          return [];
-        }
-        if (val && typeof val === "object") {
-          return Object.create(null);
-        }
-        return val;
-      }
-
-      case "Pipe": {
-        // For nested paths like .a.b, navigate to .a and delete .b within it
-        const leftPath = path.left;
-        const rightPath = path.right;
-
-        // Helper to set a value at an AST path
-        function setAt(
-          obj: QueryValue,
-          pathNode: AstNode,
-          newVal: QueryValue,
-        ): QueryValue {
-          switch (pathNode.type) {
-            case "Identity":
-              return newVal;
-            case "Field": {
-              // Defense against prototype pollution: skip dangerous keys
-              if (!isSafeKey(pathNode.name)) {
-                return obj;
-              }
-              if (obj && typeof obj === "object" && !Array.isArray(obj)) {
-                const result = nullPrototypeCopy(obj);
-                safeSet(result, pathNode.name, newVal);
-                return result;
-              }
-              return obj;
-            }
-            case "Index": {
-              const indices = evaluate(root, pathNode.index, ctx);
-              const idx = indices[0];
-              if (typeof idx === "number" && Array.isArray(obj)) {
-                const arr = [...obj];
-                const i = idx < 0 ? arr.length + idx : idx;
-                if (i >= 0 && i < arr.length) {
-                  arr[i] = newVal;
-                }
-                return arr;
-              }
-              if (
-                typeof idx === "string" &&
-                obj &&
-                typeof obj === "object" &&
-                !Array.isArray(obj)
-              ) {
-                // Defense against prototype pollution: skip dangerous keys
-                if (!isSafeKey(idx)) {
-                  return obj;
-                }
-                const result = nullPrototypeCopy(obj);
-                safeSet(result, idx, newVal);
-                return result;
-              }
-              return obj;
-            }
-            case "Pipe": {
-              // Recurse: set at leftPath with the result of setting at rightPath
-              const innerVal = evaluate(obj, pathNode.left, ctx)[0];
-              const modified = setAt(innerVal, pathNode.right, newVal);
-              return setAt(obj, pathNode.left, modified);
-            }
-            default:
-              return obj;
-          }
-        }
-
-        // Get the current value at the left path
-        const nested = evaluate(val, leftPath, ctx)[0];
-        if (nested === null || nested === undefined) {
-          return val; // Nothing to delete
-        }
-
-        // Apply deletion on the nested value, whose keys the right side reads
-        const modified = applyDel(nested, rightPath, ctx);
-
-        // Reconstruct the object with the modified nested value
-        return setAt(val, leftPath, modified);
-      }
-
-      default:
-        return val;
+  // Resolve against the original input; delete children and higher array indices first.
+  const ordered = [...paths.values()].sort((a, b) => {
+    for (let i = 0; i < Math.min(a.length, b.length); i++) {
+      if (a[i] === b[i]) continue;
+      const left = a[i];
+      const right = b[i];
+      return typeof left === "number" && typeof right === "number"
+        ? right - left
+        : String(right).localeCompare(String(left));
     }
-  }
-
-  return deleteAt(root, pathExpr);
+    return b.length - a.length;
+  });
+  let result = root;
+  for (const path of ordered) result = deletePath(result, path);
+  return result;
 }
 
 function evalBinaryOp(
@@ -2122,6 +1920,7 @@ function collectPaths(
   ctx: EvalContext,
   currentPath: (string | number)[],
   paths: (string | number)[][],
+  optional = false,
 ): void {
   chargeQueryWork(ctx);
   if (currentPath.length > ctx.limits.maxDepth) {
@@ -2143,10 +1942,28 @@ function collectPaths(
       );
     }
     assertQueryResultCapacity(ctx, paths.length);
-    // Charge every copied entry before allocating the result path.
+    // Charge each path entry before validating and copying it.
     chargeQueryWork(ctx, length);
     const path = [...currentPath, ...suffix];
     if (key !== undefined) path.push(key);
+    let parent = value;
+    for (let i = currentPath.length; i < path.length; i++) {
+      const component = path[i];
+      if (
+        parent != null &&
+        (typeof component === "string"
+          ? typeof parent !== "object" || Array.isArray(parent)
+          : !Array.isArray(parent))
+      ) {
+        const type = Array.isArray(parent) ? "array" : typeof parent;
+        throw new Error(
+          `Cannot index ${type} with ${typeof component === "string" ? `string "${component}"` : "number"}`,
+        );
+      }
+      parent = getValueAtPath(parent, [
+        typeof component === "number" ? Math.trunc(component) : component,
+      ]);
+    }
     paths.push(path);
   };
   // Handle Comma - collect paths for both parts
@@ -2157,6 +1974,37 @@ function collectPaths(
     return;
   }
 
+  if (expr.type === "Optional") {
+    try {
+      collectPaths(value, expr.expr, ctx, currentPath, paths, true);
+    } catch (error) {
+      if (error instanceof ExecutionLimitError) throw error;
+    }
+    return;
+  }
+  if (expr.type === "Paren") {
+    collectPaths(value, expr.expr, ctx, currentPath, paths);
+    return;
+  }
+  if ((expr.type === "Field" || expr.type === "Iterate") && expr.base) {
+    const step: AstNode =
+      expr.type === "Field"
+        ? { type: "Field", name: expr.name }
+        : { type: "Iterate" };
+    collectPaths(
+      value,
+      {
+        type: "Pipe",
+        left: expr.base,
+        right: optional ? { type: "Optional", expr: step } : step,
+      },
+      ctx,
+      currentPath,
+      paths,
+    );
+    return;
+  }
+
   // Try to extract a static path from the AST
   const staticPath = extractPathFromAst(expr);
   if (staticPath !== null) {
@@ -2164,36 +2012,25 @@ function collectPaths(
     return;
   }
 
-  // A computed key on a static base: the key reads the input, as when reading,
-  // and the base is still evaluated so its errors come out
+  // Keys read the original input; each base still contributes its own path.
   if (expr.type === "Index") {
-    const basePath = expr.base ? extractPathFromAst(expr.base) : [];
-    const keys = basePath ? evaluate(value, expr.index, ctx) : [];
+    const keys = evaluate(value, expr.index, ctx);
     if (
-      basePath &&
       keys.every(
         (key): key is string | number =>
           typeof key === "string" || typeof key === "number",
       )
     ) {
       if (keys.length === 0) return;
-      const bases = expr.base ? evaluate(value, expr.base, ctx) : [value];
+      const basePaths: (string | number)[][] = expr.base ? [] : [[]];
+      if (expr.base) collectPaths(value, expr.base, ctx, [], basePaths);
       for (const key of keys) {
-        for (const base of bases) {
-          chargeQueryWork(ctx);
-          // Missing paths are valid, but existing containers must support the key.
-          if (
-            base !== null &&
-            (typeof key === "string"
-              ? typeof base !== "object" || Array.isArray(base)
-              : !Array.isArray(base))
-          ) {
-            const type = Array.isArray(base) ? "array" : typeof base;
-            throw new Error(
-              `Cannot index ${type} with ${typeof key === "string" ? `string "${key}"` : "number"}`,
-            );
+        for (const basePath of basePaths) {
+          try {
+            appendPath(basePath, key);
+          } catch (error) {
+            if (!optional || error instanceof ExecutionLimitError) throw error;
           }
-          appendPath(basePath, key);
         }
       }
       return;
@@ -2248,21 +2085,42 @@ function collectPaths(
     return;
   }
 
-  // For Pipe expressions, collect paths through the pipe
+  // Preserve each selected location through filters such as `.[] | select(...)`.
   if (expr.type === "Pipe") {
-    const leftPath = extractPathFromAst(expr.left);
-    if (leftPath !== null) {
-      const leftResults = evaluate(value, expr.left, ctx);
-      for (const lv of leftResults) {
-        collectPaths(lv, expr.right, ctx, [...currentPath, ...leftPath], paths);
-      }
-      return;
+    const leftPaths: (string | number)[][] = [];
+    collectPaths(value, expr.left, ctx, [], leftPaths);
+    for (const path of leftPaths) {
+      collectPaths(
+        getValueAtPath(value, path),
+        expr.right,
+        ctx,
+        [...currentPath, ...path],
+        paths,
+      );
     }
+    return;
   }
 
-  // Fallback: if expression produces results, push current path
-  const results = evaluate(value, expr, ctx);
-  if (results.length > 0) {
-    appendPath([]);
+  if (
+    expr.type === "Call" &&
+    [
+      "select",
+      "nulls",
+      "values",
+      "arrays",
+      "objects",
+      "iterables",
+      "booleans",
+      "numbers",
+      "normals",
+      "finites",
+      "strings",
+      "scalars",
+      "empty",
+    ].includes(expr.name)
+  ) {
+    if (evaluate(value, expr, ctx).length > 0) appendPath([]);
+    return;
   }
+  throw new Error("Unsupported path expression");
 }
