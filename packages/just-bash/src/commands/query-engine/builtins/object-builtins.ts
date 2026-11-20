@@ -16,6 +16,7 @@ import {
 } from "../safe-object.js";
 import {
   compareJq,
+  compareJqSort,
   getValueDepth,
   type QueryValue,
 } from "../value-operations.js";
@@ -83,9 +84,16 @@ type EvalFn = (
   ctx: EvalContext,
 ) => QueryValue[];
 
+type CompareFn = (a: QueryValue, b: QueryValue) => number;
+
 /**
  * Handle object builtins that need evaluate function for arguments.
  * Returns null if the builtin name is not an object builtin handled here.
+ * `compare` is the jq value comparator to use; callers pass a charging
+ * wrapper so sorting long strings is bounded, and it defaults to the
+ * plain comparator when omitted. `compareSort` is the sorting form of
+ * the same comparator (see compareJqSort); `unique` sorts with it but
+ * deduplicates with the raw `compare`, so NaN values are never merged.
  */
 export function evalObjectBuiltin(
   value: QueryValue,
@@ -93,6 +101,8 @@ export function evalObjectBuiltin(
   args: AstNode[],
   ctx: EvalContext,
   evaluate: EvalFn,
+  compare: CompareFn = compareJq,
+  compareSort: CompareFn = compareJqSort,
 ): QueryValue[] | null {
   switch (name) {
     case "keys":
@@ -245,13 +255,15 @@ export function evalObjectBuiltin(
     case "unique":
       if (Array.isArray(value)) {
         // jq's unique is sort followed by deduplication, so the result comes
-        // out sorted rather than in first-seen order.
-        const sorted = [...value].sort(compareJq);
+        // out sorted rather than in first-seen order. Sort with the sorting
+        // comparator (NaN-led values keep input order, as in jq); dedup
+        // with the raw comparator, where NaN never compares equal.
+        const sorted = [...value].sort(compareSort);
         const result: QueryValue[] = [];
         for (const item of sorted) {
           if (
             result.length === 0 ||
-            compareJq(result[result.length - 1], item) !== 0
+            compare(result[result.length - 1], item) !== 0
           ) {
             result.push(item);
           }
