@@ -14,6 +14,7 @@
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { type ByteString, unsafeBytesFromLatin1 } from "../../encoding.js";
+import { getErrorCode } from "../../interpreter/helpers/errors.js";
 import {
   type FileContent,
   fromBuffer,
@@ -1236,8 +1237,35 @@ export class OverlayFs implements IFileSystem {
 
   async mv(src: string, dest: string): Promise<void> {
     this.assertWritable(`mv '${dest}'`);
+    // cp() writes through writeFile/mkdir, both of which create missing parent
+    // directories. mv delegates to cp, so without this check it would still
+    // invent the destination parent that rename(2) requires to exist.
+    await this.assertMvDestParent(src, dest);
     await this.cp(src, dest, { recursive: true });
     await this.rm(src, { recursive: true });
+  }
+
+  /** rename(2) requires the destination's parent directory to exist. */
+  private async assertMvDestParent(src: string, dest: string): Promise<void> {
+    const parent = dirname(normalizePath(dest));
+    if (parent === "/") return;
+    let parentStat: Awaited<ReturnType<OverlayFs["stat"]>>;
+    try {
+      parentStat = await this.stat(parent);
+    } catch (e) {
+      // Preserve why the lookup failed: an intermediate file, a symlink loop
+      // or an unsearchable directory are not missing directories.
+      const code = getErrorCode(e);
+      if (code === "ENOTDIR") {
+        throw new Error(`ENOTDIR: not a directory, mv '${src}' -> '${dest}'`);
+      }
+      throw new Error(
+        `${code ?? "ENOENT"}: ${code === "ELOOP" ? "too many levels of symbolic links" : code === "EACCES" || code === "EPERM" ? "permission denied" : "no such file or directory"}, mv '${src}' -> '${dest}'`,
+      );
+    }
+    if (!parentStat.isDirectory) {
+      throw new Error(`ENOTDIR: not a directory, mv '${src}' -> '${dest}'`);
+    }
   }
 
   resolvePath(base: string, rel: string): string {
