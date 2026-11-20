@@ -312,4 +312,51 @@ describe("awk associative arrays", () => {
       expect(result.exitCode).toBe(0);
     });
   });
+
+  describe("asort", () => {
+    it("should sort values in place and return the count (fixes #737)", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { x[1] = 3; x[2] = 1; n = asort(x); print "n=[" n "]", x[1], x[2] }'`,
+      );
+      expect(result.stdout).toBe("n=[2] 1 3\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should sort into a destination array and leave the source unchanged", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { x["b"] = 3; x["a"] = 1; n = asort(x, y); print n, y[1], y[2], x["a"], x["b"] }'`,
+      );
+      expect(result.stdout).toBe("2 1 3 1 3\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should compare strings as strings and numbers numerically", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { x[1] = "10"; x[2] = "9"; x[3] = "banana"; x[4] = "apple"; n = asort(x); print n, x[1], x[2], x[3], x[4] }'`,
+      );
+      expect(result.stdout).toBe("4 9 10 apple banana\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should honor @val_str_desc ordering", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { x[1] = 10; x[2] = 9; n = asort(x, y, "@val_str_desc"); print n, y[1], y[2] }'`,
+      );
+      expect(result.stdout).toBe("2 9 10\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should return 0 for an empty array", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { n = asort(x); print "[" n "]" }'`,
+      );
+      expect(result.stdout).toBe("[0]\n");
+      expect(result.exitCode).toBe(0);
+    });
+  });
 });

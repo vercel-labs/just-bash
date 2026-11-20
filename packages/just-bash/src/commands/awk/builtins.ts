@@ -16,7 +16,13 @@ import {
   rebuildLine,
   splitFields,
 } from "./interpreter/fields.js";
+import { looksLikeNumber } from "./interpreter/type-coercion.js";
 import type { AwkValue } from "./interpreter/types.js";
+import {
+  deleteArray,
+  resolveArrayName,
+  setArrayElement,
+} from "./interpreter/variables.js";
 
 /**
  * Interface for evaluating expressions (passed from interpreter)
@@ -257,6 +263,71 @@ async function awkSplit(
   ctx.arrayElementCount += parts.length - previousCount;
 
   return parts.length;
+}
+
+/**
+ * gawk asort(source [, dest [, how]]): sort an array's values and reindex
+ * them 1..n. Without dest the source is sorted in place; with dest the
+ * source is left unchanged and the sorted values land in dest. Returns the
+ * number of elements. The default comparison follows the same rules as `<`:
+ * values that both look numeric compare numerically, otherwise as strings.
+ * The optional how argument accepts the gawk "@val_num_asc",
+ * "@val_num_desc", "@val_str_asc" and "@val_str_desc" modes.
+ */
+async function awkAsort(
+  args: AwkExpr[],
+  ctx: AwkRuntimeContext,
+  evaluator: AwkEvaluator,
+): Promise<number> {
+  if (args.length === 0 || args[0].type !== "variable") return 0;
+  const sourceName = resolveArrayName(ctx, args[0].name);
+  const source = ctx.arrays[sourceName] ?? Object.create(null);
+  const values: AwkValue[] = Object.keys(source).map((k) => source[k]);
+
+  let destName = sourceName;
+  if (args.length >= 2) {
+    if (args[1].type !== "variable") return 0;
+    destName = resolveArrayName(ctx, args[1].name);
+  }
+
+  let how = "";
+  if (args.length >= 3) {
+    how = toAwkString(await evaluator.evalExpr(args[2]));
+  }
+  const descending = how.endsWith("_desc");
+  const numericOnly = how === "@val_num_asc" || how === "@val_num_desc";
+  const stringOnly = how === "@val_str_asc" || how === "@val_str_desc";
+  if (how !== "" && !numericOnly && !stringOnly) {
+    throw new Error(`asort: unsupported how argument "${how}"`);
+  }
+
+  const compare = (a: AwkValue, b: AwkValue): number => {
+    let result: number;
+    if (numericOnly) {
+      result = toNumber(a) - toNumber(b);
+    } else if (stringOnly) {
+      const sa = toAwkString(a);
+      const sb = toAwkString(b);
+      result = sa < sb ? -1 : sa > sb ? 1 : 0;
+    } else if (looksLikeNumber(a) && looksLikeNumber(b)) {
+      result = toNumber(a) - toNumber(b);
+    } else {
+      const sa = toAwkString(a);
+      const sb = toAwkString(b);
+      result = sa < sb ? -1 : sa > sb ? 1 : 0;
+    }
+    return descending ? -result : result;
+  };
+  values.sort(compare);
+
+  // The values are already copied above, so clearing the destination first is
+  // safe even when dest is the source. deleteArray keeps the element count
+  // accurate, and setArrayElement re-adds exactly the sorted values.
+  deleteArray(ctx, destName);
+  for (let i = 0; i < values.length; i++) {
+    setArrayElement(ctx, destName, String(i + 1), values[i]);
+  }
+  return values.length;
 }
 
 async function awkSub(
@@ -1014,6 +1085,7 @@ export const awkBuiltins: Map<string, AwkBuiltinFn> = new Map([
   ["substr", awkSubstr],
   ["index", awkIndex],
   ["split", awkSplit],
+  ["asort", awkAsort],
   ["sub", awkSub],
   ["gsub", awkGsub],
   ["match", awkMatch],
