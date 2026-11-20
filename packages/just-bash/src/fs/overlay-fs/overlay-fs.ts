@@ -45,6 +45,7 @@ import {
   isPathWithinRoot,
   isSameOrDescendantPath,
   normalizePath,
+  RealpathError,
   resolveCanonicalPath,
   resolveCanonicalPathNoSymlinks,
   sanitizeFsError,
@@ -359,14 +360,23 @@ export class OverlayFs implements IFileSystem {
    */
   private resolveRealPath_(realPath: string | null): string | null {
     if (!realPath) return null;
-    if (!this.allowSymlinks) {
-      return resolveCanonicalPathNoSymlinks(
-        realPath,
-        this.root,
-        this.canonicalRoot,
-      );
+    try {
+      if (!this.allowSymlinks) {
+        return resolveCanonicalPathNoSymlinks(
+          realPath,
+          this.root,
+          this.canonicalRoot,
+        );
+      }
+      return resolveCanonicalPath(realPath, this.canonicalRoot);
+    } catch (e) {
+      // resolveCanonicalPath throws RealpathError when realpath itself
+      // fails (ENOTDIR, EACCES, ELOOP, ...). OverlayFs keeps the
+      // fail-closed contract: any such failure is treated as a rejection
+      // here, exactly as the old null return was.
+      if (e instanceof RealpathError) return null;
+      throw e;
     }
-    return resolveCanonicalPath(realPath, this.canonicalRoot);
   }
 
   /**
