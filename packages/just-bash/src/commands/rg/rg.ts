@@ -81,6 +81,7 @@ EXAMPLES:
     "-d, --max-depth NUM     maximum search depth",
     "    --sort TYPE         sort files (path, none)",
     "    --heading           group matches by file; no heading for one explicit file",
+    "    --no-heading             Print the file path with each matching line",
     "    --                  end options; remaining arguments are pattern and paths",
     "    --passthru          print all lines (non-matches use - separator)",
     "    --include-zero      include files with 0 matches in count output",
