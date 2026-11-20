@@ -59,7 +59,6 @@ bashopts is set
 ## N-I mksh status: 1
 
 #### SHELLOPTS reflects flags like sh -x
-## SKIP (unimplementable): $SH invocation not implemented
 
 $SH -x -c 'echo $SHELLOPTS' | grep -o xtrace
 

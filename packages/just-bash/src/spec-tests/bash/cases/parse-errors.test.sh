@@ -154,7 +154,6 @@ echo 1 ;; echo 2
 ## OK mksh status: 1
 
 #### interactive parse error (regression)
-## SKIP (unimplementable): Shell self-invocation ($SH -i -c ...) not supported
 flags=''
 case $SH in
   bash*|*osh)

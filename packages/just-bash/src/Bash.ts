@@ -66,6 +66,7 @@ import {
 } from "./network/index.js";
 import { LexerError } from "./parser/lexer.js";
 import { type ParseException, parse } from "./parser/parser.js";
+import { describeParseError } from "./parser/types.js";
 import {
   DefenseInDepthBox,
   SecurityViolationError,
@@ -325,6 +326,12 @@ export interface ExecOptions {
    * positional parameters ($1, $2, "$@", etc.).
    */
   args?: string[];
+  /**
+   * What a syntax error in the script is reported under, as bash names the
+   * script it is reading: `bash: line 2: syntax error ...` by default, or
+   * `run.sh: line 2: ...` given `run.sh`.
+   */
+  scriptName?: string;
 }
 
 export class Bash {
@@ -983,7 +990,7 @@ export class Bash {
         if ((error as ParseException).name === "ParseException") {
           return finishResult({
             stdout: "",
-            stderr: `bash: syntax error: ${sanitizeErrorMessage((error as Error).message)}\n`,
+            stderr: `${effectiveOptions.scriptName ?? "bash"}: ${sanitizeErrorMessage(describeParseError(error as ParseException))}\n`,
             exitCode: 2,
             env: mapToRecordWithExtras(this.state.env, effectiveOptions.env),
           });

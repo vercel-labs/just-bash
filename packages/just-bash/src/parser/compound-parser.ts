@@ -24,6 +24,19 @@ import * as ArithParser from "./arithmetic-parser.js";
 import { TokenType } from "./lexer.js";
 import type { Parser } from "./parser.js";
 
+/**
+ * A condition or body of `if`, `while` or `until`, which bash refuses to
+ * leave empty: the error names the word that came instead (`if then` fails at
+ * `then`, `while do` at `do`), or the end of the file.
+ */
+function parseNonEmptyList(p: Parser): StatementNode[] {
+  const list = p.parseCompoundList();
+  if (list.length === 0) {
+    p.unexpected();
+  }
+  return list;
+}
+
 export function parseIf(
   p: Parser,
   options?: { skipRedirections?: boolean },
@@ -32,39 +45,17 @@ export function parseIf(
   const clauses: IfClause[] = [];
 
   // Parse if condition
-  const condition = p.parseCompoundList();
+  const condition = parseNonEmptyList(p);
   p.expect(TokenType.THEN);
-  const body = p.parseCompoundList();
-  // Empty body is a syntax error in bash
-  if (body.length === 0) {
-    const nextTok = p.check(TokenType.FI)
-      ? "fi"
-      : p.check(TokenType.ELSE)
-        ? "else"
-        : p.check(TokenType.ELIF)
-          ? "elif"
-          : "fi";
-    p.error(`syntax error near unexpected token \`${nextTok}'`);
-  }
+  const body = parseNonEmptyList(p);
   clauses.push({ condition, body });
 
   // Parse elif clauses
   while (p.check(TokenType.ELIF)) {
     p.advance();
-    const elifCondition = p.parseCompoundList();
+    const elifCondition = parseNonEmptyList(p);
     p.expect(TokenType.THEN);
-    const elifBody = p.parseCompoundList();
-    // Empty elif body is a syntax error
-    if (elifBody.length === 0) {
-      const nextTok = p.check(TokenType.FI)
-        ? "fi"
-        : p.check(TokenType.ELSE)
-          ? "else"
-          : p.check(TokenType.ELIF)
-            ? "elif"
-            : "fi";
-      p.error(`syntax error near unexpected token \`${nextTok}'`);
-    }
+    const elifBody = parseNonEmptyList(p);
     clauses.push({ condition: elifCondition, body: elifBody });
   }
 
@@ -72,11 +63,7 @@ export function parseIf(
   let elseBody: StatementNode[] | null = null;
   if (p.check(TokenType.ELSE)) {
     p.advance();
-    elseBody = p.parseCompoundList();
-    // Empty else body is a syntax error
-    if (elseBody.length === 0) {
-      p.error("syntax error near unexpected token `fi'");
-    }
+    elseBody = parseNonEmptyList(p);
   }
 
   p.expect(TokenType.FI);
@@ -231,13 +218,9 @@ export function parseWhile(
   options?: { skipRedirections?: boolean },
 ): WhileNode {
   p.expect(TokenType.WHILE);
-  const condition = p.parseCompoundList();
+  const condition = parseNonEmptyList(p);
   p.expect(TokenType.DO);
-  const body = p.parseCompoundList();
-  // Empty body is a syntax error in bash
-  if (body.length === 0) {
-    p.error("syntax error near unexpected token `done'");
-  }
+  const body = parseNonEmptyList(p);
   p.expect(TokenType.DONE);
 
   const redirections = options?.skipRedirections
@@ -252,13 +235,9 @@ export function parseUntil(
   options?: { skipRedirections?: boolean },
 ): UntilNode {
   p.expect(TokenType.UNTIL);
-  const condition = p.parseCompoundList();
+  const condition = parseNonEmptyList(p);
   p.expect(TokenType.DO);
-  const body = p.parseCompoundList();
-  // Empty body is a syntax error in bash
-  if (body.length === 0) {
-    p.error("syntax error near unexpected token `done'");
-  }
+  const body = parseNonEmptyList(p);
   p.expect(TokenType.DONE);
 
   const redirections = options?.skipRedirections

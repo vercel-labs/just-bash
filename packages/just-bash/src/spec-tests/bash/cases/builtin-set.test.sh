@@ -42,7 +42,6 @@ echo "$@"
 ## stdout: x y z
 
 #### set -u with undefined variable exits the interpreter
-## SKIP (unimplementable): Interactive shell invocation not implemented
 
 # non-interactive
 $SH -c 'set -u; echo before; echo $x; echo after'

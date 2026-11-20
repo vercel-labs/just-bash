@@ -117,6 +117,11 @@ export interface CommandExecOptions {
    * Like child_process.spawnSync(cmd, args).
    */
   args?: string[];
+  /**
+   * What a syntax error in the script is reported under (`bash: -c`,
+   * `run.sh`); `bash` when omitted.
+   */
+  scriptName?: string;
 }
 
 /**

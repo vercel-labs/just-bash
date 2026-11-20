@@ -104,7 +104,9 @@ describe("eval builtin", () => {
       // Bash returns exit code 1 for eval syntax errors
       const result = await env.exec('eval "for do done"');
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain("Parse error");
+      expect(result.stderr).toBe(
+        "bash: eval: line 1: syntax error near unexpected token `done'\n",
+      );
     });
   });
 

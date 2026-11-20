@@ -2,6 +2,46 @@ import { describe, expect, it } from "vitest";
 import { Bash } from "../Bash.js";
 
 describe("Bash Syntax - Parse Errors", () => {
+  describe("the token and line bash names", () => {
+    it.each([
+      [
+        "echo ok\nif then\n",
+        "line 2: syntax error near unexpected token `then'",
+      ],
+      [
+        "if true; then :; elif then :; fi",
+        "line 1: syntax error near unexpected token `then'",
+      ],
+      [
+        "echo a\nwhile do\n  :\ndone\n",
+        "line 2: syntax error near unexpected token `do'",
+      ],
+      ["until do :; done", "line 1: syntax error near unexpected token `do'"],
+      ["if true; then fi", "line 1: syntax error near unexpected token `fi'"],
+      [
+        "if true; then :; else fi",
+        "line 1: syntax error near unexpected token `fi'",
+      ],
+      [
+        "while true; do done",
+        "line 1: syntax error near unexpected token `done'",
+      ],
+      ["if true; then\n", "line 2: syntax error: unexpected end of file"],
+      ["if true; then echo\n", "line 2: syntax error: unexpected end of file"],
+      [
+        "while true; do echo; }",
+        "line 1: syntax error near unexpected token `}'",
+      ],
+    ])("%j", async (script, message) => {
+      const result = await new Bash().exec(script);
+      expect(result).toMatchObject({
+        stdout: "",
+        stderr: `bash: ${message}\n`,
+        exitCode: 2,
+      });
+    });
+  });
+
   describe("if statement errors", () => {
     it("should error on unclosed if", async () => {
       const env = new Bash();

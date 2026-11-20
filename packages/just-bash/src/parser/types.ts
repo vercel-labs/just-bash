@@ -72,6 +72,9 @@ export interface ParseError {
 }
 
 export class ParseException extends Error {
+  /** The message without its position. */
+  readonly reason: string;
+
   constructor(
     message: string,
     public line: number,
@@ -80,7 +83,22 @@ export class ParseException extends Error {
   ) {
     super(`Parse error at ${line}:${column}: ${message}`);
     this.name = "ParseException";
+    this.reason = message;
   }
+}
+
+/**
+ * A parse error worded as bash words one after the script's name:
+ * `line N: syntax error ...`. Bash reports it as `NAME: line N: ...`, NAME
+ * being `bash: -c` for a command string, a script's path, or `bash` for a
+ * script read from stdin.
+ */
+export function describeParseError(error: ParseException): string {
+  const reason = error.reason ?? error.message;
+  const message = reason.startsWith("syntax error")
+    ? reason
+    : `syntax error: ${reason}`;
+  return `line ${error.line}: ${message}`;
 }
 
 /** Mutable limits shared by every parser created for one top-level source. */

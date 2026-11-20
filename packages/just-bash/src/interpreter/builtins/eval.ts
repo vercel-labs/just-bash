@@ -6,6 +6,7 @@
  */
 
 import { type ParseException, parse } from "../../parser/parser.js";
+import { describeParseError } from "../../parser/types.js";
 import type { ExecResult } from "../../types.js";
 import {
   BreakError,
@@ -83,7 +84,9 @@ export async function handleEval(
       throw error;
     }
     if ((error as ParseException).name === "ParseException") {
-      return failure(`bash: eval: ${(error as Error).message}\n`);
+      return failure(
+        `bash: eval: ${describeParseError(error as ParseException)}\n`,
+      );
     }
     throw error;
   } finally {

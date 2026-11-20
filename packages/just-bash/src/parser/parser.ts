@@ -245,13 +245,20 @@ export class Parser {
     if (this.check(type)) {
       return this.advance();
     }
+    if (message) {
+      this.error(message);
+    }
+    this.unexpected();
+  }
+
+  /** Fail at the current token, worded as bash words it. */
+  unexpected(): never {
     const token = this.current();
-    throw new ParseException(
-      message || `Expected ${type}, got ${token.type}`,
-      token.line,
-      token.column,
-      token,
-    );
+    if (token.type === TokenType.EOF) {
+      this.error("syntax error: unexpected end of file");
+    }
+    const word = token.type === TokenType.NEWLINE ? "newline" : token.value;
+    this.error(`syntax error near unexpected token \`${word}'`);
   }
 
   error(message: string): never {
