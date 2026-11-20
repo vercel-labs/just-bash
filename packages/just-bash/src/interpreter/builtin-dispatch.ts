@@ -866,6 +866,7 @@ export async function executeExternalCommand(
   // Build exported environment for commands that need it (printenv, env, etc.)
   // Most builtins need access to the full env to modify state
   const exportedEnv = buildExportedEnv();
+  if (ctx.state.commandPathInEnv) exportedEnv._ = cmdPath;
 
   // Give extensions one stable, revocable descriptor capability even when
   // this invocation has not created any extra descriptors yet.

@@ -150,11 +150,11 @@ export async function processAssignments(
     // Handle scalar assignment
     const scalarResult = await processScalarAssignment(
       ctx,
-      node,
       name,
       value,
       assignment.append,
-      tempAssignments,
+      node.name ? tempAssignments : undefined,
+      true,
     );
     if (scalarResult.error) {
       return {
@@ -805,13 +805,13 @@ export async function computeIndexedArrayIndex(
 /**
  * Process a scalar assignment
  */
-async function processScalarAssignment(
+export async function processScalarAssignment(
   ctx: InterpreterContext,
-  node: SimpleCommandNode,
   name: string,
   value: string,
   append: boolean,
-  tempAssignments: Map<string, string | undefined>,
+  tempAssignments?: Map<string, string | undefined>,
+  trace = false,
 ): Promise<SingleAssignmentResult> {
   let xtraceOutput = "";
 
@@ -848,7 +848,7 @@ async function processScalarAssignment(
 
   // Check if variable is readonly
   if (isReadonly(ctx, targetName)) {
-    if (node.name) {
+    if (tempAssignments) {
       xtraceOutput += `bash: ${targetName}: readonly variable\n`;
       return { continueToNext: true, xtraceOutput };
     }
@@ -858,13 +858,26 @@ async function processScalarAssignment(
     }
   }
 
+  // Compute actual env key
+  let arrayElementKey: string | undefined;
+  if (namerefArrayRef) {
+    arrayElementKey = await computeNamerefArrayKey(ctx, namerefArrayRef);
+  } else if (isArray(ctx, targetName)) {
+    arrayElementKey = "0";
+  }
+
+  const current =
+    arrayElementKey === undefined
+      ? ctx.state.env.get(targetName)
+      : getArrayElement(ctx, targetName, arrayElementKey);
+
   // Handle append mode and integer attribute
   let finalValue: string;
   if (isInteger(ctx, targetName)) {
     try {
       const parser = new Parser();
       if (append) {
-        const currentVal = ctx.state.env.get(targetName) || "0";
+        const currentVal = current || "0";
         const expr = `(${currentVal}) + (${value})`;
         const arithAst = parseArithmeticExpression(parser, expr);
         finalValue = String(await evaluateArithmetic(ctx, arithAst.expression));
@@ -876,9 +889,6 @@ async function processScalarAssignment(
       finalValue = "0";
     }
   } else {
-    const current = isArray(ctx, targetName)
-      ? getArrayElement(ctx, targetName, 0)
-      : ctx.state.env.get(targetName);
     finalValue = append
       ? appendAssignmentValue(ctx, current || "", value)
       : value;
@@ -886,17 +896,9 @@ async function processScalarAssignment(
 
   finalValue = applyCaseTransform(ctx, targetName, finalValue);
 
-  xtraceOutput += await traceAssignment(ctx, targetName, finalValue);
+  if (trace) xtraceOutput += await traceAssignment(ctx, targetName, finalValue);
 
-  // Compute actual env key
-  let arrayElementKey: string | undefined;
-  if (namerefArrayRef) {
-    arrayElementKey = await computeNamerefArrayKey(ctx, namerefArrayRef);
-  } else if (isArray(ctx, targetName)) {
-    arrayElementKey = "0";
-  }
-
-  if (node.name) {
+  if (tempAssignments) {
     if (arrayElementKey === undefined) {
       tempAssignments.set(targetName, ctx.state.env.get(targetName));
       ctx.state.env.set(targetName, finalValue);

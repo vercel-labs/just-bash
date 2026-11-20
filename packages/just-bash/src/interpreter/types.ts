@@ -133,16 +133,13 @@ export interface VariableAttributeState {
   uppercaseVars?: Set<string>;
   /** Set of exported variable names */
   exportedVars?: Set<string>;
+  commandPathInEnv?: boolean;
+  /** Inherited environment entries whose names overlap with shell parameters. */
+  parameterNamedEnv?: ReadonlyMap<string, string>;
   /** Set of temporarily exported variable names (for prefix assignments like FOO=bar cmd) */
   tempExportedVars?: Set<string>;
-  /**
-   * Stack of sets tracking variables exported within each local scope.
-   * When a function returns and a local scope is popped, if a variable was
-   * exported only in that scope (not before entering), the export attribute
-   * should be removed. This enables bash's scoped export behavior where
-   * `local V=x; export V` only exports the local, not the global.
-   */
-  localExportedVars?: Set<string>[];
+  /** Saved export attributes of shadowed variables, parallel to localScopes. */
+  localExportScopes?: Map<string, boolean>[];
   /** Set of variable names that have been declared but not assigned a value */
   declaredVars?: Set<string>;
 }
@@ -182,7 +179,7 @@ export interface LocalScopingState {
    */
   localVarStack?: Map<
     string,
-    Array<{ value: string | undefined; scopeIndex: number }>
+    Array<{ value: string | undefined; scopeIndex: number; exported: boolean }>
   >;
   /**
    * Map of variable names to scope index where they were fully unset.

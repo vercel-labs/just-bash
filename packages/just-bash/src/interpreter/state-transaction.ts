@@ -65,9 +65,7 @@ function cloneLocalArrayScopes(
 }
 
 function cloneLocalVarStack(
-  stack:
-    | Map<string, Array<{ value: string | undefined; scopeIndex: number }>>
-    | undefined,
+  stack: InterpreterState["localVarStack"],
 ): typeof stack {
   return stack
     ? new Map(
@@ -111,7 +109,7 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
     uppercaseVars: state.uppercaseVars,
     exportedVars: state.exportedVars,
     tempExportedVars: state.tempExportedVars,
-    localExportedVars: state.localExportedVars,
+    localExportScopes: state.localExportScopes,
     declaredVars: state.declaredVars,
     localScopes: state.localScopes,
     localArrayScopes: state.localArrayScopes,
@@ -168,8 +166,8 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
   state.uppercaseVars = new Set(state.uppercaseVars);
   state.exportedVars = new Set(state.exportedVars);
   state.tempExportedVars = new Set(state.tempExportedVars);
-  state.localExportedVars = state.localExportedVars?.map(
-    (vars) => new Set(vars),
+  state.localExportScopes = state.localExportScopes?.map(
+    (scope) => new Map(scope),
   );
   state.declaredVars = new Set(state.declaredVars);
   state.localScopes = state.localScopes.map((scope) => new Map(scope));

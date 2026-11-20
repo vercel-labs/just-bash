@@ -125,6 +125,24 @@ describe("nested sh/bash environment", () => {
     expect(result.stdout).toBe("/tmp\n/tmp\n");
   });
 
+  it.each([
+    "constructor",
+    "__proto__",
+    "prototype",
+    "hasOwnProperty",
+    "toString",
+    "valueOf",
+  ])("preserves inherited %s without changing Object.prototype", async (name) => {
+    const prototype = Object.getOwnPropertyDescriptors(Object.prototype);
+    const bash = new Bash();
+    expect(
+      await bash.exec(`env -i '${name}=value' bash -c 'printenv ${name}'`),
+    ).toMatchObject({ stdout: "value\n", stderr: "", exitCode: 0 });
+    expect(Object.getOwnPropertyDescriptors(Object.prototype)).toEqual(
+      prototype,
+    );
+  });
+
   describe("variables the new shell initializes itself", () => {
     it("are not exported to the child's children", async () => {
       const bash = new Bash();

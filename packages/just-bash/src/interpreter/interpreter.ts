@@ -82,6 +82,7 @@ import {
 import { expandWord, expandWordWithGlob } from "./expansion.js";
 import { advanceFd } from "./fd-table.js";
 import { executeFunctionDef } from "./functions.js";
+import { hasArray } from "./helpers/array.js";
 import { failure, OK, result, testResult } from "./helpers/result.js";
 import { isPosixSpecialBuiltin } from "./helpers/shell-constants.js";
 import { nullCommandExitStatus } from "./helpers/substitution-status.js";
@@ -217,18 +218,25 @@ export class Interpreter {
       }
     }
 
-    if (allExported.size === 0) {
-      // No exported vars - return empty env
-      // This matches bash behavior where variables must be exported to be visible to children
-      return Object.create(null);
-    }
-
-    // Use null-prototype to prevent prototype pollution via user-controlled variable names
     const env: Record<string, string> = Object.create(null);
+    for (const [name, value] of this.ctx.state.parameterNamedEnv ?? []) {
+      env[name] = value;
+    }
     for (const name of allExported) {
+      if (hasArray(this.ctx, name)) continue;
       const value = this.ctx.state.env.get(name);
       if (value !== undefined) {
         env[name] = value;
+      }
+    }
+    for (let i = this.ctx.state.localScopes.length - 1; i >= 0; i--) {
+      const exportScope = this.ctx.state.localExportScopes?.[i];
+      if (!exportScope) continue;
+      for (const [name, exported] of exportScope) {
+        if (!exported || Object.hasOwn(env, name)) continue;
+        if (allExported.has(name) && hasArray(this.ctx, name)) continue;
+        const value = this.ctx.state.localScopes[i].get(name);
+        if (value !== undefined) env[name] = value;
       }
     }
     return env;

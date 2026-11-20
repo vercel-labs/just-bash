@@ -99,6 +99,56 @@ describe("printenv command", () => {
   });
 });
 
+describe("export visibility", () => {
+  it.each([
+    "HTTP.PROXY",
+    "A-B",
+    "1X",
+    "1",
+  ])("preserves the explicit environment name %s", async (name) => {
+    const bash = new Bash();
+    const result = await bash.exec(`env -i '${name}=value' printenv '${name}'`);
+    expect(result).toMatchObject({
+      stdout: "value\n",
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
+  it.each([
+    "constructor",
+    "__proto__",
+    "prototype",
+    "hasOwnProperty",
+    "toString",
+    "valueOf",
+  ])("prints exported %s safely", async (name) => {
+    const prototype = Object.getOwnPropertyDescriptors(Object.prototype);
+    const bash = new Bash();
+    const result = await bash.exec(`export ${name}=value; printenv ${name}`);
+    expect(result).toMatchObject({
+      stdout: "value\n",
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(Object.getOwnPropertyDescriptors(Object.prototype)).toEqual(
+      prototype,
+    );
+  });
+
+  it.each([
+    ["env | grep '^JB_'", "JB_EXPORTED=exported\n", 0],
+    ["printenv | grep '^JB_'", "JB_EXPORTED=exported\n", 0],
+    ["printenv JB_LOCAL JB_EXPORTED", "exported\n", 1],
+  ])("%s", async (command, stdout, exitCode) => {
+    const bash = new Bash();
+    const result = await bash.exec(
+      `JB_LOCAL=local; export JB_EXPORTED=exported; ${command}`,
+    );
+    expect(result).toMatchObject({ stdout, stderr: "", exitCode });
+  });
+});
+
 describe("env/printenv host isolation", () => {
   it("should not leak real host env vars via env", async () => {
     const bash = new Bash();

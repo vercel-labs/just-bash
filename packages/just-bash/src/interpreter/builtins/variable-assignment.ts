@@ -154,6 +154,19 @@ export async function setVariable(
   return null; // Success
 }
 
+export function saveLocalVariable(
+  ctx: InterpreterContext,
+  name: string,
+  value: string | undefined,
+): void {
+  const scope = ctx.state.localScopes.at(-1);
+  if (!scope || scope.has(name)) return;
+  scope.set(name, value);
+  ctx.state.localExportScopes
+    ?.at(-1)
+    ?.set(name, ctx.state.exportedVars?.has(name) ?? false);
+}
+
 /**
  * Mark a variable as being declared at the current call depth.
  * Used for bash-specific unset scoping behavior.
@@ -199,6 +212,7 @@ export function pushLocalVarStack(
   const stack = ctx.state.localVarStack.get(name) || [];
   stack.push({
     value: currentValue,
+    exported: ctx.state.exportedVars?.has(name) ?? false,
     scopeIndex: ctx.state.localScopes.length - 1,
   });
   ctx.state.localVarStack.set(name, stack);
@@ -211,7 +225,9 @@ export function pushLocalVarStack(
 export function popLocalVarStack(
   ctx: InterpreterContext,
   name: string,
-): { value: string | undefined; scopeIndex: number } | undefined {
+):
+  | { value: string | undefined; scopeIndex: number; exported: boolean }
+  | undefined {
   const stack = ctx.state.localVarStack?.get(name);
   if (!stack || stack.length === 0) {
     return undefined;

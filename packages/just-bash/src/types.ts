@@ -83,6 +83,8 @@ export interface CommandExecOptions {
    * adding export attributes. Inherited export attributes are preserved.
    */
   newShell?: boolean;
+  /** The nested shell's $0 and positional arguments. */
+  shellArgs?: { name: string; args: string[] };
   /**
    * Working directory for the exec.
    * Required to prevent bugs where subcommands run in the wrong directory.

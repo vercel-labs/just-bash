@@ -20,7 +20,11 @@ import { isArray } from "../expansion/variable.js";
 import { expandWord, getArrayElements } from "../expansion.js";
 import { deleteArray, deleteArrayElement } from "../helpers/array.js";
 import { isNameref, resolveNameref } from "../helpers/nameref.js";
-import { isReadonly } from "../helpers/readonly.js";
+import {
+  isReadonly,
+  markExported,
+  unmarkExported,
+} from "../helpers/readonly.js";
 import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 import {
@@ -73,6 +77,15 @@ async function evaluateArrayIndex(
   }
 }
 
+function restoreExport(
+  ctx: InterpreterContext,
+  name: string,
+  exported?: boolean,
+): void {
+  if (exported) markExported(ctx, name);
+  else unmarkExported(ctx, name);
+}
+
 /**
  * Perform cell-unset for a local variable (dynamic-unset).
  * This removes the local cell and exposes the outer scope's value.
@@ -95,8 +108,14 @@ function performCellUnset(ctx: InterpreterContext, varName: string): boolean {
         ctx.state.env.set(varName, stackEntry.value);
       }
 
+      restoreExport(ctx, varName, stackEntry.exported);
+
       // Check if there are more entries in the stack
       const remainingStack = ctx.state.localVarStack?.get(varName);
+      if (remainingStack?.at(-1)?.scopeIndex !== stackEntry.scopeIndex) {
+        ctx.state.localScopes[stackEntry.scopeIndex]?.delete(varName);
+        ctx.state.localExportScopes?.[stackEntry.scopeIndex]?.delete(varName);
+      }
       if (!remainingStack || remainingStack.length === 0) {
         // No more nested locals - clear the tracking
         clearLocalVarDepth(ctx, varName);
@@ -123,6 +142,7 @@ function performCellUnset(ctx: InterpreterContext, varName: string): boolean {
     }
     // Stack was empty but variable was stack-managed - just delete and clear tracking
     ctx.state.env.delete(varName);
+    restoreExport(ctx, varName);
     clearLocalVarDepth(ctx, varName);
     ctx.state.localVarStack?.delete(varName);
     // Mark as fully unset - use the outermost scope (0) since we don't know the original
@@ -145,6 +165,9 @@ function performCellUnset(ctx: InterpreterContext, varName: string): boolean {
       }
       // Remove from this scope so future lookups find the outer value
       scope.delete(varName);
+      const exportScope = ctx.state.localExportScopes?.[i];
+      restoreExport(ctx, varName, exportScope?.get(varName));
+      exportScope?.delete(varName);
 
       // Check if there's an outer scope that also has this variable
       // If so, update localVarDepth to that outer scope's depth
@@ -371,7 +394,7 @@ export async function handleUnset(
       if (localDepth !== undefined && localDepth !== ctx.state.callDepth) {
         // Dynamic-unset: called from a different scope than where local was declared
         // Perform cell-unset to expose outer value
-        performCellUnset(ctx, targetName);
+        if (performCellUnset(ctx, targetName)) continue;
       } else if (ctx.state.fullyUnsetLocals?.has(targetName)) {
         // This variable was a local that has been fully unset
         // Don't restore from tempenv, just delete
@@ -531,7 +554,10 @@ export async function handleUnset(
     if (localDepth !== undefined && localDepth !== ctx.state.callDepth) {
       // Dynamic-unset: called from a different scope than where local was declared
       // Perform cell-unset to expose outer value
-      performCellUnset(ctx, targetName);
+      if (performCellUnset(ctx, targetName)) {
+        ctx.state.functions.delete(arg);
+        continue;
+      }
     } else if (ctx.state.fullyUnsetLocals?.has(targetName)) {
       // This variable was a local that has been fully unset
       // Don't restore from tempenv, just delete
