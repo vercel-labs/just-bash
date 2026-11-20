@@ -5,6 +5,8 @@
  * Used by jq, yq, and other query-based commands.
  */
 
+import { ExecutionLimitError } from "../../interpreter/errors.js";
+
 // Re-export types from parser-types.ts
 export type {
   ArrayNode,
@@ -421,7 +423,10 @@ class Parser {
     this.depth++;
     if (this.depth > this.maxDepth) {
       this.depth--;
-      throw new Error(`query parse depth limit exceeded (${this.maxDepth})`);
+      throw new ExecutionLimitError(
+        `query parse depth limit exceeded (${this.maxDepth})`,
+        "recursion",
+      );
     }
     try {
       return parseNested();
@@ -473,7 +478,10 @@ class Parser {
     this.depth++;
     if (this.depth > this.maxDepth) {
       this.depth--;
-      throw new Error(`query parse depth limit exceeded (${this.maxDepth})`);
+      throw new ExecutionLimitError(
+        `query parse depth limit exceeded (${this.maxDepth})`,
+        "recursion",
+      );
     }
     try {
       return this.parsePipe();
@@ -494,7 +502,10 @@ class Parser {
     this.depth++;
     if (this.depth > this.maxDepth) {
       this.depth--;
-      throw new Error(`query parse depth limit exceeded (${this.maxDepth})`);
+      throw new ExecutionLimitError(
+        `query parse depth limit exceeded (${this.maxDepth})`,
+        "recursion",
+      );
     }
     try {
       return this.parsePatternInner();
@@ -779,7 +790,10 @@ class Parser {
     while (this.match("MINUS")) {
       unaryCount++;
       if (this.depth + unaryCount > this.maxDepth) {
-        throw new Error(`query parse depth limit exceeded (${this.maxDepth})`);
+        throw new ExecutionLimitError(
+          `query parse depth limit exceeded (${this.maxDepth})`,
+          "recursion",
+        );
       }
     }
     let operand = this.parsePostfix();
@@ -1085,7 +1099,10 @@ class Parser {
     this.depth++;
     if (this.depth > this.maxDepth) {
       this.depth--;
-      throw new Error(`query parse depth limit exceeded (${this.maxDepth})`);
+      throw new ExecutionLimitError(
+        `query parse depth limit exceeded (${this.maxDepth})`,
+        "recursion",
+      );
     }
     try {
       return this.parseObjectConstructionInner();
@@ -1244,14 +1261,18 @@ export function parse(input: string, limits: QueryParseLimits = {}): AstNode {
   const maxTokens = limits.maxTokens ?? 100_000;
   const maxSourceLength = limits.maxSourceLength ?? 1_048_576;
   if (input.length > maxSourceLength) {
-    throw new Error(
+    throw new ExecutionLimitError(
       `query source length limit exceeded (${maxSourceLength} characters)`,
+      "string_length",
     );
   }
   // A token needs at least one source character. Enforcing this before
   // tokenization bounds the token array prospectively as well.
   if (input.length + 1 > maxTokens) {
-    throw new Error(`query token limit exceeded (${maxTokens})`);
+    throw new ExecutionLimitError(
+      `query token limit exceeded (${maxTokens})`,
+      "array_elements",
+    );
   }
   const tokens = tokenize(input);
   const parser = new Parser(tokens, maxDepth);

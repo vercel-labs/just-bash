@@ -340,6 +340,18 @@ async function processContent(
   return { output, exitCode };
 }
 
+/** Rethrow an execution limit as fatal, with sed's diagnostic and no partial output. */
+function rethrowSedLimit(error: unknown): void {
+  if (error instanceof ExecutionLimitError) {
+    throw new ExecutionLimitError(
+      error.message,
+      error.limitType,
+      "",
+      `sed: ${sanitizeErrorMessage(error.message)}\n`,
+    );
+  }
+}
+
 export const sedCommand: RuntimeCommand = {
   name: "sed",
   async execute(
@@ -523,14 +535,7 @@ export const sedCommand: RuntimeCommand = {
           if (e instanceof SecurityViolationError) {
             throw e;
           }
-          if (e instanceof ExecutionLimitError) {
-            const message = sanitizeErrorMessage(e.message);
-            return {
-              stdout: "",
-              stderr: `sed: ${message}\n`,
-              exitCode: ExecutionLimitError.EXIT_CODE,
-            };
-          }
+          rethrowSedLimit(e);
           return {
             stdout: "",
             stderr: `sed: ${file}: No such file or directory\n`,
@@ -568,14 +573,7 @@ export const sedCommand: RuntimeCommand = {
         if (e instanceof SecurityViolationError) {
           throw e;
         }
-        if (e instanceof ExecutionLimitError) {
-          const message = sanitizeErrorMessage(e.message);
-          return {
-            stdout: "",
-            stderr: `sed: ${message}\n`,
-            exitCode: ExecutionLimitError.EXIT_CODE,
-          };
-        }
+        rethrowSedLimit(e);
         throw e;
       }
     }
@@ -603,14 +601,7 @@ export const sedCommand: RuntimeCommand = {
           if (e instanceof SecurityViolationError) {
             throw e;
           }
-          if (e instanceof ExecutionLimitError) {
-            const message = sanitizeErrorMessage(e.message);
-            return {
-              stdout: "",
-              stderr: `sed: ${message}\n`,
-              exitCode: ExecutionLimitError.EXIT_CODE,
-            };
-          }
+          rethrowSedLimit(e);
           return {
             stdout: "",
             stderr: `sed: ${file}: No such file or directory\n`,
@@ -650,14 +641,7 @@ export const sedCommand: RuntimeCommand = {
       if (e instanceof SecurityViolationError) {
         throw e;
       }
-      if (e instanceof ExecutionLimitError) {
-        const message = sanitizeErrorMessage(e.message);
-        return {
-          stdout: "",
-          stderr: `sed: ${message}\n`,
-          exitCode: ExecutionLimitError.EXIT_CODE,
-        };
-      }
+      rethrowSedLimit(e);
       throw e;
     }
   },
