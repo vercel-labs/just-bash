@@ -14,6 +14,7 @@
 import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
+import { getSystemErrorMap } from "node:util";
 import { type ByteString, unsafeBytesFromLatin1 } from "../../encoding.js";
 import {
   type FileContent,
@@ -50,6 +51,51 @@ const RW_PASSTHROUGH_ERRORS = [
   "EFBIG",
   "ENOTSUP",
 ] as const;
+
+class RealpathError extends Error {
+  constructor(
+    readonly code: string,
+    description: string,
+    virtualPath: string,
+  ) {
+    super(`${code}: ${description}, realpath '${virtualPath}'`);
+  }
+}
+
+class SandboxRejectionError extends Error {}
+
+function isInRootFailure(
+  realPath: string,
+  root: string,
+  canonicalRoot: string,
+  code: string,
+): boolean {
+  if (!isPathWithinRoot(realPath, root)) return false;
+  // A replaced root can redirect even a symlink-free prefix outside.
+  try {
+    if (fs.realpathSync(root) !== canonicalRoot) return false;
+  } catch {
+    return false;
+  }
+  let current = canonicalRoot;
+  let parentIsDirectory = true;
+  for (const component of nodePath
+    .relative(root, realPath)
+    .split(nodePath.sep)) {
+    if (!component) continue;
+    if (code === "ENOTDIR" && !parentIsDirectory) return true;
+    current = nodePath.join(current, component);
+    try {
+      const stat = fs.lstatSync(current);
+      // Errors through symlinks stay generic, as on main.
+      if (stat.isSymbolicLink()) return false;
+      parentIsDirectory = stat.isDirectory();
+    } catch (e) {
+      return (e as NodeJS.ErrnoException)?.code === code;
+    }
+  }
+  return false;
+}
 
 export interface ReadWriteFsOptions {
   /**
@@ -118,18 +164,39 @@ export class ReadWriteFs implements IFileSystem {
    * return the canonical (symlink-resolved) path for use in subsequent I/O.
    * This closes the TOCTOU gap where the original path could be swapped
    * between validation and use.
-   * Throws EACCES if the path escapes the root.
+   * Throws EACCES if the path escapes the root. Lookup failures are reported
+   * only when a symlink-free in-root prefix explains the failure.
    */
   private resolveAndValidate(realPath: string, virtualPath: string): string {
     const canonical = this.allowSymlinks
       ? resolveCanonicalPath(realPath, this.canonicalRoot)
       : resolveCanonicalPathNoSymlinks(realPath, this.root, this.canonicalRoot);
-    if (canonical === null) {
-      throw new Error(
-        `EACCES: permission denied, '${virtualPath}' resolves outside sandbox`,
-      );
+    if (canonical !== null) return canonical;
+
+    // The shared resolver keeps ENOENT handling unchanged; inspect only other failures.
+    try {
+      fs.realpathSync(realPath);
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (typeof err?.code !== "string")
+        sanitizeFsError(e, virtualPath, "realpath", []);
+      // Trust Node's errno table, not error text that may contain host paths.
+      const systemError =
+        typeof err.errno === "number"
+          ? getSystemErrorMap().get(err.errno)
+          : undefined;
+      if (
+        systemError?.[0] === err.code &&
+        err.code !== "ENOENT" &&
+        err.code !== "ELOOP" &&
+        isInRootFailure(realPath, this.root, this.canonicalRoot, err.code)
+      ) {
+        throw new RealpathError(err.code, systemError[1], virtualPath);
+      }
     }
-    return canonical;
+    throw new SandboxRejectionError(
+      `EACCES: permission denied, '${virtualPath}' resolves outside sandbox`,
+    );
   }
 
   /**
@@ -981,6 +1048,7 @@ export class ReadWriteFs implements IFileSystem {
         options?.recursive ?? false,
       );
     } catch (e) {
+      if (e instanceof RealpathError) throw e;
       const err = e as NodeJS.ErrnoException;
       if (err.code === "ENOENT") {
         throw new Error(`ENOENT: no such file or directory, cp '${src}'`);
@@ -1492,6 +1560,9 @@ export class ReadWriteFs implements IFileSystem {
     virtualPath: string,
     operation: string,
   ): never {
+    if (e instanceof RealpathError) throw e;
+    if ((e as NodeJS.ErrnoException).code)
+      sanitizeFsError(e, virtualPath, operation, []);
     sanitizeFsError(e, virtualPath, operation, RW_PASSTHROUGH_ERRORS);
   }
 
@@ -1788,11 +1859,14 @@ export class ReadWriteFs implements IFileSystem {
     // Validate the path respects the symlink policy before resolving.
     // Without this, realpath() would follow symlinks that other methods
     // (readFile, stat, etc.) correctly reject via resolveAndValidate().
-    // Convert EACCES to ENOENT because realpath semantically "doesn't find"
-    // the canonical path rather than "denies access".
+    // Only a sandbox rejection maps to ENOENT; other errors retain their cause.
     try {
       this.resolveAndValidate(realPath, path);
-    } catch {
+    } catch (e) {
+      if (!(e instanceof SandboxRejectionError)) {
+        if (e instanceof RealpathError) throw e;
+        sanitizeFsError(e, path, "realpath", []);
+      }
       throw new Error(`ENOENT: no such file or directory, realpath '${path}'`);
     }
 

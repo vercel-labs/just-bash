@@ -1,7 +1,9 @@
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { pathToFileURL } from "node:url";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ReadWriteFs } from "./read-write-fs.js";
 
 describe("ReadWriteFs", () => {
@@ -12,6 +14,7 @@ describe("ReadWriteFs", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -212,6 +215,295 @@ describe("ReadWriteFs", () => {
       const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       await expect(rwfs.stat("/nonexistent")).rejects.toThrow("ENOENT");
     });
+
+    it("should throw ENOTDIR (not 'outside sandbox') when a file is traversed as a directory (fixes #745)", async () => {
+      fs.writeFileSync(path.join(tempDir, "notes.txt"), "hello\n");
+      for (const allowSymlinks of [false, true]) {
+        const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks });
+
+        await expect(rwfs.stat("/notes.txt/child")).rejects.toMatchObject({
+          code: "ENOTDIR",
+          message: "ENOTDIR: not a directory, realpath '/notes.txt/child'",
+        });
+      }
+    });
+
+    it("should use the host system description for other in-root lookup errors", async () => {
+      const rwfs = new ReadWriteFs({ root: tempDir });
+      const longPath = `/${"a".repeat(1024)}`;
+
+      await expect(rwfs.stat(longPath)).rejects.toMatchObject({
+        code: "ENAMETOOLONG",
+        message: `ENAMETOOLONG: name too long, realpath '${longPath}'`,
+      });
+    });
+
+    it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+      "reports an in-root permission failure without a host path",
+      async () => {
+        const locked = path.join(tempDir, "locked");
+        fs.mkdirSync(locked);
+        fs.writeFileSync(path.join(locked, "secret.txt"), "secret");
+        const rwfs = new ReadWriteFs({ root: tempDir });
+        fs.chmodSync(locked, 0);
+        try {
+          await expect(rwfs.stat("/locked/secret.txt")).rejects.toMatchObject({
+            code: "EACCES",
+            message: "EACCES: permission denied, realpath '/locked/secret.txt'",
+          });
+        } finally {
+          fs.chmodSync(locked, 0o700);
+        }
+      },
+    );
+
+    it("should reject a symlink loop without exposing its errno", async () => {
+      try {
+        fs.symlinkSync("loop-b", path.join(tempDir, "loop-a"));
+        fs.symlinkSync("loop-a", path.join(tempDir, "loop-b"));
+      } catch {
+        // Skip on systems that don't support symlinks
+        return;
+      }
+      for (const allowSymlinks of [false, true]) {
+        const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks });
+        for (const suffix of ["", "/child"]) {
+          const error = await rwfs.stat(`/loop-a${suffix}`).catch((e) => e);
+          expect(error.message).toBe(
+            `EACCES: permission denied, '/loop-a${suffix}' resolves outside sandbox`,
+          );
+          expect(error.code).toBeUndefined();
+        }
+      }
+    });
+
+    it("should not surface ENOTDIR for a failure past a symlink that escapes the root (review #767)", async () => {
+      const outsideDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "rwfs-outside-"),
+      );
+      try {
+        fs.writeFileSync(path.join(outsideDir, "shadow"), "secret");
+        try {
+          fs.symlinkSync(outsideDir, path.join(tempDir, "escape-link"));
+        } catch {
+          // Skip on systems that don't support symlinks
+          return;
+        }
+        for (const allowSymlinks of [false, true]) {
+          const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks });
+          const error = await rwfs
+            .stat("/escape-link/shadow/child")
+            .catch((e) => e);
+          expect(error.message).toBe(
+            "EACCES: permission denied, '/escape-link/shadow/child' resolves outside sandbox",
+          );
+          expect(error.code).toBeUndefined();
+        }
+      } finally {
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it("rejects an ENOTDIR after the root is replaced by an outside symlink", async () => {
+      const root = path.join(tempDir, "root");
+      const relocated = path.join(tempDir, "relocated");
+      const outside = path.join(tempDir, "outside");
+      fs.mkdirSync(root);
+      fs.mkdirSync(outside);
+      fs.writeFileSync(path.join(root, "sensitive"), "inside");
+      fs.writeFileSync(path.join(outside, "sensitive"), "outside");
+      const rwfs = new ReadWriteFs({ root, allowSymlinks: true });
+      fs.renameSync(root, relocated);
+      fs.symlinkSync(outside, root);
+
+      const error = await rwfs.stat("/sensitive/child").catch((e) => e);
+      expect(error.message).toBe(
+        "EACCES: permission denied, '/sensitive/child' resolves outside sandbox",
+      );
+      expect(error.code).toBeUndefined();
+    });
+
+    it("reports only verified in-root failures without copying host error text", () => {
+      const root = fs.realpathSync(tempDir);
+      const blocked = path.join(root, "blocked");
+      const sourceUrl = pathToFileURL(
+        path.resolve("src/fs/read-write-fs/read-write-fs.ts"),
+      ).href;
+      const script = `
+        const fs = require("node:fs");
+        const { ReadWriteFs } = require(${JSON.stringify(sourceUrl)});
+        const box = new ReadWriteFs({ root: ${JSON.stringify(root)} });
+        const realpathSync = fs.realpathSync;
+        const lstatSync = fs.lstatSync;
+        const blockedIsSymlink = process.argv[1] === "symlink";
+        const errnos = new Map([...require("node:util").getSystemErrorMap()]
+          .map(([errno, [code]]) => [code, errno]));
+        let realpathCode = "ENOTDIR";
+        fs.realpathSync = (target, ...args) => {
+          if (target === ${JSON.stringify(path.join(blocked, "child"))}) {
+            throw Object.assign(new Error(realpathCode + ": " + target + ", realpath"), { code: realpathCode, errno: errnos.get(realpathCode) });
+          }
+          return realpathSync(target, ...args);
+        };
+        fs.lstatSync = (target, ...args) => {
+          if (target === ${JSON.stringify(blocked)}) {
+            if (blockedIsSymlink) return { isSymbolicLink: () => true };
+            const code = realpathCode === "ENOTDIR" ? "ERR_ACCESS_DENIED" : realpathCode;
+            throw Object.assign(new Error("denied"), { code, resource: target });
+          }
+          return lstatSync(target, ...args);
+        };
+        (async () => {
+          const results = [];
+          for (realpathCode of ["ENOTDIR", "ERR_ACCESS_DENIED", "ELOOP", "EACCES", "ENAMETOOLONG"]) {
+            for (const operation of ["stat", "realpath"]) {
+              try { await box[operation]("/blocked/child"); } catch (error) {
+                results.push({ code: error.code ?? null, message: error.message });
+              }
+            }
+          }
+          process.stdout.write(JSON.stringify(results));
+        })();
+      `;
+      const genericStat = {
+        code: null,
+        message:
+          "EACCES: permission denied, '/blocked/child' resolves outside sandbox",
+      };
+      const genericRealpath = {
+        code: null,
+        message: "ENOENT: no such file or directory, realpath '/blocked/child'",
+      };
+      const genericResults = Array.from({ length: 5 }, () => [
+        genericStat,
+        genericRealpath,
+      ]).flat();
+      const run = (scenario: string) =>
+        JSON.parse(
+          execFileSync(
+            process.execPath,
+            ["--import=tsx", "-e", script, scenario],
+            { encoding: "utf8" },
+          ),
+        );
+
+      expect(run("denied")).toEqual([
+        ...genericResults.slice(0, 6),
+        {
+          code: "EACCES",
+          message: "EACCES: permission denied, realpath '/blocked/child'",
+        },
+        {
+          code: "EACCES",
+          message: "EACCES: permission denied, realpath '/blocked/child'",
+        },
+        {
+          code: "ENAMETOOLONG",
+          message: "ENAMETOOLONG: name too long, realpath '/blocked/child'",
+        },
+        {
+          code: "ENAMETOOLONG",
+          message: "ENAMETOOLONG: name too long, realpath '/blocked/child'",
+        },
+      ]);
+      expect(run("symlink")).toEqual(genericResults);
+    });
+  });
+
+  describe("realpath", () => {
+    it("should keep ENOTDIR for a file traversed as a directory (review #767)", async () => {
+      fs.writeFileSync(path.join(tempDir, "notes.txt"), "hello\n");
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+      await expect(rwfs.realpath("/notes.txt/child")).rejects.toMatchObject({
+        code: "ENOTDIR",
+        message: "ENOTDIR: not a directory, realpath '/notes.txt/child'",
+      });
+    });
+
+    it("should map a symlink loop rejection to ENOENT", async () => {
+      try {
+        fs.symlinkSync("loop-b", path.join(tempDir, "loop-a"));
+        fs.symlinkSync("loop-a", path.join(tempDir, "loop-b"));
+      } catch {
+        // Skip on systems that don't support symlinks
+        return;
+      }
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+      await expect(rwfs.realpath("/loop-a")).rejects.toThrow(
+        "ENOENT: no such file or directory, realpath '/loop-a'",
+      );
+    });
+
+    it("does not map an uncoded realpath failure to ENOENT", () => {
+      const root = fs.realpathSync(tempDir);
+      const file = path.join(root, "file");
+      const sourceUrl = pathToFileURL(
+        path.resolve("src/fs/read-write-fs/read-write-fs.ts"),
+      ).href;
+      const script = `
+        const fs = require("node:fs");
+        const { ReadWriteFs } = require(${JSON.stringify(sourceUrl)});
+        const box = new ReadWriteFs({ root: ${JSON.stringify(root)} });
+        const original = fs.realpathSync;
+        fs.realpathSync = (target, ...args) => {
+          if (target === ${JSON.stringify(file)}) throw new Error("EACCES: private host path: " + target);
+          return original(target, ...args);
+        };
+        box.realpath("/file").catch(error => process.stdout.write(error.message));
+      `;
+      const output = execFileSync(
+        process.execPath,
+        ["--import=tsx", "-e", script],
+        { encoding: "utf8" },
+      );
+
+      expect(output).toBe("EIO: realpath '/file'");
+    });
+
+    it("sanitizes unexpected resolver errors instead of mapping them to ENOENT", async () => {
+      const rwfs = new ReadWriteFs({ root: tempDir });
+      const resolver = rwfs as unknown as { resolveAndValidate: () => never };
+      const error = Object.assign(
+        new Error(`EACCES: private path ${tempDir}`),
+        {
+          code: "ERR_ACCESS_DENIED",
+          resource: tempDir,
+        },
+      );
+      vi.spyOn(resolver, "resolveAndValidate").mockImplementation(() => {
+        throw error;
+      });
+
+      const caught = await rwfs.realpath("/file").catch((e) => e);
+      expect(caught.message).toBe("ERR_ACCESS_DENIED: realpath '/file'");
+      expect(caught.code).toBeUndefined();
+      expect(caught.resource).toBeUndefined();
+    });
+
+    it("should still map genuine sandbox rejections to ENOENT (review #767)", async () => {
+      const outsideDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "rwfs-outside-"),
+      );
+      try {
+        fs.writeFileSync(path.join(outsideDir, "shadow"), "secret");
+        try {
+          fs.symlinkSync(outsideDir, path.join(tempDir, "escape-link"));
+        } catch {
+          // Skip on systems that don't support symlinks
+          return;
+        }
+        const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+        await expect(
+          rwfs.realpath("/escape-link/shadow/child"),
+        ).rejects.toThrow("ENOENT");
+        await expect(rwfs.realpath("/nonexistent")).rejects.toThrow("ENOENT");
+      } finally {
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe("lstat", () => {
@@ -352,6 +644,66 @@ describe("ReadWriteFs", () => {
       const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       await expect(rwfs.cp("/nonexistent", "/dest")).rejects.toThrow("ENOENT");
     });
+
+    it("should keep the failing destination path and .code during recursive copy", async () => {
+      fs.mkdirSync(path.join(tempDir, "src"));
+      fs.mkdirSync(path.join(tempDir, "src", "file"));
+      fs.writeFileSync(path.join(tempDir, "src", "file", "child"), "data");
+      fs.mkdirSync(path.join(tempDir, "dst", "file"), { recursive: true });
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+      const destination = path.join(fs.realpathSync(tempDir), "dst", "file");
+      const sourceDirectory = path.join(
+        fs.realpathSync(tempDir),
+        "src",
+        "file",
+      );
+      let reads = 0;
+      const originalReaddir = fs.promises.readdir.bind(fs.promises);
+      vi.spyOn(fs.promises, "readdir").mockImplementation(async (...args) => {
+        const entries = await originalReaddir(...args);
+        // The first read is preflight; replace the destination during copy.
+        if (args[0] === sourceDirectory && ++reads === 2) {
+          fs.rmdirSync(destination);
+          fs.writeFileSync(destination, "replaced");
+        }
+        return entries;
+      });
+
+      await expect(
+        rwfs.cp("/src", "/dst", { recursive: true }),
+      ).rejects.toMatchObject({
+        code: "ENOTDIR",
+        message: "ENOTDIR: not a directory, realpath '/dst/file/child'",
+      });
+    });
+
+    it.each([
+      "access denied",
+      "EACCES: denied",
+    ])("sanitizes pathless Node errors from recursive copy (%s)", async (message) => {
+      fs.mkdirSync(path.join(tempDir, "src"));
+      fs.writeFileSync(path.join(tempDir, "src", "file"), "data");
+      const resource = path.join(tempDir, "private-resource");
+      const originalOpen = fs.promises.open.bind(fs.promises);
+      vi.spyOn(fs.promises, "open").mockImplementation(
+        async (target, flags, mode) => {
+          if (String(target).includes(".just-bash-write-")) {
+            throw Object.assign(new Error(`${message} ${resource}`), {
+              code: "ERR_ACCESS_DENIED",
+              resource,
+            });
+          }
+          return originalOpen(target, flags, mode);
+        },
+      );
+
+      const error = await new ReadWriteFs({ root: tempDir })
+        .cp("/src", "/dst", { recursive: true })
+        .catch((e) => e);
+      expect(error.message).toBe("ERR_ACCESS_DENIED: cp '/src'");
+      expect(error.code).toBeUndefined();
+      expect(error.resource).toBeUndefined();
+    });
   });
 
   describe("mv", () => {
@@ -458,6 +810,35 @@ describe("ReadWriteFs", () => {
       expect(fs.readFileSync(path.join(tempDir, "target.txt"), "utf8")).toBe(
         "created",
       );
+    });
+
+    it("should write through an allowed absolute dangling symlink within the root", async () => {
+      fs.symlinkSync(
+        path.join(tempDir, "target.txt"),
+        path.join(tempDir, "link"),
+      );
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+      await rwfs.writeFile("/link", "created");
+
+      expect(fs.readFileSync(path.join(tempDir, "target.txt"), "utf8")).toBe(
+        "created",
+      );
+    });
+
+    it("preserves writes through a dangling link spelled through a root alias", async () => {
+      const root = path.join(tempDir, "root");
+      const alias = path.join(tempDir, "alias");
+      fs.mkdirSync(path.join(root, "sub"), { recursive: true });
+      fs.symlinkSync(root, alias);
+      fs.symlinkSync(`${alias}/sub/../new`, path.join(root, "link"));
+
+      await new ReadWriteFs({ root: alias, allowSymlinks: true }).writeFile(
+        "/link",
+        "created",
+      );
+
+      expect(fs.readFileSync(path.join(root, "new"), "utf8")).toBe("created");
     });
   });
 
