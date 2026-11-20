@@ -162,6 +162,7 @@ function parseJsonStream(
 
       appendResult(
         sanitizeParsedData(parseJsonSlice(input, startPos, pos), {
+          jsonTree: true,
           maxDepth: limits.maxDepth,
           maxElements: limits.maxElements,
         }),

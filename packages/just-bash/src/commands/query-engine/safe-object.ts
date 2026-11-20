@@ -167,6 +167,8 @@ export function safeHasOwn(obj: object, key: string): boolean {
  * the defense is null-prototype, not key filtering.
  */
 export interface SanitizeParsedDataLimits {
+  /** Only for fresh JSON.parse trees: reuse containers; aliases/cycles are unsupported. */
+  jsonTree?: boolean;
   maxDepth?: number;
   maxElements?: number;
   /** Optional shared counter for aggregate accounting across documents. */
@@ -179,7 +181,7 @@ export function sanitizeParsedData(
 ): unknown {
   const maxDepth = limits.maxDepth ?? 2000;
   const maxElements = limits.maxElements ?? 1_000_000;
-  const seen = new WeakMap<object, unknown>();
+  const seen = limits.jsonTree ? undefined : new WeakMap<object, unknown>();
   const elementBudget = limits.elementBudget ?? { used: 0 };
   if (
     !Number.isSafeInteger(elementBudget.used) ||
@@ -213,7 +215,7 @@ export function sanitizeParsedData(
     if (current === null || typeof current !== "object") return current;
     if (current instanceof Date) return current;
 
-    const cached = seen.get(current);
+    const cached = seen?.get(current);
     if (cached !== undefined) return cached;
     if (depth > maxDepth) {
       throw new ExecutionLimitError(
@@ -222,10 +224,16 @@ export function sanitizeParsedData(
       );
     }
 
-    const target: unknown[] | Record<string, unknown> = Array.isArray(current)
-      ? []
-      : Object.create(null);
-    seen.set(current, target);
+    const target: unknown[] | Record<string, unknown> = limits.jsonTree
+      ? current
+      : Array.isArray(current)
+        ? []
+        : Object.create(null);
+    if (limits.jsonTree && !Array.isArray(current)) {
+      // @banned-pattern-ignore: exclusively owned JSON.parse record; own keys are unchanged
+      Object.setPrototypeOf(current, null);
+    }
+    seen?.set(current, target);
     pending.push({ source: current, target, depth });
     return target;
   };
@@ -248,7 +256,7 @@ export function sanitizeParsedData(
           "array_elements",
         );
       }
-      target.length = source.length;
+      if (target !== source) target.length = source.length;
       for (let index = source.length - 1; index >= 0; index--) {
         assertElement();
         target[index] = createValue(source[index], depth + 1, pending);
