@@ -331,6 +331,7 @@ async function processContent(
   if (fs && cwd) {
     for (const [filePath, fileContent] of fileWrites) {
       try {
+        executionScope?.throwIfAborted("sed");
         await withDefenseContext("flush pending file writes", () =>
           fs.writeFile(filePath, fileContent),
         );

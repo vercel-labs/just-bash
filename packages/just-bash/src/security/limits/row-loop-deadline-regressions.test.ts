@@ -99,6 +99,40 @@ describe("deadline and output limit regressions", () => {
     expect(result.exitCode).toBe(126);
   });
 
+  it.each([
+    "range(range(20;40);range(20))",
+    "range(range(20;40);range(20);range(1;21))",
+    "range(range(20;40);range(20);empty)",
+  ])("charges empty combinations in %s", async (query) => {
+    const bash = new Bash({ executionLimits: { maxJqIterations: 100 } });
+    const result = await bash.exec(`jq -n '${query}'; printf after`);
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "jq: query evaluation: too many iterations (100)\n",
+    );
+    expect(result.exitCode).toBe(126);
+  });
+
+  it.each([
+    "w",
+    "W",
+  ])("does not flush sed %s writes after the deadline", async (command) => {
+    const checks = abortOnCheckpoint("sed", 2);
+    const fs = new InMemoryFs({ "/input": "old\n" });
+    const bash = new Bash({ fs });
+
+    const result = await bash.exec(
+      `sed -i -e 's/old/new/' -e '${command} /input' /input; printf after`,
+    );
+
+    expect(await fs.readFile("/input")).toBe("old\n");
+    expect(checks()).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("bash: sed aborted\n");
+    expect(result.exitCode).toBe(124);
+  });
+
   it("checks the deadline during sed D restarts", async () => {
     const checks = abortOnCheckpoint("sed", 2);
     const bash = new Bash({ files: { "/rows": "line\n".repeat(3072) } });

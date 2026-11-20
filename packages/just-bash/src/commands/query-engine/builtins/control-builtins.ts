@@ -125,6 +125,7 @@ export function evalControlBuiltin(
         // Handle generator args - each value produces its own range
         const result: number[] = [];
         for (const n of startsVals) {
+          chargeQueryWork(ctx);
           const num = n as number;
           for (let i = 0; i < num; i++) {
             appendRangeValue(result, i);
@@ -138,7 +139,9 @@ export function evalControlBuiltin(
         // But jq allows generators, so we need to handle multiple values
         const result: number[] = [];
         for (const s of startsVals) {
+          chargeQueryWork(ctx);
           for (const e of endsVals) {
+            chargeQueryWork(ctx);
             const start = s as number;
             const end = e as number;
             for (let i = start; i < end; i++) {
@@ -152,8 +155,11 @@ export function evalControlBuiltin(
       const stepsVals = evaluate(value, args[2], ctx);
       const result: number[] = [];
       for (const s of startsVals) {
+        chargeQueryWork(ctx);
         for (const e of endsVals) {
+          chargeQueryWork(ctx);
           for (const st of stepsVals) {
+            chargeQueryWork(ctx);
             const start = s as number;
             const end = e as number;
             const step = st as number;
