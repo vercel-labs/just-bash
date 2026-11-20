@@ -37,20 +37,16 @@ export function createGate(): Gate {
   return { inFlight, release, released, reached };
 }
 
-/**
- * Holds the first `count` opens that match until each is released, so a test
- * can act while they are in flight.
- */
-function holdOpens(
-  matches: (filePath: string) => boolean,
-  count: number,
-): Gate[] {
+/** Holds the first `count` staged writes ReadWriteFs makes for new or replaced files. */
+export function holdStagedWrites(count: number): Gate[] {
   const originalOpen = fs.promises.open.bind(fs.promises);
   const gates = Array.from({ length: count }, createGate);
   let held = 0;
   vi.spyOn(fs.promises, "open").mockImplementation(
     async (filePath, flags, mode) => {
-      const gate = matches(String(filePath)) ? gates[held++] : undefined;
+      const gate = String(filePath).includes(".just-bash-write-")
+        ? gates[held++]
+        : undefined;
       if (gate) {
         gate.reached();
         await gate.released;
@@ -60,9 +56,4 @@ function holdOpens(
     },
   );
   return gates;
-}
-
-/** Holds the staged writes ReadWriteFs makes for new or replaced files. */
-export function holdStagedWrites(count: number): Gate[] {
-  return holdOpens((filePath) => filePath.includes(".just-bash-write-"), count);
 }
