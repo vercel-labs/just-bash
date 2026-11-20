@@ -43,7 +43,7 @@ describe("grep with binary files", () => {
       },
     });
 
-    const result = await env.exec("grep test /binary.bin");
+    const result = await env.exec("grep -a test /binary.bin");
     expect(result.stdout).toContain("test");
     expect(result.exitCode).toBe(0);
   });
