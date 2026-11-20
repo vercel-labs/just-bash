@@ -158,10 +158,8 @@ export async function executeSearch(
     }
   }
 
-  // In --files mode, positional args (including the pattern) are paths.
   if (options.files) {
-    const filesPaths = [...options.patterns, ...inputPaths];
-    return listFiles(ctx, filesPaths, options, typeRegistry);
+    return listFiles(ctx, inputPaths, options, typeRegistry);
   }
 
   if (options.patterns.length > ctx.limits.maxArrayElements) {
@@ -488,6 +486,10 @@ async function collectFiles(
 
   for (const path of paths) {
     traversalBudget.checkpoint();
+    if (path === "") {
+      errors.append("rg: : Unable to access path\n");
+      continue;
+    }
     const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
 
     try {
@@ -904,9 +906,9 @@ async function listFiles(
     return { stdout: "", stderr, exitCode: stderr ? 2 : 1 };
   }
 
-  // In quiet mode, just indicate success without output
+  // In quiet mode, suppress the file list but preserve diagnostics.
   if (options.quiet) {
-    return { stdout: "", stderr: "", exitCode: 0 };
+    return { stdout: "", stderr, exitCode: 0 };
   }
 
   // Output file list

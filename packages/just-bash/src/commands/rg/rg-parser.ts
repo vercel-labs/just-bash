@@ -807,9 +807,10 @@ export function parseArgs(args: string[]): ParseArgsResult {
     );
   }
 
-  // Add positional pattern
+  // In --files mode, positional arguments are paths.
   if (positionalPattern !== null) {
-    options.patterns.push(positionalPattern);
+    if (options.files) paths.unshift(positionalPattern);
+    else options.patterns.push(positionalPattern);
   }
 
   // --column and --vimgrep imply line numbers
