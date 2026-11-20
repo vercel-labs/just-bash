@@ -114,13 +114,14 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   ["jq.test:[walk(.,1)]", "walk with generator argument"],
 
   // ============================================================
-  // getpath/setpath/delpaths edge cases
+  // path operation edge cases
   // ============================================================
   [
     'jq.test:["foo",1] as $p | getpath($p), setpath($p; 20), delpaths([[$p]])',
     "getpath with string/number path",
   ],
   ["jq.test:delpaths([[-200]])", "delpaths with large negative index"],
+  ["jq.test:del(.[1], .[-6], .[2], .[-3:9])", "del with slice expressions"],
 
   // ============================================================
   // label with keyword variable names
@@ -175,7 +176,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   // ============================================================
   // path() with select/map
   // ============================================================
-  ["jq.test:path(.[] | select(.>3))", "path with select not supported"],
   [
     "jq.test:try path(.a | map(select(.b == 0))) catch .",
     "path with map/select not supported",
@@ -397,7 +397,6 @@ const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   },
 
   // path() function limitations
-  { pattern: /path\(\.\[\] \| select/, reason: "path with select" },
   { pattern: /try path\(\.a \| map\(select/, reason: "path with map/select" },
 
   // Update expressions with select/empty
@@ -418,10 +417,6 @@ const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
 
   // del/delpaths edge cases
   { pattern: /try delpaths\(\d+\)/, reason: "delpaths type error" },
-  { pattern: /del\(\.\),/, reason: "del(.) expression" },
-  { pattern: /del\(empty\)/, reason: "del(empty) expression" },
-  { pattern: /del\(\(\.[^)]+,\.[^)]+\)/, reason: "del with comma expressions" },
-  { pattern: /del\(\.\[.*,.*\]\)/, reason: "del with multiple indices" },
   {
     pattern: /delpaths\(\[\[-\d+\]\]\)/,
     reason: "delpaths with large negative",

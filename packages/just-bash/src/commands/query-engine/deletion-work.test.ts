@@ -48,6 +48,30 @@ describe("bulk deletion work", () => {
     expect(Object.getOwnPropertyDescriptors(Object.prototype)).toEqual(before);
   });
 
+  it("deletes nested data under reserved own keys without changing prototypes", () => {
+    const json =
+      '{"constructor":{"drop":1,"keep":2},"prototype":{"drop":3,"keep":4},"__proto__":{"drop":5,"keep":6},"hasOwnProperty":{"drop":7,"keep":8},"toString":{"drop":9,"keep":10},"valueOf":{"drop":11,"keep":12}}';
+    const input = sanitizeParsedData(JSON.parse(json));
+    const before = Object.getOwnPropertyDescriptors(Object.prototype);
+    const [result] = evaluate(
+      input,
+      parse(
+        "del(.constructor.drop,.prototype.drop,.__proto__.drop,.hasOwnProperty.drop,.toString.drop,.valueOf.drop)",
+      ),
+    );
+    expect(result).toEqual(
+      JSON.parse(
+        '{"constructor":{"keep":2},"prototype":{"keep":4},"__proto__":{"keep":6},"hasOwnProperty":{"keep":8},"toString":{"keep":10},"valueOf":{"keep":12}}',
+      ),
+    );
+    expect(Object.getPrototypeOf(result)).toBe(null);
+    for (const value of Object.values(result as Record<string, unknown>)) {
+      expect(Object.getPrototypeOf(value)).toBe(null);
+    }
+    expect(input).toEqual(JSON.parse(json));
+    expect(Object.getOwnPropertyDescriptors(Object.prototype)).toEqual(before);
+  });
+
   it("checks recursive traversal work before reading children", () => {
     const input = Array(100).fill(null);
     let reads = 0;

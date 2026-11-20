@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
+import { getSkipReason } from "../../spec-tests/jq/skips.js";
 
 describe("jq deletion paths", () => {
   it.each([
@@ -62,5 +63,82 @@ describe("jq deletion paths", () => {
     expect(result.stdout).toBe("");
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("Unsupported path expression");
+  });
+
+  it("keeps negative fractional reads distinct from deletion paths", async () => {
+    const bash = new Bash({ files: { "/input.json": "[1,2,3]" } });
+    expect(
+      await bash.exec(
+        "jq -c '[.[-0.5], del(.[-0.5]), del(.[-0.5], .[1]), del(.[-1.5])]' /input.json",
+      ),
+    ).toMatchObject({
+      stdout: "[1,[1,2,3],[1,3],[1,2]]\n",
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
+  it("preserves conditional paths without accepting value-producing branches", async () => {
+    const bash = new Bash({
+      files: {
+        "/active.json": '{"user":{"active":true,"secret":1,"keep":2}}',
+        "/inactive.json": '{"user":{"active":false,"secret":1,"keep":2}}',
+      },
+    });
+    const pathFilter = "[path(.user | if .active then . else empty end)]";
+    expect(await bash.exec(`jq -c '${pathFilter}' /active.json`)).toMatchObject(
+      {
+        stdout: '[["user"]]\n',
+        stderr: "",
+        exitCode: 0,
+      },
+    );
+    expect(
+      await bash.exec(`jq -c '${pathFilter}' /inactive.json`),
+    ).toMatchObject({ stdout: "[]\n", stderr: "", exitCode: 0 });
+    expect(
+      await bash.exec(
+        "jq -c '[path(.user | if .active then .secret elif .keep == 2 then .keep else empty end)]' /inactive.json",
+      ),
+    ).toMatchObject({
+      stdout: '[["user","keep"]]\n',
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(
+      await bash.exec(
+        "jq -c 'del(.user | if .active then .secret else empty end)' /active.json",
+      ),
+    ).toMatchObject({
+      stdout: '{"user":{"active":true,"keep":2}}\n',
+      stderr: "",
+      exitCode: 0,
+    });
+    const result = await bash.exec(
+      "jq -c 'del(.user | if .active then .secret + 1 else empty end)' /active.json",
+    );
+    expect(result.stdout).toBe("");
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("Unsupported path expression");
+  });
+
+  it("keeps passing jq spec cases out of the expected-failure list", () => {
+    const passingCases = [
+      ["jq.test", "path(.[] | select(.>3))"],
+      [
+        "jq.test",
+        "del(.), del(empty), del((.foo,.bar,.baz) | .[2,3,0]), del(.foo[0], .bar[0], .foo, .baz.bar[0].x)",
+      ],
+      ["man.test", "del(.[1, 2])"],
+    ];
+    for (const [fileName, program] of passingCases) {
+      expect(getSkipReason(fileName, program, program)).toBeUndefined();
+    }
+    const unsupported = "del(.[2:4],.[0],.[-2:])";
+    expect(getSkipReason("jq.test", unsupported, unsupported)).toBeDefined();
+    const unsupportedSlice = "del(.[1], .[-6], .[2], .[-3:9])";
+    expect(
+      getSkipReason("jq.test", unsupportedSlice, unsupportedSlice),
+    ).toBeDefined();
   });
 });

@@ -1346,8 +1346,12 @@ function applyDel(
         typeof rawComponent === "number"
           ? Math.trunc(rawComponent)
           : rawComponent;
+      // jq uses the original sign before truncating a deletion index.
       const key =
-        Array.isArray(parent) && typeof component === "number" && component < 0
+        Array.isArray(parent) &&
+        typeof component === "number" &&
+        typeof rawComponent === "number" &&
+        rawComponent < 0
           ? parent.length + component
           : component;
       if (
@@ -1381,11 +1385,7 @@ function deleteResolvedPaths(
   for (const path of paths) {
     chargeQueryWork(ctx);
     const key = path[depth];
-    if (
-      object &&
-      (typeof key !== "string" || (path.length > depth + 1 && !isSafeKey(key)))
-    )
-      continue;
+    if (object && typeof key !== "string") continue;
     if (!Object.hasOwn(value as object, key)) continue;
     const group = groups.get(key);
     // Deleting a parent supersedes all deletions below it.
@@ -1411,12 +1411,10 @@ function deleteResolvedPaths(
   const result = nullPrototypeCopy(object);
   for (const [key, group] of groups) {
     if (group === null) delete result[key];
-    else
-      safeSet(
-        result,
-        String(key),
-        deleteResolvedPaths(result[key], group, depth + 1, ctx),
-      );
+    else {
+      // The null-prototype copy makes every own key safe to update.
+      result[key] = deleteResolvedPaths(result[key], group, depth + 1, ctx);
+    }
   }
   return result;
 }
@@ -2025,6 +2023,26 @@ function collectPaths(
   }
   if (expr.type === "Paren") {
     collectPaths(value, expr.expr, ctx, currentPath, paths);
+    return;
+  }
+  if (expr.type === "Cond") {
+    for (const condition of evaluate(value, expr.cond, ctx)) {
+      let branch: AstNode | undefined = expr.then;
+      if (!isTruthy(condition)) {
+        branch = expr.else;
+        for (const elif of expr.elifs) {
+          if (evaluate(value, elif.cond, ctx).some(isTruthy)) {
+            branch = elif.then;
+            break;
+          }
+        }
+      }
+      if (branch) {
+        collectPaths(value, branch, ctx, currentPath, paths, optional);
+      } else {
+        appendPath([]);
+      }
+    }
     return;
   }
   if ((expr.type === "Field" || expr.type === "Iterate") && expr.base) {
