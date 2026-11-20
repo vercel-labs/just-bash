@@ -194,8 +194,13 @@ function parseArgs(args: string[]): ParsedArgs | ExecResult {
         return unknownOption("yq", `--output-format=${format}`);
       }
       options.outputFormat = format;
-    } else if (a.startsWith("--indent=")) {
-      const indentValue = a.slice(9);
+    } else if (
+      a.startsWith("--indent=") ||
+      (a.startsWith("-I") && a.length > 2)
+    ) {
+      const indentValue = a.startsWith("--")
+        ? a.slice(9)
+        : a.slice(a[2] === "=" ? 3 : 2);
       const indent = parseIndent(indentValue);
       if (indent === null) return invalidIndent(indentValue);
       options.indent = indent;

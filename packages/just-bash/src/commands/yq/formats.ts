@@ -364,7 +364,7 @@ export function formatOutput(
 
     case "json": {
       return formatJsonValue(value, maxBytes, {
-        compact: options.compact,
+        compact: options.compact || options.indent === 0,
         raw: options.raw,
         indent: options.indent,
       });
