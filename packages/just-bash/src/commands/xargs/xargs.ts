@@ -1,6 +1,11 @@
-import { decodeBytesToUtf8 } from "../../encoding.js";
+import {
+  decodeBytesToUtf8,
+  latin1FromBytes,
+  readBytesFrom,
+} from "../../encoding.js";
 import { ExecutionOutputAccumulator } from "../../execution-output.js";
 import type { ExecutionScope } from "../../execution-scope.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type {
@@ -8,7 +13,8 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
-import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { accountFileInput } from "../../utils/file-reader.js";
+import { showHelp, unknownOption } from "../help.js";
 import { utf8ByteLength } from "../printf/escapes.js";
 
 const xargsHelp = {
@@ -16,6 +22,7 @@ const xargsHelp = {
   summary: "build and execute command lines from standard input",
   usage: "xargs [OPTION]... [COMMAND [INITIAL-ARGS]]",
   options: [
+    "-a, --arg-file FILE  read arguments from FILE, leaving stdin for commands",
     "-I REPLACE   replace occurrences of REPLACE with input",
     "-d DELIM     use DELIM as input delimiter (e.g., -d '\\n' for newline)",
     "-n NUM       use at most NUM arguments per command line",
@@ -82,10 +89,7 @@ export const xargsCommand: RuntimeCommand = {
     args: string[],
     ctx: RuntimeCommandContext,
   ): Promise<ExecResult> {
-    if (hasHelpFlag(args)) {
-      return showHelp(xargsHelp);
-    }
-
+    let argFile: string | null = null;
     let replaceStr: string | null = null;
     let delimiter: string | null = null;
     let maxArgs: number | null = null;
@@ -98,7 +102,23 @@ export const xargsCommand: RuntimeCommand = {
     // Parse xargs options
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
-      if (arg === "-I" && i + 1 < args.length) {
+      if (arg === "-a" || arg === "--arg-file") {
+        if (i + 1 === args.length) {
+          return {
+            stdout: "",
+            stderr: `xargs: option '${arg}' requires an argument\n`,
+            exitCode: 1,
+          };
+        }
+        argFile = args[++i];
+        commandStart = i + 1;
+      } else if (arg.startsWith("--arg-file=")) {
+        argFile = arg.slice("--arg-file=".length);
+        commandStart = i + 1;
+      } else if (arg.startsWith("-a") && arg.length > 2) {
+        argFile = arg.slice(2);
+        commandStart = i + 1;
+      } else if (arg === "-I" && i + 1 < args.length) {
         replaceStr = args[++i];
         commandStart = i + 1;
       } else if (arg === "-d" && i + 1 < args.length) {
@@ -148,6 +168,8 @@ export const xargsCommand: RuntimeCommand = {
       } else if (arg === "-r" || arg === "--no-run-if-empty") {
         noRunIfEmpty = true;
         commandStart = i + 1;
+      } else if (arg === "--help") {
+        return showHelp(xargsHelp);
       } else if (arg.startsWith("--")) {
         return unknownOption("xargs", arg);
       } else if (arg.startsWith("-") && arg.length > 1) {
@@ -168,6 +190,8 @@ export const xargsCommand: RuntimeCommand = {
       }
     }
 
+    if (argFile === "-") argFile = null;
+
     // Get command and initial args
     const command = args.slice(commandStart);
     if (command.length === 0) {
@@ -178,7 +202,26 @@ export const xargsCommand: RuntimeCommand = {
     // (whitespace). xargs' delimiters (`\0`, ASCII whitespace, user-provided
     // single-byte delim) all live in the ASCII range, but the args produced
     // are passed onward as text — decode so multibyte filenames survive.
-    const stdinText = decodeBytesToUtf8(ctx.stdin);
+    let stdinText: string;
+    if (argFile === null) {
+      stdinText = decodeBytesToUtf8(ctx.stdin);
+    } else {
+      try {
+        const content = await readBytesFrom(
+          ctx.fs,
+          ctx.fs.resolvePath(ctx.cwd, argFile),
+        );
+        accountFileInput(ctx, latin1FromBytes(content).length, "xargs");
+        stdinText = decodeBytesToUtf8(content);
+      } catch (error) {
+        rethrowFatalExecutionError(error);
+        return {
+          stdout: "",
+          stderr: `xargs: ${argFile}: No such file or directory\n`,
+          exitCode: 1,
+        };
+      }
+    }
     const maxStringLength = Math.min(
       ctx.limits.maxInputBytes,
       ctx.limits.maxStringLength,
@@ -208,7 +251,7 @@ export const xargsCommand: RuntimeCommand = {
       try {
         items = splitExactBounded(input, delimiter, maxArrayElements);
       } catch (error) {
-        if (error instanceof ExecutionLimitError) throw error;
+        rethrowFatalExecutionError(error);
         return {
           stdout: "",
           stderr: "xargs: delimiter must not be empty\n",
@@ -313,11 +356,20 @@ export const xargsCommand: RuntimeCommand = {
         appendStderr(`${cmdLine}\n`);
       }
       // Use ctx.exec to run the command, passing current working directory
+      if (argFile !== null && ctx.execWithInheritedStdin) {
+        return ctx.execWithInheritedStdin(shellJoinArgs([cmdArgs[0]]), {
+          cwd: ctx.cwd,
+          signal: ctx.signal,
+          args: cmdArgs.slice(1),
+        });
+      }
       if (ctx.exec) {
         return ctx.exec(shellJoinArgs([cmdArgs[0]]), {
           cwd: ctx.cwd,
           signal: ctx.signal,
           args: cmdArgs.slice(1),
+          stdin: argFile === null ? "" : latin1FromBytes(ctx.stdin),
+          stdinKind: "bytes",
         });
       }
       // Fallback: just output what would be run
