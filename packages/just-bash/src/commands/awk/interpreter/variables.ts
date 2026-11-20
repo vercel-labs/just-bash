@@ -126,6 +126,52 @@ export function resolveArrayName(
 }
 
 /**
+ * The record that backs an array, or undefined when the array does not
+ * exist. ARGV and ENVIRON live outside ctx.arrays (their elements are
+ * read through the special cases in getArrayElement), so they are
+ * resolved here too, under both the name as written and its
+ * alias-resolved form.
+ */
+export function getArrayStore(
+  ctx: AwkRuntimeContext,
+  rawName: string,
+  resolvedName: string,
+): Record<string, AwkValue> | undefined {
+  if (rawName === "ARGV" || resolvedName === "ARGV") return ctx.ARGV;
+  if (rawName === "ENVIRON" || resolvedName === "ENVIRON") return ctx.ENVIRON;
+  return ctx.arrays[resolvedName];
+}
+
+/**
+ * Replace an array's contents with the given values, reindexed 1..n.
+ * ARGV and ENVIRON are stored outside ctx.arrays and are not charged to
+ * arrayElementCount (their sizes are bounded by the command line and the
+ * environment); regular arrays go through deleteArray and
+ * setArrayElement so the element count stays exact.
+ */
+export function replaceArrayValues(
+  ctx: AwkRuntimeContext,
+  rawName: string,
+  values: AwkValue[],
+): void {
+  const resolvedName = resolveArrayName(ctx, rawName);
+  const store = getArrayStore(ctx, rawName, resolvedName);
+  if (store !== undefined && (store === ctx.ARGV || store === ctx.ENVIRON)) {
+    for (const key of Object.keys(store)) {
+      delete store[key];
+    }
+    for (let i = 0; i < values.length; i++) {
+      store[String(i + 1)] = values[i];
+    }
+    return;
+  }
+  deleteArray(ctx, resolvedName);
+  for (let i = 0; i < values.length; i++) {
+    setArrayElement(ctx, resolvedName, String(i + 1), values[i]);
+  }
+}
+
+/**
  * Get an array element value.
  */
 export function getArrayElement(
