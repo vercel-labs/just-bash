@@ -209,7 +209,7 @@ export const awkCommand2: RuntimeCommand = {
         );
         return {
           stdout: interp.getOutput(),
-          stderr: "",
+          stderr: runtimeCtx.stderr,
           exitCode: interp.getExitCode(),
         };
       }
@@ -220,7 +220,7 @@ export const awkCommand2: RuntimeCommand = {
         // Just run END blocks (none), no input processing needed
         return {
           stdout: interp.getOutput(),
-          stderr: "",
+          stderr: runtimeCtx.stderr,
           exitCode: interp.getExitCode(),
         };
       }
@@ -331,7 +331,7 @@ export const awkCommand2: RuntimeCommand = {
       // awk emits text; the pipeline handles encoding.
       return {
         stdout: interp.getOutput(),
-        stderr: "",
+        stderr: runtimeCtx.stderr,
         exitCode: interp.getExitCode(),
       };
     } catch (e) {
@@ -344,7 +344,7 @@ export const awkCommand2: RuntimeCommand = {
         e instanceof ExecutionLimitError ? ExecutionLimitError.EXIT_CODE : 2;
       return {
         stdout: interp.getOutput(),
-        stderr: `awk: ${msg}\n`,
+        stderr: `${runtimeCtx.stderr}awk: ${msg}\n`,
         exitCode,
       };
     }

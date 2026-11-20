@@ -79,6 +79,7 @@ export interface AwkRuntimeContext {
 
   // Output buffer (stdout)
   output: string;
+  stderr: string;
 
   // Filesystem access for getline < file and print > file
   fs?: AwkFileSystem;
@@ -182,6 +183,7 @@ export function createRuntimeContext(
     inEndBlock: false,
 
     output: "",
+    stderr: "",
     openedFiles: new Set(),
 
     fs,

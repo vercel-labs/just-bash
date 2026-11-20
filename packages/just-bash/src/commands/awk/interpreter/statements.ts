@@ -25,7 +25,10 @@ setBlockExecutor(executeBlock);
  * Throws ExecutionLimitError if the limit is set and exceeded.
  */
 function checkAwkOutputSize(ctx: AwkRuntimeContext): void {
-  if (ctx.maxOutputSize > 0 && ctx.output.length > ctx.maxOutputSize) {
+  if (
+    ctx.maxOutputSize > 0 &&
+    ctx.output.length + ctx.stderr.length > ctx.maxOutputSize
+  ) {
     throw new ExecutionLimitError(
       `awk: output size limit exceeded (${ctx.maxOutputSize} bytes)`,
       "string_length",
@@ -261,7 +264,12 @@ async function executePrintf(
   // DEBUG: console.log("printf DEBUG:", JSON.stringify({formatStr, values}));
   const remainingOutput =
     ctx.maxOutputSize > 0
-      ? Math.max(0, ctx.maxOutputSize - utf8ByteLength(ctx.output))
+      ? Math.max(
+          0,
+          ctx.maxOutputSize -
+            utf8ByteLength(ctx.output) -
+            utf8ByteLength(ctx.stderr),
+        )
       : undefined;
   const text = formatPrintf(formatStr, values, remainingOutput);
 
@@ -299,6 +307,12 @@ async function writeToFile(
     ),
   );
   const filePath = fs.resolvePath(ctx.cwd, filename);
+  if (filePath === "/dev/stderr" || filePath === "/dev/stdout") {
+    if (filePath === "/dev/stderr") ctx.stderr += text;
+    else ctx.output += text;
+    checkAwkOutputSize(ctx);
+    return;
+  }
 
   if (redirect === ">") {
     // Overwrite mode: first write clears file, subsequent writes append
