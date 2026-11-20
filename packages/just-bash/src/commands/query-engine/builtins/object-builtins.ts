@@ -14,7 +14,11 @@ import {
   safeSet,
   sanitizeParsedData,
 } from "../safe-object.js";
-import { getValueDepth, type QueryValue } from "../value-operations.js";
+import {
+  compareJq,
+  getValueDepth,
+  type QueryValue,
+} from "../value-operations.js";
 
 // Default max depth for nested structures
 const DEFAULT_MAX_JQ_DEPTH = 2000;
@@ -240,12 +244,15 @@ export function evalObjectBuiltin(
 
     case "unique":
       if (Array.isArray(value)) {
-        const seen = new Set<string>();
+        // jq's unique is sort followed by deduplication, so the result comes
+        // out sorted rather than in first-seen order.
+        const sorted = [...value].sort(compareJq);
         const result: QueryValue[] = [];
-        for (const item of value) {
-          const key = JSON.stringify(item);
-          if (!seen.has(key)) {
-            seen.add(key);
+        for (const item of sorted) {
+          if (
+            result.length === 0 ||
+            compareJq(result[result.length - 1], item) !== 0
+          ) {
             result.push(item);
           }
         }

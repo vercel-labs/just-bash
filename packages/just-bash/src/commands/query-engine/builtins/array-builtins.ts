@@ -46,9 +46,19 @@ function assertResultCapacity(
 }
 
 /**
- * Handle array builtins that need evaluate function for arguments.
- * Returns null if the builtin name is not an array builtin handled here.
+ * Keys for a `_by` builtin: every value produced by every key expression, in
+ * order. A comma expression (`.a, .b`) yields several values from one
+ * argument, so the flattened sequence is the sort key — jq sorts by the
+ * whole sequence, not just the first value.
  */
+function sortKeys(
+  value: QueryValue,
+  args: AstNode[],
+  ctx: EvalContext,
+  evaluate: EvalFn,
+): QueryValue[] {
+  return args.flatMap((arg) => evaluate(value, arg, ctx));
+}
 export function evalArrayBuiltin(
   value: QueryValue,
   name: string,
@@ -68,11 +78,14 @@ export function evalArrayBuiltin(
 
     case "sort_by": {
       if (!Array.isArray(value) || args.length === 0) return [null];
-      const sorted = [...value].sort((a, b) => {
-        const aKey = evaluate(a, args[0], ctx)[0];
-        const bKey = evaluate(b, args[0], ctx)[0];
-        return compareJq(aKey, bKey);
-      });
+      // compareJq orders arrays element-wise, which is the lexicographic
+      // key-sequence comparison jq uses.
+      const sorted = [...value].sort((a, b) =>
+        compareJq(
+          sortKeys(a, args, ctx, evaluate),
+          sortKeys(b, args, ctx, evaluate),
+        ),
+      );
       return [sorted];
     }
 
@@ -115,9 +128,9 @@ export function evalArrayBuiltin(
 
     case "unique_by": {
       if (!Array.isArray(value) || args.length === 0) return [null];
-      const seen = new Map<string, { item: QueryValue; key: QueryValue }>();
+      const seen = new Map<string, { item: QueryValue; key: QueryValue[] }>();
       for (const item of value) {
-        const keyVal = evaluate(item, args[0], ctx)[0];
+        const keyVal = sortKeys(item, args, ctx, evaluate);
         const keyStr = JSON.stringify(keyVal);
         if (!seen.has(keyStr)) {
           seen.set(keyStr, { item, key: keyVal });
@@ -131,13 +144,22 @@ export function evalArrayBuiltin(
 
     case "group_by": {
       if (!Array.isArray(value) || args.length === 0) return [null];
-      const groups = new Map<string, QueryValue[]>();
+      const groups = new Map<
+        string,
+        { key: QueryValue[]; items: QueryValue[] }
+      >();
       for (const item of value) {
-        const key = JSON.stringify(evaluate(item, args[0], ctx)[0]);
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key)?.push(item);
+        const keyVal = sortKeys(item, args, ctx, evaluate);
+        const key = JSON.stringify(keyVal);
+        if (!groups.has(key)) groups.set(key, { key: keyVal, items: [] });
+        groups.get(key)?.items.push(item);
       }
-      return [[...groups.values()]];
+      // jq defines group_by(f) as sort_by(f) followed by grouping, so the
+      // groups come out ordered by key rather than in first-seen order.
+      const ordered = [...groups.values()].sort((a, b) =>
+        compareJq(a.key, b.key),
+      );
+      return [ordered.map((g) => g.items)];
     }
 
     case "max":
@@ -151,8 +173,8 @@ export function evalArrayBuiltin(
         return [null];
       return [
         value.reduce((a, b) => {
-          const aKey = evaluate(a, args[0], ctx)[0];
-          const bKey = evaluate(b, args[0], ctx)[0];
+          const aKey = sortKeys(a, args, ctx, evaluate);
+          const bKey = sortKeys(b, args, ctx, evaluate);
           return compareJq(aKey, bKey) > 0 ? a : b;
         }),
       ];
@@ -169,8 +191,8 @@ export function evalArrayBuiltin(
         return [null];
       return [
         value.reduce((a, b) => {
-          const aKey = evaluate(a, args[0], ctx)[0];
-          const bKey = evaluate(b, args[0], ctx)[0];
+          const aKey = sortKeys(a, args, ctx, evaluate);
+          const bKey = sortKeys(b, args, ctx, evaluate);
           return compareJq(aKey, bKey) < 0 ? a : b;
         }),
       ];
