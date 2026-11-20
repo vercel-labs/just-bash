@@ -180,11 +180,9 @@ export function searchContent(
   }
 
   let work = 0;
-  let sinceDeadlineCheck = 0;
   const chargeWork = (amount = 1): void => {
     if (signal?.aborted) throw new ExecutionAbortedError();
-    if (++sinceDeadlineCheck >= DEADLINE_CHECK_STRIDE) {
-      sinceDeadlineCheck = 0;
+    if ((work + amount) % DEADLINE_CHECK_STRIDE === 0) {
       budget?.throwIfAborted("search");
     }
     work += amount;
@@ -576,11 +574,9 @@ function searchContentMultiline(
   } = options;
 
   let work = 0;
-  let sinceDeadlineCheck = 0;
   const chargeWork = (amount = 1): void => {
     if (signal?.aborted) throw new ExecutionAbortedError();
-    if (++sinceDeadlineCheck >= DEADLINE_CHECK_STRIDE) {
-      sinceDeadlineCheck = 0;
+    if ((work + amount) % DEADLINE_CHECK_STRIDE === 0) {
       budget?.throwIfAborted("search");
     }
     work += amount;
