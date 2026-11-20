@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { getSkipReason } from "../../spec-tests/jq/skips.js";
 
 describe("jq deletion paths", () => {
@@ -78,6 +79,21 @@ describe("jq deletion paths", () => {
     });
   });
 
+  it("reads intermediate negative fractional indices before deleting descendants", async () => {
+    const bash = new Bash({
+      files: { "/input.json": '[{"a":1},{"a":2}]' },
+    });
+    expect(
+      await bash.exec(
+        "jq -c '[del(.[-0.5].a), del(.[-0.5] | .a), del(.[-0.5]), del(.[-1.5].a)]' /input.json",
+      ),
+    ).toMatchObject({
+      stdout: '[[{},{"a":2}],[{},{"a":2}],[{"a":1},{"a":2}],[{"a":1},{}]]\n',
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
   it("preserves conditional paths without accepting value-producing branches", async () => {
     const bash = new Bash({
       files: {
@@ -120,6 +136,84 @@ describe("jq deletion paths", () => {
     expect(result.stdout).toBe("");
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("Unsupported path expression");
+  });
+
+  it("follows every elif condition result when collecting paths", async () => {
+    const bash = new Bash({ files: { "/input.json": '{"a":1,"b":2}' } });
+    expect(
+      await bash.exec(
+        "jq -c '[del(if false then .a elif empty then .a else .b end), del(if false then .a elif (false,true,false) then .a elif (true,false) then .b else empty end), [path(if false then .a elif (false,true,false) then .a elif (true,false) then .b else . end)]]' /input.json",
+      ),
+    ).toMatchObject({
+      stdout: '[{"a":1,"b":2},{},[["b"],[],["a"],["b"],[]]]\n',
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
+  it("preserves try paths and catches errors without accepting new values", async () => {
+    const bash = new Bash({
+      files: { "/input.json": '{"a":{"x":1},"bad":1}' },
+    });
+    expect(
+      await bash.exec(
+        "jq -c '[path(.a | try . catch empty), path(.bad | try .x catch empty), path(.a | try error(\"bad\") catch empty), path(try (1/0) catch empty), path(try (empty + 1) catch empty)]' /input.json",
+      ),
+    ).toMatchObject({
+      stdout: '[["a"]]\n',
+      stderr: "",
+      exitCode: 0,
+    });
+    for (const [filter, stderr, exitCode] of [
+      [
+        "del(.a | try (.x + 1) catch empty)",
+        "jq: parse error: Unsupported path expression\n",
+        5,
+      ],
+      [
+        "del(.bad | try .x catch .)",
+        "jq: parse error: Unsupported path expression\n",
+        5,
+      ],
+      [
+        "path((.a.x + 1)?)",
+        "jq: parse error: Unsupported path expression\n",
+        5,
+      ],
+      [
+        'path(try error("bad") catch error("other"))',
+        "jq: parse error: other\n",
+        5,
+      ],
+    ] as const) {
+      expect(await bash.exec(`jq -c '${filter}' /input.json`)).toMatchObject({
+        stdout: "",
+        stderr,
+        exitCode,
+      });
+    }
+    const limited = new Bash({ executionLimits: { maxJqIterations: 100 } });
+    const result = await limited.exec(
+      "jq -nc '[path(try (if (range(1000) | false) then . else empty end) catch empty)]'",
+    );
+    expect(result).toMatchObject({
+      stdout: "",
+      stderr: "jq: query evaluation: too many iterations (100)\n",
+      exitCode: ExecutionLimitError.EXIT_CODE,
+    });
+  });
+
+  it("rejects unimplemented numeric filters as path expressions", async () => {
+    const bash = new Bash({ files: { "/input.json": "1" } });
+    for (const name of ["normals", "finites"]) {
+      expect(
+        await bash.exec(`jq -c 'path(${name})' /input.json`),
+      ).toMatchObject({
+        stdout: "",
+        stderr: `jq: error: Unknown function: ${name}\n`,
+        exitCode: 3,
+      });
+    }
   });
 
   it("keeps passing jq spec cases out of the expected-failure list", () => {

@@ -86,4 +86,54 @@ describe("bulk deletion work", () => {
     ).toThrow(ExecutionLimitError);
     expect(reads).toBe(0);
   });
+
+  it("extracts long static paths without exhausting the call stack or charging reads", () => {
+    const expr = parse(`del(${".a".repeat(20_000)})`);
+    if (expr.type !== "Call") throw new Error("Expected a del call");
+    let component = expr.args[0];
+    for (let i = 0; i < 19_000; i++) {
+      if (component.type !== "Field" || !component.base) {
+        throw new Error("Expected a field chain");
+      }
+      component = component.base;
+    }
+    if (component.type !== "Field") throw new Error("Expected a field");
+    const name = component.name;
+    let reads = 0;
+    Object.defineProperty(component, "name", {
+      get() {
+        reads++;
+        return name;
+      },
+    });
+    expect(() =>
+      evaluate(null, expr, {
+        limits: { maxDepth: 2000, maxIterations: 100 },
+      }),
+    ).toThrow(ExecutionLimitError);
+    expect(reads).toBe(1);
+
+    const pipeline = parse(Array(100).fill(".a").join(" | "));
+    expect(
+      evaluate(null, pipeline, { limits: { maxIterations: 1000 } }),
+    ).toEqual([null]);
+
+    const deepPipePath = parse(`.a | (${".a".repeat(20_000)} | .)`);
+    expect(() =>
+      evaluate(null, deepPipePath, {
+        limits: { maxDepth: 2000, maxIterations: 100 },
+      }),
+    ).toThrow(ExecutionLimitError);
+  });
+
+  it("enforces the depth limit for long elif chains", () => {
+    const expr = parse(
+      `del(if false then . ${"elif false then . ".repeat(30)}else . end)`,
+    );
+    expect(() => evaluate(null, expr, { limits: { maxDepth: 16 } })).toThrow(
+      ExecutionLimitError,
+    );
+    expect(evaluate(null, expr, { limits: { maxDepth: 31 } })).toEqual([null]);
+    expect(evaluate(null, expr, { limits: { maxDepth: 64 } })).toEqual([null]);
+  });
 });

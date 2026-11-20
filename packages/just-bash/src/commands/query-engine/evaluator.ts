@@ -70,6 +70,8 @@ class JqError extends Error {
   }
 }
 
+class UnsupportedPathExpressionError extends Error {}
+
 const DEFAULT_MAX_JQ_ITERATIONS = 10000;
 const DEFAULT_MAX_STRING_LENGTH = 10 * 1024 * 1024;
 // Depth limit for nested structures - must be low enough to avoid V8 stack overflow
@@ -357,103 +359,80 @@ function getValueAtPath(
  * Handles Pipe nodes with parent/root to track path adjustments.
  */
 function extractPathFromAst(ast: AstNode): (string | number)[] | null {
-  if (ast.type === "Identity") return [];
-  if (ast.type === "Field") {
-    const basePath = ast.base ? extractPathFromAst(ast.base) : [];
-    if (basePath === null) return null;
-    return [...basePath, ast.name];
-  }
-  if (ast.type === "Index" && ast.index.type === "Literal") {
-    const basePath = ast.base ? extractPathFromAst(ast.base) : [];
-    if (basePath === null) return null;
-    const idx = ast.index.value;
-    if (typeof idx === "number" || typeof idx === "string") {
-      return [...basePath, idx];
-    }
-    return null;
-  }
-  // Handle Pipe nodes to track path through parent/root calls
-  if (ast.type === "Pipe") {
-    const leftPath = extractPathFromAst(ast.left);
-    if (leftPath === null) return null;
-    // Apply right side transformation to the path
-    return applyPathTransform(leftPath, ast.right);
-  }
-  // Handle parent/root builtins for path adjustment
-  if (ast.type === "Call") {
-    if (ast.name === "parent") {
-      // parent without context returns null (needs base path from pipe)
+  const steps: Array<string | number | AstNode> = [];
+  let current: AstNode | undefined = ast;
+  while (current) {
+    if (current.type === "Identity") break;
+    if (current.type === "Field") {
+      steps.push(current.name);
+      current = current.base;
+    } else if (current.type === "Index" && current.index.type === "Literal") {
+      const index = current.index.value;
+      if (typeof index !== "number" && typeof index !== "string") return null;
+      steps.push(index);
+      current = current.base;
+    } else if (current.type === "Pipe") {
+      steps.push(current.right);
+      current = current.left;
+    } else if (current.type === "Call" && current.args.length === 0) {
+      if (current.name === "first") steps.push(0);
+      else if (current.name === "last") steps.push(-1);
+      else return null;
+      break;
+    } else {
       return null;
     }
-    if (ast.name === "root") {
-      // root resets to document root
+  }
+  const path: (string | number)[] = [];
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i];
+    if (typeof step === "string" || typeof step === "number") {
+      path.push(step);
+    } else if (applyPathTransform(path, step) === null) {
       return null;
     }
-    // first without args is .[0], last without args is .[-1]
-    if (ast.name === "first" && ast.args.length === 0) {
-      return [0];
-    }
-    if (ast.name === "last" && ast.args.length === 0) {
-      return [-1];
-    }
   }
-  // For other node types, we can't extract a simple path
-  return null;
+  return path;
 }
 
 /**
- * Apply a path transformation (like parent or root) to a base path.
+ * Apply a path transformation (like parent or root), mutating the caller's local base path.
  */
 function applyPathTransform(
   basePath: (string | number)[],
   ast: AstNode,
 ): (string | number)[] | null {
-  if (ast.type === "Call") {
-    if (ast.name === "parent") {
-      // Get levels - default is 1, or extract from literal arg
+  const pending = [ast];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current) break;
+    if (current.type === "Pipe") {
+      pending.push(current.right, current.left);
+    } else if (current.type === "Call" && current.name === "parent") {
       let levels = 1;
-      if (ast.args.length > 0 && ast.args[0].type === "Literal") {
-        const arg = ast.args[0].value;
+      if (current.args.length > 0 && current.args[0].type === "Literal") {
+        const arg = current.args[0].value;
         if (typeof arg === "number") levels = arg;
       }
-      if (levels >= 0) {
-        // Positive: go up n levels
-        return basePath.slice(0, Math.max(0, basePath.length - levels));
-      } else {
-        // Negative: index from root (-1 = root, -2 = one below root)
-        const targetLen = -levels - 1;
-        return basePath.slice(0, Math.min(targetLen, basePath.length));
-      }
-    }
-    if (ast.name === "root") {
-      return [];
-    }
-  }
-  // For Field/Index on right side, extend the path
-  if (ast.type === "Field") {
-    const rightPath = extractPathFromAst(ast);
-    if (rightPath !== null) {
-      return [...basePath, ...rightPath];
+      const end =
+        levels >= 0
+          ? Math.max(0, basePath.length - levels)
+          : Math.min(-levels - 1, basePath.length);
+      basePath.length = Number.isNaN(end) ? 0 : Math.trunc(end);
+    } else if (current.type === "Call" && current.name === "root") {
+      basePath.length = 0;
+    } else if (
+      current.type === "Field" ||
+      (current.type === "Index" && current.index.type === "Literal")
+    ) {
+      const rightPath = extractPathFromAst(current);
+      if (rightPath === null) return null;
+      for (const key of rightPath) basePath.push(key);
+    } else if (current.type !== "Identity") {
+      return null;
     }
   }
-  if (ast.type === "Index" && ast.index.type === "Literal") {
-    const rightPath = extractPathFromAst(ast);
-    if (rightPath !== null) {
-      return [...basePath, ...rightPath];
-    }
-  }
-  // For nested pipes, recurse
-  if (ast.type === "Pipe") {
-    const afterLeft = applyPathTransform(basePath, ast.left);
-    if (afterLeft === null) return null;
-    return applyPathTransform(afterLeft, ast.right);
-  }
-  // Identity doesn't change path
-  if (ast.type === "Identity") {
-    return basePath;
-  }
-  // For other transformations, we lose path tracking
-  return null;
+  return basePath;
 }
 
 export interface EvaluateOptions {
@@ -1340,18 +1319,19 @@ function applyDel(
     let parent = root;
     const normalized: (string | number)[] = [];
     let outsideArray = false;
-    for (const rawComponent of path) {
+    for (let i = 0; i < path.length; i++) {
+      const rawComponent = path[i];
       chargeQueryWork(ctx);
       const component =
         typeof rawComponent === "number"
           ? Math.trunc(rawComponent)
           : rawComponent;
-      // jq uses the original sign before truncating a deletion index.
+      // Intermediate indices are read; only the final index uses the deletion sign rule.
       const key =
         Array.isArray(parent) &&
         typeof component === "number" &&
         typeof rawComponent === "number" &&
-        rawComponent < 0
+        (i === path.length - 1 ? rawComponent < 0 : component < 0)
           ? parent.length + component
           : component;
       if (
@@ -2017,7 +1997,12 @@ function collectPaths(
     try {
       collectPaths(value, expr.expr, ctx, currentPath, paths, true);
     } catch (error) {
-      if (error instanceof ExecutionLimitError) throw error;
+      if (
+        error instanceof ExecutionLimitError ||
+        error instanceof UnsupportedPathExpressionError
+      ) {
+        throw error;
+      }
     }
     return;
   }
@@ -2025,24 +2010,60 @@ function collectPaths(
     collectPaths(value, expr.expr, ctx, currentPath, paths);
     return;
   }
-  if (expr.type === "Cond") {
-    for (const condition of evaluate(value, expr.cond, ctx)) {
-      let branch: AstNode | undefined = expr.then;
-      if (!isTruthy(condition)) {
-        branch = expr.else;
-        for (const elif of expr.elifs) {
-          if (evaluate(value, elif.cond, ctx).some(isTruthy)) {
-            branch = elif.then;
-            break;
-          }
+  if (expr.type === "Try") {
+    try {
+      collectPaths(value, expr.body, ctx, currentPath, paths, optional);
+    } catch (error) {
+      if (
+        error instanceof ExecutionLimitError ||
+        error instanceof UnsupportedPathExpressionError
+      ) {
+        throw error;
+      }
+      if (expr.catch) {
+        const errorValue =
+          error instanceof JqError
+            ? error.value
+            : error instanceof Error
+              ? error.message
+              : String(error);
+        if (evaluate(errorValue, expr.catch, ctx).length > 0) {
+          throw new UnsupportedPathExpressionError(
+            "Unsupported path expression",
+          );
         }
       }
-      if (branch) {
-        collectPaths(value, branch, ctx, currentPath, paths, optional);
-      } else {
-        appendPath([]);
-      }
     }
+    return;
+  }
+  if (expr.type === "Cond") {
+    const collectBranch = (index: number): void => {
+      const elif = expr.elifs[index - 1];
+      if (index > 0 && !elif) {
+        if (expr.else) {
+          collectPaths(value, expr.else, ctx, currentPath, paths, optional);
+        } else {
+          appendPath([]);
+        }
+        return;
+      }
+      if (index >= ctx.limits.maxDepth) {
+        throw queryLimitError(
+          `query depth limit exceeded (${ctx.limits.maxDepth})`,
+          "recursion",
+        );
+      }
+      const conditionExpr = index === 0 ? expr.cond : elif.cond;
+      const branch = index === 0 ? expr.then : elif.then;
+      for (const condition of evaluate(value, conditionExpr, ctx)) {
+        if (isTruthy(condition)) {
+          collectPaths(value, branch, ctx, currentPath, paths, optional);
+        } else {
+          collectBranch(index + 1);
+        }
+      }
+    };
+    collectBranch(0);
     return;
   }
   if ((expr.type === "Field" || expr.type === "Iterate") && expr.base) {
@@ -2167,8 +2188,6 @@ function collectPaths(
       "iterables",
       "booleans",
       "numbers",
-      "normals",
-      "finites",
       "strings",
       "scalars",
       "empty",
@@ -2177,5 +2196,8 @@ function collectPaths(
     if (evaluate(value, expr, ctx).length > 0) appendPath([]);
     return;
   }
-  throw new Error("Unsupported path expression");
+  // An expression that produces no values, or fails before producing one, does
+  // not produce an invalid path. Leave evaluation errors for `try` to catch.
+  if (evaluate(value, expr, ctx).length === 0) return;
+  throw new UnsupportedPathExpressionError("Unsupported path expression");
 }
