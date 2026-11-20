@@ -116,7 +116,6 @@ export function createFuzzConfig(
   if (
     suppliedSeed !== undefined &&
     (!/^[+-]?\d+$/.test(suppliedSeed) ||
-      !Number.isInteger(Number(suppliedSeed)) ||
       Number(suppliedSeed) < -2147483648 ||
       Number(suppliedSeed) > 2147483647)
   ) {
