@@ -128,6 +128,25 @@ describe("ls", () => {
     expect(result.stderr).toBe("");
   });
 
+  it("should show the physical parent for .. when the directory is reached through a symlink (fixes #756)", async () => {
+    const env = new Bash({
+      files: {
+        "/other/deep/real/file.txt": "",
+        "/lex/.keep": "",
+      },
+    });
+    await env.exec(
+      "ln -s /other/deep/real /lex/link && touch -d '2020-01-02 03:04' /other/deep && touch -d '2022-09-10 11:12' /lex",
+    );
+    const result = await env.exec("ls -la /lex/link");
+    const lines = result.stdout.split("\n").filter((l) => l);
+    // ".." is /other/deep (the parent of the real directory), not /lex
+    // (the lexical parent of the symlink path).
+    expect(lines[2]).toContain("Jan  2  2020");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
+
   it("should list multiple directories", async () => {
     const env = new Bash({
       files: {
