@@ -109,7 +109,10 @@ export function setVariable(
 /**
  * Resolve array name through aliases (for function parameter passing).
  */
-function resolveArrayName(ctx: AwkRuntimeContext, array: string): string {
+export function resolveArrayName(
+  ctx: AwkRuntimeContext,
+  array: string,
+): string {
   // Follow alias chain to get the real array name
   let resolved = array;
   const seen = new Set<string>();
