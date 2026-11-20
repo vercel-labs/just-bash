@@ -79,7 +79,7 @@ import {
   PosixFatalError,
   ReturnError,
 } from "./errors.js";
-import { expandWord, expandWordWithGlob } from "./expansion.js";
+import { expandWordWithGlob } from "./expansion.js";
 import { advanceFd } from "./fd-table.js";
 import { executeFunctionDef } from "./functions.js";
 import { failure, OK, result, testResult } from "./helpers/result.js";
@@ -779,7 +779,12 @@ export class Interpreter {
       }
     }
 
-    let commandName = await expandWord(this.ctx, node.name);
+    // The command name is expanded like an argument, with word splitting and
+    // globbing, as in bash. The first field is the command, and the other
+    // fields come before the arguments, so `$cmd`, "$@" and "${a[@]}" can run
+    // a command with its arguments.
+    const nameFields = await expandWordWithGlob(this.ctx, node.name);
+    let commandName = nameFields.values[0] ?? "";
 
     const args: string[] = [];
     const quotedArgs: boolean[] = [];
@@ -793,6 +798,9 @@ export class Interpreter {
       args.push(value);
       quotedArgs.push(quoted);
     };
+    for (const value of nameFields.values.slice(1)) {
+      appendArgument(value, nameFields.quoted);
+    }
 
     // Handle local/declare/export/readonly arguments specially:
     // - For array assignments like `local a=(1 "2 3")`, preserve quote structure
@@ -855,13 +863,10 @@ export class Interpreter {
       }
     }
 
-    const commandIsOnlyExpansions = node.name.parts.every(
-      (part) =>
-        part.type === "CommandSubstitution" ||
-        part.type === "ParameterExpansion" ||
-        part.type === "ArithmeticExpansion",
-    );
-    if (!commandName && commandIsOnlyExpansions && args.length > 0) {
+    // A name that expands to no fields, such as an empty `$x` or "$@" with no
+    // parameters, leaves the first argument as the command.
+    const hasCommandField = nameFields.values.length > 0 || args.length > 0;
+    if (nameFields.values.length === 0 && args.length > 0) {
       commandName = args.shift() as string;
       quotedArgs.shift();
     }
@@ -896,16 +901,13 @@ export class Interpreter {
       stdin = preparedRedirections.stdin;
     }
 
-    // Handle empty command name specially
-    // If the command word contains ONLY command substitutions/expansions and expands
-    // to empty, word-splitting removes the empty result. If there are args, the first
-    // arg becomes the command name. This matches bash behavior:
-    // - x=''; $x is a no-op (empty, no args)
-    // - x=''; $x Y runs command Y (empty command name, Y becomes command)
+    // Handle empty command name specially. This matches bash behavior:
+    // - x=''; $x is a no-op: the words expand to no fields
+    // - x=''; $x Y runs command Y
     // - `true` X runs command X (since `true` outputs nothing)
-    // However, a literal empty string (like '') is "command not found".
+    // However, an empty field (like '' or "$x") is "command not found".
     if (!commandName) {
-      if (commandIsOnlyExpansions) {
+      if (!hasCommandField) {
         // No args - treat as a no-op that reports the status of a command
         // substitution in the word (`$(exit 42)` is 42) and 0 otherwise.
         transaction.finish();
@@ -915,7 +917,7 @@ export class Interpreter {
           nullCommandExitStatus(this.ctx.state, node.redirections),
         );
       }
-      // Literal empty command name - command not found
+      // An empty field, such as '' or "$x", is not a command
       transaction.finish();
       return failure("bash: : command not found\n", 127);
     }
