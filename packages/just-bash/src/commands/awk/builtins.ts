@@ -19,9 +19,9 @@ import {
 import { looksLikeNumber } from "./interpreter/type-coercion.js";
 import type { AwkValue } from "./interpreter/types.js";
 import {
-  deleteArray,
+  getArrayStore,
+  replaceArrayValues,
   resolveArrayName,
-  setArrayElement,
 } from "./interpreter/variables.js";
 
 /**
@@ -269,10 +269,13 @@ async function awkSplit(
  * gawk asort(source [, dest [, how]]): sort an array's values and reindex
  * them 1..n. Without dest the source is sorted in place; with dest the
  * source is left unchanged and the sorted values land in dest. Returns the
- * number of elements. The default comparison follows the same rules as `<`:
- * values that both look numeric compare numerically, otherwise as strings.
- * The optional how argument accepts the gawk "@val_num_asc",
- * "@val_num_desc", "@val_str_asc" and "@val_str_desc" modes.
+ * number of elements. ARGV and ENVIRON are read and written through their
+ * dedicated storage, the same place element access uses. The default
+ * comparison is gawk's type order: numeric values come first (compared
+ * numerically), then string values (compared as strings). The optional
+ * how argument accepts the gawk "@val_num_asc", "@val_num_desc",
+ * "@val_str_asc" and "@val_str_desc" modes; the numeric modes break ties
+ * between numerically equal values with a string comparison, as gawk does.
  */
 async function awkAsort(
   args: AwkExpr[],
@@ -280,14 +283,12 @@ async function awkAsort(
   evaluator: AwkEvaluator,
 ): Promise<number> {
   if (args.length === 0 || args[0].type !== "variable") return 0;
-  const sourceName = resolveArrayName(ctx, args[0].name);
-  const source = ctx.arrays[sourceName] ?? Object.create(null);
-  const values: AwkValue[] = Object.keys(source).map((k) => source[k]);
+  const sourceRaw = args[0].name;
 
-  let destName = sourceName;
+  let destRaw = sourceRaw;
   if (args.length >= 2) {
     if (args[1].type !== "variable") return 0;
-    destName = resolveArrayName(ctx, args[1].name);
+    destRaw = args[1].name;
   }
 
   let how = "";
@@ -301,32 +302,51 @@ async function awkAsort(
     throw new Error(`asort: unsupported how argument "${how}"`);
   }
 
+  // Snapshot the source only after the other arguments have been
+  // evaluated: gawk passes arrays by reference, so a `how` expression
+  // that modifies the source is visible to the sort.
+  const sourceStore = getArrayStore(
+    ctx,
+    sourceRaw,
+    resolveArrayName(ctx, sourceRaw),
+  );
+  const values: AwkValue[] = sourceStore ? Object.values(sourceStore) : [];
+
+  const compareAsStrings = (a: AwkValue, b: AwkValue): number => {
+    const sa = toAwkString(a);
+    const sb = toAwkString(b);
+    return sa < sb ? -1 : sa > sb ? 1 : 0;
+  };
+  const compareAsNumbers = (a: AwkValue, b: AwkValue): number => {
+    const na = toNumber(a);
+    const nb = toNumber(b);
+    return na < nb ? -1 : na > nb ? 1 : 0;
+  };
   const compare = (a: AwkValue, b: AwkValue): number => {
     let result: number;
     if (numericOnly) {
-      result = toNumber(a) - toNumber(b);
+      result = compareAsNumbers(a, b);
+      // gawk breaks numeric ties with the string values so the ordering
+      // does not depend on the underlying sort implementation.
+      if (result === 0) result = compareAsStrings(a, b);
     } else if (stringOnly) {
-      const sa = toAwkString(a);
-      const sb = toAwkString(b);
-      result = sa < sb ? -1 : sa > sb ? 1 : 0;
+      result = compareAsStrings(a, b);
     } else if (looksLikeNumber(a) && looksLikeNumber(b)) {
-      result = toNumber(a) - toNumber(b);
+      result = compareAsNumbers(a, b);
+    } else if (looksLikeNumber(a)) {
+      result = -1;
+    } else if (looksLikeNumber(b)) {
+      result = 1;
     } else {
-      const sa = toAwkString(a);
-      const sb = toAwkString(b);
-      result = sa < sb ? -1 : sa > sb ? 1 : 0;
+      result = compareAsStrings(a, b);
     }
     return descending ? -result : result;
   };
   values.sort(compare);
 
-  // The values are already copied above, so clearing the destination first is
-  // safe even when dest is the source. deleteArray keeps the element count
-  // accurate, and setArrayElement re-adds exactly the sorted values.
-  deleteArray(ctx, destName);
-  for (let i = 0; i < values.length; i++) {
-    setArrayElement(ctx, destName, String(i + 1), values[i]);
-  }
+  // The values are already copied above, so replacing the destination is
+  // safe even when dest is the source.
+  replaceArrayValues(ctx, destRaw, values);
   return values.length;
 }
 
