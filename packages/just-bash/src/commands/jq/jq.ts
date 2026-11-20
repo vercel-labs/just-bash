@@ -444,7 +444,7 @@ export const jqCommand: RuntimeCommand = {
     if (nullInput) {
       // No input
     } else if (files.length === 0 || (files.length === 1 && files[0] === "-")) {
-      inputs.push({ source: "stdin", content: decodeBytesToUtf8(ctx.stdin) });
+      inputs.push({ source: "<stdin>", content: decodeBytesToUtf8(ctx.stdin) });
     } else {
       // Read all files in parallel using shared utility
       const result = await withDefenseContext("file read", () =>
@@ -461,7 +461,7 @@ export const jqCommand: RuntimeCommand = {
         };
       }
       inputs = result.files.map((f) => ({
-        source: f.filename || "stdin",
+        source: f.filename === "-" || !f.filename ? "<stdin>" : f.filename,
         content: decodeBytesToUtf8(f.content),
       }));
     }
@@ -474,7 +474,9 @@ export const jqCommand: RuntimeCommand = {
       });
       let values: QueryValue[] = [];
 
+      const inputFilename: { value: string | null } = { value: null };
       const evalOptions: EvaluateOptions = {
+        inputFilename,
         limits: ctx.limits
           ? {
               maxIterations: ctx.limits.maxJqIterations,
@@ -504,6 +506,7 @@ export const jqCommand: RuntimeCommand = {
       if (nullInput) {
         values = evaluate(null, ast, evalOptions);
       } else if (rawInput && slurp) {
+        inputFilename.value = inputs.at(-1)?.source ?? null;
         // Raw slurp: the entire concatenated input becomes one JSON string.
         const rawText = inputs.map(({ content }) => content).join("");
         values = evaluate(rawText, ast, evalOptions);
@@ -516,7 +519,8 @@ export const jqCommand: RuntimeCommand = {
         // newline does not yield a final empty string, but interior blank
         // lines are preserved.
         let remainder = "";
-        for (const { content } of inputs) {
+        for (const { source, content } of inputs) {
+          inputFilename.value = source;
           const text = remainder + content;
           let start = 0;
           let nl = text.indexOf("\n", start);
@@ -537,7 +541,8 @@ export const jqCommand: RuntimeCommand = {
         // Slurp mode: combine all inputs into single array
         // Use JSON stream parser to handle concatenated JSON (not just NDJSON)
         const items: QueryValue[] = [];
-        for (const { content } of inputs) {
+        for (const { source, content } of inputs) {
+          inputFilename.value = source;
           const trimmed = content.trim();
           if (trimmed) {
             appendValues(items, parseJsonStream(trimmed, jsonLimits));
@@ -547,7 +552,8 @@ export const jqCommand: RuntimeCommand = {
       } else {
         // Process each input file separately
         // Use JSON stream parser to handle concatenated JSON (e.g., cat file1.json file2.json | jq .)
-        for (const { content } of inputs) {
+        for (const { source, content } of inputs) {
+          inputFilename.value = source;
           const trimmed = content.trim();
           if (!trimmed) continue;
 
