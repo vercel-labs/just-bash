@@ -12,7 +12,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   isPathWithinRoot,
   normalizePath,
+  resolveCanonicalPathNoSymlinks,
   sanitizeSymlinkTarget,
+  toVirtualPath,
   validatePath,
   validateRealPath,
   validateRootDirectory,
@@ -137,6 +139,113 @@ describe("isPathWithinRoot", () => {
     // boundary attack with backslash
     expect(isPathWithinRoot("D:\\projects", "D:\\project")).toBe(false);
     expect(isPathWithinRoot("D:\\project-evil", "D:\\project")).toBe(false);
+  });
+
+  it("handles Windows UNC roots", () => {
+    const root = "\\\\server\\share";
+    expect(isPathWithinRoot("\\\\server\\share\\file.txt", root)).toBe(true);
+    expect(isPathWithinRoot("\\\\server\\share", root)).toBe(true);
+    expect(isPathWithinRoot("\\\\server\\share-evil\\file.txt", root)).toBe(
+      false,
+    );
+    expect(isPathWithinRoot("\\\\server\\other\\file.txt", root)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// toVirtualPath
+// ---------------------------------------------------------------------------
+describe("toVirtualPath", () => {
+  it("keeps the leading slash when the canonical root is /", () => {
+    expect(toVirtualPath("/usr", "/")).toBe("/usr");
+    expect(toVirtualPath("/a/b/c", "/")).toBe("/a/b/c");
+  });
+
+  it("returns / for the root itself", () => {
+    expect(toVirtualPath("/", "/")).toBe("/");
+    expect(toVirtualPath("/sandbox", "/sandbox")).toBe("/");
+  });
+
+  it("strips a non-root canonical root", () => {
+    expect(toVirtualPath("/sandbox/file.txt", "/sandbox")).toBe("/file.txt");
+    expect(toVirtualPath("/sandbox/a/b", "/sandbox")).toBe("/a/b");
+  });
+
+  it("normalizes Windows separators", () => {
+    expect(toVirtualPath("D:\\project\\file.txt", "D:\\project")).toBe(
+      "/file.txt",
+    );
+    expect(toVirtualPath("D:\\project", "D:\\project")).toBe("/");
+  });
+
+  it("keeps the leading slash when the canonical root is a drive root", () => {
+    expect(toVirtualPath("D:\\project\\file.txt", "D:\\")).toBe(
+      "/project/file.txt",
+    );
+    expect(toVirtualPath("D:\\project", "D:\\")).toBe("/project");
+    expect(toVirtualPath("D:\\", "D:\\")).toBe("/");
+  });
+
+  it("converts paths under a UNC root", () => {
+    expect(
+      toVirtualPath("\\\\server\\share\\dir\\file.txt", "\\\\server\\share"),
+    ).toBe("/dir/file.txt");
+    expect(toVirtualPath("\\\\server\\share", "\\\\server\\share")).toBe("/");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveCanonicalPathNoSymlinks
+// ---------------------------------------------------------------------------
+describe("resolveCanonicalPathNoSymlinks", () => {
+  let tempDir: string;
+  let root: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "no-symlinks-root-"));
+    root = path.join(tempDir, "host-root");
+    fs.symlinkSync("/", root, "dir");
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("accepts a child when the root is a symlink to /", () => {
+    // Dirent.isDirectory() is false for symlinks, so this child is its own
+    // canonical path.
+    const child = fs
+      .readdirSync("/", { withFileTypes: true })
+      .find((entry) => entry.isDirectory());
+    expect(child).toBeDefined();
+
+    expect(
+      resolveCanonicalPathNoSymlinks(
+        path.join(root, child?.name ?? ""),
+        root,
+        fs.realpathSync(root),
+      ),
+    ).toBe(path.join(fs.realpathSync(root), child?.name ?? ""));
+  });
+
+  it("still rejects a path through a symlinked directory when the root is a symlink to /", () => {
+    // The symlink is a parent component, so only the relative path
+    // comparison can catch it (the leaf check only sees file.txt).
+    const target = path.join(tempDir, "target");
+    fs.mkdirSync(target);
+    fs.writeFileSync(path.join(target, "file.txt"), "x");
+    const link = path.join(tempDir, "link");
+    fs.symlinkSync(target, link, "dir");
+
+    expect(
+      resolveCanonicalPathNoSymlinks(
+        // link is drive-absolute on Windows, so strip its drive root before
+        // joining it under the symlinked root.
+        path.join(root, link.slice(path.parse(link).root.length), "file.txt"),
+        root,
+        fs.realpathSync(root),
+      ),
+    ).toBeNull();
   });
 });
 

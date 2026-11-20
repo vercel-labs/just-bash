@@ -39,6 +39,36 @@ describe("ReadWriteFs root directory", () => {
     );
   });
 
+  it("realpath keeps the leading slash when the root is /", async () => {
+    const rwfs = new ReadWriteFs({ root: "/" });
+    // Dirent.isDirectory() is false for symlinks, so this child is its own
+    // canonical path. Its name is not hard-coded because the host root differs
+    // per platform.
+    const child = fs
+      .readdirSync("/", { withFileTypes: true })
+      .find((entry) => entry.isDirectory());
+    expect(child).toBeDefined();
+
+    await expect(rwfs.realpath(`/${child?.name}`)).resolves.toBe(
+      `/${child?.name}`,
+    );
+  });
+
+  it("reads a child when the root is a symlink to /", async () => {
+    const link = path.join(root, "host-root");
+    fs.symlinkSync("/", link, "dir");
+    const rwfs = new ReadWriteFs({ root: link });
+    const child = fs
+      .readdirSync("/", { withFileTypes: true })
+      .find((entry) => entry.isDirectory());
+    expect(child).toBeDefined();
+
+    // stat, not readdir: some host-root directories are not readable by
+    // every user.
+    const stat = await rwfs.stat(`/${child?.name}`);
+    expect(stat.isDirectory).toBe(true);
+  });
+
   it.each([
     false,
     true,

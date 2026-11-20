@@ -21,6 +21,22 @@ export {
 } from "./path-utils.js";
 
 /**
+ * Compute `target` relative to `canonicalRoot` with the path API that matches
+ * the root: win32 for drive roots (`D:\`, `D:/`) and UNC roots
+ * (`\\server\share`), posix otherwise.  Every root-relative comparison
+ * goes through here so they cannot disagree about which API applies.
+ */
+function relativeToRoot(
+  target: string,
+  canonicalRoot: string,
+): { pathApi: typeof nodePath.posix; relative: string } {
+  const pathApi = /^(?:[A-Za-z]:[\\/]|\\\\)/.test(canonicalRoot)
+    ? nodePath.win32
+    : nodePath.posix;
+  return { pathApi, relative: pathApi.relative(canonicalRoot, target) };
+}
+
+/**
  * Check whether `resolved` is equal to, or a child of, `canonicalRoot`.
  * Uses a boundary-safe prefix check (appends `/`) so that `/data` does not
  * match `/datastore`.
@@ -29,16 +45,30 @@ export function isPathWithinRoot(
   resolved: string,
   canonicalRoot: string,
 ): boolean {
-  const pathApi = /^[A-Za-z]:[\\/]/.test(canonicalRoot)
-    ? nodePath.win32
-    : nodePath.posix;
-  const relative = pathApi.relative(canonicalRoot, resolved);
+  const { pathApi, relative } = relativeToRoot(resolved, canonicalRoot);
   return (
     relative === "" ||
     (relative !== ".." &&
       !relative.startsWith(`..${pathApi.sep}`) &&
       !pathApi.isAbsolute(relative))
   );
+}
+
+/**
+ * Convert a canonical path inside `canonicalRoot` to a virtual path.
+ *
+ * Slicing the root prefix is not enough when the root is `/` or a Windows
+ * drive root, because the remaining path loses its leading separator.
+ */
+export function toVirtualPath(
+  canonicalPath: string,
+  canonicalRoot: string,
+): string {
+  const { pathApi, relative } = relativeToRoot(canonicalPath, canonicalRoot);
+  if (relative === "" || relative === ".") {
+    return "/";
+  }
+  return `/${relative.split(pathApi.sep).join("/")}`;
 }
 
 /**
@@ -148,8 +178,8 @@ export function resolveCanonicalPathNoSymlinks(
   if (canonical === null) return null;
 
   const resolvedReal = nodePath.resolve(realPath);
-  const relFromRoot = resolvedReal.slice(root.length);
-  const relFromCanonical = canonical.slice(canonicalRoot.length);
+  const relFromRoot = relativeToRoot(resolvedReal, root).relative;
+  const relFromCanonical = relativeToRoot(canonical, canonicalRoot).relative;
 
   if (relFromRoot !== relFromCanonical) {
     return null; // symlink was traversed
@@ -227,8 +257,7 @@ export function sanitizeSymlinkTarget(
   }
 
   if (isPathWithinRoot(resolved, canonicalRoot)) {
-    const relativePath =
-      resolved.slice(canonicalRoot.length).replace(/\\/g, "/") || "/";
+    const relativePath = toVirtualPath(resolved, canonicalRoot);
     return { withinRoot: true, relativePath };
   }
 
