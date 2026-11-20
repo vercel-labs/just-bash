@@ -13,7 +13,7 @@ import type {
 import { ExecutionOutputAccumulator } from "../execution-output.js";
 import { Parser } from "../parser/parser.js";
 import type { ParseException } from "../parser/types.js";
-import type { ExecResult } from "../types.js";
+import type { CommandRegistry, ExecResult } from "../types.js";
 import {
   BreakError,
   ContinueError,
@@ -316,6 +316,38 @@ async function executeGroupBody(
 }
 
 /**
+ * The registered command a script's `#!` line names, resolved as a kernel
+ * would: `#!/usr/bin/env <name> [arg]`, or `#!/bin/<name> [arg]` and
+ * `#!/usr/bin/<name> [arg]`, where registered commands live. The shell itself
+ * (bash, sh) and anything not registered resolve to null.
+ */
+function shebangInterpreter(
+  line: string,
+  commands: CommandRegistry,
+): { name: string; arg?: string } | null {
+  const [path = "", ...rest] = line.slice(2).trim().split(/\s+/);
+  let name: string | undefined;
+  let arg: string[];
+  if (path === "/usr/bin/env" || path === "/bin/env") {
+    [name, ...arg] = rest;
+  } else if (/^\/(usr\/)?bin\/[^/]+$/.test(path)) {
+    name = path.slice(path.lastIndexOf("/") + 1);
+    arg = rest;
+  } else {
+    return null;
+  }
+  if (!name || name === "bash" || name === "sh" || !commands.has(name)) {
+    return null;
+  }
+  return arg.length ? { name, arg: arg.join(" ") } : { name };
+}
+
+/** A word quoted for the shell, whatever it holds. */
+function quoteWord(word: string): string {
+  return `'${word.replace(/'/g, "'\\''")}'`;
+}
+
+/**
  * Type for executeScript callback
  */
 export type ExecuteScriptFn = (node: ScriptNode) => Promise<ExecResult>;
@@ -340,11 +372,22 @@ export async function executeUserScript(
     return failure(`bash: ${scriptPath}: No such file or directory\n`, 127);
   }
 
-  // Check for shebang and skip it if present (we'll execute as bash script)
-  // Note: we don't actually support different interpreters, just bash
+  // A shebang naming a registered command runs the script through it, as a
+  // kernel does: `#!<interp> [arg]` becomes `<interp> [arg] <script> <args...>`
+  // with the script's stdin. Any other shebang (bash, sh, or an interpreter
+  // that is not a registered command) is skipped and the body runs as bash.
   if (content.startsWith("#!")) {
     const firstNewline = content.indexOf("\n");
-    if (firstNewline !== -1) {
+    const interpreter = shebangInterpreter(
+      firstNewline === -1 ? content : content.slice(0, firstNewline),
+      ctx.commands,
+    );
+    if (interpreter) {
+      const words = interpreter.arg
+        ? [interpreter.name, interpreter.arg]
+        : [interpreter.name];
+      content = `${words.map(quoteWord).join(" ")} "$0" "$@"\n`;
+    } else if (firstNewline !== -1) {
       content = content.slice(firstNewline + 1);
     }
   }
