@@ -68,6 +68,21 @@ export class FuzzRunner {
   private scriptCount = 0;
   private scriptLogFile?: string;
 
+  readonly logProperty = (name: string | undefined, seed: number): void => {
+    if (!this.scriptLogFile) return;
+    try {
+      appendFileSync(
+        this.scriptLogFile,
+        `${JSON.stringify({ type: "property", name: name ?? null, seed })}\n`,
+      );
+    } catch (error) {
+      throw new Error(
+        `Fuzz diagnostic property write failed (${this.scriptLogFile}); property was not executed`,
+        { cause: error },
+      );
+    }
+  };
+
   constructor(config?: Partial<FuzzingConfig>) {
     this.config = createFuzzConfig(config);
 

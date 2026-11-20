@@ -5,6 +5,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { expect } from "vitest";
 import type { ExecutionLimits } from "../../limits.js";
 
 /**
@@ -32,7 +33,7 @@ export interface FuzzProgress {
  * Configuration for fuzz testing.
  */
 export interface FuzzingConfig {
-  /** Signed 32-bit seed shared by this suite's properties */
+  /** Signed 32-bit base seed for this suite */
   seed: number;
   /** Maximum time per test case in milliseconds */
   timeoutMs: number;
@@ -66,6 +67,9 @@ export interface FuzzingConfig {
 
   /** Path to log tested scripts (git-ignored, useful for debugging) */
   scriptLogFile?: string;
+
+  /** Runner-owned writer for recording a property before input generation */
+  logProperty?: (name: string | undefined, seed: number) => void;
 
   /** Path to log failed tests (git-ignored, useful for debugging) */
   failureLogFile?: string;
@@ -204,8 +208,19 @@ export function createFcOptions(config: FuzzingConfig): {
   numRuns: number;
   endOnFailure: boolean;
 } {
+  const name = expect.getState().currentTestName;
+  let seed = config.seed;
+  if (name !== undefined) {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < name.length; i++) {
+      hash = Math.imul(hash ^ name.charCodeAt(i), 0x01000193);
+    }
+    seed = (seed ^ hash) | 0;
+  }
+  config.logProperty?.(name, seed);
+
   return {
-    seed: config.seed,
+    seed,
     numRuns: config.numRuns,
     endOnFailure: true, // Disable shrinking - show original failure
   };

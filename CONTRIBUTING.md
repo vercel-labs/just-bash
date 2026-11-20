@@ -86,15 +86,15 @@ Commit the generated fixture file together with the test. If you adjust a fixtur
 
 #### Crash diagnostics
 
-When the unit test step fails, available fuzz logs are uploaded as a `test-diagnostics-node-<version>-attempt-<attempt>` artifact, retained for seven days. The JSONL logs contain the seed, input scripts, and runner completion markers, not test output. A `start` without a matching `end` has no recorded completion; it does not prove that the script caused the crash. An `end` marks the runner's result, but timed-out work may still be running.
+When the unit test step fails, available fuzz logs are uploaded as a `test-diagnostics-node-<version>-attempt-<attempt>` artifact, retained for seven days. The JSONL logs contain the base seed, property names and derived seeds, input scripts, and runner completion markers, not test output. The last `property` record identifies the most recently started property, which may not be the test active at the time of a crash. A `start` without a matching `end` has no recorded completion; it does not prove that the script caused the crash. An `end` marks the runner's result, but timed-out work may still be running.
 
-Replay a suite with its recorded seed:
+Replay a property with the base seed from the `metadata` record and its name from the `property` record. The property seed is derived from both:
 
 ```sh
-FUZZ_SEED=123 pnpm --filter just-bash test:unit src/security/fuzzing/__tests__/fuzz-malformed.test.ts
+FUZZ_SEED=123 pnpm --filter just-bash test:unit src/security/fuzzing/__tests__/fuzz-malformed.test.ts -t 'handles truncated scripts'
 ```
 
-Replace `123` with the recorded seed. For local runs, set `TEST_DIAGNOSTICS_DIR` to choose the log directory. Exact scripts remain useful if generators change, but replaying a script does not guarantee that an out-of-memory crash will recur.
+For local runs, set `TEST_DIAGNOSTICS_DIR` to choose the log directory. If the original run customized `FUZZ_RUNS`, use the same value to replay all its inputs. Exact scripts remain useful if generators change, but replaying a script does not guarantee that an out-of-memory crash will recur.
 
 ### Security requirements
 

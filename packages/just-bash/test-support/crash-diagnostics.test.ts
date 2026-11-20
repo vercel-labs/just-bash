@@ -85,7 +85,8 @@ it("accepts, records, and replays signed 32-bit seeds", async () => {
         fc.property(fc.constant(true), (value) => value),
         createFcOptions(config),
       );
-      expect(result.seed).toBe(seed);
+      expect(config.seed).toBe(seed);
+      expect(result.seed).toBe(createFcOptions(config).seed);
     }
     for (const seed of [
       "",
@@ -234,7 +235,7 @@ it("handles diagnostic write failures without hiding execution failures", async 
 it("preserves the last input when a Vitest worker is killed", async () => {
   const directory = await mkdtemp(fixturePrefix);
   try {
-    const fixture = join(directory, "fixture.test.ts");
+    const fixture = join(directory, "fixture.ts");
     const config = join(directory, "vitest.config.ts");
     await writeFile(
       config,
