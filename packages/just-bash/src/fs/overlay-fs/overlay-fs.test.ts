@@ -133,6 +133,22 @@ describe("OverlayFs", () => {
       expect(content).toBe("real content");
     });
 
+    it.each([
+      "/",
+      "/project",
+    ])("reads a host file when the host root is / and the mount point is %s", async (mountPoint) => {
+      const file = path.join(fs.realpathSync(tempDir), "test.txt");
+      const link = path.join(fs.realpathSync(tempDir), "link.txt");
+      fs.writeFileSync(file, "real content");
+      fs.symlinkSync(file, link);
+      const overlay = new OverlayFs({ root: "/", mountPoint });
+      const virtualFile = mountPoint === "/" ? file : `${mountPoint}${file}`;
+      const virtualLink = mountPoint === "/" ? link : `${mountPoint}${link}`;
+
+      expect(await overlay.readFile(virtualFile)).toBe("real content");
+      expect(await overlay.readlink(virtualLink)).toBe(virtualFile);
+    });
+
     it("should read nested files", async () => {
       fs.mkdirSync(path.join(tempDir, "subdir"));
       fs.writeFileSync(path.join(tempDir, "subdir", "file.txt"), "nested");

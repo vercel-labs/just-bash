@@ -883,11 +883,7 @@ export class OverlayFs implements IFileSystem {
         return rawTarget;
       }
       // Target is within root - convert to virtual path under mount point
-      const relativePath = result.relativePath;
-      if (this.mountPoint === "/") {
-        return relativePath;
-      }
-      return `${this.mountPoint}${relativePath}`;
+      return normalizePath(joinPath(this.mountPoint, result.relativePath));
     }
 
     // Target is outside root - return sanitized basename
