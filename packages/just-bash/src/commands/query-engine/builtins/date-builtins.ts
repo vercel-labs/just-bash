@@ -198,10 +198,12 @@ export function evalDateBuiltin(
       throw new Error(`Cannot parse date: ${value}`);
     }
 
-    case "fromdate": {
-      // Parse ISO 8601 date string to Unix timestamp
+    case "fromdate":
+    case "fromdateiso8601": {
+      // Parse ISO 8601 date string to Unix timestamp. `fromdateiso8601`
+      // is jq's standard name; `fromdate` is its alias.
       if (typeof value !== "string") {
-        throw new Error("fromdate requires a string input");
+        throw new Error(`${name} requires a string input`);
       }
       const date = parseIsoUtc(value);
       if (!date) {
@@ -212,12 +214,14 @@ export function evalDateBuiltin(
       return [Math.floor(date.getTime() / 1000)];
     }
 
-    case "todate": {
-      // Convert Unix timestamp to ISO 8601 date string
+    case "todate":
+    case "todateiso8601": {
+      // Convert Unix timestamp to ISO 8601 date string. `todateiso8601`
+      // is jq's standard name; `todate` is its alias.
       if (typeof value !== "number") {
-        throw new Error("todate requires a number input");
+        throw new Error(`${name} requires a number input`);
       }
-      const date = dateFromTimestamp(value, "todate");
+      const date = dateFromTimestamp(value, name);
       return [date.toISOString().replace(/\.\d{3}Z$/, "Z")];
     }
 
