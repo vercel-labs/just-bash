@@ -38,6 +38,7 @@ import {
 import {
   compare,
   compareJq,
+  compareJqSort,
   containsDeep,
   deepEqual,
   deepMerge,
@@ -167,6 +168,48 @@ export function chargeQueryWork(ctx: EvalContext, count = 1): void {
     );
   }
   ctx.budget.operations += count;
+}
+
+/**
+ * One comparison work unit per 1024 string code points examined, charged
+ * to the shared evaluation budget. Short comparisons stay cheap; sorting
+ * long shared-prefix strings cannot run unbounded.
+ */
+const COMPARE_CHARGE_INTERVAL = 1024;
+
+export function chargingCompareJq(
+  ctx: EvalContext,
+): (a: QueryValue, b: QueryValue) => number {
+  let pendingChars = 0;
+  const charge = (count: number): void => {
+    pendingChars += count;
+    if (pendingChars >= COMPARE_CHARGE_INTERVAL) {
+      const operations = Math.floor(pendingChars / COMPARE_CHARGE_INTERVAL);
+      pendingChars -= operations * COMPARE_CHARGE_INTERVAL;
+      chargeQueryWork(ctx, operations);
+    }
+  };
+  return (a: QueryValue, b: QueryValue): number => compareJq(a, b, charge);
+}
+
+/**
+ * The sorting form of chargingCompareJq: pairs decided by a NaN-vs-NaN
+ * step compare equal, so a stable sort keeps jq's input order for them.
+ * Deduplication still uses the raw comparator (see compareJqSort).
+ */
+export function chargingCompareJqSort(
+  ctx: EvalContext,
+): (a: QueryValue, b: QueryValue) => number {
+  let pendingChars = 0;
+  const charge = (count: number): void => {
+    pendingChars += count;
+    if (pendingChars >= COMPARE_CHARGE_INTERVAL) {
+      const operations = Math.floor(pendingChars / COMPARE_CHARGE_INTERVAL);
+      pendingChars -= operations * COMPARE_CHARGE_INTERVAL;
+      chargeQueryWork(ctx, operations);
+    }
+  };
+  return (a: QueryValue, b: QueryValue): number => compareJqSort(a, b, charge);
 }
 
 export function assertQueryResultCapacity(
@@ -1788,7 +1831,15 @@ function evalBuiltin(
   const typeResult = evalTypeBuiltin(value, name);
   if (typeResult !== null) return typeResult;
 
-  const objectResult = evalObjectBuiltin(value, name, args, ctx, evaluate);
+  const objectResult = evalObjectBuiltin(
+    value,
+    name,
+    args,
+    ctx,
+    evaluate,
+    chargingCompareJq(ctx),
+    chargingCompareJqSort(ctx),
+  );
   if (objectResult !== null) return objectResult;
 
   const arrayResult = evalArrayBuiltin(
@@ -1798,7 +1849,8 @@ function evalBuiltin(
     ctx,
     evaluate,
     evaluateWithPartialResults,
-    compareJq,
+    chargingCompareJq(ctx),
+    chargingCompareJqSort(ctx),
     isTruthy,
     containsDeep,
     ExecutionLimitError,
