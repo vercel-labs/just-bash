@@ -924,7 +924,7 @@ export class DefenseInDepthBox {
     const box = this;
 
     // @banned-pattern-ignore: intentional Proxy usage for security blocking
-    return new Proxy(original, {
+    const proxy: T = new Proxy(original, {
       get(target, prop, receiver) {
         if (box.shouldBlock()) {
           // Allow specific keys through (e.g., Node.js internal env vars)
@@ -966,10 +966,22 @@ export class DefenseInDepthBox {
           );
           throw new SecurityViolationError(message, violation);
         }
-        // debug/supports-color writes this while loading lazily. Forwarding
-        // the proxy as receiver makes Node reject the resulting value-only
-        // process.env descriptor.
-        if (path === "process.env" && prop === "DEBUG") {
+        // Record violation in audit mode but allow the write
+        if (box.shouldAudit()) {
+          const fullPath = `${path}.${String(prop)}`;
+          box.recordViolation(
+            violationType,
+            fullPath,
+            `${fullPath} modification (audit mode)`,
+          );
+        }
+        // Host code assigns here whenever a library sets its own variable
+        // (debug's DEBUG, an SDK's version stamp). Forwarding the proxy as
+        // receiver turns an assignment to an existing key into a value-only
+        // defineProperty, which Node rejects for process.env. A write through
+        // an object that inherits from process.env keeps its own receiver,
+        // so the property lands on that object.
+        if (path === "process.env" && receiver === proxy) {
           return Reflect.set(target, prop, value);
         }
         return Reflect.set(target, prop, value, receiver);
@@ -1048,7 +1060,8 @@ export class DefenseInDepthBox {
         }
         return Reflect.defineProperty(target, prop, descriptor);
       },
-    }) as T;
+    });
+    return proxy;
   }
 
   /** Preserve read access while denying mutation only in sandbox context. */
