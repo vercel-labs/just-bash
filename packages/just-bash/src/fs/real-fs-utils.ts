@@ -70,6 +70,35 @@ export function validateRealPath(
 }
 
 /**
+ * Error thrown when realpath(3) itself fails for a reason other than a
+ * missing path (ENOENT is handled by walking up to the nearest existing
+ * parent). It carries the errno code so callers can report the real
+ * failure instead of collapsing it into "resolves outside sandbox".
+ * The message carries no filesystem path: callers format it with the
+ * virtual path they own, so no real path can leak to sandbox users.
+ */
+export class RealpathError extends Error {
+  readonly code: string;
+  readonly description: string;
+  constructor(code: string, description: string) {
+    super(`${code}: ${description}`);
+    this.name = "RealpathError";
+    this.code = code;
+    this.description = description;
+  }
+}
+
+/** Build a RealpathError from a caught Node.js error, if it carries a code. */
+function toRealpathError(e: unknown): RealpathError | null {
+  const err = e as NodeJS.ErrnoException;
+  const code = err?.code;
+  if (typeof code !== "string" || code === "") return null;
+  // Node formats errno messages as "CODE: description, syscall 'path'".
+  const match = /^[A-Z0-9]+: ([^,]+),/.exec(err.message ?? "");
+  return new RealpathError(code, match?.[1] ?? code);
+}
+
+/**
  * Resolve a real filesystem path to its canonical form and verify it stays
  * within the sandbox root.  Returns the canonical path on success, or `null`
  * if the path escapes the root (fail-closed on unexpected errors).
@@ -78,6 +107,10 @@ export function validateRealPath(
  * the canonical path so callers can use it for subsequent I/O, closing the
  * TOCTOU gap where the original (unresolved) path could be swapped between
  * validation and use.
+ *
+ * Throws RealpathError when realpath(3) fails with an errno other than
+ * ENOENT (e.g. ENOTDIR, EACCES, ELOOP): the path is inside the root, so
+ * callers must report the real failure instead of treating it as an escape.
  */
 export function resolveCanonicalPath(
   realPath: string,
@@ -116,13 +149,18 @@ export function resolveCanonicalPath(
           }
           return validatedTarget;
         }
-      } catch {
+      } catch (e) {
+        // A RealpathError from the target check is a real lookup failure,
+        // not a missing leaf — never swallow it into the walk-up path.
+        if (e instanceof RealpathError) throw e;
         // lstatSync ENOENT: the leaf truly doesn't exist (not a symlink
         // entry on disk), so the walk-up basename is correct.
       }
 
       return nodePath.join(parentCanon, nodePath.basename(realPath));
     }
+    const failure = toRealpathError(e);
+    if (failure) throw failure;
     return null;
   }
 }

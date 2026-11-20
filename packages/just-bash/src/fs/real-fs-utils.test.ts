@@ -12,6 +12,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   isPathWithinRoot,
   normalizePath,
+  RealpathError,
+  resolveCanonicalPath,
   sanitizeSymlinkTarget,
   validatePath,
   validateRealPath,
@@ -236,6 +238,85 @@ describe("validateRealPath", () => {
 
   it("returns false for filesystem root /", () => {
     expect(validateRealPath("/", canonicalRoot)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveCanonicalPath
+// ---------------------------------------------------------------------------
+describe("resolveCanonicalPath", () => {
+  let tempDir: string;
+  let canonicalRoot: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "rcp-"));
+    canonicalRoot = fs.realpathSync(tempDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("returns the canonical path for an existing file inside root", () => {
+    const file = path.join(tempDir, "file.txt");
+    fs.writeFileSync(file, "ok");
+    expect(resolveCanonicalPath(file, canonicalRoot)).toBe(
+      fs.realpathSync(file),
+    );
+  });
+
+  it("returns null for a path that escapes via symlink", () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), "rcp-outside-"));
+    const link = path.join(tempDir, "escape-link");
+    try {
+      fs.symlinkSync(outside, link);
+    } catch {
+      fs.rmSync(outside, { recursive: true, force: true });
+      return;
+    }
+    try {
+      expect(resolveCanonicalPath(link, canonicalRoot)).toBeNull();
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("walks up on ENOENT for a non-existent child", () => {
+    const child = path.join(tempDir, "missing", "child.txt");
+    expect(resolveCanonicalPath(child, canonicalRoot)).toBe(child);
+  });
+
+  it("throws RealpathError with ENOTDIR when a file is traversed as a directory (fixes #745)", () => {
+    const file = path.join(tempDir, "notes.txt");
+    fs.writeFileSync(file, "hello\n");
+    let caught: unknown;
+    try {
+      resolveCanonicalPath(
+        path.join(tempDir, "notes.txt", "child"),
+        canonicalRoot,
+      );
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(RealpathError);
+    expect((caught as RealpathError).code).toBe("ENOTDIR");
+  });
+
+  it("throws RealpathError with ELOOP for a symlink loop (fixes #745)", () => {
+    try {
+      fs.symlinkSync("loop-b", path.join(tempDir, "loop-a"));
+      fs.symlinkSync("loop-a", path.join(tempDir, "loop-b"));
+    } catch {
+      return;
+    }
+    let caught: unknown;
+    try {
+      resolveCanonicalPath(path.join(tempDir, "loop-a"), canonicalRoot);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(RealpathError);
+    expect((caught as RealpathError).code).toBe("ELOOP");
   });
 });
 
