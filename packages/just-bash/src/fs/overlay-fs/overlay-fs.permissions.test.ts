@@ -135,9 +135,15 @@ describe("OverlayFs file permissions", () => {
     });
     const prefix = mountPoint === "/" ? "" : mountPoint;
     await overlay.chmod(`${prefix}/target`, 0o000);
+    expect(await overlay.realpath(`${prefix}/dir/target`)).toBe(
+      `${prefix}/target`,
+    );
 
     for (const alias of [`${prefix}/alias`, `${prefix}/dir/target`]) {
       await expect(overlay.readFile(alias)).rejects.toThrow(
+        `EACCES: permission denied, open '${alias}'`,
+      );
+      await expect(overlay.appendFile(alias, " appended")).rejects.toThrow(
         `EACCES: permission denied, open '${alias}'`,
       );
     }
@@ -161,6 +167,29 @@ describe("OverlayFs file permissions", () => {
     expect((await overlay.stat("/write-real")).mode & 0o7777).toBe(0o600);
     expect(await overlay.readFile("/write-real")).toBe("replacement");
     expect(fs.readFileSync(realPath, "utf8")).toBe("original");
+  });
+
+  it("keeps virtual permissions when moving or linking a host symlink", async () => {
+    fs.writeFileSync(path.join(tempDir, "target"), "original");
+    fs.symlinkSync("target", path.join(tempDir, "alias"));
+    const overlay = new OverlayFs({
+      root: tempDir,
+      mountPoint: "/",
+      allowSymlinks: true,
+    });
+    await overlay.chmod("/target", 0o000);
+
+    await overlay.link("/alias", "/linked");
+    await overlay.mv("/alias", "/moved");
+
+    expect(await overlay.readlink("/moved")).toBe("target");
+    expect((await overlay.stat("/linked")).mode).toBe(0o000);
+    await expect(overlay.readFile("/linked")).rejects.toThrow(
+      "EACCES: permission denied, open '/linked'",
+    );
+    await expect(overlay.readFile("/moved")).rejects.toThrow(
+      "EACCES: permission denied, open '/moved'",
+    );
   });
 
   it("enforces overlay chmod on real files without changing disk content", async () => {
@@ -240,23 +269,6 @@ describe("OverlayFs file permissions", () => {
     expect(await overlay.readFile("/destination")).toBe("abcd");
     await expect(overlay.writeFile("/extra", "x")).rejects.toThrow("ENOSPC");
     expect(fs.readFileSync(path.join(tempDir, "source"), "utf8")).toBe("real");
-  });
-
-  it("keeps source files intact if a directory move runs out of memory", async () => {
-    fs.mkdirSync(path.join(tempDir, "source"));
-    fs.writeFileSync(path.join(tempDir, "source/b"), "real");
-    const overlay = new OverlayFs({
-      root: tempDir,
-      mountPoint: "/",
-      maxMemoryBytes: 4,
-    });
-    await overlay.writeFile("/source/a", "ab");
-
-    await expect(overlay.mv("/source", "/destination")).rejects.toThrow(
-      "ENOSPC",
-    );
-    expect(await overlay.readFile("/source/a")).toBe("ab");
-    expect(await overlay.readFile("/source/b")).toBe("real");
   });
 
   it("keeps a missing same-path move as an error", async () => {

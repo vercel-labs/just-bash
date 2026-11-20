@@ -1,3 +1,11 @@
+export class ReadPermissionError extends Error {
+  readonly code = "EACCES";
+
+  constructor(readonly path: string) {
+    super(`EACCES: permission denied, open '${path}'`);
+  }
+}
+
 export function isPermissionDenied(error: unknown): boolean {
   if (
     typeof error === "object" &&

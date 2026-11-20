@@ -54,9 +54,8 @@ export async function handleSource(
         content = await ctx.fs.readFile(candidate);
         _resolvedPath = candidate;
         break;
-      } catch (error) {
-        permissionDenied ||= isPermissionDenied(error);
-        // File doesn't exist in this PATH directory, continue searching
+      } catch {
+        // Bash skips unreadable PATH candidates and tries the remaining paths.
       }
     }
 

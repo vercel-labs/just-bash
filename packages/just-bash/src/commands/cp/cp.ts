@@ -1,5 +1,9 @@
+import { lstatEntry, realpathOnMount } from "../../fs/entry-path.js";
 import { isSameOrDescendantPath } from "../../fs/path-utils.js";
-import { isPermissionDenied } from "../../fs/permission-utils.js";
+import {
+  isPermissionDenied,
+  ReadPermissionError,
+} from "../../fs/permission-utils.js";
 import {
   compareCanonicalContainment,
   compareFileIdentity,
@@ -184,7 +188,11 @@ export const cpCommand: RuntimeCommand = {
           );
         }
 
-        await ctx.fs.cp(srcPath, targetPath, { recursive });
+        const copySource =
+          !recursive && (await lstatEntry(ctx.fs, srcPath)).isSymbolicLink
+            ? await realpathOnMount(ctx.fs, srcPath)
+            : srcPath;
+        await ctx.fs.cp(copySource, targetPath, { recursive });
 
         // Note: preserve flag is accepted but timestamps are not actually preserved
         // in the virtual filesystem (the fs.cp doesn't support preserving metadata)
@@ -203,6 +211,15 @@ export const cpCommand: RuntimeCommand = {
           throw error;
         }
         if (isPermissionDenied(error)) {
+          if (
+            error instanceof ReadPermissionError &&
+            error.path.startsWith(`${srcPath}/`)
+          ) {
+            const child = `${src.replace(/\/$/, "")}${error.path.slice(srcPath.length)}`;
+            stderr += `cp: cannot open '${child}' for reading: Permission denied\n`;
+            exitCode = 1;
+            continue;
+          }
           let sourceIsUnreadable = false;
           try {
             const stat = await ctx.fs.stat(srcPath);

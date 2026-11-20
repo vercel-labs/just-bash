@@ -58,6 +58,20 @@ describe("file permissions - Real Bash Comparison", () => {
     );
   });
 
+  it("checks source permissions for a script found on PATH", async () => {
+    const env = await setupFiles(testDir, FILES);
+    await compareOutputs(
+      env,
+      testDir,
+      "mkdir path; mv secret.sh path/secret.sh; chmod 000 path/secret.sh; PATH=path:$PATH; source secret.sh",
+    );
+  });
+
+  it("reports permission denied for an invoked relative script", async () => {
+    const env = await setupFiles(testDir, FILES);
+    await compareOutputs(env, testDir, "chmod 100 secret.sh; ./secret.sh");
+  });
+
   it("fails to copy an unreadable source", async () => {
     const env = await setupFiles(testDir, FILES);
     await compareOutputs(

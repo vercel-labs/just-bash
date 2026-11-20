@@ -62,7 +62,7 @@ describe("shell file permissions", () => {
     expect(result).toMatchObject({
       stdout: "",
       stderr: "sh: /secret.sh: Permission denied\n",
-      exitCode: 126,
+      exitCode: 2,
     });
   });
 

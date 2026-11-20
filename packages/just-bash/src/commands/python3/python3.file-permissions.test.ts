@@ -65,26 +65,27 @@ os.close(fd)
     );
   });
 
-  it("preserves write-only content when truncation cannot read it", async () => {
+  it("opens and truncates a write-only file without reading it", async () => {
     const env = new Bash({
       python: true,
       files: { "/data": { content: "original", mode: 0o200 } },
     });
 
     const result = await env.exec(`python3 -c "
-try:
-    open('/data', 'w')
-except PermissionError:
-    print('denied')
+import os
+os.close(os.open('/host/data', os.O_WRONLY))
+with open('/data', 'w') as file:
+    file.write('replacement')
 "`);
 
     expect(result).toMatchObject({
-      stdout: "denied\n",
+      stdout: "",
       stderr: "",
       exitCode: 0,
     });
+    expect((await env.fs.stat("/data")).mode).toBe(0o200);
     await env.fs.chmod("/data", 0o600);
-    expect(await env.fs.readFile("/data")).toBe("original");
+    expect(await env.fs.readFile("/data")).toBe("replacement");
   });
 
   it("does not truncate a read-only file", async () => {

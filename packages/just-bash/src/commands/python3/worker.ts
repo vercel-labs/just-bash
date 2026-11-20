@@ -270,6 +270,7 @@ interface EmscriptenStat {
 }
 
 interface EmscriptenFS {
+  mayOpen: (node: EmscriptenNode, flags: number) => number;
   isDir: (mode: number) => boolean;
   isFile: (mode: number) => boolean;
   isLink: (mode: number) => boolean;
@@ -462,9 +463,11 @@ function createHOSTFS(
             throw new FS.ErrnoError(ERRNO_CODES.EFBIG);
           }
           tryFSOperation(() => {
-            const content = backend.readFile(path);
             const newContent = new Uint8Array(attr.size as number);
-            newContent.set(content.subarray(0, attr.size as number));
+            if (newContent.length > 0) {
+              const content = backend.readFile(path);
+              newContent.set(content.subarray(0, newContent.length));
+            }
             backend.writeFile(path, newContent);
           });
         }
@@ -553,8 +556,6 @@ function createHOSTFS(
             stream.position = size;
           } else if (size === 0) {
             stream.hostContent = new Uint8Array(0);
-          } else {
-            stream.hostContent = tryFSOperation(() => backend.readFile(path));
           }
           return;
         }
@@ -648,7 +649,17 @@ function createHOSTFS(
           }
           return length;
         }
-        let content = stream.hostContent || new Uint8Array(0);
+        let content = stream.hostContent;
+        if (!content) {
+          content = new Uint8Array(0);
+          if (hostPath) {
+            const size = tryFSOperation(() => backend.stat(hostPath).size);
+            if (position !== 0 || length < size) {
+              content = tryFSOperation(() => backend.readFile(hostPath));
+            }
+          }
+          stream.hostContent = content;
+        }
         const newSize = Math.max(content.length, position + length);
 
         if (newSize > content.length) {
@@ -679,9 +690,10 @@ function createHOSTFS(
           if (FS.isFile(stream.node.mode)) {
             const hostPath = stream.hostPath;
             position +=
-              stream.hostAppendOnly && hostPath
+              stream.hostContent?.length ??
+              (hostPath
                 ? tryFSOperation(() => backend.stat(hostPath).size)
-                : (stream.hostContent?.length ?? 0);
+                : 0);
           }
         }
 
@@ -696,6 +708,23 @@ function createHOSTFS(
         return position;
       },
     },
+  };
+
+  const mayOpen = FS.mayOpen;
+  FS.mayOpen = (node, flags) => {
+    const error = mayOpen(node, flags);
+    if (error || node.node_ops !== HOSTFS.node_ops || !FS.isFile(node.mode)) {
+      return error;
+    }
+    // Emscripten applies O_TRUNC before calling stream_ops.open.
+    const mode = tryFSOperation(() => backend.stat(realPath(node)).mode);
+    const accessMode = flags & 3;
+    const needsRead = accessMode !== 1;
+    const needsWrite = accessMode !== 0 || (flags & 512) !== 0;
+    return (needsRead && (mode & 0o400) === 0) ||
+      (needsWrite && (mode & 0o200) === 0)
+      ? ERRNO_CODES.EACCES
+      : 0;
   };
 
   return HOSTFS;

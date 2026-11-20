@@ -420,10 +420,12 @@ describe("MountableFs", () => {
       expect(await source.readFile("/source")).toBe("new");
     });
 
-    it("preserves both files when a replacement exceeds the destination quota", async () => {
+    it.each([
+      0o644, 0o444,
+    ])("preserves both files at quota with destination mode %s", async (mode) => {
       const source = new InMemoryFs({ "/source": "longer" });
       const destination = new InMemoryFs(
-        { "/destination": "old" },
+        { "/destination": { content: "old", mode } },
         { maxTotalBytes: 3 },
       );
       const fs = new MountableFs({ base: source });
@@ -433,6 +435,7 @@ describe("MountableFs", () => {
         "ENOSPC",
       );
       expect(await destination.readFile("/destination")).toBe("old");
+      expect(await destination.readdir("/")).toEqual(["destination"]);
       expect(await source.readFile("/source")).toBe("longer");
     });
 

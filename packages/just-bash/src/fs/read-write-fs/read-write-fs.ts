@@ -32,6 +32,12 @@ import type {
   RmOptions,
   WriteFileOptions,
 } from "../interface.js";
+import {
+  type FileWriteHandle,
+  type FileWriteOpenOptions,
+  manageFileWrite,
+  registerFileWriteOpener,
+} from "../open-file-write.js";
 import { resolvePath as resolveVPath } from "../path-utils.js";
 import {
   isPathWithinRoot,
@@ -111,6 +117,87 @@ export class ReadWriteFs implements IFileSystem {
 
     // Compute canonical root (resolves symlinks like /var -> /private/var on macOS)
     this.canonicalRoot = fs.realpathSync(this.root);
+    registerFileWriteOpener(this, (path, options) =>
+      this.openFileWrite(path, options),
+    );
+  }
+
+  private async openFileWrite(
+    path: string,
+    options: FileWriteOpenOptions,
+  ): Promise<FileWriteHandle> {
+    return this.withFilesystemMutation(async () => {
+      const lease = options.scope.reserveHostFileDescriptor();
+      let handle: fs.promises.FileHandle | undefined;
+      try {
+        validatePath(path, "open");
+        const realPath = this.toRealPath(path);
+        let canonical = this.resolveAndValidate(realPath, path);
+        const before = await fs.promises.lstat(canonical);
+        if (!before.isFile())
+          throw new Error(`EACCES: not a regular file, open '${path}'`);
+        if (before.nlink > 1) {
+          await this.appendFileUnlocked(path, "");
+          canonical = this.resolveAndValidate(realPath, path);
+        }
+        const opened = await fs.promises.open(
+          canonical,
+          fs.constants.O_WRONLY |
+            fs.constants.O_NONBLOCK |
+            fs.constants.O_NOFOLLOW |
+            (options.append ? fs.constants.O_APPEND : 0),
+        );
+        handle = opened;
+        const openedStat = await opened.stat();
+        const current = await fs.promises.lstat(
+          this.resolveAndValidate(realPath, path),
+        );
+        if (
+          !openedStat.isFile() ||
+          openedStat.nlink !== 1 ||
+          openedStat.dev !== current.dev ||
+          openedStat.ino !== current.ino
+        ) {
+          throw new Error(`EACCES: file identity changed, open '${path}'`);
+        }
+        return manageFileWrite(
+          (content, encoding, append) =>
+            this.withFilesystemMutation(async () => {
+              try {
+                // Keep the existing hard-link isolation even after opening a descriptor.
+                if ((await opened.stat()).nlink > 1) {
+                  throw new Error(
+                    `EACCES: file has multiple links, write '${path}'`,
+                  );
+                }
+                if (!append) await opened.truncate(0);
+                const buffer = toBuffer(content, encoding);
+                let offset = 0;
+                while (offset < buffer.byteLength) {
+                  const { bytesWritten } = await opened.write(
+                    buffer,
+                    offset,
+                    buffer.byteLength - offset,
+                    append ? null : offset,
+                  );
+                  if (!bytesWritten)
+                    throw new Error(`EIO: write made no progress, '${path}'`);
+                  offset += bytesWritten;
+                }
+              } catch (error) {
+                this.sanitizeError(error, path, "write");
+              }
+            }),
+          () => opened.close(),
+          options.scope,
+          lease,
+        );
+      } catch (error) {
+        lease.release();
+        await handle?.close().catch(() => {});
+        this.sanitizeError(error, path, "open");
+      }
+    });
   }
 
   /**

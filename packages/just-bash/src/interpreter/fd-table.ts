@@ -23,6 +23,11 @@
  * older code paths.
  */
 
+import {
+  type FileWriteHandle,
+  releaseFileWrite,
+  retainFileWrite,
+} from "../fs/open-file-write.js";
 import { checkFdLimit } from "./helpers/result.js";
 import type { InterpreterContext } from "./types.js";
 
@@ -37,13 +42,14 @@ export const FIRST_USER_FD = 3;
 
 export type FdEntry =
   | { kind: "input"; content: string; device?: boolean }
-  | { kind: "output"; path: string; append: boolean }
+  | { kind: "output"; path: string; append: boolean; write?: FileWriteHandle }
   | {
       kind: "readwrite";
       path: string;
       position: number;
       content: string;
       device?: boolean;
+      write?: FileWriteHandle;
     }
   | { kind: "dup-out"; sourceFd: number }
   | { kind: "dup-in"; sourceFd: number }
@@ -57,6 +63,7 @@ interface FdSnapshotEntry {
   raw: string | undefined;
   isInput: boolean;
   isDevice: boolean;
+  write?: FileWriteHandle;
   aliases: number[];
 }
 
@@ -226,6 +233,10 @@ export function getFdEntry(
   const entry: FdEntry = ctx.state.inputFds?.has(fd)
     ? { kind: "input", content: raw }
     : decodeFdEntry(raw);
+  const write = ctx.state.fdWrites?.get(fd);
+  if (write && (entry.kind === "output" || entry.kind === "readwrite")) {
+    entry.write = write;
+  }
   if (
     ctx.state.deviceFds?.has(fd) &&
     (entry.kind === "input" || entry.kind === "readwrite")
@@ -271,9 +282,19 @@ export function setRawFd(
   raw: string,
   isInput = false,
   isDevice = false,
+  write?: FileWriteHandle,
 ): void {
   leaveAliasGroup(ctx, fd);
   writeRawFd(ctx, fd, raw, isInput, isDevice);
+  const previous = ctx.state.fdWrites?.get(fd);
+  retainFileWrite(write);
+  if (write) {
+    ctx.state.fdWrites ??= new Map();
+    ctx.state.fdWrites.set(fd, write);
+  } else {
+    ctx.state.fdWrites?.delete(fd);
+  }
+  releaseFileWrite(previous);
 }
 
 export function setFdEntry(
@@ -288,6 +309,9 @@ export function setFdEntry(
     entry.kind === "input",
     (entry.kind === "input" || entry.kind === "readwrite") &&
       entry.device === true,
+    entry.kind === "output" || entry.kind === "readwrite"
+      ? entry.write
+      : undefined,
   );
 }
 
@@ -295,6 +319,8 @@ export function closeFd(ctx: InterpreterContext, fd: number): void {
   ctx.state.fileDescriptors?.delete(fd);
   ctx.state.inputFds?.delete(fd);
   ctx.state.deviceFds?.delete(fd);
+  releaseFileWrite(ctx.state.fdWrites?.get(fd));
+  ctx.state.fdWrites?.delete(fd);
   leaveAliasGroup(ctx, fd);
 }
 
@@ -317,6 +343,7 @@ export function dupFd(
     raw,
     ctx.state.inputFds?.has(sourceFd) === true,
     ctx.state.deviceFds?.has(sourceFd) === true,
+    ctx.state.fdWrites?.get(sourceFd),
   );
   joinAliasGroup(ctx, fd, sourceFd);
   return true;
@@ -332,11 +359,17 @@ export function moveFd(
   if (fd === sourceFd) return true;
   const isInput = ctx.state.inputFds?.has(sourceFd) === true;
   const isDevice = ctx.state.deviceFds?.has(sourceFd) === true;
+  const write = ctx.state.fdWrites?.get(sourceFd);
   const aliases = [...(aliasGroup(ctx, sourceFd) ?? [])].filter(
     (member) => member !== sourceFd,
   );
-  closeFd(ctx, sourceFd);
-  setRawFd(ctx, fd, raw, isInput, isDevice);
+  retainFileWrite(write);
+  try {
+    closeFd(ctx, sourceFd);
+    setRawFd(ctx, fd, raw, isInput, isDevice, write);
+  } finally {
+    releaseFileWrite(write);
+  }
   const survivor = aliases.find((member) => isFdOpen(ctx, member));
   if (survivor !== undefined) joinAliasGroup(ctx, fd, survivor);
   return true;
@@ -408,7 +441,8 @@ export async function writeFdEntry(
   encoding: "binary" | "utf8",
 ): Promise<boolean> {
   if (entry.kind === "output") {
-    await ctx.fs.appendFile(entry.path, content, encoding);
+    if (entry.write) await entry.write(content, encoding, true);
+    else await ctx.fs.appendFile(entry.path, content, encoding);
     return true;
   }
   const liveEntry = descriptors
@@ -429,7 +463,8 @@ export async function writeFdEntry(
     position: writeEntry.position + content.length,
     content: updatedContent,
   };
-  await ctx.fs.writeFile(writeEntry.path, updatedContent, encoding);
+  if (writeEntry.write) await writeEntry.write(updatedContent, encoding, false);
+  else await ctx.fs.writeFile(writeEntry.path, updatedContent, encoding);
   const raw = encodeFdEntry(updated);
   for (const fd of descriptors) {
     if (isFdOpen(ctx, fd))
@@ -454,6 +489,7 @@ export function rememberFd(
     raw: getRawFd(ctx, fd),
     isInput: ctx.state.inputFds?.has(fd) === true,
     isDevice: ctx.state.deviceFds?.has(fd) === true,
+    write: ctx.state.fdWrites?.get(fd),
     aliases: group ? [...group].filter((member) => member !== fd) : [],
   });
 }
@@ -484,13 +520,13 @@ export function restoreFds(
 ): void {
   const fds = ctx.state.fileDescriptors;
   if (!fds) return;
-  for (const [fd, { raw, isInput, isDevice, aliases }] of snapshot) {
+  for (const [fd, { raw, isInput, isDevice, write, aliases }] of snapshot) {
     if (raw === undefined) {
       closeFd(ctx, fd);
       continue;
     }
     // Re-opening the saved value detaches fd from whatever it aliases now.
-    setRawFd(ctx, fd, raw, isInput, isDevice);
+    setRawFd(ctx, fd, raw, isInput, isDevice, write);
     // Then re-attach it to whichever of its original co-members is still
     // open — they all share one description, so any survivor will do.
     const survivor = aliases.find((member) => fds.has(member));

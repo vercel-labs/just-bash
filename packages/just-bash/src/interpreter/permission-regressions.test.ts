@@ -4,6 +4,8 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { Bash } from "../Bash.js";
 import { InMemoryFs } from "../fs/in-memory-fs/in-memory-fs.js";
+import { MountableFs } from "../fs/mountable-fs/mountable-fs.js";
+import { OverlayFs } from "../fs/overlay-fs/overlay-fs.js";
 import { ReadWriteFs } from "../fs/read-write-fs/read-write-fs.js";
 
 describe("permission regressions", () => {
@@ -20,16 +22,69 @@ describe("permission regressions", () => {
     });
   });
 
-  it("returns a shell error when a write to an open descriptor is denied", async () => {
-    const bash = new Bash();
-    const result = await bash.exec("exec 3>/f; chmod 444 /f; echo x >&3");
+  it.each([
+    "exec 3>/f; exec 4>&3; chmod 444 /f; echo x >&4",
+    "{ chmod 444 /f; echo x; } >/f",
+    "f() { chmod 444 /f; echo x; }; f >/f",
+    "(chmod 444 /f; echo x >&3) 3>/f",
+    "exec 3<>/f; chmod 444 /f; echo x >&3",
+  ])("keeps the access granted to an open descriptor in %s", async (script) => {
+    const bash = new Bash({ files: { "/f": "" } });
+    const result = await bash.exec(script);
+
+    expect(result).toMatchObject({ stdout: "", stderr: "", exitCode: 0 });
+    expect(await bash.fs.readFile("/f")).toBe("x\n");
+    expect((await bash.fs.stat("/f")).mode).toBe(0o444);
+  });
+
+  it.each([
+    "echo too-big >/dest/f",
+    "exec 3>/dest/f; echo too-big >&3",
+  ])("returns a shell error when a write fails after open in %s", async (script) => {
+    const destination = new InMemoryFs(undefined, { maxTotalBytes: 4 });
+    const fs = new MountableFs();
+    fs.mount("/dest", destination);
+    const result = await new Bash({ fs }).exec(script);
 
     expect(result).toMatchObject({
       stdout: "",
-      stderr: "bash: echo: write error: Permission denied\n",
+      stderr: "bash: echo: write error: No space left on device\n",
       exitCode: 1,
     });
-    expect(await bash.fs.readFile("/f")).toBe("");
+    expect(await destination.readFile("/f")).toBe("");
+  });
+
+  it("preserves open write access when chmod copies up an overlay file", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "descriptor-mode-"));
+    try {
+      fs.writeFileSync(path.join(root, "data"), "original", { mode: 0o600 });
+      const overlay = new OverlayFs({ root, mountPoint: "/" });
+      const bash = new Bash({ fs: overlay });
+      const result = await bash.exec(
+        "exec 3<>/data; chmod 444 /data; printf X >&3",
+      );
+
+      expect(result).toMatchObject({ stdout: "", stderr: "", exitCode: 0 });
+      expect(await overlay.readFile("/data")).toBe("Xriginal");
+      expect((await overlay.stat("/data")).mode).toBe(0o444);
+      expect(fs.readFileSync(path.join(root, "data"), "utf8")).toBe("original");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not transfer a descriptor's write access to a replacement file", async () => {
+    const bash = new Bash({
+      files: { "/other": { content: "old", mode: 0o444 } },
+    });
+    const result = await bash.exec("exec 3>/f; mv /other /f; echo x >&3");
+
+    expect(result).toMatchObject({
+      stdout: "",
+      stderr: "bash: echo: write error: Bad file descriptor\n",
+      exitCode: 1,
+    });
+    expect(await bash.fs.readFile("/f")).toBe("old");
   });
 
   it("reports code-only permission errors from a command", async () => {
@@ -114,7 +169,7 @@ describe("permission regressions", () => {
     expect(result).toMatchObject({
       stdout: "",
       stderr: "sed: couldn't open file /script: Permission denied\n",
-      exitCode: 1,
+      exitCode: 4,
     });
   });
 
@@ -131,16 +186,59 @@ describe("permission regressions", () => {
     });
   });
 
-  it("does not infer read-write open permission from owner bits", async () => {
+  it("checks lazy file permissions before invoking the provider", async () => {
+    let reads = 0;
+    const fs = new InMemoryFs();
+    fs.writeFileLazy(
+      "/source",
+      () => {
+        reads++;
+        return "data";
+      },
+      { mode: 0o000 },
+    );
+    await fs.symlink("/source", "/link");
+    const bash = new Bash({ fs, cwd: "/" });
+
+    const result = await bash.exec("head source; tail source; cp link copy");
+
+    expect(result).toMatchObject({
+      stdout: "",
+      stderr:
+        "head: source: Permission denied\ntail: source: Permission denied\ncp: cannot open 'link' for reading: Permission denied\n",
+      exitCode: 1,
+    });
+    expect(reads).toBe(0);
+    expect(await fs.exists("/copy")).toBe(false);
+  });
+
+  it("identifies the unreadable child in a recursive copy", async () => {
+    const bash = new Bash({
+      cwd: "/",
+      files: {
+        "/source/child": { content: "data", mode: 0o000 },
+      },
+    });
+    expect(await bash.exec("cp -r source copy")).toMatchObject({
+      stdout: "",
+      stderr: "cp: cannot open 'source/child' for reading: Permission denied\n",
+      exitCode: 1,
+    });
+  });
+
+  it.each([
+    "cat <>",
+    "exec 3<>",
+  ])("requires write permission for %s", async (command) => {
     const bash = new Bash({
       files: { "/data.txt": { content: "original\n", mode: 0o400 } },
     });
-    const result = await bash.exec('exec 3<> /data.txt; echo "rc=$?"');
+    const result = await bash.exec(`${command} /data.txt`);
 
     expect(result).toMatchObject({
-      stdout: "rc=0\n",
-      stderr: "",
-      exitCode: 0,
+      stdout: "",
+      stderr: "bash: /data.txt: Permission denied\n",
+      exitCode: 1,
     });
     expect(await bash.fs.readFile("/data.txt")).toBe("original\n");
   });

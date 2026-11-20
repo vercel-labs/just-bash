@@ -51,6 +51,7 @@ export class ExecutionScope {
   private liveBytes = 0;
   private inputBytes = 0;
   private outputBytes = 0;
+  private hostFileDescriptors = 0;
   private readonly countersByKind = new Map<string, number>();
   private readonly bytesByKind = new Map<string, number>();
   private readonly depthByKind = new Map<string, number>();
@@ -357,6 +358,27 @@ export class ExecutionScope {
         const next = (this.depthByKind.get(kind) ?? 1) - 1;
         if (next <= 0) this.depthByKind.delete(kind);
         else this.depthByKind.set(kind, next);
+      },
+    };
+  }
+
+  reserveHostFileDescriptor(): ResourceLease {
+    this.assertUsable();
+    if (this.hostFileDescriptors >= this.limits.maxFileDescriptors) {
+      this.fail(
+        new ExecutionLimitError(
+          `too many open file descriptors (max ${this.limits.maxFileDescriptors})`,
+          "file_descriptors",
+        ),
+      );
+    }
+    this.hostFileDescriptors++;
+    let released = false;
+    return {
+      release: () => {
+        if (released) return;
+        released = true;
+        this.hostFileDescriptors--;
       },
     };
   }

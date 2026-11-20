@@ -17,7 +17,14 @@ import {
   readBytesFrom,
   utf8ByteLength,
 } from "../encoding.js";
+import {
+  type FileWriteHandle,
+  getFileWriteHandle,
+  releaseFileWrite,
+  retainFileWrite,
+} from "../fs/open-file-write.js";
 import { isPermissionDenied } from "../fs/permission-utils.js";
+import { SecurityViolationError } from "../security/defense-in-depth-box.js";
 import type { ExecResult } from "../types.js";
 import {
   ControlFlowError,
@@ -128,7 +135,7 @@ type PreparedDupSource = {
 type RedirectSink =
   | { kind: "live-stdout" }
   | { kind: "live-stderr" }
-  | { kind: "file"; path: string; append: boolean }
+  | { kind: "file"; path: string; append: boolean; write?: FileWriteHandle }
   | {
       kind: "descriptor";
       source: PreparedDupSource;
@@ -177,6 +184,7 @@ type RedirectionTransactionState = {
   fdVariableEnv: Map<string, string | undefined>;
   nextFd: number | undefined;
   policy: RedirectionPolicy;
+  heldWrites: Set<FileWriteHandle>;
 };
 
 export type RedirectionTransaction = {
@@ -235,8 +243,14 @@ const PATH_ERROR_REASONS = new Map([
   ["ENOTDIR", "Not a directory"],
 ]);
 
+type AcquireFileWrite = (
+  path: string,
+  append: boolean,
+) => Promise<FileWriteHandle | undefined>;
+
 async function openOutputEntry(
   ctx: InterpreterContext,
+  acquireWrite: AcquireFileWrite,
   target: string,
   append: boolean,
   isClobber: boolean,
@@ -267,7 +281,14 @@ async function openOutputEntry(
   try {
     if (append) await ctx.fs.appendFile(filePath, "", "binary");
     else await ctx.fs.writeFile(filePath, "", "binary");
+    const write = await acquireWrite(filePath, true);
+    return { entry: { kind: "output", path: filePath, append, write } };
   } catch (error) {
+    if (
+      error instanceof ControlFlowError ||
+      error instanceof SecurityViolationError
+    )
+      throw error;
     const code = getErrorCode(error);
     const reason = code && PATH_ERROR_REASONS.get(code);
     if (reason)
@@ -283,11 +304,11 @@ async function openOutputEntry(
       ),
     };
   }
-  return { entry: { kind: "output", path: filePath, append } };
 }
 
 async function readInputEntry(
   ctx: InterpreterContext,
+  acquireWrite: AcquireFileWrite,
   target: string,
   readwrite: boolean,
 ): Promise<{ entry?: FdEntry; error?: ExecResult }> {
@@ -295,6 +316,13 @@ async function readInputEntry(
   try {
     const content =
       filePath === DEV_NULL ? "" : await ctx.fs.readFile(filePath);
+    let write: FileWriteHandle | undefined;
+    if (readwrite && !CHARACTER_DEVICES.has(filePath)) {
+      write = await acquireWrite(filePath, false);
+      if (!write) {
+        await ctx.fs.appendFile(filePath, "", "binary");
+      }
+    }
     return readwrite
       ? {
           entry: {
@@ -302,6 +330,7 @@ async function readInputEntry(
             path: filePath,
             position: 0,
             content,
+            write,
             device: CHARACTER_DEVICES.has(filePath),
           },
         }
@@ -313,6 +342,11 @@ async function readInputEntry(
           },
         };
   } catch (error) {
+    if (
+      error instanceof ControlFlowError ||
+      error instanceof SecurityViolationError
+    )
+      throw error;
     if (isPermissionDenied(error)) {
       return {
         error: makeResult("", `bash: ${target}: Permission denied\n`, 1),
@@ -344,10 +378,16 @@ async function readInputEntry(
           path: filePath,
           position: 0,
           content: "",
+          write: await acquireWrite(filePath, false),
           device: CHARACTER_DEVICES.has(filePath),
         },
       };
     } catch (error) {
+      if (
+        error instanceof ControlFlowError ||
+        error instanceof SecurityViolationError
+      )
+        throw error;
       return {
         error: makeResult(
           "",
@@ -388,6 +428,14 @@ async function prepareRedirectionsWithState(
   inheritedStdin: string,
   transaction: RedirectionTransactionState,
 ): Promise<PreparedRedirections> {
+  const acquireWrite: AcquireFileWrite = async (path, append) => {
+    const write = await getFileWriteHandle(ctx.fs, path, {
+      scope: ctx.executionScope,
+      append,
+    });
+    if (write) transaction.heldWrites.add(write);
+    return write;
+  };
   const standardRoute = (fd: number, fallback: FdEntry): FdEntry =>
     ctx.state.closedStandardFds?.has(fd)
       ? { kind: "closed" }
@@ -427,7 +475,12 @@ async function prepareRedirectionsWithState(
     }
     return entry.path === DEV_NULL
       ? { kind: "discard" }
-      : { kind: "file", path: entry.path, append: entry.append };
+      : {
+          kind: "file",
+          path: entry.path,
+          append: entry.append,
+          write: entry.write,
+        };
   };
   const snapshot = transaction.numericSnapshot;
   let stdin: string | undefined;
@@ -694,7 +747,13 @@ async function prepareRedirectionsWithState(
               index,
             );
           }
-          const opened = await openOutputEntry(ctx, target, false, false);
+          const opened = await openOutputEntry(
+            ctx,
+            acquireWrite,
+            target,
+            false,
+            false,
+          );
           if (opened.error) return fail(opened.error, index);
           entry = opened.entry;
         } else {
@@ -727,6 +786,7 @@ async function prepareRedirectionsWithState(
         const append = redir.operator === ">>" || redir.operator === "&>>";
         const opened = await openOutputEntry(
           ctx,
+          acquireWrite,
           target,
           append,
           redir.operator === ">|",
@@ -738,6 +798,7 @@ async function prepareRedirectionsWithState(
       } else if (redir.operator === "<" || redir.operator === "<>") {
         const opened = await readInputEntry(
           ctx,
+          acquireWrite,
           target,
           redir.operator === "<>",
         );
@@ -816,7 +877,13 @@ async function prepareRedirectionsWithState(
               index,
             );
           }
-          const opened = await openOutputEntry(ctx, target, false, false);
+          const opened = await openOutputEntry(
+            ctx,
+            acquireWrite,
+            target,
+            false,
+            false,
+          );
           if (opened.error) return fail(opened.error, index);
           setFdEntry(ctx, fd, opened.entry as FdEntry);
           continue;
@@ -867,6 +934,7 @@ async function prepareRedirectionsWithState(
       ) {
         const opened = await openOutputEntry(
           ctx,
+          acquireWrite,
           target,
           redir.operator === ">>",
           redir.operator === ">|",
@@ -878,6 +946,7 @@ async function prepareRedirectionsWithState(
       } else if (redir.operator === "<" || redir.operator === "<>") {
         const opened = await readInputEntry(
           ctx,
+          acquireWrite,
           target,
           redir.operator === "<>",
         );
@@ -918,7 +987,14 @@ async function prepareRedirectionsWithState(
             index,
           );
         }
-        const opened = await openOutputEntry(ctx, target, false, false, false);
+        const opened = await openOutputEntry(
+          ctx,
+          acquireWrite,
+          target,
+          false,
+          false,
+          false,
+        );
         if (opened.error) return fail(opened.error, index);
         const entry = opened.entry;
         const sink = openedOutputSink(entry);
@@ -1038,6 +1114,7 @@ async function prepareRedirectionsWithState(
     ) {
       const opened = await openOutputEntry(
         ctx,
+        acquireWrite,
         target,
         redir.operator === ">>" || redir.operator === "&>>",
         redir.operator === ">|",
@@ -1093,7 +1170,7 @@ async function prepareRedirectionsWithState(
         );
       }
     } else if (redir.operator === "<>") {
-      const opened = await readInputEntry(ctx, target, true);
+      const opened = await readInputEntry(ctx, acquireWrite, target, true);
       if (opened.error) return fail(opened.error, index);
       const entry = opened.entry as FdEntry;
       persistStandard(effectiveFd, entry);
@@ -1114,6 +1191,15 @@ export function createRedirectionTransaction(
   redirections: RedirectionNode[],
   policy: RedirectionPolicy,
 ): RedirectionTransaction {
+  const heldWrites = new Set<FileWriteHandle>();
+  if (ctx.state.fdWrites) {
+    // Commands without new redirects only capture the two output routes.
+    const writes = redirections.length
+      ? ctx.state.fdWrites.values()
+      : [ctx.state.fdWrites.get(1), ctx.state.fdWrites.get(2)];
+    for (const write of writes) if (write) heldWrites.add(write);
+  }
+  for (const write of heldWrites) retainFileWrite(write);
   const state: RedirectionTransactionState = {
     numericSnapshot: new Map(),
     fdVariableSnapshot: new Map(),
@@ -1122,6 +1208,7 @@ export function createRedirectionTransaction(
     fdVariableEnv: new Map(),
     nextFd: ctx.state.nextFd,
     policy,
+    heldWrites,
   };
   let finished = false;
   return {
@@ -1130,27 +1217,29 @@ export function createRedirectionTransaction(
     finish: () => {
       if (finished) return;
       finished = true;
-      if (policy !== "persistent") {
-        restoreFds(ctx, state.numericSnapshot);
-      }
-      if (policy !== "persistent") {
-        restoreFds(ctx, state.standardSnapshot);
-        for (const [fd, wasClosed] of state.standardClosedSnapshot) {
-          if (wasClosed) {
-            ctx.state.closedStandardFds ??= new Set();
-            ctx.state.closedStandardFds.add(fd);
-          } else {
-            ctx.state.closedStandardFds?.delete(fd);
+      try {
+        if (policy !== "persistent") {
+          restoreFds(ctx, state.numericSnapshot);
+          restoreFds(ctx, state.standardSnapshot);
+          for (const [fd, wasClosed] of state.standardClosedSnapshot) {
+            if (wasClosed) {
+              ctx.state.closedStandardFds ??= new Set();
+              ctx.state.closedStandardFds.add(fd);
+            } else {
+              ctx.state.closedStandardFds?.delete(fd);
+            }
           }
         }
-      }
-      if (policy === "bare") {
-        restoreFds(ctx, state.fdVariableSnapshot);
-        for (const [name, value] of state.fdVariableEnv) {
-          if (value === undefined) ctx.state.env.delete(name);
-          else ctx.state.env.set(name, value);
+        if (policy === "bare") {
+          restoreFds(ctx, state.fdVariableSnapshot);
+          for (const [name, value] of state.fdVariableEnv) {
+            if (value === undefined) ctx.state.env.delete(name);
+            else ctx.state.env.set(name, value);
+          }
+          ctx.state.nextFd = state.nextFd;
         }
-        ctx.state.nextFd = state.nextFd;
+      } finally {
+        for (const write of state.heldWrites) releaseFileWrite(write);
       }
     },
   };
@@ -1303,15 +1392,33 @@ export async function applyRedirections(
       pendingStderr = "";
       if (exitCode === 0) exitCode = 1;
     }
+    const reportWriteError = (error: unknown) => {
+      if (
+        error instanceof ControlFlowError ||
+        error instanceof SecurityViolationError
+      )
+        throw error;
+      const code = getErrorCode(error);
+      let reason =
+        (code && PATH_ERROR_REASONS.get(code)) || "Input/output error";
+      if (isPermissionDenied(error)) reason = "Permission denied";
+      else if (code === "ENOSPC") reason = "No space left on device";
+      else if (code === "EBADF") reason = "Bad file descriptor";
+      stderr += `${omitShellPrefix ? "" : "bash: "}${writeErrorCommand}: write error: ${reason}\n`;
+      exitCode = 1;
+    };
     const deliverToFile = async (
-      sink: { path: string; append: boolean },
+      sink: Extract<RedirectSink, { kind: "file" }>,
       content: string,
       encoding: "binary" | "utf8",
     ) => {
-      if (sink.append) {
-        await ctx.fs.appendFile(sink.path, content, encoding);
-      } else {
-        await ctx.fs.writeFile(sink.path, content, encoding);
+      try {
+        if (sink.write) await sink.write(content, encoding, sink.append);
+        else if (sink.append)
+          await ctx.fs.appendFile(sink.path, content, encoding);
+        else await ctx.fs.writeFile(sink.path, content, encoding);
+      } catch (error) {
+        reportWriteError(error);
       }
     };
     const deliverToDescriptor = async (
@@ -1328,9 +1435,7 @@ export async function applyRedirections(
           encoding,
         );
       } catch (error) {
-        if (!isPermissionDenied(error)) throw error;
-        stderr += `${omitShellPrefix ? "" : "bash: "}${writeErrorCommand}: write error: Permission denied\n`;
-        exitCode = 1;
+        reportWriteError(error);
       }
     };
     if (

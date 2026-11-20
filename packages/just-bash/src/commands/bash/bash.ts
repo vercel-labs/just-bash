@@ -127,7 +127,7 @@ export const shCommand: RuntimeCommand = {
         stderr: permissionDenied
           ? `sh: ${scriptPath}: Permission denied\n`
           : `sh: ${scriptPath}: No such file or directory\n`,
-        exitCode: permissionDenied ? 126 : 127,
+        exitCode: permissionDenied ? 2 : 127,
       };
     }
   },

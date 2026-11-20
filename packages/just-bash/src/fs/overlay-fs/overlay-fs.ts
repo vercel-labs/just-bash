@@ -32,6 +32,12 @@ import type {
   WriteFileOptions,
 } from "../interface.js";
 import {
+  type FileWriteHandle,
+  fileWriteHandle,
+  isOpenFileWrite,
+  registerFileWriteOpener,
+} from "../open-file-write.js";
+import {
   DEFAULT_DIR_MODE,
   DEFAULT_FILE_MODE,
   dirname,
@@ -41,7 +47,10 @@ import {
   resolvePath as resolveVPath,
   SYMLINK_MODE,
 } from "../path-utils.js";
-import { isPermissionDenied } from "../permission-utils.js";
+import {
+  isPermissionDenied,
+  ReadPermissionError,
+} from "../permission-utils.js";
 import {
   isPathWithinRoot,
   isSameOrDescendantPath,
@@ -65,6 +74,14 @@ interface MemoryFileEntry {
   mode: number;
   mtime: Date;
   identity?: string;
+  hostFile?: HostFileReference;
+}
+
+interface HostFileReference {
+  path: string;
+  dev: number | bigint;
+  ino: number | bigint;
+  size: number;
 }
 
 interface MemoryDirEntry {
@@ -139,6 +156,7 @@ export class OverlayFs implements IFileSystem {
   private readonly deleted: Set<string> = new Set();
   private nextMemoryIdentity = 1;
   private retainedMemoryBytes = 0;
+  private entryRevision = 0;
 
   private memoryEntryBytes(entry: MemoryEntry | undefined): number {
     if (!entry || entry.type !== "file") return 0;
@@ -164,10 +182,12 @@ export class OverlayFs implements IFileSystem {
     const added = this.memoryEntryBytes(entry);
     this.assertMemoryCapacity(added, released);
     this.memory.set(path, entry);
+    this.entryRevision++;
     this.retainedMemoryBytes += added - released;
   }
 
   private deleteMemoryEntry(path: string): void {
+    this.entryRevision++;
     const existing = this.memory.get(path);
     if (!existing) return;
     this.retainedMemoryBytes -= this.memoryEntryBytes(existing);
@@ -215,6 +235,7 @@ export class OverlayFs implements IFileSystem {
 
     // Create mount point directory structure in memory layer
     this.createMountPointDirs();
+    registerFileWriteOpener(this, (path) => this.openFileWrite(path));
   }
 
   /**
@@ -506,6 +527,9 @@ export class OverlayFs implements IFileSystem {
       if (enforceReadPermission && (memEntry.mode & 0o400) === 0) {
         throw new Error(`EACCES: permission denied, open '${requestedPath}'`);
       }
+      if (memEntry.hostFile) {
+        return this.readMovedHostFile(memEntry.hostFile, requestedPath);
+      }
       if (!memEntry.appendChunks || memEntry.appendChunks.length === 0) {
         return memEntry.content;
       }
@@ -602,6 +626,54 @@ export class OverlayFs implements IFileSystem {
     }
   }
 
+  private async readMovedHostFile(
+    file: HostFileReference,
+    path: string,
+  ): Promise<Uint8Array> {
+    const canonical = this.resolveRealPath_(this.toRealPath(file.path));
+    if (!canonical)
+      throw new Error(`ENOENT: no such file or directory, open '${path}'`);
+    try {
+      const handle = await fs.promises.open(
+        canonical,
+        fs.constants.O_RDONLY |
+          fs.constants.O_NOFOLLOW |
+          fs.constants.O_NONBLOCK,
+      );
+      try {
+        const stat = await handle.stat();
+        if (!stat.isFile() || stat.dev !== file.dev || stat.ino !== file.ino) {
+          throw new Error(`ENOENT: backing file changed, open '${path}'`);
+        }
+        if (this.maxFileReadSize > 0 && stat.size > this.maxFileReadSize) {
+          throw new Error(
+            `EFBIG: file too large, read '${path}' (${stat.size} bytes, max ${this.maxFileReadSize})`,
+          );
+        }
+        const data = new Uint8Array(stat.size);
+        let offset = 0;
+        while (offset < data.length) {
+          const { bytesRead } = await handle.read(
+            data,
+            offset,
+            data.length - offset,
+            offset,
+          );
+          if (!bytesRead) break;
+          offset += bytesRead;
+        }
+        return data.subarray(0, offset);
+      } finally {
+        await handle.close();
+      }
+    } catch (error) {
+      if (isPermissionDenied(error)) {
+        throw new Error(`EACCES: permission denied, open '${path}'`);
+      }
+      this.sanitizeError(error, path, "open");
+    }
+  }
+
   async writeFile(
     path: string,
     content: FileContent,
@@ -610,7 +682,11 @@ export class OverlayFs implements IFileSystem {
     validatePath(path, "write");
     this.assertWritable(`write '${path}'`);
     const normalized = normalizePath(path);
-    const existingStat = await this.assertFileWritable(normalized, path);
+    const existingStat = await this.assertFileWritable(
+      normalized,
+      path,
+      options,
+    );
     this.ensureParentDirs(normalized);
 
     const encoding = getEncoding(options);
@@ -623,6 +699,7 @@ export class OverlayFs implements IFileSystem {
         ? existingStat.mode & 0o7777
         : DEFAULT_FILE_MODE,
       mtime: new Date(),
+      identity: existingStat?.isFile ? existingStat.identity : undefined,
     });
     this.deleted.delete(normalized);
   }
@@ -635,12 +712,12 @@ export class OverlayFs implements IFileSystem {
     validatePath(path, "append");
     this.assertWritable(`append '${path}'`);
     const normalized = normalizePath(path);
-    await this.assertFileWritable(normalized, path);
+    const stat = await this.assertFileWritable(normalized, path, options);
     const encoding = getEncoding(options);
     const newBuffer = toBuffer(content, encoding);
 
     const existingEntry = this.memory.get(normalized);
-    if (existingEntry?.type === "file") {
+    if (existingEntry?.type === "file" && !existingEntry.hostFile) {
       this.assertMemoryCapacity(newBuffer.byteLength);
       if (!existingEntry.appendChunks) existingEntry.appendChunks = [];
       existingEntry.appendChunks.push(newBuffer);
@@ -660,9 +737,14 @@ export class OverlayFs implements IFileSystem {
         normalized,
         false,
       );
-      mode = (await this.stat(normalized)).mode & 0o7777;
+      mode = (stat?.mode ?? DEFAULT_FILE_MODE) & 0o7777;
     } catch (error) {
-      if (await this.existsInOverlay(normalized)) {
+      const missingAllowedTarget =
+        this.allowSymlinks &&
+        !stat &&
+        error instanceof Error &&
+        error.message.startsWith("ENOENT:");
+      if (!missingAllowedTarget && (await this.existsInOverlay(normalized))) {
         throw error;
       }
       existingBuffer = new Uint8Array(0);
@@ -675,6 +757,7 @@ export class OverlayFs implements IFileSystem {
       appendChunks: [newBuffer],
       mode,
       mtime: new Date(),
+      identity: stat?.isFile ? stat.identity : undefined,
     });
     this.deleted.delete(normalized);
   }
@@ -682,20 +765,33 @@ export class OverlayFs implements IFileSystem {
   private async assertFileWritable(
     normalized: string,
     path: string,
+    options?: WriteFileOptions | BufferEncoding,
   ): Promise<FsStat | undefined> {
     let stat: FsStat;
     try {
       stat = await this.stat(normalized);
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("ENOENT")) {
+        isOpenFileWrite(options, undefined, path);
         return undefined;
       }
       throw error;
     }
-    if (stat.isFile && (stat.mode & 0o200) === 0) {
+    const opened = isOpenFileWrite(options, stat.identity, path);
+    if (!opened && stat.isFile && (stat.mode & 0o200) === 0) {
       throw new Error(`EACCES: permission denied, open '${path}'`);
     }
     return stat;
+  }
+
+  private async openFileWrite(
+    path: string,
+  ): Promise<FileWriteHandle | undefined> {
+    this.assertWritable(`open '${path}'`);
+    const stat = await this.assertFileWritable(normalizePath(path), path);
+    if (stat?.isFile && stat.identity) {
+      return fileWriteHandle(this, path, stat.identity);
+    }
   }
 
   async exists(path: string): Promise<boolean> {
@@ -733,7 +829,7 @@ export class OverlayFs implements IFileSystem {
       let size = 0;
       if (entry.type === "file") {
         size =
-          entry.content.length +
+          (entry.hostFile?.size ?? entry.content.length) +
           (entry.appendChunks?.reduce(
             (sum, chunk) => sum + chunk.byteLength,
             0,
@@ -756,6 +852,10 @@ export class OverlayFs implements IFileSystem {
     const canonical = this.resolveRealPath_(this.toRealPath(normalized));
     if (!canonical) {
       throw new Error(`ENOENT: no such file or directory, stat '${path}'`);
+    }
+    const virtualTarget = this.realTargetToVirtual(normalized, canonical);
+    if (virtualTarget !== normalized) {
+      return this.stat(virtualTarget, seen);
     }
 
     try {
@@ -781,6 +881,7 @@ export class OverlayFs implements IFileSystem {
         mtime: lstatResult.mtime,
         dev: lstatResult.dev,
         ino: lstatResult.ino,
+        identity: `real:${lstatResult.dev}:${lstatResult.ino}`,
       };
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") {
@@ -815,7 +916,7 @@ export class OverlayFs implements IFileSystem {
       let size = 0;
       if (entry.type === "file") {
         size =
-          entry.content.length +
+          (entry.hostFile?.size ?? entry.content.length) +
           (entry.appendChunks?.reduce(
             (sum, chunk) => sum + chunk.byteLength,
             0,
@@ -1214,7 +1315,7 @@ export class OverlayFs implements IFileSystem {
 
     // Check if it's a directory
     try {
-      const stat = await this.stat(normalized);
+      const stat = await this.lstat(normalized);
       if (stat.isDirectory) {
         const children = await this.readdir(normalized);
         if (children.length > 0) {
@@ -1268,21 +1369,9 @@ export class OverlayFs implements IFileSystem {
   }
 
   async cp(src: string, dest: string, options?: CpOptions): Promise<void> {
-    await this.copy(src, dest, options, true, false, "cp");
-  }
-
-  private async copy(
-    src: string,
-    dest: string,
-    options: CpOptions | undefined,
-    enforcePermissions: boolean,
-    preserveMode: boolean,
-    operation: "cp" | "mv",
-    transferSource = false,
-  ): Promise<void> {
     validatePath(src, "cp");
     validatePath(dest, "cp");
-    this.assertWritable(`${operation} '${dest}'`);
+    this.assertWritable(`cp '${dest}'`);
     const srcNorm = normalizePath(src);
     const destNorm = normalizePath(dest);
 
@@ -1294,34 +1383,11 @@ export class OverlayFs implements IFileSystem {
     const srcStat = await this.stat(srcNorm);
 
     if (srcStat.isFile) {
-      const content = await this.readFileBufferInternal(
-        srcNorm,
-        new Set(),
-        srcNorm,
-        enforcePermissions,
-      );
-      if (preserveMode) {
-        this.ensureParentDirs(destNorm);
-        const source = this.memory.get(srcNorm);
-        if (transferSource && source?.type === "file") {
-          // Transfer the existing body so a rename does not charge it twice.
-          this.deleteMemoryEntry(srcNorm);
-          this.setMemoryEntry(destNorm, source);
-          if (this.existsOnRealFs(srcNorm)) {
-            this.deleted.add(srcNorm);
-          }
-        } else {
-          this.setMemoryEntry(destNorm, {
-            type: "file",
-            content: new Uint8Array(content),
-            mode: srcStat.mode & 0o7777,
-            mtime: new Date(),
-          });
-        }
-        this.deleted.delete(destNorm);
-      } else {
-        await this.writeFile(destNorm, content);
-      }
+      const content = await this.readFileBuffer(srcNorm).catch((error) => {
+        if (isPermissionDenied(error)) throw new ReadPermissionError(src);
+        throw error;
+      });
+      await this.writeFile(destNorm, content);
     } else if (srcStat.isDirectory) {
       if (!options?.recursive) {
         throw new Error(`EISDIR: is a directory, cp '${src}'`);
@@ -1332,16 +1398,10 @@ export class OverlayFs implements IFileSystem {
       await this.mkdir(destNorm, { recursive: true });
       const children = await this.readdir(srcNorm);
       for (const child of children) {
-        const srcChild = srcNorm === "/" ? `/${child}` : `${srcNorm}/${child}`;
-        const destChild =
-          destNorm === "/" ? `/${child}` : `${destNorm}/${child}`;
-        await this.copy(
-          srcChild,
-          destChild,
+        await this.cp(
+          joinPath(srcNorm, child),
+          joinPath(destNorm, child),
           options,
-          enforcePermissions,
-          preserveMode,
-          operation,
         );
       }
     }
@@ -1351,14 +1411,81 @@ export class OverlayFs implements IFileSystem {
     validatePath(src, "mv");
     validatePath(dest, "mv");
     this.assertWritable(`mv '${dest}'`);
-    if (normalizePath(src) === normalizePath(dest)) {
-      if (!(await this.existsInOverlay(src))) {
-        throw new Error(`ENOENT: no such file or directory, mv '${src}'`);
-      }
-      return;
+    const source = normalizePath(src);
+    const destination = normalizePath(dest);
+    const revision = this.entryRevision;
+    const stat = await this.lstat(source);
+    if (source === destination) return;
+    if (stat.isDirectory && isSameOrDescendantPath(source, destination)) {
+      throw new Error(`EINVAL: cannot move '${src}' into itself, '${dest}'`);
     }
-    await this.copy(src, dest, { recursive: true }, false, true, "mv", true);
-    await this.rm(src, { recursive: true, force: true });
+
+    const pending = [{ path: source, stat }];
+    const entries: Array<{
+      path: string;
+      entry: MemoryEntry;
+      hideHost: boolean;
+    }> = [];
+    for (let index = 0; index < pending.length; index++) {
+      const current = pending[index];
+      const entry =
+        this.memory.get(current.path) ??
+        (await this.moveHostEntry(current.path, current.stat));
+      entries.push({
+        path: current.path,
+        entry,
+        hideHost: this.existsOnRealFs(current.path),
+      });
+      if (entry.type === "directory") {
+        for (const child of await this.readdir(current.path)) {
+          const path = joinPath(current.path, child);
+          pending.push({ path, stat: await this.lstat(path) });
+        }
+      }
+    }
+
+    if (revision !== this.entryRevision) {
+      throw new Error(`EAGAIN: filesystem changed during move '${src}'`);
+    }
+    this.ensureParentDirs(destination);
+    // Delete the old index entries first so a move charges each in-memory body once.
+    for (const { path, hideHost } of entries) {
+      this.deleteMemoryEntry(path);
+      if (hideHost) this.deleted.add(path);
+    }
+    for (const { path, entry } of entries) {
+      const target =
+        path === source
+          ? destination
+          : joinPath(destination, path.slice(source.length + 1));
+      this.setMemoryEntry(target, entry);
+      this.deleted.delete(target);
+    }
+  }
+
+  private async moveHostEntry(
+    path: string,
+    stat: FsStat,
+  ): Promise<MemoryEntry> {
+    const metadata = { mode: stat.mode & 0o7777, mtime: stat.mtime };
+    if (stat.isDirectory) return { type: "directory", ...metadata };
+    if (stat.isSymbolicLink && this.allowSymlinks) {
+      return {
+        type: "symlink",
+        target: await this.readlink(path),
+        ...metadata,
+      };
+    }
+    if (!stat.isFile || stat.dev === undefined || stat.ino === undefined) {
+      throw new Error(`EPERM: operation not permitted, mv '${path}'`);
+    }
+    return {
+      type: "file",
+      content: new Uint8Array(0),
+      ...metadata,
+      identity: `real:${stat.dev}:${stat.ino}`,
+      hostFile: { path, dev: stat.dev, ino: stat.ino, size: stat.size },
+    };
   }
 
   resolvePath(base: string, rel: string): string {
@@ -1440,6 +1567,7 @@ export class OverlayFs implements IFileSystem {
         content,
         mode,
         mtime: new Date(),
+        identity: stat.identity,
       });
     } else if (stat.isDirectory) {
       this.setMemoryEntry(normalized, {
@@ -1646,6 +1774,12 @@ export class OverlayFs implements IFileSystem {
           const realPath = this.toRealPath(resolved);
           const canonical = this.resolveRealPath_(realPath);
           if (canonical) {
+            const virtualTarget = this.realTargetToVirtual(resolved, canonical);
+            if (virtualTarget !== resolved) {
+              seen.add(resolved);
+              resolved = await resolveAll(virtualTarget);
+              continue;
+            }
             try {
               const stat = await fs.promises.lstat(canonical);
               if (stat.isSymbolicLink()) {

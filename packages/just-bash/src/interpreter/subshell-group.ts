@@ -332,6 +332,7 @@ export async function executeUserScript(
   args: string[],
   stdin: string,
   executeScript: ExecuteScriptFn,
+  invokedPath: string = scriptPath,
 ): Promise<ExecResult> {
   // Read the script content
   let content: string;
@@ -339,7 +340,7 @@ export async function executeUserScript(
     content = await ctx.fs.readFile(scriptPath);
   } catch (error) {
     return isPermissionDenied(error)
-      ? failure(`bash: ${scriptPath}: Permission denied\n`, 126)
+      ? failure(`bash: ${invokedPath}: Permission denied\n`, 126)
       : failure(`bash: ${scriptPath}: No such file or directory\n`, 127);
   }
 

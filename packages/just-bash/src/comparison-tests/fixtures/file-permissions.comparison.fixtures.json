@@ -79,6 +79,26 @@
     "stderr": "/bin/bash: line 1: secret.sh: Permission denied\n",
     "exitCode": 0
   },
+  "91858f04b6cefc41": {
+    "command": "mkdir path; mv secret.sh path/secret.sh; chmod 000 path/secret.sh; PATH=path:$PATH; source secret.sh",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "",
+    "stderr": "/bin/bash: secret.sh: No such file or directory\n",
+    "exitCode": 1
+  },
+  "97ce3202f895bcf3": {
+    "command": "chmod 100 secret.sh; ./secret.sh",
+    "files": {
+      "data.txt": "secret\n",
+      "secret.sh": "echo hidden\n"
+    },
+    "stdout": "",
+    "stderr": "/bin/bash: ./secret.sh: Permission denied\n",
+    "exitCode": 126
+  },
   "9b2cc7bf9464160c": {
     "command": "chmod 000 data.txt; chmod 644 data.txt; cat data.txt; echo \"rc=$?\"",
     "files": {
