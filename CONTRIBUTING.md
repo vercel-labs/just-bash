@@ -88,13 +88,15 @@ Commit the generated fixture file together with the test. If you adjust a fixtur
 
 When the unit test step fails, available fuzz logs are uploaded as a `test-diagnostics-node-<version>-attempt-<attempt>` artifact, retained for seven days. The JSONL logs contain the base seed, property names and derived seeds, input scripts, and runner completion markers, not test output. The last `property` record identifies the most recently started property, which may not be the test active at the time of a crash. A `start` without a matching `end` has no recorded completion; it does not prove that the script caused the crash. An `end` marks the runner's result, but timed-out work may still be running.
 
-Replay a property with the base seed from the `metadata` record and its name from the `property` record. The property seed is derived from both:
+Replay a property with the base seed from the `metadata` record and the leaf test name from the `property` record, the part after the last ` > `, passed to `-t`. The seed fast-check prints on failure is the derived property seed, not the `FUZZ_SEED` value; use the base seed from the `metadata` record instead:
 
 ```sh
 FUZZ_SEED=123 pnpm --filter just-bash test:unit src/security/fuzzing/__tests__/fuzz-malformed.test.ts -t 'handles truncated scripts'
 ```
 
 For local runs, set `TEST_DIAGNOSTICS_DIR` to choose the log directory. If the original run customized `FUZZ_RUNS`, use the same value to replay all its inputs. Exact scripts remain useful if generators change, but replaying a script does not guarantee that an out-of-memory crash will recur.
+
+When replaying a single property in `fuzz-coverage`, ignore an aggregate-coverage assertion failure: the property can pass even when the filtered run does not meet the full suite's coverage threshold.
 
 ### Security requirements
 
