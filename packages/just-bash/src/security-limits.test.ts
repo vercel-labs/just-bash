@@ -109,6 +109,18 @@ echo "count: \${#arr[@]}"
   });
 
   describe("maxGlobOperations limit", () => {
+    it("allows Infinity for glob expansion and pattern replacement", async () => {
+      const bash = new Bash({
+        executionLimits: { maxGlobOperations: Infinity },
+        files: { "/data/a.txt": "a", "/data/b.txt": "b" },
+      });
+
+      const result = await bash.exec("echo /data/*.txt; v=a-b; echo ${v//-/+}");
+      expect(result.stdout).toBe("/data/a.txt /data/b.txt\na+b\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should enforce glob operation limit", async () => {
       // A simple glob like /dir/* requires ~2 operations (entry + readdir)
       // Use limit of 1 to trigger failure on readdir

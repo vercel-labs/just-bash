@@ -112,7 +112,7 @@ export class ExecutionScope {
     if (
       !Number.isSafeInteger(count) ||
       count < 0 ||
-      !Number.isSafeInteger(maximum) ||
+      (maximum !== Infinity && !Number.isSafeInteger(maximum)) ||
       maximum < 0 ||
       count > maximum - current
     ) {
