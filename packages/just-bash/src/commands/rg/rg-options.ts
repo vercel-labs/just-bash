@@ -40,6 +40,7 @@ export interface RgOptions {
   contextSeparator: string;
   quiet: boolean;
   heading: boolean;
+  messages: boolean;
   passthru: boolean;
   includeZero: boolean;
   sort: "path" | "none";
@@ -103,6 +104,7 @@ export function createDefaultOptions(): RgOptions {
     contextSeparator: "--",
     quiet: false,
     heading: false,
+    messages: true,
     passthru: false,
     includeZero: false,
     sort: "path",
