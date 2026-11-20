@@ -178,6 +178,30 @@ export function getValueDepth(value: QueryValue, maxCheck = 3000): number {
 }
 
 /**
+ * Compare two strings by Unicode code point, as jq does.
+ * `localeCompare` is locale-dependent and canonically equates distinct
+ * strings (e.g. NFC vs NFD forms of the same glyph), while the default
+ * `<` compares UTF-16 code units, which misorders astral characters
+ * against U+E000–U+FFFF. Code point order matches jq (and UTF-8 byte
+ * order).
+ */
+export function compareStrings(a: string, b: string): number {
+  const aIter = a[Symbol.iterator]();
+  const bIter = b[Symbol.iterator]();
+  for (;;) {
+    const aNext = aIter.next();
+    const bNext = bIter.next();
+    if (aNext.done || bNext.done) {
+      if (aNext.done && bNext.done) return 0;
+      return aNext.done ? -1 : 1;
+    }
+    const aCp = aNext.value.codePointAt(0) ?? 0;
+    const bCp = bNext.value.codePointAt(0) ?? 0;
+    if (aCp !== bCp) return aCp - bCp;
+  }
+}
+
+/**
  * Compare two values using jq's comparison semantics.
  * jq sorts by type first (null < bool < number < string < array < object),
  * then by value within type.
@@ -197,8 +221,18 @@ export function compareJq(a: QueryValue, b: QueryValue): number {
   const tb = typeOrder(b);
   if (ta !== tb) return ta - tb;
 
-  if (typeof a === "number" && typeof b === "number") return a - b;
-  if (typeof a === "string" && typeof b === "string") return a.localeCompare(b);
+  if (typeof a === "number" && typeof b === "number") {
+    // jq orders NaN below every other number and equal to itself.
+    // `a - b` returns NaN for Infinity - Infinity, which callers such as
+    // `unique` read as "not equal", so duplicate infinities survived
+    // deduplication.
+    if (Number.isNaN(a)) return Number.isNaN(b) ? 0 : -1;
+    if (Number.isNaN(b)) return 1;
+    if (a === b) return 0;
+    return a < b ? -1 : 1;
+  }
+  if (typeof a === "string" && typeof b === "string")
+    return compareStrings(a, b);
   if (typeof a === "boolean" && typeof b === "boolean")
     return (a ? 1 : 0) - (b ? 1 : 0);
   if (Array.isArray(a) && Array.isArray(b)) {
@@ -212,11 +246,11 @@ export function compareJq(a: QueryValue, b: QueryValue): number {
   const aObj = asQueryRecord(a);
   const bObj = asQueryRecord(b);
   if (aObj && bObj) {
-    const aKeys = Object.keys(aObj).sort();
-    const bKeys = Object.keys(bObj).sort();
+    const aKeys = Object.keys(aObj).sort(compareStrings);
+    const bKeys = Object.keys(bObj).sort(compareStrings);
     // First compare keys
     for (let i = 0; i < Math.min(aKeys.length, bKeys.length); i++) {
-      const keyCmp = aKeys[i].localeCompare(bKeys[i]);
+      const keyCmp = compareStrings(aKeys[i], bKeys[i]);
       if (keyCmp !== 0) return keyCmp;
     }
     if (aKeys.length !== bKeys.length) return aKeys.length - bKeys.length;
