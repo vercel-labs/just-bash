@@ -51,14 +51,19 @@ export type { QueryValue } from "./value-operations.js";
 class BreakError extends Error {
   constructor(
     public readonly label: string,
-    public readonly partialResults: QueryValue[] = [],
+    public partialResults: QueryValue[] = [],
   ) {
     super(`break ${label}`);
     this.name = "BreakError";
   }
 
-  withPrependedResults(results: QueryValue[]): BreakError {
-    return new BreakError(this.label, [...results, ...this.partialResults]);
+  // A break goes up through many nodes. Change this error in place, so that
+  // the nodes do not make a new error and a new stack trace each time.
+  prependResults(results: QueryValue[]): this {
+    if (results.length > 0) {
+      this.partialResults = [...results, ...this.partialResults];
+    }
+    return this;
   }
 }
 
@@ -134,7 +139,12 @@ export interface EvalContext {
   currentPath?: (string | number)[];
   funcs?: Map<
     string,
-    { params: string[]; body: AstNode; closure?: Map<string, unknown> }
+    {
+      params: string[];
+      body: AstNode;
+      closure?: Map<string, unknown>;
+      vars?: Map<string, QueryValue>;
+    }
   >;
   labels?: Set<string>;
   /** Feature coverage writer for fuzzing instrumentation */
@@ -210,6 +220,50 @@ function boundedFlatMap(
     appendQueryResults(ctx, results, mapped);
   }
   return results;
+}
+
+/**
+ * Like boundedFlatMap, for a node that outputs the mapped values. If a break
+ * leaves the mapper, the outputs of the earlier values stay on the break.
+ */
+function streamFlatMap(
+  ctx: EvalContext,
+  values: readonly QueryValue[],
+  mapper: (value: QueryValue) => QueryValue[],
+): QueryValue[] {
+  const results: QueryValue[] = [];
+  for (const value of values) {
+    chargeQueryWork(ctx);
+    let mapped: QueryValue[];
+    try {
+      mapped = mapper(value);
+    } catch (e) {
+      if (e instanceof BreakError) throw e.prependResults(results);
+      throw e;
+    }
+    appendQueryResults(ctx, results, mapped);
+  }
+  return results;
+}
+
+/**
+ * Evaluate the source of a pipe, an `as` binding or a `//`. If a break leaves
+ * the source, return the outputs that it made before the break, and return the
+ * break. The caller uses these outputs, then throws the break again.
+ */
+function evaluateSource(
+  value: QueryValue,
+  ast: AstNode,
+  ctx: EvalContext,
+): [QueryValue[], BreakError | null] {
+  try {
+    return [evaluateStream(value, ast, ctx), null];
+  } catch (e) {
+    if (!(e instanceof BreakError)) throw e;
+    const outputs = e.partialResults;
+    e.partialResults = [];
+    return [outputs, e];
+  }
 }
 
 function createContext(options?: EvaluateOptions): EvalContext {
@@ -505,10 +559,24 @@ function evaluateWithPartialResults(
   return evaluate(value, ast, ctx);
 }
 
+/**
+ * Evaluate a child node whose outputs are also outputs of the parent node.
+ * If a break leaves the child, the break keeps the outputs that the child
+ * produced before it. The label of the break then outputs them.
+ */
+function evaluateStream(
+  value: QueryValue,
+  ast: AstNode,
+  ctx: EvalContext,
+): QueryValue[] {
+  return evaluate(value, ast, ctx, true);
+}
+
 export function evaluate(
   value: QueryValue,
   ast: AstNode,
   ctxOrOptions?: EvalContext | EvaluateOptions,
+  keepBreakResults = false,
 ): QueryValue[] {
   let ctx: EvalContext =
     ctxOrOptions && "vars" in ctxOrOptions
@@ -546,6 +614,14 @@ export function evaluate(
     // without passing through an internal append helper.
     assertQueryResultCapacity(ctx, 0, results.length);
     return results;
+  } catch (e) {
+    // This node does not output the values that the break carries. jq would
+    // output some of them, but this evaluator is eager, so it drops them.
+    // Only evaluateStream() and evaluateSource() keep them.
+    if (e instanceof BreakError && !keepBreakResults) {
+      e.partialResults = [];
+    }
+    throw e;
   } finally {
     ctx.budget.callDepth--;
   }
@@ -662,7 +738,7 @@ function evaluateNode(
     }
 
     case "Pipe": {
-      const leftResults = evaluate(value, ast.left, ctx);
+      const [leftResults, leftBreak] = evaluateSource(value, ast.left, ctx);
       const leftPath = extractPathFromAst(ast.left);
       const pipeResults: QueryValue[] = [];
       for (const v of leftResults) {
@@ -672,24 +748,33 @@ function evaluateNode(
               ...ctx,
               currentPath: [...(ctx.currentPath ?? []), ...leftPath],
             };
-            const next = evaluate(v, ast.right, newCtx);
+            const next = evaluateStream(v, ast.right, newCtx);
             appendQueryResults(ctx, pipeResults, next);
           } else {
-            const next = evaluate(v, ast.right, ctx);
+            const next = evaluateStream(v, ast.right, ctx);
             appendQueryResults(ctx, pipeResults, next);
           }
         } catch (e) {
           if (e instanceof BreakError) {
-            throw e.withPrependedResults(pipeResults);
+            throw e.prependResults(pipeResults);
           }
           throw e;
         }
       }
+      if (leftBreak) throw leftBreak.prependResults(pipeResults);
       return pipeResults;
     }
     case "Comma": {
-      const leftResults = evaluate(value, ast.left, ctx);
-      const rightResults = evaluate(value, ast.right, ctx);
+      const leftResults = evaluateStream(value, ast.left, ctx);
+      let rightResults: QueryValue[];
+      try {
+        rightResults = evaluateStream(value, ast.right, ctx);
+      } catch (e) {
+        if (e instanceof BreakError) {
+          throw e.prependResults(leftResults);
+        }
+        throw e;
+      }
       assertQueryResultCapacity(ctx, leftResults.length, rightResults.length);
       return [...leftResults, ...rightResults];
     }
@@ -754,7 +839,7 @@ function evaluateNode(
     }
 
     case "Paren":
-      return evaluate(value, ast.expr, ctx);
+      return evaluateStream(value, ast.expr, ctx);
 
     case "BinaryOp":
       return evalBinaryOp(value, ast.op, ast.left, ast.right, ctx);
@@ -780,18 +865,18 @@ function evaluateNode(
 
     case "Cond": {
       const conds = evaluate(value, ast.cond, ctx);
-      return boundedFlatMap(ctx, conds, (c) => {
+      return streamFlatMap(ctx, conds, (c) => {
         if (isTruthy(c)) {
-          return evaluate(value, ast.then, ctx);
+          return evaluateStream(value, ast.then, ctx);
         }
         for (const elif of ast.elifs) {
           const elifConds = evaluate(value, elif.cond, ctx);
           if (elifConds.some(isTruthy)) {
-            return evaluate(value, elif.then, ctx);
+            return evaluateStream(value, elif.then, ctx);
           }
         }
         if (ast.else) {
-          return evaluate(value, ast.else, ctx);
+          return evaluateStream(value, ast.else, ctx);
         }
         // jq: if no else clause and condition is false, return input unchanged
         return [value];
@@ -811,7 +896,7 @@ function evaluateNode(
               : e instanceof Error
                 ? e.message
                 : String(e);
-          return evaluate(errorVal, ast.catch, ctx);
+          return evaluateStream(errorVal, ast.catch, ctx);
         }
         return [];
       }
@@ -821,8 +906,8 @@ function evaluateNode(
       return evalBuiltin(value, ast.name, ast.args, ctx);
 
     case "VarBind": {
-      const values = evaluate(value, ast.value, ctx);
-      return boundedFlatMap(ctx, values, (v) => {
+      const [values, sourceBreak] = evaluateSource(value, ast.value, ctx);
+      const bound = streamFlatMap(ctx, values, (v) => {
         let newCtx: EvalContext | null = null;
 
         // Build list of patterns to try: primary pattern + alternatives
@@ -851,8 +936,10 @@ function evaluateNode(
           return [];
         }
 
-        return evaluate(value, ast.body, newCtx);
+        return evaluateStream(value, ast.body, newCtx);
       });
+      if (sourceBreak) throw sourceBreak.prependResults(bound);
+      return bound;
     }
 
     case "VarRef": {
@@ -1011,7 +1098,7 @@ function evaluateNode(
           }
           state = evaluate(state, ast.update, newCtx)[0];
           if (ast.extract) {
-            const extracted = evaluate(state, ast.extract, newCtx);
+            const extracted = evaluateStream(state, ast.extract, newCtx);
             appendQueryResults(ctx, foreachResults, extracted);
           } else {
             assertQueryResultCapacity(ctx, foreachResults.length);
@@ -1019,7 +1106,7 @@ function evaluateNode(
           }
         } catch (e) {
           if (e instanceof BreakError) {
-            throw e.withPrependedResults(foreachResults);
+            throw e.prependResults(foreachResults);
           }
           throw e;
         }
@@ -1029,7 +1116,7 @@ function evaluateNode(
 
     case "Label": {
       try {
-        return evaluate(value, ast.body, {
+        return evaluateStream(value, ast.body, {
           ...ctx,
           labels: new Set([...(ctx.labels ?? []), ast.name]),
         });
@@ -1056,9 +1143,11 @@ function evaluateNode(
         params: ast.params,
         body: ast.funcBody,
         closure: new Map(ctx.funcs ?? []),
+        // The body sees the variables in scope here, not those of the caller
+        vars: ctx.vars,
       });
       const newCtx: EvalContext = { ...ctx, funcs: newFuncs };
-      return evaluate(value, ast.body, newCtx);
+      return evaluateStream(value, ast.body, newCtx);
     }
 
     default: {
@@ -1609,12 +1698,13 @@ function evalBinaryOp(
   }
 
   if (op === "//") {
-    const leftVals = evaluate(value, left, ctx);
+    const [leftVals, leftBreak] = evaluateSource(value, left, ctx);
     const nonNull = leftVals.filter(
       (v) => v !== null && v !== undefined && v !== false,
     );
+    if (leftBreak) throw leftBreak.prependResults(nonNull);
     if (nonNull.length > 0) return nonNull;
-    return evaluate(value, right, ctx);
+    return evaluateStream(value, right, ctx);
   }
 
   const leftVals = evaluate(value, left, ctx);
@@ -2059,61 +2149,55 @@ function evalBuiltin(
     // IN, INDEX, JOIN handled by evalSqlBuiltin
 
     default: {
-      // Check for user-defined function by name/arity
       const funcKey = `${name}/${args.length}`;
-      const userFunc = ctx.funcs?.get(funcKey) as
-        | { params: string[]; body: AstNode; closure?: Map<string, unknown> }
-        | undefined;
+      const userFunc = ctx.funcs?.get(funcKey) as UserFunction | undefined;
       if (userFunc) {
-        // User-defined function: bind parameters
-        // In jq, parameters are "filters" that can produce multiple values.
-        // We evaluate them in the calling context and store as literal values.
-        //
-        // Use the function's closure for lexical scoping, not the current context's funcs.
-        // This ensures that functions capture the scope at definition time.
         const baseFuncs = (userFunc.closure ?? ctx.funcs ?? new Map()) as Map<
           string,
-          { params: string[]; body: AstNode; closure?: Map<string, unknown> }
+          UserFunction
         >;
-        const newFuncs = new Map(baseFuncs);
-        // Also add the current function itself so recursion works
-        newFuncs.set(funcKey, userFunc);
+        const newFuncs = userFunc.param ? baseFuncs : new Map(baseFuncs);
+        if (!userFunc.param) newFuncs.set(funcKey, userFunc);
         for (let i = 0; i < userFunc.params.length; i++) {
-          const paramName = userFunc.params[i];
           const argExpr = args[i];
-          if (argExpr) {
-            // Evaluate the argument in the calling context, then store as a literal
-            // This implements call-by-value semantics
-            const argVals = evaluate(value, argExpr, ctx);
-            // Store as a function that returns all the values
-            let bodyNode: AstNode;
-            if (argVals.length === 0) {
-              bodyNode = { type: "Call", name: "empty", args: [] };
-            } else if (argVals.length === 1) {
-              bodyNode = { type: "Literal", value: argVals[0] };
-            } else {
-              // Multiple values - build a right-associative Comma chain
-              bodyNode = {
-                type: "Literal",
-                value: argVals[argVals.length - 1],
-              };
-              for (let j = argVals.length - 2; j >= 0; j--) {
-                bodyNode = {
-                  type: "Comma",
-                  left: { type: "Literal", value: argVals[j] },
-                  right: bodyNode,
-                };
-              }
-            }
-            newFuncs.set(`${paramName}/0`, { params: [], body: bodyNode });
-          }
+          if (!argExpr) continue;
+          const passed =
+            argExpr.type === "Call" && argExpr.args.length === 0
+              ? (ctx.funcs?.get(`${argExpr.name}/0`) as
+                  | UserFunction
+                  | undefined)
+              : undefined;
+          newFuncs.set(
+            `${userFunc.params[i]}/0`,
+            passed?.param
+              ? passed
+              : {
+                  params: [],
+                  body: argExpr,
+                  closure: ctx.funcs ?? new Map(),
+                  vars: ctx.vars,
+                  param: true,
+                },
+          );
         }
-        const newCtx: EvalContext = { ...ctx, funcs: newFuncs };
-        return evaluate(value, userFunc.body, newCtx);
+        const newCtx: EvalContext = {
+          ...ctx,
+          funcs: newFuncs,
+          vars: userFunc.vars ?? ctx.vars,
+        };
+        return evaluateStream(value, userFunc.body, newCtx);
       }
       throw new Error(`Unknown function: ${name}`);
     }
   }
+}
+
+interface UserFunction {
+  params: string[];
+  body: AstNode;
+  closure?: Map<string, unknown>;
+  vars?: Map<string, QueryValue>;
+  param?: boolean;
 }
 
 function collectPaths(
