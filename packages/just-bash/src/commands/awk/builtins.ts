@@ -1006,6 +1006,57 @@ export function formatPrintf(
   return result;
 }
 
+// ─── File Closing ───────────────────────────────────────────────
+
+/**
+ * close(filename): end the open state for a file or command pipe, so a
+ * later `print > file` truncates again (POSIX) and a later
+ * `getline < file` re-reads from the start. Buffered output for the file
+ * is flushed first, so the truncate does not discard unflushed output.
+ * Returns 0 on success. `close()` with no argument is a no-op returning 0.
+ */
+async function awkClose(
+  args: AwkExpr[],
+  ctx: AwkRuntimeContext,
+  evaluator: AwkEvaluator,
+): Promise<AwkValue> {
+  if (args.length === 0) return 0;
+  const name = toAwkString(await evaluator.evalExpr(args[0]));
+  if (ctx.fs && ctx.cwd) {
+    const filePath = ctx.fs.resolvePath(ctx.cwd, name);
+    await ctx.fs.flushOutput?.(filePath);
+    ctx.openedFiles.delete(filePath);
+    ctx.getlineFileStreams.delete(filePath);
+  }
+  // Also close a command pipe opened by `"cmd" | getline`.
+  ctx.getlineCommandStreams.delete(name);
+  return 0;
+}
+
+/**
+ * fflush([filename]): flush buffered output for one file, or for all files
+ * when called with no argument. Returns 0 on success, -1 on failure.
+ */
+async function awkFflush(
+  args: AwkExpr[],
+  ctx: AwkRuntimeContext,
+  evaluator: AwkEvaluator,
+): Promise<AwkValue> {
+  if (!ctx.fs) return 0;
+  try {
+    if (args.length === 0) {
+      await ctx.fs.flushOutput?.();
+    } else {
+      const name = toAwkString(await evaluator.evalExpr(args[0]));
+      const filePath = ctx.cwd ? ctx.fs.resolvePath(ctx.cwd, name) : name;
+      await ctx.fs.flushOutput?.(filePath);
+    }
+  } catch {
+    return -1;
+  }
+  return 0;
+}
+
 // ─── Built-in Function Registry ─────────────────────────────────
 
 export const awkBuiltins: Map<string, AwkBuiltinFn> = new Map([
@@ -1041,10 +1092,10 @@ export const awkBuiltins: Map<string, AwkBuiltinFn> = new Map([
       "shell execution not allowed in sandboxed environment",
     ),
   ],
-  // close() and fflush() are no-ops in our environment (no real file handles)
-  // Return 0 for success to allow programs that use them to work
-  ["close", () => 0],
-  ["fflush", () => 0],
+  // close() ends the open state for a file or command pipe (see awkClose);
+  // fflush() flushes buffered output (see awkFflush). Both return 0.
+  ["close", awkClose],
+  ["fflush", awkFflush],
 
   // Unimplemented functions
   ["systime", unimplemented("systime")],

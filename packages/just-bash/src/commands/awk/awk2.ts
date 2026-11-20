@@ -123,29 +123,71 @@ export const awkCommand2: RuntimeCommand = {
       return { stdout: "", stderr: `awk: ${msg}\n`, exitCode: 1 };
     }
 
+    // Buffered append adapter (issue #769): `print > file` used to re-read
+    // the whole file and write `existing + content` back on every print,
+    // which is quadratic in the file size. The filesystem's own appendFile
+    // is a true in-place append on ReadWriteFs (O_APPEND) and OverlayFs
+    // (appendChunks), but InMemoryFs still copies the whole buffer per
+    // append, so appends are buffered per file and flushed through the
+    // filesystem's appendFile at a size cap, before any read of a file awk
+    // may have written to, and at exit (see flush points below).
+    const AWK_APPEND_FLUSH_BYTES = 64 * 1024;
+    const pendingAppend = new Map<
+      string,
+      { chunks: string[]; bytes: number }
+    >();
+
+    async function flushAppendedFile(filePath: string): Promise<void> {
+      const entry = pendingAppend.get(filePath);
+      if (!entry) return;
+      pendingAppend.delete(filePath);
+      const text = entry.chunks.join("");
+      if (text.length === 0) return;
+      await withDefenseContext("appendFile flush", () =>
+        ctx.fs.appendFile(filePath, text),
+      );
+    }
+
+    async function flushAppendedOutput(filePath?: string): Promise<void> {
+      if (filePath !== undefined) {
+        await flushAppendedFile(filePath);
+        return;
+      }
+      for (const path of [...pendingAppend.keys()]) {
+        await flushAppendedFile(path);
+      }
+    }
+
     // Create filesystem adapter with appendFile support
     const awkFs: AwkFileSystem = {
       readFile: ctx.fs.readFile.bind(ctx.fs),
       writeFile: ctx.fs.writeFile.bind(ctx.fs),
       appendFile: async (path: string, content: string) => {
-        // Append by reading existing content and writing back
-        try {
-          const existing = await withDefenseContext("appendFile read", () =>
-            ctx.fs.readFile(path),
-          );
-          await withDefenseContext("appendFile write", () =>
-            ctx.fs.writeFile(path, existing + content),
-          );
-        } catch (e) {
-          if (e instanceof SecurityViolationError) {
+        let entry = pendingAppend.get(path);
+        if (!entry) {
+          // First append to this file: write through immediately, so an
+          // unwritable path (directory, sandbox denial) still errors on
+          // the first print, exactly as before, instead of only at flush
+          // time. Later appends buffer until the size cap or a flush point.
+          entry = { chunks: [], bytes: 0 };
+          pendingAppend.set(path, entry);
+          try {
+            await withDefenseContext("appendFile create", () =>
+              ctx.fs.appendFile(path, content),
+            );
+          } catch (e) {
+            pendingAppend.delete(path);
             throw e;
           }
-          // File doesn't exist, just write
-          await withDefenseContext("appendFile create", () =>
-            ctx.fs.writeFile(path, content),
-          );
+          return;
+        }
+        entry.chunks.push(content);
+        entry.bytes += utf8ByteLength(content);
+        if (entry.bytes >= AWK_APPEND_FLUSH_BYTES) {
+          await flushAppendedFile(path);
         }
       },
+      flushOutput: flushAppendedOutput,
       resolvePath: ctx.fs.resolvePath.bind(ctx.fs),
     };
 
@@ -284,6 +326,12 @@ export const awkCommand2: RuntimeCommand = {
 
       if (files.length > 0) {
         for (const file of files) {
+          // Flush point (issue #769): an output file of an earlier record
+          // may also be a later input file, so buffered output must reach
+          // the filesystem before it is read back.
+          await withDefenseContext("appended output flush", () =>
+            flushAppendedOutput(),
+          );
           let content: string;
           try {
             const filePath = ctx.fs.resolvePath(ctx.cwd, file);
@@ -347,6 +395,17 @@ export const awkCommand2: RuntimeCommand = {
         stderr: `awk: ${msg}\n`,
         exitCode,
       };
+    } finally {
+      // Flush point (issue #769): buffered output must reach the filesystem
+      // on every exit path, including `exit` in BEGIN and error aborts.
+      // Errors here are swallowed deliberately: throwing from finally would
+      // mask the run's own result or error, and a persistently failing
+      // filesystem already surfaces at the size-cap flush during execution.
+      try {
+        await flushAppendedOutput();
+      } catch {
+        // Ignore flush errors at exit.
+      }
     }
   },
 };
