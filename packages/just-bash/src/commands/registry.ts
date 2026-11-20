@@ -45,6 +45,7 @@ export type CommandName =
   | "awk"
   | "sort"
   | "uniq"
+  | "cmp"
   | "comm"
   | "cut"
   | "paste"
@@ -238,6 +239,10 @@ const commandLoaders: LazyCommandDef<CommandName>[] = [
   {
     name: "uniq",
     load: async () => (await import("./uniq/uniq.js")).uniqCommand,
+  },
+  {
+    name: "cmp",
+    load: async () => (await import("./cmp/cmp.js")).cmpCommand,
   },
   {
     name: "comm",
