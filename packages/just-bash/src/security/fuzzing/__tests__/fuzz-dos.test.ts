@@ -77,6 +77,7 @@ function formatError(context: string): string {
 
 describe("DOS Detection Fuzzing", () => {
   const runner = new FuzzRunner(config);
+  config.logProperty = runner.logProperty;
   const oracle = new DOSOracle(config);
 
   // Helper to log failure immediately to file (append-only)

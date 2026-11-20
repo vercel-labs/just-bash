@@ -50,6 +50,7 @@ function trackResult(result: FuzzResult, reason: string): void {
 
 describe("Malformed Script Fuzzing", () => {
   const runner = new FuzzRunner(config);
+  config.logProperty = runner.logProperty;
   const oracle = new SandboxOracle();
 
   function logFailure(result: FuzzResult, reason: string): void {

@@ -4,11 +4,13 @@
  * Core executor for fuzz tests with timeout and memory monitoring.
  */
 
-import { appendFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { Bash } from "../../../Bash.js";
 import type { BashExecResult } from "../../../types.js";
 import type { SecurityViolation } from "../../types.js";
-import { DEFAULT_FUZZ_CONFIG, type FuzzingConfig } from "../config.js";
+import { createFuzzConfig, type FuzzingConfig } from "../config.js";
 import {
   type CoverageSnapshot,
   FeatureCoverage,
@@ -64,63 +66,76 @@ export interface FuzzResult {
 export class FuzzRunner {
   private config: FuzzingConfig;
   private scriptCount = 0;
+  private scriptLogFile?: string;
+
+  readonly logProperty = (name: string | undefined, seed: number): void => {
+    if (!this.scriptLogFile) return;
+    try {
+      appendFileSync(
+        this.scriptLogFile,
+        `${JSON.stringify({ type: "property", name: name ?? null, seed })}\n`,
+      );
+    } catch (error) {
+      throw new Error(
+        `Fuzz diagnostic property write failed (${this.scriptLogFile}); property was not executed`,
+        { cause: error },
+      );
+    }
+  };
 
   constructor(config?: Partial<FuzzingConfig>) {
-    this.config = { ...DEFAULT_FUZZ_CONFIG, ...config };
+    this.config = createFuzzConfig(config);
 
-    // Clear the script log file at start if configured
     if (this.config.scriptLogFile) {
-      try {
-        writeFileSync(
-          this.config.scriptLogFile,
-          `# Fuzz test scripts - ${new Date().toISOString()}\n# Config: numRuns=${this.config.numRuns}, timeout=${this.config.timeoutMs}ms\n\n`,
-        );
-      } catch {
-        // Ignore errors if file can't be written
-      }
+      this.scriptLogFile = join(
+        process.env.TEST_DIAGNOSTICS_DIR ?? dirname(this.config.scriptLogFile),
+        `${basename(this.config.scriptLogFile)}-${randomUUID()}.jsonl`,
+      );
+      mkdirSync(dirname(this.scriptLogFile), { recursive: true });
+      writeFileSync(
+        this.scriptLogFile,
+        `${JSON.stringify({ type: "metadata", seed: this.config.seed })}\n`,
+        { flag: "wx" },
+      );
     }
-
-    // Note: failure log is append-only, never cleared
   }
 
   /**
    * Log script at start of execution (in case test times out).
    */
-  private logScriptStart(script: string): void {
-    if (!this.config.scriptLogFile) return;
+  private logScriptStart(script: string): number {
+    if (!this.scriptLogFile) return 0;
 
-    this.scriptCount++;
+    const caseId = ++this.scriptCount;
     try {
       appendFileSync(
-        this.config.scriptLogFile,
-        `# [${this.scriptCount}] RUNNING...\n${script}\n`,
+        this.scriptLogFile,
+        `${JSON.stringify({ type: "start", caseId, script })}\n`,
       );
-    } catch {
-      // Ignore errors if file can't be written
+    } catch (error) {
+      throw new Error(
+        `Fuzz diagnostic start write failed (${this.scriptLogFile}); case ${caseId} was not executed`,
+        { cause: error },
+      );
     }
+    return caseId;
   }
 
   /**
-   * Log script completion status.
+   * Log script completion without recording its output.
    */
-  private logScriptEnd(result: FuzzResult): void {
-    if (!this.config.scriptLogFile) return;
-
-    const status = result.timedOut
-      ? "TIMEOUT"
-      : result.hitLimit
-        ? "LIMIT"
-        : result.error
-          ? "ERROR"
-          : "OK";
+  private logScriptEnd(caseId: number): void {
+    if (!this.scriptLogFile) return;
 
     try {
       appendFileSync(
-        this.config.scriptLogFile,
-        `# -> ${status} (${result.durationMs}ms)\n\n`,
+        this.scriptLogFile,
+        `${JSON.stringify({ type: "end", caseId })}\n`,
       );
-    } catch {
-      // Ignore errors if file can't be written
+    } catch (error) {
+      console.error(
+        `Fuzz diagnostic completion write failed (${this.scriptLogFile}): ${String(error)}`,
+      );
     }
   }
 
@@ -129,7 +144,7 @@ export class FuzzRunner {
    */
   async run(script: string): Promise<FuzzResult> {
     // Log script at start (in case of vitest-level timeout)
-    this.logScriptStart(script);
+    const caseId = this.logScriptStart(script);
 
     const violations: SecurityViolation[] = [];
     const startTime = Date.now();
@@ -231,7 +246,7 @@ export class FuzzRunner {
     }
 
     // Log script completion
-    this.logScriptEnd(result);
+    this.logScriptEnd(caseId);
 
     return result;
   }

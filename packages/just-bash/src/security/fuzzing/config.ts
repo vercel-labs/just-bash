@@ -4,6 +4,8 @@
  * Centralized configuration for security fuzzing tests.
  */
 
+import { randomBytes } from "node:crypto";
+import { expect } from "vitest";
 import type { ExecutionLimits } from "../../limits.js";
 
 /**
@@ -31,6 +33,8 @@ export interface FuzzProgress {
  * Configuration for fuzz testing.
  */
 export interface FuzzingConfig {
+  /** Signed 32-bit base seed for this suite */
+  seed: number;
   /** Maximum time per test case in milliseconds */
   timeoutMs: number;
 
@@ -64,6 +68,9 @@ export interface FuzzingConfig {
   /** Path to log tested scripts (git-ignored, useful for debugging) */
   scriptLogFile?: string;
 
+  /** Runner-owned writer for recording a property before input generation */
+  logProperty?: (name: string | undefined, seed: number) => void;
+
   /** Path to log failed tests (git-ignored, useful for debugging) */
   failureLogFile?: string;
 
@@ -75,7 +82,7 @@ export interface FuzzingConfig {
  * Default fuzzing configuration.
  * Uses restrictive limits to quickly detect issues.
  */
-export const DEFAULT_FUZZ_CONFIG: FuzzingConfig = {
+export const DEFAULT_FUZZ_CONFIG: Omit<FuzzingConfig, "seed"> = {
   timeoutMs: 1000,
   memoryLimitBytes: 100 * 1024 * 1024, // 100MB
   numRuns: Number(process.env.FUZZ_RUNS) || 100,
@@ -105,9 +112,23 @@ export const DEFAULT_FUZZ_CONFIG: FuzzingConfig = {
 export function createFuzzConfig(
   overrides?: Partial<FuzzingConfig>,
 ): FuzzingConfig {
+  const suppliedSeed = process.env.FUZZ_SEED;
+  if (
+    suppliedSeed !== undefined &&
+    (!/^[+-]?\d+$/.test(suppliedSeed) ||
+      Number(suppliedSeed) < -2147483648 ||
+      Number(suppliedSeed) > 2147483647)
+  ) {
+    throw new Error("FUZZ_SEED must be a signed 32-bit decimal integer");
+  }
   const config = {
     ...DEFAULT_FUZZ_CONFIG,
     ...overrides,
+    seed:
+      overrides?.seed ??
+      (suppliedSeed === undefined
+        ? randomBytes(4).readInt32LE()
+        : Number(suppliedSeed)),
     executionLimits: {
       ...DEFAULT_FUZZ_CONFIG.executionLimits,
       ...overrides?.executionLimits,
@@ -182,10 +203,23 @@ export function createProgressTracker(config: FuzzingConfig): {
  * failing input instead of a "simplified" version that may actually pass.
  */
 export function createFcOptions(config: FuzzingConfig): {
+  seed: number;
   numRuns: number;
   endOnFailure: boolean;
 } {
+  const name = expect.getState().currentTestName;
+  let seed = config.seed;
+  if (name !== undefined) {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < name.length; i++) {
+      hash = Math.imul(hash ^ name.charCodeAt(i), 0x01000193);
+    }
+    seed = (seed ^ hash) | 0;
+  }
+  config.logProperty?.(name, seed);
+
   return {
+    seed,
     numRuns: config.numRuns,
     endOnFailure: true, // Disable shrinking - show original failure
   };

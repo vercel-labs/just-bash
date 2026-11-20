@@ -78,6 +78,7 @@ function formatError(context: string): string {
 
 describe("Sandbox Escape Fuzzing", () => {
   const runner = new FuzzRunner(config);
+  config.logProperty = runner.logProperty;
   const oracle = new SandboxOracle();
 
   function checkNoNativeCode(

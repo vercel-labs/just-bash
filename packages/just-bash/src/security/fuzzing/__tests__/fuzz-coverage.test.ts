@@ -33,10 +33,12 @@ const config = createFuzzConfig({
   numRuns,
   timeoutMs: 2000,
   enableCoverage: true,
+  scriptLogFile: "fuzz-coverage.log",
 });
 
 describe("Coverage-Guided Fuzzing", () => {
   const runner = new FuzzRunner(config);
+  config.logProperty = runner.logProperty;
   const tracker = new CoverageTracker();
 
   async function runWithCoverage(
