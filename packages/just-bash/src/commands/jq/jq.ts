@@ -241,6 +241,7 @@ const jqHelp = {
     "    --argjson NAME JSON   bind $NAME to the JSON-decoded value JSON",
     "    --rawfile NAME FILE   bind $NAME to the raw contents of FILE",
     "    --slurpfile NAME FILE bind $NAME to the array of JSON values in FILE",
+    "-f, --from-file FILE read the filter from FILE",
     "    --args        remaining arguments are string positional args ($ARGS.positional)",
     "    --jsonargs    remaining arguments are JSON positional args ($ARGS.positional)",
     "    --help        display this help and exit",
@@ -274,6 +275,7 @@ export const jqCommand: RuntimeCommand = {
     let useTab = false;
     let filter = ".";
     let filterSet = false;
+    let fromFile = false;
     let positionalMode: "none" | "args" | "jsonargs" = "none";
     const files: string[] = [];
     const namedArgs = new Map<string, QueryValue>();
@@ -354,6 +356,8 @@ export const jqCommand: RuntimeCommand = {
         }
         fileBindings.push({ name, file, mode: "slurp" });
         i += 2;
+      } else if (a === "-f" || a === "--from-file") {
+        fromFile = true;
       } else if (a === "--args") {
         // Remaining non-option tokens (after the filter) become string
         // positional args instead of input files.
@@ -365,7 +369,8 @@ export const jqCommand: RuntimeCommand = {
       } else if (a === "-") files.push("-");
       else if (a.startsWith("--")) return unknownOption("jq", a);
       else if (a.startsWith("-")) {
-        for (const c of a.slice(1)) {
+        for (let j = 1; j < a.length; j++) {
+          const c = a[j];
           if (c === "R") rawInput = true;
           else if (c === "r") raw = true;
           else if (c === "c") compact = true;
@@ -380,6 +385,8 @@ export const jqCommand: RuntimeCommand = {
             /* ignored */
           } else if (c === "M") {
             /* ignored */
+          } else if (c === "f") {
+            fromFile = true;
           } else return unknownOption("jq", `-${c}`);
         }
       } else if (!filterSet) {
@@ -403,6 +410,20 @@ export const jqCommand: RuntimeCommand = {
       } else {
         files.push(a);
       }
+    }
+
+    if (fromFile) {
+      const result = await withDefenseContext("filter file read", () =>
+        readFiles(ctx, [filter], {
+          cmdName: "jq",
+          allowStdinMarker: false,
+          stopOnError: true,
+        }),
+      );
+      if (result.exitCode !== 0) {
+        return { stdout: "", stderr: result.stderr, exitCode: 2 };
+      }
+      filter = decodeBytesToUtf8(result.files[0].content);
     }
 
     // Read files bound via --rawfile/--slurpfile through the shared file
