@@ -8,8 +8,8 @@ import { mergeToNullPrototype } from "../../../helpers/env.js";
 import { ExecutionLimitError as QueryExecutionLimitError } from "../../../interpreter/errors.js";
 import type { EvalContext } from "../evaluator.js";
 import type { AstNode } from "../parser.js";
-import { isSafeKey, safeSet } from "../safe-object.js";
-import type { QueryValue } from "../value-operations.js";
+import { asQueryRecord, isSafeKey, safeSet } from "../safe-object.js";
+import { compareStrings, type QueryValue } from "../value-operations.js";
 
 type EvalFn = (
   value: QueryValue,
@@ -50,6 +50,11 @@ function assertResultCapacity(
  * order. A comma expression (`.a, .b`) yields several values from one
  * argument, so the flattened sequence is the sort key — jq sorts by the
  * whole sequence, not just the first value.
+ *
+ * Each argument's output is capped on its own, so the running total is
+ * checked as well: without it, a key built from many generator arguments
+ * (e.g. `sort_by(range(100000); range(100000); …)`) could exceed
+ * maxArrayElements many times over.
  */
 function sortKeys(
   value: QueryValue,
@@ -57,7 +62,44 @@ function sortKeys(
   ctx: EvalContext,
   evaluate: EvalFn,
 ): QueryValue[] {
-  return args.flatMap((arg) => evaluate(value, arg, ctx));
+  const keys: QueryValue[] = [];
+  for (const arg of args) {
+    const values = evaluate(value, arg, ctx);
+    assertResultCapacity(ctx, keys.length, values.length);
+    for (const produced of values) keys.push(produced);
+  }
+  return keys;
+}
+
+/**
+ * Injective structural encoding of a key value, for group_by / unique_by.
+ * JSON.stringify is not injective over the values jq expressions can
+ * produce: it maps Infinity, -Infinity and NaN to `null`, so keys
+ * [Infinity] and [null] collided into a single group. Type tags plus
+ * exact string escaping keep distinct values distinct.
+ */
+function structuralKey(value: QueryValue): string {
+  if (value === null) return "null";
+  if (typeof value === "number") {
+    if (Number.isNaN(value)) return "num:NaN";
+    if (value === Number.POSITIVE_INFINITY) return "num:Infinity";
+    if (value === Number.NEGATIVE_INFINITY) return "num:-Infinity";
+    return `num:${value}`;
+  }
+  if (typeof value === "string") return `str:${JSON.stringify(value)}`;
+  if (typeof value === "boolean") return `bool:${value}`;
+  if (Array.isArray(value)) {
+    return `arr:[${value.map((item) => structuralKey(item)).join(",")}]`;
+  }
+  const record = asQueryRecord(value);
+  if (record) {
+    const keys = Object.keys(record).sort(compareStrings);
+    const parts = keys.map(
+      (key) => `${JSON.stringify(key)}:${structuralKey(record[key])}`,
+    );
+    return `obj:{${parts.join(",")}}`;
+  }
+  return `other:${String(value)}`;
 }
 export function evalArrayBuiltin(
   value: QueryValue,
@@ -131,7 +173,7 @@ export function evalArrayBuiltin(
       const seen = new Map<string, { item: QueryValue; key: QueryValue[] }>();
       for (const item of value) {
         const keyVal = sortKeys(item, args, ctx, evaluate);
-        const keyStr = JSON.stringify(keyVal);
+        const keyStr = structuralKey(keyVal);
         if (!seen.has(keyStr)) {
           seen.set(keyStr, { item, key: keyVal });
         }
@@ -150,7 +192,7 @@ export function evalArrayBuiltin(
       >();
       for (const item of value) {
         const keyVal = sortKeys(item, args, ctx, evaluate);
-        const key = JSON.stringify(keyVal);
+        const key = structuralKey(keyVal);
         if (!groups.has(key)) groups.set(key, { key: keyVal, items: [] });
         groups.get(key)?.items.push(item);
       }
