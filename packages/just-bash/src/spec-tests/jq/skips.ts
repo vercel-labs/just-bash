@@ -487,7 +487,6 @@ const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   },
 
   // Sorting/comparison edge cases
-  { pattern: /sort_by\(.*,.*\)/, reason: "sort_by with multiple keys" },
   {
     pattern: /\[min, max, min_by\(\.\[1\]\)/,
     reason: "min/max with complex comparison",
@@ -553,8 +552,6 @@ const SKIP_INPUT_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\t/, reason: "Literal tab in input" },
   // Emoji flag characters (multi-codepoint indexing issues)
   { pattern: /🇬🇧/, reason: "Emoji flag codepoint indexing differs" },
-  // unique sort order bug
-  { pattern: /^\[1,2,5,3,5,3,1,3\]$/, reason: "unique sort order differs" },
   // nan/NaN/Infinity literals in JSON input (not valid standard JSON)
   {
     pattern: /[:[,]nan[\],}]/,
