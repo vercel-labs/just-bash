@@ -167,10 +167,80 @@ export function safeHasOwn(obj: object, key: string): boolean {
  * the defense is null-prototype, not key filtering.
  */
 export interface SanitizeParsedDataLimits {
+  /**
+   * The value is a fresh JSON.parse result that nothing else references: no
+   * aliases, cycles or Dates. Its arrays are kept and its records are switched
+   * to a null prototype in place instead of being copied, so the input is never
+   * held twice.
+   */
+  jsonTree?: boolean;
   maxDepth?: number;
   maxElements?: number;
   /** Optional shared counter for aggregate accounting across documents. */
   elementBudget?: { used: number };
+}
+
+/**
+ * sanitizeParsedData for a fresh JSON tree: the same depth and element limits,
+ * applied while making each record null-prototype where it is.
+ */
+function adoptJsonTree(
+  value: unknown,
+  maxDepth: number,
+  maxElements: number,
+  elementBudget: { used: number },
+  assertElement: () => void,
+): unknown {
+  const pending: Array<{ container: object; depth: number }> = [];
+  const visit = (current: unknown, depth: number): void => {
+    if (current === null || typeof current !== "object") return;
+    if (depth > maxDepth) {
+      throw new ExecutionLimitError(
+        `query depth limit exceeded (${maxDepth})`,
+        "recursion",
+      );
+    }
+    pending.push({ container: current, depth });
+  };
+  visit(value, 0);
+
+  while (pending.length > 0) {
+    const entry = pending.pop();
+    if (!entry) break;
+    const { container, depth } = entry;
+    if (Array.isArray(container)) {
+      if (container.length > maxElements - elementBudget.used) {
+        throw new ExecutionLimitError(
+          `query input element limit exceeded (${maxElements})`,
+          "array_elements",
+        );
+      }
+      for (let index = container.length - 1; index >= 0; index--) {
+        assertElement();
+        visit(container[index], depth + 1);
+      }
+      continue;
+    }
+
+    const record = container as Record<string, unknown>;
+    const keys = Object.keys(record);
+    if (keys.length > maxElements - elementBudget.used) {
+      throw new ExecutionLimitError(
+        `query input element limit exceeded (${maxElements})`,
+        "array_elements",
+      );
+    }
+    // Own keys, "__proto__" included, stay data properties; only the link to
+    // Object.prototype goes. Nothing outside the tree can observe the change.
+    // @banned-pattern-ignore: in-place null prototype for a fresh JSON.parse record
+    Object.setPrototypeOf(record, null);
+    for (let index = 0; index < keys.length; index++) {
+      assertElement();
+      visit(record[keys[index]], depth + 1);
+    }
+  }
+
+  return value;
 }
 
 export function sanitizeParsedData(
@@ -229,6 +299,16 @@ export function sanitizeParsedData(
     pending.push({ source: current, target, depth });
     return target;
   };
+
+  if (limits.jsonTree) {
+    return adoptJsonTree(
+      value,
+      maxDepth,
+      maxElements,
+      elementBudget,
+      assertElement,
+    );
+  }
 
   const pending: Array<{
     source: object;
