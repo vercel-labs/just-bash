@@ -5,6 +5,10 @@
 import { type ParseException, parse } from "../../parser/parser.js";
 import type { ExecResult } from "../../types.js";
 import { ExecutionLimitError, ExitError, ReturnError } from "../errors.js";
+import {
+  clearPositionalParams,
+  replacePositionalParams,
+} from "../helpers/positional.js";
 import { failure, result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
 
@@ -73,26 +77,14 @@ export async function handleSource(
   }
 
   // Save and set positional parameters from additional args
-  const savedPositional = new Map<string, string | undefined>();
+  let savedPositional = new Map<string, string | undefined>();
   if (sourceArgs.length > 1) {
-    // Save current positional parameters
-    for (let i = 1; i <= 9; i++) {
-      savedPositional.set(String(i), ctx.state.env.get(String(i)));
-    }
+    const scriptArgs = sourceArgs.slice(1);
+    savedPositional = replacePositionalParams(ctx.state.env, scriptArgs);
     savedPositional.set("#", ctx.state.env.get("#"));
     savedPositional.set("@", ctx.state.env.get("@"));
-
-    // Set new positional parameters
-    const scriptArgs = sourceArgs.slice(1);
     ctx.state.env.set("#", String(scriptArgs.length));
     ctx.state.env.set("@", scriptArgs.join(" "));
-    for (let i = 0; i < scriptArgs.length && i < 9; i++) {
-      ctx.state.env.set(String(i + 1), scriptArgs[i]);
-    }
-    // Clear any remaining positional parameters
-    for (let i = scriptArgs.length + 1; i <= 9; i++) {
-      ctx.state.env.delete(String(i));
-    }
   }
 
   // Save and restore current source context for BASH_SOURCE tracking
@@ -103,6 +95,7 @@ export async function handleSource(
     ctx.state.currentSource = savedSource;
     // Restore positional parameters if we changed them
     if (sourceArgs.length > 1) {
+      clearPositionalParams(ctx.state.env);
       for (const [key, value] of savedPositional) {
         if (value === undefined) {
           ctx.state.env.delete(key);
