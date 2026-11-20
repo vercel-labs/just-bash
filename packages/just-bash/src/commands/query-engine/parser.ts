@@ -1038,7 +1038,20 @@ class Parser {
       }
 
       this.expect("COLON", "Expected ':' after function name");
-      const funcBody = this.parseExpr();
+      let funcBody = this.parseExpr();
+      // def f($a): body is def f(a): a as $a | body
+      for (let i = params.length - 1; i >= 0; i--) {
+        const param = params[i];
+        if (param.startsWith("$")) {
+          params[i] = param.slice(1);
+          funcBody = {
+            type: "VarBind",
+            name: param,
+            value: { type: "Call", name: params[i], args: [] },
+            body: funcBody,
+          };
+        }
+      }
       this.expect("SEMICOLON", "Expected ';' after function body");
       const body = this.parseExpr();
 
