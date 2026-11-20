@@ -643,26 +643,65 @@ export class SedLexer {
       }
     }
 
-    // Closing delimiter is optional for last part
-    if (this.peek() === delimiter) {
-      this.advance();
-    }
+    const fail = (value: string): SedToken => ({
+      type: SedTokenType.ERROR,
+      value,
+      line: startLine,
+      column: startColumn,
+    });
 
-    // Read flags
+    // As in GNU sed, the closing delimiter is required. Otherwise the next
+    // line would be read as more commands.
+    if (this.peek() !== delimiter) {
+      return fail("unterminated `s' command");
+    }
+    this.advance();
+
+    // Read flags. As in GNU sed, blanks may separate them. Only `;`, a
+    // newline, `}`, `#`, the end of the script or `\r` before a newline may
+    // follow them. Other text is an error. Otherwise it could run as a `d`
+    // or `c` command. just-bash does not implement the w, e, m and M flags,
+    // so they are errors too.
     let flags = "";
+    let hasNumber = false;
     while (this.pos < this.input.length) {
       const ch = this.peek();
-      if (
-        ch === "g" ||
-        ch === "i" ||
-        ch === "p" ||
-        ch === "I" ||
-        this.isDigit(ch)
-      ) {
+      if (ch === " " || ch === "\t") {
+        this.advance();
+      } else if (ch === "g" || ch === "p") {
+        if (flags.includes(ch)) {
+          return fail(`multiple \`${ch}' options to \`s' command`);
+        }
         flags += this.advance();
+      } else if (ch === "i" || ch === "I") {
+        flags += this.advance();
+      } else if (this.isDigit(ch)) {
+        if (hasNumber) {
+          return fail("multiple number options to `s' command");
+        }
+        hasNumber = true;
+        let number = "";
+        while (this.isDigit(this.peek())) {
+          number += this.advance();
+        }
+        if (/^0+$/.test(number)) {
+          return fail("number option to `s' command may not be zero");
+        }
+        flags += number;
       } else {
         break;
       }
+    }
+    const next = this.peek();
+    const endsCommand =
+      next === "" ||
+      next === "\n" ||
+      next === ";" ||
+      next === "}" ||
+      next === "#" ||
+      (next === "\r" && this.peek(1) === "\n");
+    if (!endsCommand) {
+      return fail("unknown option to `s'");
     }
 
     return {
