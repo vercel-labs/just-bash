@@ -73,6 +73,42 @@ describe.runIf(typeof nodeModule.registerHooks === "function")(
       expect(Object.isFrozen(Math)).toBe(false);
     });
 
+    it("restores patches without invoking an inherited descriptor getter", async () => {
+      const box = DefenseInDepthBox.getInstance(true);
+      const math = Math;
+      const before = [
+        Object.getOwnPropertyDescriptor(globalThis, "Function"),
+        Object.getOwnPropertyDescriptor(math, "max"),
+      ];
+      const handle = box.activate();
+      let getterCalls = 0;
+      let teardownGetterCalls = 0;
+      try {
+        await handle.run(async () => {
+          Object.defineProperty(Object.prototype, "get", {
+            configurable: true,
+            get() {
+              getterCalls++;
+              return undefined;
+            },
+          });
+        });
+        getterCalls = 0;
+        handle.deactivate();
+        teardownGetterCalls = getterCalls;
+      } finally {
+        Reflect.deleteProperty(Object.prototype, "get");
+        handle.deactivate();
+      }
+
+      expect(teardownGetterCalls).toBe(0);
+      expect([
+        Object.getOwnPropertyDescriptor(globalThis, "Function"),
+        Object.getOwnPropertyDescriptor(math, "max"),
+      ]).toEqual(before);
+      expect(box.isActive()).toBe(false);
+    });
+
     it("does not use an inherited originating execution ID", async () => {
       const box = DefenseInDepthBox.getInstance(true);
       const handle = box.activate();

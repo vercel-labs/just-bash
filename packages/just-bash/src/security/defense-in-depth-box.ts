@@ -183,6 +183,14 @@ function runInContext(
   return als.run(captured, () => fn(...args));
 }
 
+// Object.defineProperty reads inherited descriptor fields too.
+function ownDescriptor(descriptor: PropertyDescriptor): PropertyDescriptor {
+  const copy = { __proto__: null, ...descriptor };
+  return copy;
+}
+
+const defineProperty = Object.defineProperty;
+
 /**
  * Default configuration for the defense-in-depth box.
  */
@@ -2354,7 +2362,7 @@ export class DefenseInDepthBox {
           } finally {
             // Host setters may redefine the property, even before throwing.
             // Reinstate the write gate before returning control to the caller.
-            Object.defineProperty(ModuleClass, prop, guardedDescriptor);
+            defineProperty(ModuleClass, prop, ownDescriptor(guardedDescriptor));
           }
           const installed = Object.getOwnPropertyDescriptor(ModuleClass, prop);
           if (
@@ -2460,7 +2468,7 @@ export class DefenseInDepthBox {
       const { target, prop, descriptor } =
         this.temporaryIntrinsicDescriptors[i];
       try {
-        Object.defineProperty(target, prop, descriptor);
+        defineProperty(target, prop, ownDescriptor(descriptor));
       } catch (e) {
         console.debug(
           `[DefenseInDepthBox] Could not restore temporary intrinsic ${String(prop)}:`,
@@ -2476,7 +2484,7 @@ export class DefenseInDepthBox {
 
       try {
         if (descriptor) {
-          Object.defineProperty(target, prop, descriptor);
+          defineProperty(target, prop, ownDescriptor(descriptor));
         } else {
           // Property didn't exist originally, delete it
           delete (target as Record<string, unknown>)[prop];
