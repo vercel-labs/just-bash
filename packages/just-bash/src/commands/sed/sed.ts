@@ -355,6 +355,18 @@ async function processContent(
   return { output, exitCode };
 }
 
+/** Rethrow an execution limit as fatal, with sed's diagnostic and no partial output. */
+function rethrowSedLimit(error: unknown): void {
+  if (error instanceof ExecutionLimitError) {
+    throw new ExecutionLimitError(
+      error.message,
+      error.limitType,
+      "",
+      `sed: ${sanitizeErrorMessage(error.message)}\n`,
+    );
+  }
+}
+
 export const sedCommand: RuntimeCommand = {
   name: "sed",
   async execute(
@@ -535,14 +547,7 @@ export const sedCommand: RuntimeCommand = {
             ctx.fs.writeFile(filePath, result.output),
           );
         } catch (e) {
-          if (e instanceof ExecutionLimitError) {
-            throw new ExecutionLimitError(
-              e.message,
-              e.limitType,
-              "",
-              `sed: ${sanitizeErrorMessage(e.message)}\n`,
-            );
-          }
+          rethrowSedLimit(e);
           rethrowFatalExecutionError(e);
           return {
             stdout: "",
@@ -579,14 +584,7 @@ export const sedCommand: RuntimeCommand = {
           exitCode: result.exitCode ?? 0,
         };
       } catch (e) {
-        if (e instanceof ExecutionLimitError) {
-          throw new ExecutionLimitError(
-            e.message,
-            e.limitType,
-            "",
-            `sed: ${sanitizeErrorMessage(e.message)}\n`,
-          );
-        }
+        rethrowSedLimit(e);
         throw e;
       }
     }
@@ -611,14 +609,7 @@ export const sedCommand: RuntimeCommand = {
             ctx.fs.readFile(filePath),
           );
         } catch (e) {
-          if (e instanceof ExecutionLimitError) {
-            throw new ExecutionLimitError(
-              e.message,
-              e.limitType,
-              "",
-              `sed: ${sanitizeErrorMessage(e.message)}\n`,
-            );
-          }
+          rethrowSedLimit(e);
           rethrowFatalExecutionError(e);
           return {
             stdout: "",
@@ -657,14 +648,7 @@ export const sedCommand: RuntimeCommand = {
         exitCode: result.exitCode ?? 0,
       };
     } catch (e) {
-      if (e instanceof ExecutionLimitError) {
-        throw new ExecutionLimitError(
-          e.message,
-          e.limitType,
-          "",
-          `sed: ${sanitizeErrorMessage(e.message)}\n`,
-        );
-      }
+      rethrowSedLimit(e);
       throw e;
     }
   },
