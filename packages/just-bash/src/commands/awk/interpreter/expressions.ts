@@ -400,6 +400,11 @@ async function callUserFunction(
 
   // Track array aliases we create (to clean up later)
   const createdAliases: string[] = [];
+  // Aliases this call shadows: an outer call may already have an alias
+  // under the same parameter name (e.g. a `how` function called from
+  // asort with the same array parameter). Save it so returning restores
+  // the outer binding instead of dropping it.
+  const shadowedAliases = new Map<string, string>();
 
   // Set up parameters
   for (let i = 0; i < func.params.length; i++) {
@@ -409,6 +414,8 @@ async function callUserFunction(
       // If argument is a simple variable, set up an array alias
       // This allows arrays to be passed by reference
       if (arg.type === "variable") {
+        const previous = ctx.arrayAliases.get(param);
+        if (previous !== undefined) shadowedAliases.set(param, previous);
         ctx.arrayAliases.set(param, arg.name);
         createdAliases.push(param);
       }
@@ -445,9 +452,15 @@ async function callUserFunction(
     }
   }
 
-  // Clean up array aliases we created
+  // Clean up array aliases we created, restoring any outer alias this
+  // call shadowed under the same parameter name.
   for (const alias of createdAliases) {
-    ctx.arrayAliases.delete(alias);
+    const shadowed = shadowedAliases.get(alias);
+    if (shadowed !== undefined) {
+      ctx.arrayAliases.set(alias, shadowed);
+    } else {
+      ctx.arrayAliases.delete(alias);
+    }
   }
 
   ctx.hasReturn = false;

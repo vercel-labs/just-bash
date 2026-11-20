@@ -4,6 +4,7 @@
  * Holds all state for AWK program execution.
  */
 
+import type { CommandExecutionBudget } from "../../../execution-scope.js";
 import { ConstantRegex, type RegexLike } from "../../../regex/index.js";
 import type { FeatureCoverageWriter } from "../../../types.js";
 import type { AwkFunctionDef } from "../ast.js";
@@ -100,6 +101,16 @@ export interface AwkRuntimeContext {
 
   // Defense context invariant flag propagated from RuntimeCommandContext
   requireDefenseContext?: boolean;
+
+  /**
+   * Shared execution budget (work units + abort signal) from the enclosing
+   * shell, when the AWK program runs as a command. Built-ins that do
+   * unbounded synchronous work (e.g. asort) charge against it and poll it
+   * so a large sort can be interrupted. Absent when the interpreter is
+   * used directly, in which case those built-ins only apply their local
+   * element limits.
+   */
+  executionScope?: CommandExecutionBudget;
 }
 
 export interface CreateContextOptions {
@@ -115,6 +126,7 @@ export interface CreateContextOptions {
   ) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
   coverage?: FeatureCoverageWriter;
   requireDefenseContext?: boolean;
+  executionScope?: CommandExecutionBudget;
 }
 
 export function createRuntimeContext(
@@ -131,6 +143,7 @@ export function createRuntimeContext(
     exec,
     coverage,
     requireDefenseContext,
+    executionScope,
   } = options;
 
   return {
@@ -189,5 +202,6 @@ export function createRuntimeContext(
     exec,
     coverage,
     requireDefenseContext,
+    executionScope,
   };
 }

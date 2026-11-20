@@ -144,25 +144,42 @@ export function getArrayStore(
 
 /**
  * Replace an array's contents with the given values, reindexed 1..n.
- * ARGV and ENVIRON are stored outside ctx.arrays and are not charged to
- * arrayElementCount (their sizes are bounded by the command line and the
- * environment); regular arrays go through deleteArray and
- * setArrayElement so the element count stays exact.
+ * ARGV and ENVIRON are stored outside ctx.arrays; their elements count
+ * toward arrayElementCount like any other array, so copying values into
+ * them checks the element limit first and adjusts the count by the size
+ * change. Regular arrays go through deleteArray and setArrayElement so
+ * the element count stays exact.
  */
 export function replaceArrayValues(
   ctx: AwkRuntimeContext,
   rawName: string,
   values: AwkValue[],
+  resolvedName: string = resolveArrayName(ctx, rawName),
 ): void {
-  const resolvedName = resolveArrayName(ctx, rawName);
   const store = getArrayStore(ctx, rawName, resolvedName);
   if (store !== undefined && (store === ctx.ARGV || store === ctx.ENVIRON)) {
+    const oldSize = Object.keys(store).length;
+    if (
+      ctx.arrayElementCount - oldSize + values.length >
+      ctx.maxArrayElements
+    ) {
+      throw new ExecutionLimitError(
+        `array element limit exceeded (${ctx.maxArrayElements})`,
+        "array_elements",
+      );
+    }
     for (const key of Object.keys(store)) {
       delete store[key];
     }
     for (let i = 0; i < values.length; i++) {
       store[String(i + 1)] = values[i];
     }
+    // Clamped at zero: a context built without counting ARGV/ENVIRON
+    // (e.g. hand-built in a test) can otherwise drive the count negative.
+    ctx.arrayElementCount = Math.max(
+      0,
+      ctx.arrayElementCount - oldSize + values.length,
+    );
     return;
   }
   deleteArray(ctx, resolvedName);
@@ -172,28 +189,24 @@ export function replaceArrayValues(
 }
 
 /**
- * Get an array element value.
+ * Get an array element value. The name is resolved through aliases
+ * first, so an alias of ARGV or ENVIRON reads the store that built-ins
+ * like asort change, instead of a shadow array under the alias name.
  */
 export function getArrayElement(
   ctx: AwkRuntimeContext,
   array: string,
   key: string,
 ): AwkValue {
-  // Handle built-in ARGV array
-  if (array === "ARGV") {
-    return ctx.ARGV[key] ?? "";
-  }
-  // Handle built-in ENVIRON array
-  if (array === "ENVIRON") {
-    return ctx.ENVIRON[key] ?? "";
-  }
-  // Resolve aliases for function parameter passing
   const resolvedArray = resolveArrayName(ctx, array);
-  return ctx.arrays[resolvedArray]?.[key] ?? "";
+  const store = getArrayStore(ctx, array, resolvedArray);
+  return store?.[key] ?? "";
 }
 
 /**
- * Set an array element value.
+ * Set an array element value. An alias of ARGV or ENVIRON writes the
+ * real store (with the element-limit check and count), so a write
+ * through a function parameter stays visible to later reads.
  */
 export function setArrayElement(
   ctx: AwkRuntimeContext,
@@ -203,6 +216,20 @@ export function setArrayElement(
 ): void {
   // Resolve aliases for function parameter passing
   const resolvedArray = resolveArrayName(ctx, array);
+  const store = getArrayStore(ctx, array, resolvedArray);
+  if (store !== undefined && (store === ctx.ARGV || store === ctx.ENVIRON)) {
+    if (!(key in store)) {
+      if (ctx.arrayElementCount >= ctx.maxArrayElements) {
+        throw new ExecutionLimitError(
+          `array element limit exceeded (${ctx.maxArrayElements})`,
+          "array_elements",
+        );
+      }
+      ctx.arrayElementCount++;
+    }
+    store[key] = value;
+    return;
+  }
   if (!ctx.arrays[resolvedArray]) {
     // Use null-prototype to prevent prototype pollution with user-controlled keys
     ctx.arrays[resolvedArray] = Object.create(null);
@@ -220,26 +247,23 @@ export function setArrayElement(
 }
 
 /**
- * Check if an array element exists.
+ * Check if an array element exists. Resolves aliases first, so an alias
+ * of ARGV or ENVIRON checks the real store.
  */
 export function hasArrayElement(
   ctx: AwkRuntimeContext,
   array: string,
   key: string,
 ): boolean {
-  if (array === "ARGV") {
-    return ctx.ARGV[key] !== undefined;
-  }
-  if (array === "ENVIRON") {
-    return ctx.ENVIRON[key] !== undefined;
-  }
-  // Resolve aliases for function parameter passing
   const resolvedArray = resolveArrayName(ctx, array);
-  return ctx.arrays[resolvedArray]?.[key] !== undefined;
+  const store = getArrayStore(ctx, array, resolvedArray);
+  return store?.[key] !== undefined;
 }
 
 /**
- * Delete an array element.
+ * Delete an array element. Resolves aliases first, so deleting through
+ * an alias of ARGV or ENVIRON removes the element from the real store
+ * and keeps the element count exact.
  */
 export function deleteArrayElement(
   ctx: AwkRuntimeContext,
@@ -248,6 +272,14 @@ export function deleteArrayElement(
 ): void {
   // Resolve aliases for function parameter passing
   const resolvedArray = resolveArrayName(ctx, array);
+  const store = getArrayStore(ctx, array, resolvedArray);
+  if (store !== undefined && (store === ctx.ARGV || store === ctx.ENVIRON)) {
+    if (key in store) {
+      ctx.arrayElementCount--;
+      delete store[key];
+    }
+    return;
+  }
   if (ctx.arrays[resolvedArray]) {
     if (key in ctx.arrays[resolvedArray]) ctx.arrayElementCount--;
     delete ctx.arrays[resolvedArray][key];
@@ -255,11 +287,21 @@ export function deleteArrayElement(
 }
 
 /**
- * Delete an entire array.
+ * Delete an entire array. Resolves aliases first, so deleting ARGV or
+ * ENVIRON (directly or through an alias) clears the real store and
+ * keeps the element count exact.
  */
 export function deleteArray(ctx: AwkRuntimeContext, array: string): void {
   // Resolve aliases for function parameter passing
   const resolvedArray = resolveArrayName(ctx, array);
+  const store = getArrayStore(ctx, array, resolvedArray);
+  if (store !== undefined && (store === ctx.ARGV || store === ctx.ENVIRON)) {
+    ctx.arrayElementCount -= Object.keys(store).length;
+    for (const key of Object.keys(store)) {
+      delete store[key];
+    }
+    return;
+  }
   ctx.arrayElementCount -= Object.keys(ctx.arrays[resolvedArray] ?? {}).length;
   delete ctx.arrays[resolvedArray];
 }
