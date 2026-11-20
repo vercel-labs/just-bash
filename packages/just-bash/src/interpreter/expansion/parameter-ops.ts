@@ -334,6 +334,11 @@ export function handleLength(
   value: string,
 ): string {
   ctx.coverage?.hit("bash:expansion:length");
+  // ${#@} and ${#*} are the number of positional parameters, like $# —
+  // not the length of the "$@" string they expand to.
+  if (parameter === "@" || parameter === "*") {
+    return ctx.state.env.get("#") ?? "0";
+  }
   // Check if this is an array length: ${#a[@]} or ${#a[*]}
   const arrayMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[[@*]\]$/);
   if (arrayMatch) {
