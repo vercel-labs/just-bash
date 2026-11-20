@@ -271,12 +271,14 @@ export class FileTraversalBudget {
   }
 
   /**
-   * Reserve directory children before retaining work items for them. A single
-   * readdir can return far more entries than the traversal is allowed to
-   * process, so waiting until each child is visited permits an oversized queue
-   * allocation first.
+   * Reserve directory children against the entry ceiling without charging for
+   * work not yet done. A single readdir can return far more entries than the
+   * traversal is allowed to retain, so the collection has to be admitted
+   * before it is held, but reading a directory is one filesystem operation
+   * however many names come back. Callers that go on to touch each child
+   * should use `discover` instead, which also charges the work.
    */
-  discover(count: number): void {
+  reserve(count: number): void {
     if (
       !Number.isSafeInteger(count) ||
       count < 0 ||
@@ -287,8 +289,18 @@ export class FileTraversalBudget {
         "iterations",
       );
     }
-    this.checkpoint(count);
     this.discoveredEntries += count;
+  }
+
+  /**
+   * Reserve directory children before retaining work items for them. A single
+   * readdir can return far more entries than the traversal is allowed to
+   * process, so waiting until each child is visited permits an oversized queue
+   * allocation first.
+   */
+  discover(count: number): void {
+    this.reserve(count);
+    this.checkpoint(count);
   }
 }
 

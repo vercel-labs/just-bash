@@ -84,6 +84,7 @@ import { advanceFd } from "./fd-table.js";
 import { executeFunctionDef } from "./functions.js";
 import { failure, OK, result, testResult } from "./helpers/result.js";
 import { isPosixSpecialBuiltin } from "./helpers/shell-constants.js";
+import { nullCommandExitStatus } from "./helpers/substitution-status.js";
 import { isWordLiteralMatch } from "./helpers/word-matching.js";
 import { traceSimpleCommand } from "./helpers/xtrace.js";
 import { executePipeline as executePipelineHelper } from "./pipeline-execution.js";
@@ -144,7 +145,11 @@ export interface InterpreterOptions {
   /** Bootstrap JavaScript code for js-exec */
   jsBootstrapCode?: string;
   /** Tool invoker hook for js-exec's `tools` proxy */
-  invokeTool?: (path: string, argsJson: string) => Promise<string>;
+  invokeTool?: (
+    path: string,
+    argsJson: string,
+    abortSignal: AbortSignal,
+  ) => Promise<string>;
 }
 
 export class Interpreter {
@@ -525,8 +530,8 @@ export class Interpreter {
   }
 
   private async executePipeline(node: PipelineNode): Promise<ExecResult> {
-    return executePipelineHelper(this.ctx, node, (cmd, stdin) =>
-      this.executeCommand(cmd, stdin),
+    return executePipelineHelper(this.ctx, node, (cmd, stdin, stdinOwned) =>
+      this.executeCommand(cmd, stdin, stdinOwned),
     );
   }
 
@@ -575,7 +580,7 @@ export class Interpreter {
     this.ctx.coverage?.hit(`bash:cmd:${node.type}`);
     switch (node.type) {
       case "SimpleCommand":
-        return this.executeSimpleCommand(node, stdin);
+        return this.executeSimpleCommand(node, stdin, stdinOwned);
       case "If":
         return executeIf(this.ctx, node);
       case "For":
@@ -606,12 +611,18 @@ export class Interpreter {
   private async executeSimpleCommand(
     node: SimpleCommandNode,
     stdin: string,
+    stdinProvided: boolean,
   ): Promise<ExecResult> {
     let transaction: RedirectionTransaction | undefined;
     try {
-      return await this.executeSimpleCommandInner(node, stdin, (created) => {
-        transaction = created;
-      });
+      return await this.executeSimpleCommandInner(
+        node,
+        stdin,
+        stdinProvided,
+        (created) => {
+          transaction = created;
+        },
+      );
     } catch (error) {
       transaction?.finish();
       if (error instanceof GlobError) {
@@ -627,6 +638,7 @@ export class Interpreter {
   private async executeSimpleCommandInner(
     node: SimpleCommandNode,
     stdin: string,
+    stdinProvided: boolean,
     onTransaction: (transaction: RedirectionTransaction) => void,
   ): Promise<ExecResult> {
     // Update currentLine for $LINENO
@@ -665,6 +677,11 @@ export class Interpreter {
 
     // Clear expansion stderr at the start
     this.ctx.state.expansionStderr = "";
+
+    // A command with no command word reports the status of the last command
+    // substitution that ran inside it, so start every simple command with a
+    // clean marker rather than inheriting the previous command's.
+    this.ctx.state.lastSubstitutionExitCode = null;
 
     // Process all assignments (array, subscript, and scalar)
     const assignmentResult = await processAssignments(this.ctx, node);
@@ -705,28 +722,36 @@ export class Interpreter {
             transaction.finish();
           }
         }
-        const baseResult = result("", xtraceAssignmentOutput, 0);
+        // After `prepare`, so a substitution in a redirection target counts.
+        const baseResult = result(
+          "",
+          xtraceAssignmentOutput,
+          nullCommandExitStatus(this.ctx.state, node.redirections),
+        );
         const redirected = await applyRedirections(
           this.ctx,
           baseResult,
-          node.redirections,
-          preparedRedirections.targets,
-          preparedRedirections.dupSources,
-          preparedRedirections.standardRoutes,
+          node.redirections.length > 0,
+          preparedRedirections.outputRoutes,
         );
         transaction.finish();
         return redirected;
       }
 
-      // Assignment-only command: preserve the exit code from command substitution
-      // e.g., x=$(false) should set $? to 1, not 0
+      // Assignment-only command: the status is the one from a command
+      // substitution in the values (`x=$(false)` is 1), and 0 when there was
+      // none — a bare `x=1` never re-reports the previous command's status.
       // Also clear $_ - bash clears it for bare assignments
       this.ctx.state.lastArg = "";
       // Include any stderr from command substitutions (e.g., FOO=$(echo foo 1>&2))
       const stderrOutput =
         (this.ctx.state.expansionStderr || "") + xtraceAssignmentOutput;
       this.ctx.state.expansionStderr = "";
-      return result("", stderrOutput, this.ctx.state.lastExitCode);
+      return result(
+        "",
+        stderrOutput,
+        nullCommandExitStatus(this.ctx.state, []),
+      );
     }
 
     // Mark prefix assignment variables as temporarily exported for this command
@@ -859,7 +884,14 @@ export class Interpreter {
       return preparedRedirectionError(preparedRedirections);
     }
     const stdinSourceFd = preparedRedirections.stdinSourceFd;
+    // Builtins (eval, functions, wrappers) treat any fd-0 route as ownership,
+    // including one a persistent `exec <` set up earlier. External commands
+    // count only a pipeline or this command's own fd-0 replacement as direct
+    // input and otherwise fall back to the enclosing stdin. That fallback
+    // still differs from bash after an empty persistent `exec <` (bash: EOF).
     const stdinRedirected = preparedRedirections.stdin !== undefined;
+    const directStdinProvided =
+      stdinProvided || preparedRedirections.stdinReplaced;
     if (preparedRedirections.stdin !== undefined) {
       stdin = preparedRedirections.stdin;
     }
@@ -874,10 +906,14 @@ export class Interpreter {
     // However, a literal empty string (like '') is "command not found".
     if (!commandName) {
       if (commandIsOnlyExpansions) {
-        // No args - treat as no-op (status 0)
-        // Preserve lastExitCode for command subs like $(exit 42)
+        // No args - treat as a no-op that reports the status of a command
+        // substitution in the word (`$(exit 42)` is 42) and 0 otherwise.
         transaction.finish();
-        return result("", "", this.ctx.state.lastExitCode);
+        return result(
+          "",
+          "",
+          nullCommandExitStatus(this.ctx.state, node.redirections),
+        );
       }
       // Literal empty command name - command not found
       transaction.finish();
@@ -935,6 +971,8 @@ export class Interpreter {
         false,
         stdinSourceFd,
         stdinRedirected,
+        directStdinProvided,
+        preparedRedirections.stdinUnavailable,
       );
     } catch (error) {
       // For break/continue, we still need to apply redirections before propagating
@@ -967,10 +1005,8 @@ export class Interpreter {
     cmdResult = await applyRedirections(
       this.ctx,
       cmdResult,
-      node.redirections,
-      preparedRedirections.targets,
-      preparedRedirections.dupSources,
-      preparedRedirections.standardRoutes,
+      node.redirections.length > 0,
+      preparedRedirections.outputRoutes,
       cmdResult.internalProducerCommand ?? commandName,
       cmdResult.internalProducerOmitsShellPrefix,
     );
@@ -1062,11 +1098,13 @@ export class Interpreter {
     useDefaultPath = false,
     stdinSourceFd = -1,
     stdinRedirected = false,
+    stdinProvided = false,
+    stdinUnavailable = false,
   ): Promise<ExecResult> {
     const dispatchCtx: BuiltinDispatchContext = {
       ctx: this.ctx,
-      runCommand: (name, a, qa, s, sf, udp, ssf, sr) =>
-        this.runCommand(name, a, qa, s, sf, udp, ssf, sr),
+      runCommand: (name, a, qa, s, sf, udp, ssf, sr, sp, sd) =>
+        this.runCommand(name, a, qa, s, sf, udp, ssf, sr, sp, sd),
       buildExportedEnv: () => this.buildExportedEnv(),
       executeUserScript: (path, a, s) => this.executeUserScript(path, a, s),
     };
@@ -1082,6 +1120,8 @@ export class Interpreter {
       useDefaultPath,
       stdinSourceFd,
       stdinRedirected,
+      stdinProvided,
+      stdinUnavailable,
     );
 
     if (builtinResult !== null)
@@ -1096,6 +1136,8 @@ export class Interpreter {
       args,
       stdin,
       useDefaultPath,
+      stdinProvided,
+      stdinUnavailable,
     );
     return { ...externalResult, internalProducerCommand: commandName };
   }

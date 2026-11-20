@@ -172,6 +172,41 @@ describe("js-exec tools proxy via JavaScriptConfig.invokeTool", () => {
     expect(r.exitCode).toBe(0);
   });
 
+  it("forwards cancellation to a pending tool invocation", async () => {
+    let receivedSignal: AbortSignal | undefined;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const controller = new AbortController();
+    const bash = new Bash({
+      javascript: {
+        invokeTool: async (_path, _argsJson, abortSignal) => {
+          receivedSignal = abortSignal;
+          markStarted();
+          await new Promise<void>((resolve) => {
+            if (abortSignal.aborted) resolve();
+            else
+              abortSignal.addEventListener("abort", () => resolve(), {
+                once: true,
+              });
+          });
+          return "";
+        },
+      },
+    });
+
+    const execution = bash.exec(`js-exec -c "tools.wait()"`, {
+      signal: controller.signal,
+    });
+    await started;
+    controller.abort();
+    const result = await execution;
+
+    expect(result.exitCode).toBe(124);
+    expect(receivedSignal?.aborted).toBe(true);
+  });
+
   it("should handle tool that throws", async () => {
     const bash = new Bash({
       javascript: {

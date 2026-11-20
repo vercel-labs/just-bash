@@ -1,0 +1,5 @@
+# Lock verification needs push access on the push destination's LFS API. A
+# maintainer lacks it on a contributor's fork, so the hook aborts the push. This
+# repository does not use LFS locking; remove `locksverify` to restore the check.
+[lfs]
+	locksverify = false

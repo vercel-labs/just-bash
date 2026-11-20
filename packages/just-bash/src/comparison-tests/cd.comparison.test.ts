@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   cleanupTestDir,
+  compareOutputs,
   createTestDir,
   runRealBash,
   setupFiles,
@@ -18,6 +19,14 @@ describe("cd command - Real Bash Comparison", () => {
   });
 
   describe("basic cd", () => {
+    it.each([
+      "unset OLDPWD; OLDPWD=/; cd -; pwd",
+      "cd /; CDPATH=/tmp; OLDPWD=; cd -; pwd",
+    ])("uses the live OLDPWD value: %s", async (script) => {
+      const env = await setupFiles(testDir, {});
+      await compareOutputs(env, testDir, script);
+    });
+
     it("should change directory and pwd should reflect it", async () => {
       const env = await setupFiles(testDir, {
         "subdir/file.txt": "content",

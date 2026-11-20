@@ -63,6 +63,7 @@ cd foo bar
 
 #### cd - without OLDPWD
 
+unset OLDPWD
 cd - > /dev/null  # silence dash output
 echo status=$?
 #pwd

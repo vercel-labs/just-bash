@@ -6,6 +6,7 @@ import { sedCommand } from "../../commands/sed/sed.js";
 import { yqCommand } from "../../commands/yq/yq.js";
 import { EMPTY_BYTES, unsafeBytesFromLatin1 } from "../../encoding.js";
 import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
+import type { IFileSystem } from "../../fs/interface.js";
 import { createDefenseAwareCommandContext } from "../../interpreter/defense-aware-command-context.js";
 import { resolveLimits } from "../../limits.js";
 import type { RuntimeCommandContext } from "../../types.js";
@@ -36,6 +37,75 @@ describeDefense("Defense context invariant", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     DefenseInDepthBox.resetInstance();
+  });
+
+  it("exposes every IFileSystem method, including the optional ones", () => {
+    // The wrapper builds an explicit allowlist, so an optional IFileSystem
+    // method that nobody adds there is silently dropped. That is dangerous
+    // rather than merely incomplete: callers treat absence as "backend does
+    // not support this" and fall back to a weaker path, so a missing entry
+    // disables a hardening feature precisely under defense-in-depth.
+    //
+    // Record<keyof IFileSystem, true> makes this exhaustive at compile time:
+    // adding a method to the interface fails typecheck until it is listed
+    // here, and the assertion below then proves the wrapper forwards it.
+    const IFILESYSTEM_METHODS: Record<keyof IFileSystem, true> = {
+      appendFile: true,
+      chmod: true,
+      cp: true,
+      createExclusive: true,
+      exists: true,
+      getAllPaths: true,
+      link: true,
+      lstat: true,
+      mkdir: true,
+      mv: true,
+      readFile: true,
+      readFileBuffer: true,
+      readFileBytes: true,
+      readdir: true,
+      readdirWithFileTypes: true,
+      readlink: true,
+      realpath: true,
+      resolvePath: true,
+      rm: true,
+      stat: true,
+      symlink: true,
+      utimes: true,
+      writeFile: true,
+    };
+
+    const fs = new InMemoryFs();
+    const wrapped = createDefenseAwareCommandContext(
+      createCommandContext({ fs }),
+      "probe",
+    ).fs;
+
+    const missing = Object.keys(IFILESYSTEM_METHODS).filter(
+      (name) =>
+        typeof (fs as unknown as Record<string, unknown>)[name] ===
+          "function" &&
+        typeof (wrapped as unknown as Record<string, unknown>)[name] !==
+          "function",
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it("routes mktemp through the atomic exclusive create under defense", async () => {
+    // Regression: createExclusive was absent from the wrapper's allowlist, so
+    // mktemp silently used the non-atomic writeFile+chmod fallback whenever
+    // defense-in-depth was active.
+    const fs = new InMemoryFs();
+    await fs.mkdir("/tmp", { recursive: true });
+    const exclusive = vi.spyOn(fs, "createExclusive");
+    const write = vi.spyOn(fs, "writeFile");
+
+    const env = new Bash({ fs, defenseInDepth: { enabled: true } });
+    const result = await env.exec("mktemp");
+
+    expect(result.exitCode).toBe(0);
+    expect(exclusive).toHaveBeenCalledTimes(1);
+    expect(write).not.toHaveBeenCalled();
   });
 
   it("fails closed when defense expects sandbox context but none is active", async () => {

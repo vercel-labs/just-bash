@@ -139,19 +139,32 @@ export async function executeSearch(
   const { ctx, options, paths: inputPaths, explicitLineNumbers } = searchCtx;
 
   // Validate glob patterns for errors
-  for (const glob of options.globs) {
+  for (const glob of [...options.globs, ...options.iglobs]) {
     const globToValidate = glob.startsWith("!") ? glob.slice(1) : glob;
     const error = validateGlob(globToValidate);
     if (error) {
-      return { stdout: "", stderr: `${error}\n`, exitCode: 1 };
+      return { stdout: "", stderr: `${error}\n`, exitCode: 2 };
     }
   }
 
-  // Handle --files mode: list files without searching
-  // In --files mode, positional args (including what would be the pattern) are paths
+  // Validate types after applying custom definitions, but before searching.
+  const typeRegistry = new FileTypeRegistry();
+  for (const name of options.typeClear) typeRegistry.clearType(name);
+  for (const spec of options.typeAdd) typeRegistry.addType(spec);
+  for (const type of [...options.types, ...options.typesNot]) {
+    if (type !== "all" && !typeRegistry.getType(type)) {
+      return {
+        stdout: "",
+        stderr: `rg: unrecognized file type: ${type}\n`,
+        exitCode: 2,
+      };
+    }
+  }
+
+  // In --files mode, positional args (including the pattern) are paths.
   if (options.files) {
     const filesPaths = [...options.patterns, ...inputPaths];
-    return listFiles(ctx, filesPaths, options);
+    return listFiles(ctx, filesPaths, options, typeRegistry);
   }
 
   if (options.patterns.length > ctx.limits.maxArrayElements) {
@@ -245,6 +258,12 @@ export async function executeSearch(
       };
     }
 
+    // An omitted limit is unlimited; an explicit zero makes matches impossible.
+    // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/core/flags/hiargs.rs#L516-L528
+    if (options.maxCount === 0) {
+      return { stdout: "", stderr: "", exitCode: 1 };
+    }
+
     // Determine case sensitivity and compile while pattern storage is leased.
     const effectiveIgnoreCase = determineIgnoreCase(options, patterns);
     try {
@@ -266,16 +285,19 @@ export async function executeSearch(
     for (const lease of patternSourceLeases) lease.release();
   }
 
-  // If no paths given and stdin has content, search stdin (like real rg).
-  // In a pipeline, the previous command's stdout becomes this command's
-  // stdin — search that text instead of defaulting to the current directory.
+  // If no paths are given and stdin was provided, search stdin (like real rg).
+  // Pipeline stages and explicit redirections can provide an empty stdin, which
+  // must still suppress rg's fallback recursive search of the current directory.
   // Skip when `-f -` already consumed stdin for patterns to avoid
   // double-consuming it as both pattern source and search input.
   const stdinConsumedByPatternFile = options.patternFiles.includes("-");
   const stdinText = decodeBytesToUtf8(ctx.stdin);
+  // Ripgrep treats character devices and closed descriptors as absent input.
+  // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/cli/src/lib.rs#L204-L208
   if (
     inputPaths.length === 0 &&
-    stdinText.length > 0 &&
+    (ctx.stdinProvided || stdinText.length > 0) &&
+    !ctx.stdinUnavailable &&
     !stdinConsumedByPatternFile
   ) {
     const content = stdinText;
@@ -331,8 +353,12 @@ export async function executeSearch(
     };
   }
 
-  // Default to current directory
-  const paths = inputPaths.length === 0 ? ["."] : inputPaths;
+  // Explicit "." keeps the ./ prefix; an implicit current directory does not.
+  // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/core/flags/hiargs.rs#L1051-L1064
+  const paths =
+    inputPaths.length === 0
+      ? ["."]
+      : inputPaths.map((path) => (path === "." ? "./" : path));
 
   // Load gitignore files
   let gitignore: GitignoreManager | null = null;
@@ -346,17 +372,8 @@ export async function executeSearch(
     );
   }
 
-  // Create file type registry and apply --type-clear and --type-add
-  const typeRegistry = new FileTypeRegistry();
-  for (const name of options.typeClear) {
-    typeRegistry.clearType(name);
-  }
-  for (const spec of options.typeAdd) {
-    typeRegistry.addType(spec);
-  }
-
   // Collect files to search
-  const { files, singleExplicitFile } = await collectFiles(
+  const { files, singleExplicitFile, stderr } = await collectFiles(
     ctx,
     paths,
     options,
@@ -365,7 +382,7 @@ export async function executeSearch(
   );
 
   if (files.length === 0) {
-    return { stdout: "", stderr: "", exitCode: 1 };
+    return { stdout: "", stderr, exitCode: stderr ? 2 : 1 };
   }
 
   // Determine output settings
@@ -391,6 +408,7 @@ export async function executeSearch(
     options,
     showFilename,
     effectiveLineNumbers,
+    stderr,
     kResetGroup,
   );
 }
@@ -445,6 +463,7 @@ function buildSearchRegex(
 interface CollectFilesResult {
   files: string[];
   singleExplicitFile: boolean;
+  stderr: string;
 }
 
 /**
@@ -458,6 +477,10 @@ async function collectFiles(
   typeRegistry: FileTypeRegistry,
 ): Promise<CollectFilesResult> {
   const files: string[] = [];
+  const errors = new BoundedStringBuilder(
+    Math.min(ctx.limits.maxOutputSize, ctx.limits.maxStringLength),
+    "rg",
+  );
   const traversalBudget = new FileTraversalBudget({
     limits: ctx.limits,
     signal: ctx.signal,
@@ -480,17 +503,15 @@ async function collectFiles(
         if (options.maxFilesize > 0 && stat.size > options.maxFilesize) {
           continue;
         }
-        if (
-          shouldIncludeFile(path, options, gitignore, fullPath, typeRegistry)
-        ) {
-          if (files.length >= ctx.limits.maxArrayElements) {
-            throw new ExecutionLimitError(
-              `rg: file collection limit exceeded (${ctx.limits.maxArrayElements})`,
-              "array_elements",
-            );
-          }
-          files.push(path);
+        // Explicit files bypass recursive ignore/type/glob selection.
+        // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/ignore/src/walk.rs#L1095-L1110
+        if (files.length >= ctx.limits.maxArrayElements) {
+          throw new ExecutionLimitError(
+            `rg: file collection limit exceeded (${ctx.limits.maxArrayElements})`,
+            "array_elements",
+          );
         }
+        files.push(path);
       } else if (stat.isDirectory) {
         directoryCount++;
         await walkDirectory(
@@ -502,13 +523,14 @@ async function collectFiles(
           gitignore,
           typeRegistry,
           files,
+          errors,
           traversalBudget,
           new Set(),
         );
       }
     } catch (error) {
       rethrowFatalExecutionError(error);
-      // Path doesn't exist - skip silently
+      errors.append(`rg: ${path}: Unable to access path\n`);
     }
   }
 
@@ -516,7 +538,9 @@ async function collectFiles(
 
   return {
     files: sortedFiles,
-    singleExplicitFile: explicitFileCount === 1 && directoryCount === 0,
+    singleExplicitFile:
+      paths.length === 1 && explicitFileCount === 1 && directoryCount === 0,
+    stderr: errors.build(),
   };
 }
 
@@ -532,6 +556,7 @@ async function walkDirectory(
   gitignore: GitignoreManager | null,
   typeRegistry: FileTypeRegistry,
   files: string[],
+  errors: BoundedStringBuilder,
   budget: FileTraversalBudget,
   activeDirectories: Set<string>,
 ): Promise<void> {
@@ -621,7 +646,8 @@ async function walkDirectory(
             const stat = await ctx.fs.stat(entryAbsolutePath);
             isFile = stat.isFile;
             isDirectory = stat.isDirectory;
-          } catch {
+          } catch (error) {
+            rethrowFatalExecutionError(error);
             continue; // Broken symlink, skip
           }
         } else {
@@ -647,24 +673,29 @@ async function walkDirectory(
               : lstat;
           isFile = stat.isFile;
           isDirectory = stat.isDirectory;
-        } catch {
+        } catch (error) {
+          rethrowFatalExecutionError(error);
+          if (!isSymlink) {
+            errors.append(`rg: ${entryRelativePath}: Unable to access path\n`);
+          }
           continue;
         }
       }
 
-      // Check gitignore patterns first
+      const globOverride = matchGlobOverride(entryRelativePath, options);
+      if (globOverride === false) continue;
       const gitignoreIgnored = gitignore?.matches(
         entryAbsolutePath,
         isDirectory,
       );
-      if (gitignoreIgnored) {
+      if (gitignoreIgnored && globOverride !== true) {
         continue;
       }
 
       // Skip hidden files unless:
       // - --hidden is set, OR
       // - gitignore explicitly whitelists this file with a negation pattern (e.g., "!.foo")
-      if (isHidden && !options.hidden) {
+      if (isHidden && !options.hidden && globOverride !== true) {
         const isWhitelisted = gitignore?.isWhitelisted(
           entryAbsolutePath,
           isDirectory,
@@ -684,6 +715,7 @@ async function walkDirectory(
           gitignore,
           typeRegistry,
           files,
+          errors,
           budget,
           activeDirectories,
         );
@@ -696,7 +728,9 @@ async function walkDirectory(
             if (fileStat.size > options.maxFilesize) {
               continue;
             }
-          } catch {
+          } catch (error) {
+            rethrowFatalExecutionError(error);
+            errors.append(`rg: ${entryRelativePath}: Unable to access path\n`);
             continue;
           }
         }
@@ -721,7 +755,7 @@ async function walkDirectory(
     }
   } catch (error) {
     rethrowFatalExecutionError(error);
-    // Directory read failed - skip
+    errors.append(`rg: ${relativePath}: Unable to read directory\n`);
   } finally {
     if (directoryIdentity !== undefined) {
       activeDirectories.delete(directoryIdentity);
@@ -741,101 +775,60 @@ function shouldIncludeFile(
 ): boolean {
   const filename = relativePath.split("/").pop() || relativePath;
 
-  if (gitignore?.matches(absolutePath, false)) {
+  const globOverride = matchGlobOverride(relativePath, options);
+  if (globOverride !== undefined) return globOverride;
+  if (
+    options.globs.some((glob) => !glob.startsWith("!")) ||
+    options.iglobs.some((glob) => !glob.startsWith("!"))
+  )
     return false;
-  }
 
+  if (gitignore?.matches(absolutePath, false)) return false;
   if (
     options.types.length > 0 &&
     !typeRegistry.matchesType(filename, options.types)
-  ) {
+  )
     return false;
-  }
-
   if (
     options.typesNot.length > 0 &&
     typeRegistry.matchesType(filename, options.typesNot)
-  ) {
+  )
     return false;
-  }
-
-  if (options.globs.length > 0) {
-    const ignoreCase = options.globCaseInsensitive;
-    const positiveGlobs = options.globs.filter((g) => !g.startsWith("!"));
-    const negativeGlobs = options.globs
-      .filter((g) => g.startsWith("!"))
-      .map((g) => g.slice(1));
-
-    if (positiveGlobs.length > 0) {
-      let matchesPositive = false;
-      for (const glob of positiveGlobs) {
-        if (
-          matchGlob(filename, glob, ignoreCase) ||
-          matchGlob(relativePath, glob, ignoreCase)
-        ) {
-          matchesPositive = true;
-          break;
-        }
-      }
-      if (!matchesPositive) {
-        return false;
-      }
-    }
-
-    for (const glob of negativeGlobs) {
-      if (glob.startsWith("/")) {
-        const rootedGlob = glob.slice(1);
-        if (matchGlob(relativePath, rootedGlob, ignoreCase)) {
-          return false;
-        }
-      } else if (
-        matchGlob(filename, glob, ignoreCase) ||
-        matchGlob(relativePath, glob, ignoreCase)
-      ) {
-        return false;
-      }
-    }
-  }
-
-  // Handle iglobs (case-insensitive globs)
-  if (options.iglobs.length > 0) {
-    const positiveIglobs = options.iglobs.filter((g) => !g.startsWith("!"));
-    const negativeIglobs = options.iglobs
-      .filter((g) => g.startsWith("!"))
-      .map((g) => g.slice(1));
-
-    if (positiveIglobs.length > 0) {
-      let matchesPositive = false;
-      for (const glob of positiveIglobs) {
-        if (
-          matchGlob(filename, glob, true) ||
-          matchGlob(relativePath, glob, true)
-        ) {
-          matchesPositive = true;
-          break;
-        }
-      }
-      if (!matchesPositive) {
-        return false;
-      }
-    }
-
-    for (const glob of negativeIglobs) {
-      if (glob.startsWith("/")) {
-        const rootedGlob = glob.slice(1);
-        if (matchGlob(relativePath, rootedGlob, true)) {
-          return false;
-        }
-      } else if (
-        matchGlob(filename, glob, true) ||
-        matchGlob(relativePath, glob, true)
-      ) {
-        return false;
-      }
-    }
-  }
 
   return true;
+}
+
+// Explicit glob matches override ignore rules, hidden filtering, and types.
+// Unmatched directories must remain traversable even with positive globs.
+// https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/ignore/src/dir.rs#L505-L541
+function matchGlobOverride(
+  path: string,
+  options: RgOptions,
+): boolean | undefined {
+  const relativePath = path.replace(/^\.\//, "");
+  const filename = relativePath.split("/").pop() || relativePath;
+  // rg appends iglobs after globs, independent of their CLI ordering.
+  // Scan that unified override order backwards so the last match wins.
+  // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/core/flags/hiargs.rs#L1210-L1231
+  for (
+    let index = options.globs.length + options.iglobs.length - 1;
+    index >= 0;
+    index--
+  ) {
+    const isIglob = index >= options.globs.length;
+    const value = isIglob
+      ? options.iglobs[index - options.globs.length]
+      : options.globs[index];
+    const ignoreCase = isIglob || options.globCaseInsensitive;
+    const negative = value.startsWith("!");
+    const glob = negative ? value.slice(1) : value;
+    const matched = glob.startsWith("/")
+      ? matchGlob(relativePath, glob.slice(1), ignoreCase)
+      : matchGlob(filename, glob, ignoreCase) ||
+        matchGlob(relativePath, glob, ignoreCase);
+    if (matched) return !negative;
+  }
+  return undefined;
 }
 
 /**
@@ -885,6 +878,7 @@ async function listFiles(
   ctx: RuntimeCommandContext,
   inputPaths: string[],
   options: RgOptions,
+  typeRegistry: FileTypeRegistry,
 ): Promise<ExecResult> {
   // Load gitignore files
   let gitignore: GitignoreManager | null = null;
@@ -898,20 +892,11 @@ async function listFiles(
     );
   }
 
-  // Create file type registry and apply --type-clear and --type-add
-  const typeRegistry = new FileTypeRegistry();
-  for (const name of options.typeClear) {
-    typeRegistry.clearType(name);
-  }
-  for (const spec of options.typeAdd) {
-    typeRegistry.addType(spec);
-  }
-
   // Default to current directory
   const paths = inputPaths.length === 0 ? ["."] : inputPaths;
 
   // Collect files
-  const { files } = await collectFiles(
+  const { files, stderr } = await collectFiles(
     ctx,
     paths,
     options,
@@ -920,7 +905,7 @@ async function listFiles(
   );
 
   if (files.length === 0) {
-    return { stdout: "", stderr: "", exitCode: 1 };
+    return { stdout: "", stderr, exitCode: stderr ? 2 : 1 };
   }
 
   // In quiet mode, just indicate success without output
@@ -937,7 +922,7 @@ async function listFiles(
   for (const file of files) output.append(file).append(sep);
   const stdout = output.build();
 
-  return { stdout, stderr: "", exitCode: 0 };
+  return { stdout, stderr, exitCode: stderr ? 2 : 0 };
 }
 
 /**
@@ -962,6 +947,7 @@ async function readFileContent(
   filePath: string,
   file: string,
   options: RgOptions,
+  errors: BoundedStringBuilder,
 ): Promise<{
   content: string;
   isBinary: boolean;
@@ -1081,6 +1067,8 @@ async function readFileContent(
   } catch (error) {
     lease?.release();
     rethrowFatalExecutionError(error);
+    // Keep diagnostics guest-path based; filesystem messages may expose host paths.
+    errors.append(`rg: ${file}: Unable to read file\n`);
     return null;
   }
 }
@@ -1130,10 +1118,16 @@ async function searchFiles(
   options: RgOptions,
   showFilename: boolean,
   effectiveLineNumbers: boolean,
+  collectedErrors: string,
   kResetGroup?: number,
 ): Promise<ExecResult> {
   let stdout = "";
   let anyMatch = false;
+  const errors = new BoundedStringBuilder(
+    Math.min(ctx.limits.maxOutputSize, ctx.limits.maxStringLength),
+    "rg",
+  );
+  errors.append(collectedErrors);
 
   // JSON mode tracking
   const jsonMessages: string[] = [];
@@ -1150,7 +1144,13 @@ async function searchFiles(
     const results = await Promise.all(
       batch.map(async (file) => {
         const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-        const fileData = await readFileContent(ctx, filePath, file, options);
+        const fileData = await readFileContent(
+          ctx,
+          filePath,
+          file,
+          options,
+          errors,
+        );
 
         if (!fileData) return null;
 
@@ -1166,7 +1166,10 @@ async function searchFiles(
           }
 
           const filenameForSearch =
-            showFilename && !options.heading ? file : "";
+            showFilename &&
+            (!options.heading || options.count || options.countMatches)
+              ? file
+              : "";
           const result = searchContent(content, regex, {
             invertMatch: options.invertMatch,
             showLineNumbers: effectiveLineNumbers,
@@ -1298,9 +1301,11 @@ async function searchFiles(
           const sep = options.nullSeparator ? "\0" : "\n";
           stdout += `${file}${sep}`;
         } else if (!options.filesWithoutMatch) {
-          // In heading mode, always show filename header (even for single files)
-          if (options.heading && !options.noFilename) {
-            stdout += `${file}\n`;
+          // Filename visibility still controls headings for one explicit file.
+          // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/core/flags/hiargs.rs#L176-L195
+          if (options.heading && !options.count && !options.countMatches) {
+            if (stdout) stdout += "\n";
+            if (showFilename) stdout += `${file}\n`;
           }
           stdout += result.output;
         }
@@ -1378,10 +1383,15 @@ async function searchFiles(
     exitCode = anyMatch ? 0 : 1;
   }
 
+  // Errors override matches, except that quiet mode succeeds on any match.
+  // https://github.com/BurntSushi/ripgrep/blob/15.2.0/tests/regression.rs#L800-L839
+  const stderr = errors.build();
+  if (stderr && !(options.quiet && anyMatch)) exitCode = 2;
+
   // rg emits text; the pipeline handles encoding.
   return {
     stdout: finalStdout,
-    stderr: "",
+    stderr,
     exitCode,
   };
 }

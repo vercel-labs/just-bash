@@ -38,14 +38,18 @@ for (const name of names) {
     console.log(name + ':ALLOWED');
   } catch (e) {
     const msg = String(e && e.message ? e.message : e);
-    const okPrefix = \\"Cannot find module '\\" + name + \\"':\\";
-    console.log(name + ':' + msg.startsWith(okPrefix));
+    console.log(name + ':' + msg);
   }
 }
 "`);
 
     expect(result.stdout).toBe(
-      ["__proto__:true", "constructor:true", "toString:true", ""].join("\n"),
+      [
+        "__proto__:Cannot find module '__proto__': not found. Run 'js-exec --help' for available modules.",
+        "constructor:Cannot find module 'constructor': not found. Run 'js-exec --help' for available modules.",
+        "toString:Cannot find module 'toString': not found. Run 'js-exec --help' for available modules.",
+        "",
+      ].join("\n"),
     );
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);

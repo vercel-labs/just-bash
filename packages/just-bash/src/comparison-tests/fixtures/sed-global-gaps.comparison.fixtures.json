@@ -1,0 +1,56 @@
+{
+  "1d1ad3051c75af81": {
+    "command": "sed 's/a*/X/g; t yes; b; :yes; s/X/Y/g' input.txt",
+    "files": {
+      "input.txt": "zzaabbaz\naba\nz\na\n\n"
+    },
+    "stdout": "YzYzYbYbYzY\nYbY\nYzY\nY\nY\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "48f414e7f42957e6": {
+    "command": "sed 's/a\\|$/X/g' input.txt",
+    "files": {
+      "input.txt": "zzaabbaz\naba\nz\na\n\n"
+    },
+    "stdout": "zzXXbbXzX\nXbX\nzX\nX\nX\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "512d6ab7ea1dcc54": {
+    "command": "sed 's/a/X/g' input.txt",
+    "files": {
+      "input.txt": "zzaabbaz\naba\nz\na\n\n"
+    },
+    "stdout": "zzXXbbXz\nXbX\nz\nX\n\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "58f3a03de6def7c5": {
+    "command": "sed 's/a\\+/[&]/g' input.txt",
+    "files": {
+      "input.txt": "zzaabbaz\naba\nz\na\n\n"
+    },
+    "stdout": "zz[aa]bb[a]z\n[a]b[a]\nz\n[a]\n\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "89469be213ab5600": {
+    "command": "sed 's/a*/X/g' input.txt",
+    "files": {
+      "input.txt": "zzaabbaz\naba\nz\na\n\n"
+    },
+    "stdout": "XzXzXbXbXzX\nXbX\nXzX\nX\nX\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "db7639cd484cecfe": {
+    "command": "sed 's/\\(a*\\)/[\\1]/g' input.txt",
+    "files": {
+      "input.txt": "zzaabbaz\naba\nz\na\n\n"
+    },
+    "stdout": "[]z[]z[aa]b[]b[a]z[]\n[a]b[a]\n[]z[]\n[a]\n[]\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

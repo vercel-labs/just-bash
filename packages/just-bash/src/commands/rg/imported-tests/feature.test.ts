@@ -379,7 +379,7 @@ describe("rg feature: issue #159 - max count", () => {
     expect(result.stdout).toBe("foo:1:test\n");
   });
 
-  it("should treat -m0 as unlimited", async () => {
+  it("should treat -m0 as no matches", async () => {
     const bash = new Bash({
       cwd: "/home/user",
       files: {
@@ -387,8 +387,8 @@ describe("rg feature: issue #159 - max count", () => {
       },
     });
     const result = await bash.exec("rg -m0 test");
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("foo:1:test\nfoo:2:test\n");
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
   });
 });
 
@@ -936,7 +936,7 @@ describe("rg feature: PCRE2 not supported", () => {
       },
     });
     const result = await bash.exec("rg -P test");
-    expect(result.exitCode).toBe(1);
+    expect(result.exitCode).toBe(2);
     expect(result.stderr).toBe(
       "rg: PCRE2 is not supported. Use standard regex syntax instead.\n",
     );
@@ -950,7 +950,7 @@ describe("rg feature: PCRE2 not supported", () => {
       },
     });
     const result = await bash.exec("rg --pcre2 test");
-    expect(result.exitCode).toBe(1);
+    expect(result.exitCode).toBe(2);
     expect(result.stderr).toBe(
       "rg: PCRE2 is not supported. Use standard regex syntax instead.\n",
     );

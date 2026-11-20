@@ -88,16 +88,17 @@ export class BridgeHandler {
         this.output.stderr += `\n${this.commandName}: execution timeout exceeded\n`;
         reject(new Error("Operation timed out"));
       }, remaining);
-      promise.then(
-        (v) => {
+      // Settle with native await, not .then: the sandbox's patched
+      // Promise.prototype.then drops callbacks once the handle is deactivated.
+      void (async () => {
+        try {
+          resolve(await promise);
+        } catch (error) {
+          reject(error);
+        } finally {
           _clearFiniteTimeout(timer);
-          resolve(v);
-        },
-        (e) => {
-          _clearFiniteTimeout(timer);
-          reject(e);
-        },
-      );
+        }
+      })();
     });
   }
 

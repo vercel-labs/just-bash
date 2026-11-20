@@ -96,6 +96,16 @@
     "stderr": "",
     "exitCode": 0
   },
+  "567b213f1204f8e6": {
+    "command": "sed '1a\\ \\ text' test.txt",
+    "files": {
+      "test.txt": "a\nb\n"
+    },
+    "stdout": "a\n  text\nb\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
   "5d80ef05bb6ca3e0": {
     "command": "sed 's#path/to#new/path#' test.txt",
     "files": {
@@ -123,6 +133,36 @@
     "stderr": "",
     "exitCode": 0
   },
+  "7214f39091505925": {
+    "command": "sed '2i\\\tindented' test.txt",
+    "files": {
+      "test.txt": "a\nb\n"
+    },
+    "stdout": "a\n\tindented\nb\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "73c9aac9d0ed018e": {
+    "command": "sed '1a   plain' test.txt",
+    "files": {
+      "test.txt": "a\nb\n"
+    },
+    "stdout": "a\nplain\nb\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "852ca470155145e5": {
+    "command": "sed '1a\\  example: 1' test.yaml",
+    "files": {
+      "test.yaml": "Order:\n  type: object\n"
+    },
+    "stdout": "Order:\n  example: 1\n  type: object\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
   "8dc8277fda7aa887": {
     "command": "sed '2,3d' test.txt",
     "files": {
@@ -140,6 +180,16 @@
     "stdout": "hello world\n",
     "stderr": "",
     "exitCode": 0
+  },
+  "a226df106ef6785c": {
+    "command": "sed '2c\\    four' test.txt",
+    "files": {
+      "test.txt": "a\nb\n"
+    },
+    "stdout": "a\n    four\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
   },
   "afd90b3a99597517": {
     "command": "sed 's/hello/hi/' test.txt",

@@ -1,0 +1,37 @@
+{
+  "07c287a630d21a91": {
+    "command": "set -eu\nset -- value ''\nprintf '<%s>\\n' \"${1:=ignored}\" \"${2=ignored}\"\nunset fallback\nprintf '<%s>\\n' \"${fallback:=assigned}\" \"$fallback\"",
+    "files": {},
+    "stdout": "<value>\n<>\n<assigned>\n<assigned>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "0bae548f67043304": {
+    "command": "(set -e; set --; echo \"${1:=fallback}\") 2>/dev/null",
+    "files": {},
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "0d567681d04c2ed8": {
+    "command": "(set -e; set --; echo ${@:=fallback}) 2>/dev/null",
+    "files": {},
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "7abd06d67d8cf528": {
+    "command": "(set -e; set --; echo \"prefix${12=fallback}\") 2>/dev/null",
+    "files": {},
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 1
+  },
+  "fefdbfd4161f8c7c": {
+    "command": "(set -e; set --; defaults=(one two); echo \"${1:=${defaults[@]}}\") 2>/dev/null",
+    "files": {},
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 1
+  }
+}

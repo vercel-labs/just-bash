@@ -11,6 +11,11 @@ import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { createUserRegex, type UserRegex } from "../../regex/index.js";
 import type { AwkExpr } from "./ast.js";
 import type { AwkRuntimeContext } from "./interpreter/context.js";
+import {
+  ensureFieldCount,
+  rebuildLine,
+  splitFields,
+} from "./interpreter/fields.js";
 import type { AwkValue } from "./interpreter/types.js";
 
 /**
@@ -131,7 +136,7 @@ function getTargetValue(targetName: string, ctx: AwkRuntimeContext): string {
     return ctx.line;
   }
   if (targetName.startsWith("$")) {
-    const idx = parseInt(targetName.slice(1), 10) - 1;
+    const idx = Number(targetName.slice(1)) - 1;
     return ctx.fields[idx] || "";
   }
   return toAwkString(ctx.vars[targetName] ?? "");
@@ -147,17 +152,14 @@ function applyTargetValue(
 ): void {
   if (targetName === "$0") {
     ctx.line = newValue;
-    ctx.fields =
-      ctx.FS === " "
-        ? newValue.trim().split(/\s+/).filter(Boolean)
-        : ctx.fieldSep.split(newValue);
+    ctx.fields = splitFields(ctx, newValue);
     ctx.NF = ctx.fields.length;
   } else if (targetName.startsWith("$")) {
-    const idx = parseInt(targetName.slice(1), 10) - 1;
-    while (ctx.fields.length <= idx) ctx.fields.push("");
+    const idx = Number(targetName.slice(1)) - 1;
+    ensureFieldCount(ctx, idx + 1);
     ctx.fields[idx] = newValue;
     ctx.NF = ctx.fields.length;
-    ctx.line = ctx.fields.join(ctx.OFS);
+    rebuildLine(ctx);
   } else {
     ctx.vars[targetName] = newValue;
   }

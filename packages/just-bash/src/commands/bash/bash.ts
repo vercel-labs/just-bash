@@ -140,16 +140,20 @@ async function executeScript(
     };
   }
 
-  // Build environment for the exec call
-  // Include exported environment from parent (for prefix assignments like "FOO=bar exec sh -c '...'")
-  // plus positional parameters
+  // The nested shell is a new process: its environment is the parent's
+  // exported variables (including prefix assignments like
+  // "FOO=bar sh -c '...'"), plus the positional parameters. The exec entry
+  // initializes the shell's own variables (IFS, OPTIND, ...) on top.
   // Use null-prototype object to prevent prototype pollution
-  const positionalEnv = mergeToNullPrototype(ctx.exportedEnv || {}, {
-    "0": scriptName,
-    "#": String(scriptArgs.length),
-    "@": scriptArgs.join(" "),
-    "*": scriptArgs.join(" "),
-  }) as Record<string, string>;
+  const positionalEnv = mergeToNullPrototype(
+    ctx.exportedEnv ?? Object.create(null),
+    {
+      "0": scriptName,
+      "#": String(scriptArgs.length),
+      "@": scriptArgs.join(" "),
+      "*": scriptArgs.join(" "),
+    },
+  ) as Record<string, string>;
   scriptArgs.forEach((arg, i) => {
     positionalEnv[String(i + 1)] = arg;
   });
@@ -173,11 +177,13 @@ async function executeScript(
   const result = nestedExec
     ? await nestedExec(scriptToRun, {
         env: positionalEnv,
+        newShell: true,
         cwd: ctx.cwd,
         signal: ctx.signal,
       })
     : await ctx.exec(scriptToRun, {
         env: positionalEnv,
+        newShell: true,
         cwd: ctx.cwd,
         stdin: latin1FromBytes(ctx.stdin),
         stdinKind: "bytes",

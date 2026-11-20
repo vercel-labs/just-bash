@@ -1,0 +1,78 @@
+{
+  "03b284818ce3a6ef": {
+    "command": "IFS=:\na=(one two)\nprintf '<%s>\\n' \"${a[*]:=$(echo unexpected >&2)}\"\nprintf '<%s>\\n' \"${a[@]:=$(echo unexpected >&2)}\"",
+    "files": {},
+    "stdout": "<one:two>\n<one>\n<two>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2de47c3a86ebf345": {
+    "command": "set -u\nunset value\ndefaults=('a b' c)\nprintf '<%s>\\n' \"${value:=${defaults[@]}}\"\nprintf 'assigned=<%s>\\n' \"${value-unset}\"\nprintf 'again=<%s>\\n' \"${value:=ignored}\"",
+    "files": {},
+    "stdout": "<a b c>\nassigned=<a b c>\nagain=<a b c>\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "3d77f3ca326bd0d5": {
+    "command": "defaults=(one two)\nprintf '<%s>\\n' \"${target[2]:=${defaults[@]}}\"\nprintf 'assigned=<%s>\\n' \"${target[2]-unset}\"",
+    "files": {},
+    "stdout": "<one two>\nassigned=<one two>\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "55099cb82f54e942": {
+    "command": "unset value star\nIFS=:\ndefaults=('a b' c)\nprintf '<%s>\\n' \"${value=${defaults[@]}}\"\nprintf 'assigned=<%s>\\n' \"$value\"\nprintf '<%s>\\n' \"${star:=${defaults[*]}}\"\nprintf 'assigned=<%s>\\n' \"$star\"",
+    "files": {},
+    "stdout": "<a b c>\nassigned=<a b c>\n<a b:c>\nassigned=<a b:c>\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "6daa128f1a661a9d": {
+    "command": "defaults=(one two)\nunset value\n: \"${value:=pre${defaults[@]}post}\"\nprintf 'assigned=<%s>\\n' \"$value\"",
+    "files": {},
+    "stdout": "assigned=<preone twopost>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "88cecfcd1171de69": {
+    "command": "unset IFS first second third defaults\ndefaults=(one two)\nprintf '<%s>\\n' \"${first:=${defaults[@]}}\"\nprintf 'assigned=<%s>\\n' \"$first\"\nIFS=\nset -- \"${second:=${defaults[@]}}\"\nprintf 'arguments=%s value=<%s>\\n' \"$#\" \"$1\"\nprintf 'assigned=<%s>\\n' \"$second\"\nunset defaults\ndefaults=scalar\nprintf '<%s>\\n' \"${third:=${defaults[@]}}\"\nprintf 'assigned=<%s>\\n' \"$third\"",
+    "files": {},
+    "stdout": "<one two>\nassigned=<one two>\narguments=1 value=<one two>\nassigned=<one two>\n<scalar>\nassigned=<scalar>\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "9aebabb5717546d7": {
+    "command": "IFS=:\ndefaults=('a b' c)\nprintf '<%s>\\n' ${value:=${defaults[*]}}\nprintf 'saved=<%s>\\n' \"$value\"",
+    "files": {},
+    "stdout": "<a b>\n<c>\nsaved=<a b:c>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "affd5c5f67e29e06": {
+    "command": "unset value\ndefaults=()\nset -- \"${value:=${defaults[@]}}\"\nprintf 'arguments=%s value=<%s> assigned=<%s>\\n' \"$#\" \"$1\" \"$value\"",
+    "files": {},
+    "stdout": "arguments=1 value=<> assigned=<>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e37736fecfe8edc3": {
+    "command": "unset value\ndefaults=()\nprintf '<%s>\\n' \"${value:=${defaults[@]}}\"\nprintf 'set=<%s> value=<%s>\\n' \"${value+yes}\" \"${value-unset}\"\ndefaults=(one two)\nprintf '<%s>\\n' \"${value=${defaults[@]}}\"\nprintf '<%s>\\n' \"${value:=${defaults[@]}}\"\nprintf 'assigned=<%s>\\n' \"$value\"",
+    "files": {},
+    "stdout": "<>\nset=<yes> value=<>\n<>\n<one two>\nassigned=<one two>\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "f8c226190c356b5a": {
+    "command": "set +u\nunset value\ndefaults=('a b' c)\nprintf '<%s>\\n' \"${value:=${defaults[@]}}\"\nprintf 'assigned=<%s>\\n' \"${value-unset}\"\nprintf 'again=<%s>\\n' \"${value:=ignored}\"",
+    "files": {},
+    "stdout": "<a b c>\nassigned=<a b c>\nagain=<a b c>\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}

@@ -6,8 +6,134 @@ import { Parser } from "../parser/parser.js";
 import { expandAlias } from "./alias-expansion.js";
 import { ExecutionLimitError } from "./errors.js";
 import { expandBraceRange } from "./expansion/brace-range.js";
+import { expandWordWithGlob } from "./expansion.js";
+import type { InterpreterContext } from "./types.js";
 
 describe("interpreter expansion resource limits", () => {
+  it.each([
+    "${#a[@]}",
+    "${#a[*]}",
+    "${a[*]:=fallback}",
+  ])("bounds produced strings without joining array metadata (%s)", async (parameter) => {
+    const ctx = {
+      state: {
+        env: new Map(),
+        arrays: new Map([
+          [
+            "a",
+            {
+              kind: "indexed",
+              elements: new Map([
+                ["0", "abcdefgh"],
+                ["1", "ijklmnop"],
+              ]),
+            },
+          ],
+        ]),
+        options: { nounset: false },
+        shoptOptions: {},
+      },
+      limits: resolveLimits({ maxStringLength: 12 }),
+    } as unknown as InterpreterContext;
+    const ast = new Parser().parse(`: "${parameter}"`);
+    const command = ast.statements[0].pipelines[0]
+      .commands[0] as SimpleCommandNode;
+    if (parameter === "${a[*]:=fallback}") {
+      await expect(expandWordWithGlob(ctx, command.args[0])).rejects.toThrow(
+        "array expansion string limit exceeded (12 bytes)",
+      );
+    } else {
+      expect(await expandWordWithGlob(ctx, command.args[0])).toEqual({
+        values: ["2"],
+        quoted: true,
+      });
+    }
+  });
+
+  it("preserves a non-BMP IFS separator in assignment defaults", async () => {
+    const bash = new Bash();
+    const result = await bash.exec(
+      "IFS='💥:'; defaults=(x y); printf '<%s>\\n' \"${value:=${defaults[*]}}\" \"$value\"",
+    );
+    expect(result.stdout).toBe("<x💥y>\n<x💥y>\n");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it.each([
+    5, 6,
+  ])("accounts for a complete IFS code point at a %i-byte limit", async (maxStringLength) => {
+    const env = new Map([["IFS", "💥:"]]);
+    const ctx = {
+      state: {
+        env,
+        arrays: new Map([
+          [
+            "defaults",
+            {
+              kind: "indexed",
+              elements: new Map([
+                ["0", "x"],
+                ["1", "y"],
+              ]),
+            },
+          ],
+        ]),
+        options: { nounset: false },
+        shoptOptions: {},
+      },
+      limits: resolveLimits({ maxStringLength }),
+    } as unknown as InterpreterContext;
+    const ast = new Parser().parse(': "${value:=${defaults[*]}}"');
+    const command = ast.statements[0].pipelines[0]
+      .commands[0] as SimpleCommandNode;
+    if (maxStringLength === 5) {
+      await expect(expandWordWithGlob(ctx, command.args[0])).rejects.toThrow(
+        "array expansion string limit exceeded (5 bytes)",
+      );
+      expect(env.has("value")).toBe(false);
+    } else {
+      expect(await expandWordWithGlob(ctx, command.args[0])).toEqual({
+        values: ["x💥y"],
+        quoted: true,
+      });
+      expect(env.get("value")).toBe("x💥y");
+    }
+  });
+
+  it("rejects oversized array defaults before assigning the target", async () => {
+    const env = new Map<string, string>();
+    const ctx = {
+      state: {
+        env,
+        arrays: new Map([
+          [
+            "defaults",
+            {
+              kind: "indexed",
+              elements: new Map([
+                ["0", "éé"],
+                ["1", "éé"],
+                ["2", "éé"],
+              ]),
+            },
+          ],
+        ]),
+        options: { nounset: false },
+        shoptOptions: {},
+      },
+      limits: resolveLimits({ maxStringLength: 12 }),
+    } as unknown as InterpreterContext;
+    const ast = new Parser().parse(': "${value:=${defaults[@]}}"');
+    const command = ast.statements[0].pipelines[0]
+      .commands[0] as SimpleCommandNode;
+
+    await expect(expandWordWithGlob(ctx, command.args[0])).rejects.toThrow(
+      "array expansion string limit exceeded (12 bytes)",
+    );
+    expect(env.has("value")).toBe(false);
+  });
+
   it("bounds a trailing-space alias chain iteratively", async () => {
     const bash = new Bash({ executionLimits: { maxCallDepth: 3 } });
     const result = await bash.exec(

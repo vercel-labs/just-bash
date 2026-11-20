@@ -1,8 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { Worker } from "node:worker_threads";
-import { _clearFiniteTimeout, _setTimeoutIfFinite } from "../timers.js";
-
-type CancelReason = "abort" | "timeout";
+import { WorkerLifecycle } from "../worker-lifecycle.js";
 
 export interface WorkerRequestControllerOptions {
   commandName: string;
@@ -11,61 +8,12 @@ export interface WorkerRequestControllerOptions {
   maxMessageBytes: number;
 }
 
-/**
- * Execution-owned lifecycle for a single worker request.  Queue implementations
- * remain command-specific, but cancellation is armed before enqueueing and all
- * request-owned listeners/timers are removed exactly once.
- */
-export class WorkerRequestController {
+/** Node worker request lifecycle with protocol authentication and message limits. */
+export class WorkerRequestController extends WorkerLifecycle {
   readonly protocolToken: string = randomBytes(16).toString("hex");
-  readonly deadline: number;
-  private readonly cleanups: Array<() => void> = [];
-  private cancelHandler: ((reason: CancelReason) => void) | undefined;
-  private canceledReason: CancelReason | undefined;
-  private closed = false;
 
   constructor(private readonly options: WorkerRequestControllerOptions) {
-    this.deadline = Date.now() + options.timeoutMs;
-  }
-
-  /** Arm cancellation before the caller makes the request visible in a queue. */
-  arm(onCancel: (reason: CancelReason) => void): void {
-    if (this.cancelHandler) throw new Error("worker request is already armed");
-    this.cancelHandler = onCancel;
-
-    const signal = this.options.signal;
-    if (signal) {
-      const abort = () => this.cancel("abort");
-      signal.addEventListener("abort", abort, { once: true });
-      this.cleanups.push(() => signal.removeEventListener("abort", abort));
-      if (signal.aborted) this.cancel("abort");
-    }
-
-    if (!this.canceledReason) {
-      const timer = _setTimeoutIfFinite(
-        () => this.cancel("timeout"),
-        Math.max(0, this.options.timeoutMs),
-      );
-      if (timer !== undefined) {
-        this.cleanups.push(() => _clearFiniteTimeout(timer));
-      }
-    }
-  }
-
-  get isCanceled(): boolean {
-    return this.canceledReason !== undefined;
-  }
-
-  remainingTimeMs(): number {
-    return Math.max(0, this.deadline - Date.now());
-  }
-
-  timeoutMessage(noun = "Execution"): string {
-    return `${noun} timeout: exceeded ${this.options.timeoutMs}ms limit`;
-  }
-
-  abortMessage(): string {
-    return "Execution aborted";
+    super(options);
   }
 
   assertMessageSize(value: unknown, direction: "request" | "response"): void {
@@ -75,33 +23,6 @@ export class WorkerRequestController {
         `${this.options.commandName}: worker ${direction} exceeds ${this.options.maxMessageBytes} byte limit`,
       );
     }
-  }
-
-  async terminate(worker: Worker | null | undefined): Promise<boolean> {
-    if (!worker) return true;
-    try {
-      await worker.terminate();
-      return true;
-    } catch {
-      // Rejection is not an acknowledgement that stale worker authority ended.
-      return false;
-    }
-  }
-
-  close(): void {
-    if (this.closed) return;
-    this.closed = true;
-    for (let index = this.cleanups.length - 1; index >= 0; index--) {
-      this.cleanups[index]();
-    }
-    this.cleanups.length = 0;
-    this.cancelHandler = undefined;
-  }
-
-  private cancel(reason: CancelReason): void {
-    if (this.closed || this.canceledReason) return;
-    this.canceledReason = reason;
-    this.cancelHandler?.(reason);
   }
 }
 

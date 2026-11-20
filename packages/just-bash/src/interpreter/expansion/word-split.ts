@@ -13,6 +13,7 @@ import {
   globPatternHasVarRef,
   isOperationWordEntirelyQuoted,
 } from "./analysis.js";
+import { assertDefaultAssignmentTarget } from "./parameter-ops.js";
 
 function pushSplitWord(
   ctx: InterpreterContext,
@@ -77,6 +78,10 @@ async function shouldUseOperationWord(
   }
 
   if (!shouldUse) return null;
+
+  if (op.type === "AssignDefault") {
+    assertDefaultAssignmentTarget(part.parameter);
+  }
 
   return word.parts;
 }

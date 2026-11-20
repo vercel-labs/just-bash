@@ -95,4 +95,120 @@ describe("AWK prospective allocation limits", () => {
     );
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
+
+  it.each([
+    ["NF assignment", `awk 'BEGIN { NF = 100000000 }'`],
+    ["field assignment", `awk 'BEGIN { $100000000 = "x" }'`],
+    ["field increment", `awk 'BEGIN { $100000000++ }'`],
+    ["sub field target", `awk 'BEGIN { sub(/^/, "x", $100000000) }'`],
+    ["gsub field target", `awk 'BEGIN { gsub(/^/, "x", $100000000) }'`],
+    ["infinite NF", `awk 'BEGIN { NF = 1e400 }'`],
+    ["negative infinite NF", `awk 'BEGIN { NF = -1e400 }'`],
+  ])("rejects %s beyond maxArrayElements before growing fields", async (_kind, script) => {
+    const bash = new Bash({ executionLimits: { maxArrayElements: 10 } });
+    const result = await bash.exec(script);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("awk: field count limit exceeded (10)\n");
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+  });
+
+  it("allows growing fields up to maxArrayElements", async () => {
+    const bash = new Bash({ executionLimits: { maxArrayElements: 10 } });
+    const result = await bash.exec(
+      `awk 'BEGIN { OFS = "-"; NF = 3; $5 = "x"; print NF, $0 }'`,
+    );
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe("5-----x\n");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("bounds the rebuilt record size", async () => {
+    const bash = new Bash({ executionLimits: { maxStringLength: 64 } });
+    const result = await bash.exec(
+      `awk 'BEGIN { OFS = "xxxxxxxxxx"; NF = 10 }'`,
+    );
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("awk: record size limit exceeded (64 bytes)\n");
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+  });
+
+  it("rejects NaN NF instead of desynchronizing fields", async () => {
+    const bash = new Bash({ executionLimits: { maxArrayElements: 10 } });
+    const result = await bash.exec(`awk 'BEGIN { NF = sqrt(-1) }'`);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("awk: field count limit exceeded (10)\n");
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+  });
+
+  it("allows assigning existing fields of a record at the limit", async () => {
+    const bash = new Bash({ executionLimits: { maxArrayElements: 5 } });
+    const result = await bash.exec(`awk '{ $4 = "x"; print }'`, {
+      stdin: "a b c d e\n",
+    });
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe("a b c x e\n");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it.each([
+    ["an input record", `awk '{ print }'`, "a b c d e\n"],
+    ["an input record with FS", `awk -F, '{ print }'`, "a,b,c,d,e\n"],
+    ["$0 assignment", `awk 'BEGIN { FS = ","; $0 = "a,b,c,d,e" }'`, undefined],
+    ["sub on $0", `awk '{ sub(/x/, "a b c d e") }'`, "x\n"],
+  ])("rejects splitting %s beyond maxArrayElements", async (_kind, script, stdin) => {
+    const bash = new Bash({ executionLimits: { maxArrayElements: 3 } });
+    const result = await bash.exec(script, stdin ? { stdin } : {});
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("awk: field count limit exceeded (3)\n");
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+  });
+
+  it("measures the rebuilt record in UTF-8 bytes", async () => {
+    const bash = new Bash({ executionLimits: { maxStringLength: 64 } });
+    const result = await bash.exec(`awk 'BEGIN { OFS = "€"; NF = 30 }'`);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("awk: record size limit exceeded (64 bytes)\n");
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+  });
+
+  it("rejects an infinite NF even when arrays are unlimited", async () => {
+    const bash = new Bash({
+      executionLimits: { maxArrayElements: Number.POSITIVE_INFINITY },
+    });
+    const result = await bash.exec(`awk 'BEGIN { NF = 1e400 }'`);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("awk: field count limit exceeded (Infinity)\n");
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+  });
+
+  it("does not wrap huge sub/gsub field targets onto $1", async () => {
+    const bash = new Bash({ executionLimits: { maxArrayElements: 10 } });
+    const result = await bash.exec(
+      `echo a b | awk '{ sub(/a/, "x", $(1e21)) }'`,
+    );
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("awk: field count limit exceeded (10)\n");
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+  });
+
+  it("rejects padding that could never fit the record size limit", async () => {
+    const bash = new Bash({
+      executionLimits: {
+        maxArrayElements: Number.POSITIVE_INFINITY,
+        maxStringLength: 64,
+      },
+    });
+    const result = await bash.exec(`awk 'BEGIN { NF = 100000000 }'`);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("awk: record size limit exceeded (64 bytes)\n");
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+  });
+
+  it("rejects a negative NF", async () => {
+    const bash = new Bash();
+    const result = await bash.exec(`echo a b | awk '{ NF = -1 }'`);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("awk: NF set to negative value\n");
+    expect(result.exitCode).toBe(2);
+  });
 });

@@ -368,7 +368,7 @@ describe("rg inverted context", () => {
     const result = await bash.exec("rg -v -C1 c");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      "file.txt:1:a\nfile.txt-2-b\nfile.txt-3-c\nfile.txt:4:d\nfile.txt-5-e\n",
+      "file.txt:1:a\nfile.txt:2:b\nfile.txt-3-c\nfile.txt:4:d\nfile.txt:5:e\n",
     );
     expect(result.stderr).toBe("");
   });

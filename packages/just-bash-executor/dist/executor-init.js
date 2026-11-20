@@ -14,6 +14,35 @@ const DECLINE_ALL_ELICITATIONS = async () => ({
 const EXECUTOR_API_PACKAGE = "@executor-js/api";
 const transformedModuleCache = new Map();
 const executorApiShimUrlCache = new Map();
+function isPlainObject(value) {
+    return (value !== null &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        !(value instanceof Date) &&
+        !(value instanceof Promise));
+}
+function promisifySDKValue(value, Effect) {
+    if (typeof value === "function") {
+        return (...args) => {
+            const result = value(...args);
+            return Effect.isEffect(result) ? Effect.runPromise(result) : result;
+        };
+    }
+    if (!isPlainObject(value))
+        return value;
+    return new Proxy(value, {
+        get(target, property, receiver) {
+            const nested = Reflect.get(target, property, receiver);
+            if (typeof nested === "function") {
+                return (...args) => {
+                    const result = nested.apply(target, args);
+                    return Effect.isEffect(result) ? Effect.runPromise(result) : result;
+                };
+            }
+            return isPlainObject(nested) ? promisifySDKValue(nested, Effect) : nested;
+        },
+    });
+}
 // @executor-js 0.1.0 plugin core bundles import @executor-js/api for HTTP
 // route helpers, but that package is not published. just-bash only needs the
 // SDK plugin objects, so the fallback below loads those chunks with a tiny
@@ -331,8 +360,8 @@ export async function initExecutorSDK(setup, plugins, onElicitation) {
         await setup(setupRecorder);
     }
     const sourceKinds = new Set(queuedSources.map((source) => String(source.kind ?? "custom")));
-    const { createExecutor } = await import("@executor-js/sdk");
-    const { Effect } = await import("@executor-js/sdk/core");
+    const sdkCore = await import("@executor-js/sdk/core");
+    const Effect = sdkCore.Effect;
     const { discoveryPlugin } = await import("./executor-discovery-plugin.js");
     const officialPlugins = await loadOfficialPlugins(sourceKinds);
     const allPlugins = [
@@ -340,11 +369,21 @@ export async function initExecutorSDK(setup, plugins, onElicitation) {
         ...officialPlugins,
         ...(plugins ?? []),
     ];
-    const createSDKExecutor = createExecutor;
-    const executor = (await createSDKExecutor({
-        plugins: allPlugins,
+    const scopes = [
+        new sdkCore.Scope({
+            createdAt: new Date(),
+            id: sdkCore.ScopeId.make(DEFAULT_SCOPE_ID),
+            name: "default",
+        }),
+    ];
+    const makeSDKConfig = sdkCore.makeTestConfig;
+    const createSDKExecutor = sdkCore.createExecutor;
+    const effectConfig = {
+        ...makeSDKConfig({ plugins: allPlugins, scopes }),
         onElicitation: toSDKElicitationHandler(Effect, onElicitation),
-    }));
+    };
+    const effectExecutor = await Effect.runPromise(createSDKExecutor(effectConfig));
+    const executor = promisifySDKValue(effectExecutor, Effect);
     const addSource = createAddSource(executor);
     const sdk = {
         tools: {
@@ -360,7 +399,13 @@ export async function initExecutorSDK(setup, plugins, onElicitation) {
     for (const source of queuedSources) {
         await addSource(source);
     }
-    return { sdk, rawExecutor: executor };
+    return {
+        invokeTool: (path, args, abortSignal) => Effect.runPromise(effectExecutor.tools.invoke(path, args), {
+            signal: abortSignal,
+        }),
+        rawExecutor: executor,
+        sdk,
+    };
 }
 function createAddSource(executor) {
     const discoveryExt = getExtension(executor, "justBashDiscovery");

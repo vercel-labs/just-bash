@@ -1,0 +1,62 @@
+name: Bug report
+description: Behavior that differs from real bash, or that fails unexpectedly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Describe the failure and include the smallest reproduction you can. When the problem is shell or command behavior, showing what real bash prints for the same input is the clearest way to describe it.
+  - type: input
+    id: version
+    attributes:
+      label: just-bash version
+      description: The exact version you are running. `npm ls just-bash` prints it.
+      placeholder: 3.5.0
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: The smallest script, code sample, or list of steps that shows the problem. A link to a repository works too.
+      placeholder: |
+        printf '%s\n' a b c | wc -l
+    validations:
+      required: true
+  - type: textarea
+    id: invocation
+    attributes:
+      label: How you run it
+      description: The call or CLI command that executes the script, including options that affect behavior such as `python`, `javascript`, or the filesystem. Skip this when the reproduction already includes it.
+      placeholder: |
+        const bash = new Bash();
+        const result = await bash.exec(script);
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What real bash does for the same input, or what you expected if the problem is not a difference from bash.
+      placeholder: "3"
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What just-bash does instead. Include the output, error, or exit code, and describe anything that hangs or never settles.
+      placeholder: "0"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Where you run just-bash.
+      placeholder: |
+        - Runtime (Node, Bun, browser, CLI):
+        - Runtime version:
+        - Operating system:
+        - Bundler or framework, when relevant:
+      render: markdown
+    validations:
+      required: true

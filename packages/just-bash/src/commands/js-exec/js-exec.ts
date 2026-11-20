@@ -1,47 +1,10 @@
-/**
- * js-exec - Execute JavaScript code via QuickJS (WASM)
- *
- * Runs JavaScript code in an isolated worker thread with access to the
- * virtual filesystem, HTTP, and sub-shell execution via SharedArrayBuffer bridge.
- *
- * This command is Node.js only (uses worker_threads).
- */
+/** js-exec - Execute JavaScript code via the run package. */
 
-import { AsyncLocalStorage } from "node:async_hooks";
-import { fileURLToPath } from "node:url";
-import { Worker } from "node:worker_threads";
 import { decodeBytesToUtf8 } from "../../encoding.js";
-import {
-  sanitizeErrorMessage,
-  sanitizeHostErrorMessage,
-} from "../../fs/sanitize-error.js";
-import { mapToRecord } from "../../helpers/env.js";
-import { getErrorMessage } from "../../interpreter/helpers/errors.js";
-import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
-import { _clearTimeout, _setTimeout } from "../../timers.js";
-import type {
-  CommandExecOptions,
-  ExecResult,
-  RuntimeCommand,
-  RuntimeCommandContext,
-} from "../../types.js";
+import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
+import type { ExecResult, RuntimeCommand } from "../../types.js";
 import { hasHelpFlag } from "../help.js";
-import { BridgeHandler } from "../worker-bridge/bridge-handler.js";
-import { createSharedBuffer } from "../worker-bridge/protocol.js";
-import { WorkerRequestController } from "../worker-request-controller.js";
-import type {
-  JsExecWorkerInput,
-  JsExecWorkerOutput,
-} from "./js-exec-worker.js";
-
-/** Default JavaScript execution timeout when network is enabled */
-
-/**
- * Tracks js-exec execution context via AsyncLocalStorage.
- * When a js-exec bridge exec callback triggers another js-exec,
- * this detects the re-entrance without rejecting legitimate concurrent calls.
- */
-const jsExecAsyncContext = new AsyncLocalStorage<boolean>();
+import { executeWithRun } from "./run-runtime.js";
 
 const JS_EXEC_HELP = `js-exec - Sandboxed JavaScript/TypeScript runtime with Node.js-compatible APIs
 
@@ -50,7 +13,7 @@ Usage: js-exec [OPTIONS] [-c CODE | FILE] [ARGS...]
 Options:
   -c CODE          Execute inline code
   -m, --module     Enable ES module mode (import/export)
-  --strip-types    Strip TypeScript type annotations
+  --strip-types    Accepted for compatibility; type stripping is automatic
   --version, -V    Show version
   --help           Show this help
 
@@ -61,73 +24,24 @@ Examples:
   echo 'console.log("hello")' | js-exec
 
 File Extension Auto-Detection:
-  .js              script mode (module mode if top-level await detected)
+  .js              function-body mode
   .mjs             ES module mode
   .ts, .mts        ES module mode + TypeScript stripping
 
 Node.js Compatibility:
-  Code written for Node.js largely works here. Both require and import
-  are supported, the node: prefix works, and standard globals like process,
-  console, and fetch are available. All I/O is synchronous.
+  Code written for Node.js largely works here. Both require and import are
+  supported for the documented built-ins. Filesystem and command APIs retain
+  synchronous Node.js call semantics inside the sandbox.
 
   Available modules:
     fs, path, child_process, process, console,
     os, url, assert, util, events, buffer, stream,
     string_decoder, querystring
 
-  fs (global, require('fs'), or import from 'node:fs'):
-    readFileSync, writeFileSync, appendFileSync, copyFileSync, renameSync
-    readdirSync, mkdirSync, rmSync, unlinkSync, rmdirSync
-    statSync, lstatSync, existsSync, realpathSync, chmodSync
-    symlinkSync, readlinkSync, readFileBuffer
-    fs.promises.readFile, fs.promises.writeFile, fs.promises.access, ...
-
-  path: join, resolve, dirname, basename, extname, normalize,
-    relative, isAbsolute, parse, format, sep, delimiter
-
-  child_process:
-    execSync(cmd)       throws on non-zero exit, returns stdout
-    spawnSync(cmd, args) returns { stdout, stderr, status }
-
-  process (also global): argv, cwd(), exit(), env, platform, arch,
-    version, versions
-
-  os: platform(), arch(), homedir(), tmpdir(), type(), hostname(),
-    EOL, cpus(), endianness()
-
-  url: URL, URLSearchParams, parse(), format()
-
-  assert: ok(), equal(), strictEqual(), deepEqual(), throws(),
-    doesNotThrow(), fail()
-
-  util: format(), inspect(), promisify(), types, inherits()
-
-  events: EventEmitter (on, once, emit, off, removeListener, ...)
-
-  buffer: Buffer.from(), Buffer.alloc(), Buffer.concat(),
-    Buffer.isBuffer(), toString(), slice(), equals()
-
-  stream: Readable, Writable, Duplex, Transform, PassThrough, pipeline
-
-  string_decoder: StringDecoder (write, end)
-
-  querystring: parse(), stringify(), escape(), unescape()
-
-Other Globals:
-  console            log (stdout), error/warn (stderr)
-  fetch(url, opts)   HTTP; returns Promise<Response> (Web Fetch API)
-  URL, URLSearchParams, Headers, Request, Response
-  Buffer             Buffer.from(), Buffer.alloc(), etc.
-
-Not Available:
-  http, https, net, tls, crypto, zlib, dns, cluster, worker_threads,
-  vm, v8, readline, and other Node.js built-in modules that require
-  native bindings. Use fetch() for HTTP requests.
-
 Limits:
   Memory: 64 MB per execution
-  Timeout: 10 s by default; configurable via maxJsTimeoutMs
-  Engine: QuickJS (compiled to WebAssembly)
+  Timeout: configurable via maxJsTimeoutMs
+  Engine: run (QuickJS)
 `;
 
 interface ParsedArgs {
@@ -136,668 +50,130 @@ interface ParsedArgs {
   showVersion: boolean;
   scriptArgs: string[];
   isModule: boolean;
-  stripTypes: boolean;
 }
 
 function parseArgs(args: string[]): ParsedArgs | ExecResult {
   const result: ParsedArgs = {
     code: null,
+    isModule: false,
+    scriptArgs: [],
     scriptFile: null,
     showVersion: false,
-    scriptArgs: [],
-    isModule: false,
-    stripTypes: false,
   };
-
-  if (args.length === 0) {
-    return result;
-  }
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
     if (arg === "-m" || arg === "--module") {
       result.isModule = true;
       continue;
     }
-
     if (arg === "--strip-types") {
-      result.stripTypes = true;
+      // run strips supported TypeScript syntax automatically. Retain this
+      // Node-compatible flag as an explicit compatibility alias.
       continue;
     }
-
     if (arg === "-c") {
-      if (i + 1 >= args.length) {
+      if (index + 1 >= args.length) {
         return {
-          stdout: "",
-          stderr: "js-exec: option requires an argument -- 'c'\n",
           exitCode: 2,
+          stderr: "js-exec: option requires an argument -- 'c'\n",
+          stdout: "",
         };
       }
-      result.code = args[i + 1];
-      result.scriptArgs = args.slice(i + 2);
+      result.code = args[index + 1];
+      result.scriptArgs = args.slice(index + 2);
       return result;
     }
-
     if (arg === "--version" || arg === "-V") {
       result.showVersion = true;
       return result;
     }
-
     if (arg.startsWith("-") && arg !== "-" && arg !== "--") {
       return {
-        stdout: "",
-        stderr: `js-exec: unrecognized option '${arg}'\n`,
         exitCode: 2,
+        stderr: `js-exec: unrecognized option '${arg}'\n`,
+        stdout: "",
       };
     }
-
     if (arg === "--") {
-      if (i + 1 < args.length) {
-        result.scriptFile = args[i + 1];
-        result.scriptArgs = args.slice(i + 2);
+      if (index + 1 < args.length) {
+        result.scriptFile = args[index + 1];
+        result.scriptArgs = args.slice(index + 2);
       }
       return result;
     }
-
-    // First non-option is script file
-    if (!arg.startsWith("-")) {
-      result.scriptFile = arg;
-      result.scriptArgs = args.slice(i + 1);
+    if (arg === "-") {
+      result.scriptArgs = args.slice(index + 1);
       return result;
     }
+    result.scriptFile = arg;
+    result.scriptArgs = args.slice(index + 1);
+    return result;
   }
-
   return result;
-}
-
-// Singleton worker for reusing QuickJS instance
-let sharedWorker: Worker | null = null;
-let workerIdleTimeout: ReturnType<typeof setTimeout> | null = null;
-
-// Queue for serializing JS executions (QuickJS is single-threaded)
-type QueuedExecution = {
-  input: JsExecWorkerInput;
-  bridgeHandler: BridgeHandler;
-  resolve: (result: JsExecWorkerOutput) => void;
-  controller: WorkerRequestController;
-};
-const executionQueue: QueuedExecution[] = [];
-let currentExecution: QueuedExecution | null = null;
-let workerInitializationFailure: string | null = null;
-const WORKER_TERMINATION_ACK_MS = 1_000;
-
-function terminateOwnedWorker(
-  owner: QueuedExecution,
-  worker: Worker,
-  ownerResult: JsExecWorkerOutput,
-): void {
-  // Keep the owning request alive until teardown settles. Defense-in-depth
-  // intentionally suppresses callbacks inherited from a deactivated execution;
-  // resolving first would therefore strand currentExecution forever.
-  owner.controller.close();
-  let settled = false;
-  const failClosed = (): void => {
-    if (settled) return;
-    settled = true;
-    _clearTimeout(timer);
-    if (currentExecution !== owner) return;
-    // Rejection is not proof that the worker stopped. Retain ownership and
-    // poison the singleton so no replacement can overlap stale authority.
-    workerInitializationFailure = "worker termination was not acknowledged";
-    for (const queued of executionQueue) {
-      queued.bridgeHandler.stop();
-      queued.resolve({ success: false, error: workerInitializationFailure });
-    }
-    executionQueue.length = 0;
-    owner.resolve(ownerResult);
-  };
-  const acknowledge = (): void => {
-    if (settled) return;
-    settled = true;
-    _clearTimeout(timer);
-    if (currentExecution !== owner) return;
-    owner.resolve(ownerResult);
-    currentExecution = null;
-    processNextExecution();
-  };
-  const timer = _setTimeout(() => {
-    failClosed();
-  }, WORKER_TERMINATION_ACK_MS);
-  void owner.controller
-    .terminate(worker)
-    .then(
-      (terminated) => (terminated ? acknowledge() : failClosed()),
-      failClosed,
-    );
-}
-
-/** @internal Reset singleton worker state — for focused protocol tests only. */
-export function _resetJsExecWorkerForTests(): void {
-  if (workerIdleTimeout) {
-    _clearTimeout(workerIdleTimeout);
-    workerIdleTimeout = null;
-  }
-  currentExecution?.bridgeHandler.stop();
-  currentExecution = null;
-  for (const queued of executionQueue) queued.bridgeHandler.stop();
-  executionQueue.length = 0;
-  const worker = sharedWorker;
-  sharedWorker = null;
-  if (worker) void worker.terminate();
-  workerInitializationFailure = null;
-}
-
-const workerPath = fileURLToPath(
-  new URL("./js-exec-worker.js", import.meta.url),
-);
-
-function processNextExecution(): void {
-  if (currentExecution || executionQueue.length === 0) {
-    return;
-  }
-
-  const next = executionQueue.shift();
-  if (!next) {
-    return;
-  }
-  currentExecution = next;
-  let worker: Worker | null = null;
-  try {
-    worker = getOrCreateWorker();
-    worker.postMessage(next.input);
-  } catch (error) {
-    // Dispatch is transactional: an entry owns the slot only if its message
-    // was posted. Settle the identity-owned entry and gate the next dispatch
-    // on teardown of any worker that was partially created.
-    next.bridgeHandler.stop();
-    const result: JsExecWorkerOutput = {
-      success: false,
-      error: sanitizeHostErrorMessage(getErrorMessage(error)),
-    };
-    const partialWorker = worker ?? sharedWorker;
-    if (sharedWorker === partialWorker) sharedWorker = null;
-    if (partialWorker) {
-      terminateOwnedWorker(next, partialWorker, result);
-    } else {
-      next.resolve(result);
-      if (currentExecution === next) currentExecution = null;
-      processNextExecution();
-    }
-  }
-}
-
-/**
- * Validate and normalize a worker message, verifying the protocol token.
- * Rejects malformed or forged messages with a controlled error.
- */
-function normalizeJsWorkerMessage(
-  msg: unknown,
-  expectedProtocolToken: string,
-): JsExecWorkerOutput {
-  if (!msg || typeof msg !== "object") {
-    return { success: false, error: "Malformed worker response" };
-  }
-
-  const raw = msg as {
-    protocolToken?: unknown;
-    type?: unknown;
-    success?: unknown;
-    error?: unknown;
-    defenseStats?: unknown;
-  };
-
-  if (
-    typeof raw.protocolToken !== "string" ||
-    raw.protocolToken !== expectedProtocolToken
-  ) {
-    return {
-      success: false,
-      error: "Malformed worker response: invalid protocol token",
-    };
-  }
-
-  if (typeof raw.success !== "boolean") {
-    return {
-      success: false,
-      error: "Malformed worker response: missing success flag",
-    };
-  }
-
-  if (raw.success) {
-    return { success: true };
-  }
-
-  return {
-    success: false,
-    type:
-      raw.type === "initialization-failure"
-        ? "initialization-failure"
-        : undefined,
-    error:
-      typeof raw.error === "string" && raw.error.length > 0
-        ? raw.error
-        : "Worker execution failed",
-  };
-}
-
-function getOrCreateWorker(): Worker {
-  // Clear any pending idle timeout
-  if (workerIdleTimeout) {
-    _clearTimeout(workerIdleTimeout);
-    workerIdleTimeout = null;
-  }
-
-  if (sharedWorker) {
-    return sharedWorker;
-  }
-
-  // @banned-pattern-ignore: singleton constructor is owned by each WorkerRequestController request lifecycle
-  const worker = DefenseInDepthBox.runTrusted(() => new Worker(workerPath));
-  sharedWorker = worker;
-
-  worker.on("message", (msg: unknown) => {
-    // Ignore stale workers that were superseded after timeout/restart.
-    if (sharedWorker !== worker) {
-      return;
-    }
-    if (currentExecution) {
-      let result: JsExecWorkerOutput;
-      try {
-        currentExecution.controller.assertMessageSize(msg, "response");
-        result = normalizeJsWorkerMessage(
-          msg,
-          currentExecution.input.protocolToken,
-        );
-      } catch (error) {
-        result = {
-          success: false,
-          error: sanitizeHostErrorMessage(getErrorMessage(error)),
-        };
-      }
-      if (result.type === "initialization-failure") {
-        workerInitializationFailure =
-          result.error ?? "Worker initialization failed";
-        currentExecution.bridgeHandler.stop();
-        currentExecution.resolve(result);
-        currentExecution = null;
-        for (const queued of executionQueue) {
-          queued.bridgeHandler.stop();
-          queued.resolve({
-            success: false,
-            type: "initialization-failure",
-            error: workerInitializationFailure,
-          });
-        }
-        executionQueue.length = 0;
-        sharedWorker = null;
-        void worker.terminate();
-        return;
-      }
-      currentExecution.resolve(result);
-      currentExecution = null;
-    }
-    // Process next queued execution or schedule termination
-    if (executionQueue.length > 0) {
-      processNextExecution();
-    } else {
-      scheduleWorkerTermination();
-    }
-  });
-
-  worker.on("error", (err: Error) => {
-    if (sharedWorker !== worker) {
-      return;
-    }
-    if (currentExecution) {
-      const workerError = sanitizeHostErrorMessage(getErrorMessage(err));
-      currentExecution.resolve({
-        success: false,
-        error: workerError,
-      });
-      currentExecution = null;
-    }
-    // Reject all queued executions
-    for (const queued of executionQueue) {
-      queued.resolve({ success: false, error: "Worker crashed" });
-    }
-    executionQueue.length = 0;
-    sharedWorker = null;
-  });
-
-  worker.on("exit", () => {
-    if (sharedWorker !== worker) {
-      return;
-    }
-    sharedWorker = null;
-    if (currentExecution) {
-      currentExecution.resolve({
-        success: false,
-        error: "Worker exited unexpectedly",
-      });
-      currentExecution = null;
-    }
-    if (executionQueue.length > 0) {
-      processNextExecution();
-    }
-  });
-
-  return worker;
-}
-
-function scheduleWorkerTermination(): void {
-  // Terminate worker after 5 seconds of inactivity
-  workerIdleTimeout = _setTimeout(() => {
-    if (sharedWorker && !currentExecution && executionQueue.length === 0) {
-      sharedWorker.terminate();
-      sharedWorker = null;
-    }
-  }, 5000);
-}
-
-/**
- * Execute JavaScript code in a worker with filesystem bridge.
- */
-async function executeJS(
-  jsCode: string,
-  ctx: RuntimeCommandContext,
-  scriptPath?: string,
-  scriptArgs: string[] = [],
-  bootstrapCode?: string,
-  isModule?: boolean,
-  stripTypes?: boolean,
-): Promise<ExecResult> {
-  if (jsExecAsyncContext.getStore()) {
-    return {
-      stdout: "",
-      stderr: "js-exec: recursive invocation is not supported\n",
-      exitCode: 1,
-    };
-  }
-  return executeJSInner(
-    jsCode,
-    ctx,
-    scriptPath,
-    scriptArgs,
-    bootstrapCode,
-    isModule,
-    stripTypes,
-  );
-}
-
-/**
- * Shared queue-and-run logic: sets up the bridge, queues the worker input,
- * handles timeout, and returns the raw bridge output + worker result.
- */
-async function queueAndRun(
-  workerInput: JsExecWorkerInput,
-  bridgeHandler: BridgeHandler,
-  timeoutMs: number,
-  controller: WorkerRequestController,
-): Promise<{
-  bridgeOutput: import("../worker-bridge/bridge-handler.js").BridgeOutput;
-  workerResult: JsExecWorkerOutput;
-}> {
-  let resolveWorker!: (result: JsExecWorkerOutput) => void;
-  const workerPromise = new Promise<JsExecWorkerOutput>((resolve) => {
-    resolveWorker = resolve;
-  });
-
-  const queueEntry: QueuedExecution = {
-    input: workerInput,
-    bridgeHandler,
-    resolve: () => {},
-    controller,
-  };
-  controller.assertMessageSize(
-    { ...workerInput, sharedBuffer: undefined },
-    "request",
-  );
-
-  const cancel = (reason: "abort" | "timeout"): void => {
-    bridgeHandler.stop();
-    const result: JsExecWorkerOutput = {
-      success: false,
-      error:
-        reason === "abort"
-          ? queueEntry.controller.abortMessage()
-          : queueEntry.controller.timeoutMessage(),
-    };
-    if (currentExecution === queueEntry) {
-      const workerToTerminate = sharedWorker;
-      sharedWorker = null;
-      if (workerToTerminate) {
-        terminateOwnedWorker(queueEntry, workerToTerminate, result);
-      } else {
-        queueEntry.resolve(result);
-        currentExecution = null;
-        processNextExecution();
-      }
-    } else {
-      const index = executionQueue.indexOf(queueEntry);
-      if (index !== -1) executionQueue.splice(index, 1);
-      queueEntry.resolve(result);
-      if (!currentExecution) processNextExecution();
-    }
-  };
-
-  queueEntry.resolve = (result: JsExecWorkerOutput) => {
-    queueEntry.controller.close();
-    resolveWorker(result);
-  };
-
-  // Cancellation must be observable before queue insertion.
-  queueEntry.controller.arm(cancel);
-  if (!queueEntry.controller.isCanceled) {
-    executionQueue.push(queueEntry);
-    try {
-      processNextExecution();
-    } catch (error) {
-      const index = executionQueue.indexOf(queueEntry);
-      if (index !== -1) executionQueue.splice(index, 1);
-      queueEntry.controller.close();
-      throw error;
-    }
-  }
-
-  const [bridgeOutput, workerResult] = await Promise.all([
-    bridgeHandler.run(timeoutMs),
-    workerPromise.catch((e) => ({
-      success: false as const,
-      error: sanitizeHostErrorMessage(getErrorMessage(e)),
-    })),
-  ]);
-
-  return { bridgeOutput, workerResult };
-}
-
-/** Resolve the effective timeout for a js-exec execution. */
-function resolveTimeout(ctx: RuntimeCommandContext): number {
-  return ctx.limits.maxJsTimeoutMs;
-}
-
-async function executeJSInner(
-  jsCode: string,
-  ctx: RuntimeCommandContext,
-  scriptPath?: string,
-  scriptArgs: string[] = [],
-  bootstrapCode?: string,
-  isModule?: boolean,
-  stripTypes?: boolean,
-): Promise<ExecResult> {
-  if (workerInitializationFailure !== null) {
-    return {
-      stdout: "",
-      stderr: `js-exec: ${sanitizeHostErrorMessage(workerInitializationFailure)}\n`,
-      exitCode: 1,
-    };
-  }
-  const sharedBuffer = createSharedBuffer();
-
-  // Wrap ctx.exec to set AsyncLocalStorage context for re-entrant detection.
-  // When js-exec's bridge calls exec (child_process.execSync), any nested
-  // js-exec call will see the context and fail fast instead of deadlocking.
-  const execFn = ctx.exec;
-  const wrappedExec: typeof ctx.exec = execFn
-    ? (command: string, options: CommandExecOptions) =>
-        jsExecAsyncContext.run(true, () => execFn(command, options))
-    : undefined;
-
-  const bridgeHandler = new BridgeHandler(
-    sharedBuffer,
-    ctx.fs,
-    ctx.cwd,
-    "js-exec",
-    ctx.fetch,
-    ctx.limits.maxOutputSize,
-    wrappedExec,
-    ctx.invokeTool,
-  );
-
-  const timeoutMs = resolveTimeout(ctx);
-  const requestController = new WorkerRequestController({
-    commandName: "js-exec",
-    timeoutMs,
-    signal: ctx.signal,
-    maxMessageBytes: ctx.limits.maxWorkerMessageBytes,
-  });
-
-  const workerInput: JsExecWorkerInput = {
-    protocolToken: requestController.protocolToken,
-    sharedBuffer,
-    jsCode,
-    cwd: ctx.cwd,
-    env: mapToRecord(ctx.env),
-    args: scriptArgs,
-    scriptPath,
-    bootstrapCode,
-    isModule,
-    stripTypes,
-    timeoutMs,
-    hasInvokeTool: ctx.invokeTool !== undefined,
-  };
-
-  const { bridgeOutput, workerResult } = await queueAndRun(
-    workerInput,
-    bridgeHandler,
-    timeoutMs,
-    requestController,
-  );
-
-  if (!workerResult.success && workerResult.error) {
-    const canceled =
-      workerResult.error === requestController.timeoutMessage() ||
-      workerResult.error === requestController.abortMessage();
-    return {
-      stdout: bridgeOutput.stdout,
-      stderr: `${bridgeOutput.stderr}js-exec: ${sanitizeHostErrorMessage(workerResult.error)}\n`,
-      exitCode: bridgeOutput.exitCode || (canceled ? 124 : 1),
-    };
-  }
-
-  // js-exec emits text; the pipeline handles encoding.
-  return {
-    ...bridgeOutput,
-  };
 }
 
 export const jsExecCommand: RuntimeCommand = {
   name: "js-exec",
-
-  async execute(
-    args: string[],
-    ctx: RuntimeCommandContext,
-  ): Promise<ExecResult> {
+  async execute(args, ctx) {
     if (hasHelpFlag(args)) {
-      return { stdout: JS_EXEC_HELP, stderr: "", exitCode: 0 };
+      return { exitCode: 0, stderr: "", stdout: JS_EXEC_HELP };
     }
-
     const parsed = parseArgs(args);
     if ("exitCode" in parsed) return parsed;
-
     if (parsed.showVersion) {
-      return {
-        stdout: "QuickJS (quickjs-emscripten)\n",
-        stderr: "",
-        exitCode: 0,
-      };
+      return { exitCode: 0, stderr: "", stdout: "QuickJS (run)\n" };
     }
 
-    let jsCode: string;
-    let scriptPath: string | undefined;
-
+    let source: string;
+    let scriptPath: string;
     if (parsed.code !== null) {
-      jsCode = parsed.code;
+      source = parsed.code;
       scriptPath = "-c";
     } else if (parsed.scriptFile !== null) {
       const filePath = ctx.fs.resolvePath(ctx.cwd, parsed.scriptFile);
-
       if (!(await ctx.fs.exists(filePath))) {
         return {
-          stdout: "",
-          stderr: `js-exec: can't open file '${parsed.scriptFile}': No such file or directory\n`,
           exitCode: 2,
+          stderr: `js-exec: can't open file '${parsed.scriptFile}': No such file or directory\n`,
+          stdout: "",
         };
       }
-
       try {
-        jsCode = await ctx.fs.readFile(filePath);
+        source = await ctx.fs.readFile(filePath);
         scriptPath = filePath;
-      } catch (e) {
+      } catch (error) {
         return {
-          stdout: "",
-          stderr: `js-exec: can't open file '${parsed.scriptFile}': ${sanitizeErrorMessage((e as Error).message)}\n`,
           exitCode: 2,
+          stderr: `js-exec: can't open file '${parsed.scriptFile}': ${sanitizeErrorMessage((error as Error).message)}\n`,
+          stdout: "",
         };
       }
     } else if (decodeBytesToUtf8(ctx.stdin).trim()) {
-      // Decode bytes — JS source can contain unicode identifiers and string
-      // literals; running latin1 bytes as code corrupts them.
-      jsCode = decodeBytesToUtf8(ctx.stdin);
+      source = decodeBytesToUtf8(ctx.stdin);
       scriptPath = "<stdin>";
     } else {
       return {
-        stdout: "",
+        exitCode: 2,
         stderr:
           "js-exec: no input provided (use -c CODE or provide a script file)\n",
-        exitCode: 2,
+        stdout: "",
       };
     }
 
-    // Auto-detect module mode and type stripping from file extension
-    let isModule = parsed.isModule;
-    let stripTypes = parsed.stripTypes;
-    if (scriptPath && scriptPath !== "-c" && scriptPath !== "<stdin>") {
-      if (
-        scriptPath.endsWith(".mjs") ||
-        scriptPath.endsWith(".mts") ||
-        scriptPath.endsWith(".ts")
-      ) {
-        isModule = true;
-      }
-      if (scriptPath.endsWith(".ts") || scriptPath.endsWith(".mts")) {
-        stripTypes = true;
-      }
-    }
-
-    // Auto-detect top-level await → enable module mode
-    // Require await followed by identifier/call/bracket to reduce false positives
-    // from comments ("// await the result") and strings ("please await")
-    if (!isModule && /\bawait\s+[\w([`]/.test(jsCode)) {
-      isModule = true;
-    }
-
-    // Get bootstrap code from context (threaded via RuntimeCommandContext, not env)
-    const bootstrapCode = ctx.jsBootstrapCode;
-
-    return executeJS(
-      jsCode,
+    const isModule =
+      parsed.isModule ||
+      scriptPath.endsWith(".mjs") ||
+      scriptPath.endsWith(".mts") ||
+      scriptPath.endsWith(".ts");
+    return await executeWithRun(
+      {
+        bootstrapCode: ctx.jsBootstrapCode,
+        isModule,
+        scriptArgs: parsed.scriptArgs,
+        scriptPath,
+        source,
+      },
       ctx,
-      scriptPath,
-      parsed.scriptArgs,
-      bootstrapCode,
-      isModule,
-      stripTypes,
     );
   },
 };
@@ -806,9 +182,9 @@ export const nodeStubCommand: RuntimeCommand = {
   name: "node",
   async execute(): Promise<ExecResult> {
     return {
-      stdout: "",
-      stderr: `node: this sandbox uses js-exec instead of node\n\n${JS_EXEC_HELP}`,
       exitCode: 1,
+      stderr: `node: this sandbox uses js-exec instead of node\n\n${JS_EXEC_HELP}`,
+      stdout: "",
     };
   },
 };

@@ -77,7 +77,7 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 export interface SecureFetchOptions {
   method?: string;
   headers?: Headers | Record<string, string>;
-  body?: string;
+  body?: string | Uint8Array<ArrayBuffer>;
   followRedirects?: boolean;
   /** Override timeout for this request (capped at global timeout) */
   timeoutMs?: number;
@@ -183,9 +183,9 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
 
   /**
    * Builds the hostname allowlist that guarded-fetch enforces. guarded-fetch
-   * matches hostnames exactly or as subdomains; just-bash's allow-list is
-   * origin + path prefix, so the host portion is extracted here and the
-   * path portion continues to be enforced by `checkPathAllowed` below.
+   * matches plain hostnames exactly; just-bash's allow-list is origin + path
+   * prefix, so the host portion is extracted here and the path portion
+   * continues to be enforced by `checkPathAllowed` below.
    */
   const allowedHosts: string[] = [];
   for (const entry of entries) {

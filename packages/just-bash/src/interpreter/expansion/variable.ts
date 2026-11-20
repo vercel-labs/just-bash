@@ -9,11 +9,16 @@
  * - Nameref resolution
  */
 
+import { utf8ByteLength } from "../../encoding.js";
 import { parseArithmeticExpression } from "../../parser/arithmetic-parser.js";
 import { Parser } from "../../parser/parser.js";
 import { BASH_VERSION } from "../../shell-metadata.js";
 import { evaluateArithmetic } from "../arithmetic.js";
-import { BadSubstitutionError, NounsetError } from "../errors.js";
+import {
+  BadSubstitutionError,
+  ExecutionLimitError,
+  NounsetError,
+} from "../errors.js";
 import {
   getArrayElement,
   getArrayIndices,
@@ -120,7 +125,6 @@ export async function getVariable(
   ctx: InterpreterContext,
   name: string,
   checkNounset = true,
-  _insideDoubleQuotes = false,
 ): Promise<string> {
   // Special variables are always defined (never trigger nounset)
   switch (name) {
@@ -269,10 +273,22 @@ export async function getVariable(
     }
 
     if (subscript === "@" || subscript === "*") {
-      // Get all array elements joined with space
+      // Scalar [*] expansion uses IFS; scalar [@] expansion uses spaces.
       const elements = getArrayElements(ctx, arrayName);
       if (elements.length > 0) {
-        return elements.map(([, v]) => v).join(" ");
+        const separator =
+          subscript === "*" ? getIfsSeparator(ctx.state.env) : " ";
+        let bytes = utf8ByteLength(separator) * (elements.length - 1);
+        for (const [, value] of elements) {
+          bytes += utf8ByteLength(value);
+          if (bytes > ctx.limits.maxStringLength) {
+            throw new ExecutionLimitError(
+              `array expansion string limit exceeded (${ctx.limits.maxStringLength} bytes)`,
+              "string_length",
+            );
+          }
+        }
+        return elements.map(([, v]) => v).join(separator);
       }
       // If no array elements, treat scalar variable as single-element array
       // ${s[@]} where s='abc' returns 'abc'
@@ -409,12 +425,7 @@ export async function getVariable(
     if (resolved !== name) {
       // Recursively get the target variable's value
       // (this handles if target is also a nameref, array, etc.)
-      return await getVariable(
-        ctx,
-        resolved,
-        checkNounset,
-        _insideDoubleQuotes,
-      );
+      return await getVariable(ctx, resolved, checkNounset);
     }
     // Nameref points to empty/invalid target
     const value = ctx.state.env.get(name);

@@ -94,9 +94,9 @@ describe("curl @file interpretation", () => {
       expect(lastRequest?.options.body).toBe("x=1");
     });
 
-    it("-d @file strips CR and LF from the file contents", async () => {
+    it("-d @file strips NUL, CR, and LF from the file contents", async () => {
       const env = createEnv({
-        "/payload.txt": "line1\nline2\r\nline3",
+        "/payload.txt": "line1\0\nline2\r\nline3",
       });
       const result = await env.exec(
         "curl -d @/payload.txt https://api.example.com/test",
@@ -123,7 +123,9 @@ describe("curl @file interpretation", () => {
       );
       expect(result.exitCode).toBe(0);
       expect(lastRequest?.options.method).toBe("POST");
-      expect(lastRequest?.options.body).toBe("binary payload contents");
+      expect(lastRequest?.options.body).toEqual(
+        new TextEncoder().encode("binary payload contents"),
+      );
     });
 
     it("preserves newlines in the file (unlike --data)", async () => {
@@ -132,7 +134,9 @@ describe("curl @file interpretation", () => {
         "curl --data-binary @/multiline.txt https://api.example.com/test",
       );
       expect(result.exitCode).toBe(0);
-      expect(lastRequest?.options.body).toBe("line1\nline2\r\nline3");
+      expect(lastRequest?.options.body).toEqual(
+        new TextEncoder().encode("line1\nline2\r\nline3"),
+      );
     });
 
     it("supports --data-binary=@file form", async () => {
@@ -141,7 +145,9 @@ describe("curl @file interpretation", () => {
         "curl --data-binary=@/blob.txt https://api.example.com/test",
       );
       expect(result.exitCode).toBe(0);
-      expect(lastRequest?.options.body).toBe("hello");
+      expect(lastRequest?.options.body).toEqual(
+        new TextEncoder().encode("hello"),
+      );
     });
   });
 
@@ -214,6 +220,77 @@ describe("curl @file interpretation", () => {
       );
       expect(result.exitCode).toBe(0);
       expect(lastRequest?.options.body).toBe("hi+there");
+    });
+  });
+
+  describe("data from stdin with @-", () => {
+    it("keeps --data-raw literal while reading explicit dash paths as files", async () => {
+      const env = createEnv({ "/-": "file body" });
+      const result = await env.exec(
+        "curl --data-raw @- -d @/- --data-binary @- https://api.example.com/test",
+        { stdin: "stdin body" },
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(lastRequest?.options.body).toEqual(
+        new TextEncoder().encode("@-&file body&stdin body"),
+      );
+    });
+
+    it("sends an empty POST body when stdin is empty", async () => {
+      const env = createEnv();
+      const result = await env.exec("curl -d @- https://api.example.com/test");
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(lastRequest?.options.method).toBe("POST");
+      expect(lastRequest?.options.body).toBeUndefined();
+    });
+
+    it("-d @- reads stdin and strips NUL, CR, and LF", async () => {
+      const env = createEnv();
+      const result = await env.exec("curl -d @- https://api.example.com/test", {
+        stdin: "first=1\0\n&second=2\r\n",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(lastRequest?.options.method).toBe("POST");
+      expect(lastRequest?.options.body).toBe("first=1&second=2");
+    });
+
+    it("--data-binary @- reads stdin verbatim", async () => {
+      const env = createEnv();
+      const result = await env.exec(
+        "curl --data-binary @- https://api.example.com/test",
+        { stdin: "first line\nsecond line\r\n" },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(lastRequest?.options.method).toBe("POST");
+      expect(lastRequest?.options.body).toEqual(
+        new TextEncoder().encode("first line\nsecond line\r\n"),
+      );
+    });
+
+    it("--data-urlencode @- URL-encodes stdin", async () => {
+      const env = createEnv();
+      const result = await env.exec(
+        "curl --data-urlencode @- https://api.example.com/test",
+        { stdin: "hello world & friends" },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(lastRequest?.options.body).toBe("hello+world+%26+friends");
+    });
+
+    it("--data-urlencode name@- prefixes URL-encoded stdin", async () => {
+      const env = createEnv();
+      const result = await env.exec(
+        "curl --data-urlencode note@- https://api.example.com/test",
+        { stdin: "hello world & friends" },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(lastRequest?.options.body).toBe("note=hello+world+%26+friends");
     });
   });
 

@@ -1,0 +1,16 @@
+{
+  "57ff06e48d66641c": {
+    "command": "unset OLDPWD; OLDPWD=/; cd -; pwd",
+    "files": {},
+    "stdout": "/\n/\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c59d911b04b85554": {
+    "command": "cd /; CDPATH=/tmp; OLDPWD=; cd -; pwd",
+    "files": {},
+    "stdout": "\n/\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

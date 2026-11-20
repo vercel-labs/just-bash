@@ -1,8 +1,10 @@
 import { type ByteString, readBytesFrom } from "../../encoding.js";
+import { ExclusiveCreateUnsupportedError } from "../create-exclusive.js";
 import { InMemoryFs } from "../in-memory-fs/in-memory-fs.js";
 import type {
   BufferEncoding,
   CpOptions,
+  CreateExclusiveOptions,
   FileContent,
   FsStat,
   IFileSystem,
@@ -13,6 +15,7 @@ import type {
 } from "../interface.js";
 import {
   DEFAULT_DIR_MODE,
+  dirname,
   isSameOrDescendantPath,
   joinPath,
   normalizePath,
@@ -40,13 +43,11 @@ export interface MountableFsOptions {
   mounts?: MountConfig[];
 }
 
-/**
- * Internal mount entry with normalized mount point
- */
-interface MountEntry {
-  mountPoint: string;
-  filesystem: IFileSystem;
-}
+// Sync writes that InMemoryFs and OverlayFs add to IFileSystem
+type SyncWrites = Partial<{
+  mkdirSync(path: string, options?: MkdirOptions): void;
+  writeFileSync(path: string, content: string | Uint8Array): void;
+}>;
 
 /**
  * A filesystem that supports mounting other filesystems at specific paths.
@@ -64,7 +65,7 @@ interface MountEntry {
  */
 export class MountableFs implements IFileSystem {
   private baseFs: IFileSystem;
-  private mounts: Map<string, MountEntry> = new Map();
+  private mounts: Map<string, IFileSystem> = new Map();
 
   constructor(options?: MountableFsOptions) {
     this.baseFs = options?.base ?? new InMemoryFs();
@@ -93,10 +94,7 @@ export class MountableFs implements IFileSystem {
     // Validate mount point constraints
     this.validateMount(normalized);
 
-    this.mounts.set(normalized, {
-      mountPoint: normalized,
-      filesystem,
-    });
+    this.mounts.set(normalized, filesystem);
   }
 
   /**
@@ -119,9 +117,9 @@ export class MountableFs implements IFileSystem {
    * Get all current mounts.
    */
   getMounts(): ReadonlyArray<{ mountPoint: string; filesystem: IFileSystem }> {
-    return Array.from(this.mounts.values()).map((entry) => ({
-      mountPoint: entry.mountPoint,
-      filesystem: entry.filesystem,
+    return Array.from(this.mounts, ([mountPoint, filesystem]) => ({
+      mountPoint,
+      filesystem,
     }));
   }
 
@@ -188,34 +186,17 @@ export class MountableFs implements IFileSystem {
     validatePath(path, "access");
     const normalized = normalizePath(path);
 
-    // Check for exact or prefix mount match
-    // We need to find the longest matching mount point
-    let bestMatch: MountEntry | null = null;
-    let bestMatchLength = 0;
-
-    for (const entry of this.mounts.values()) {
-      const mp = entry.mountPoint;
-
-      if (normalized === mp) {
-        // Exact match - return root of mounted filesystem
-        return { fs: entry.filesystem, relativePath: "/" };
+    // Mount points cannot be nested, so at most one can match.
+    for (const [mountPoint, filesystem] of this.mounts) {
+      if (normalized === mountPoint) {
+        return { fs: filesystem, relativePath: "/" };
       }
-
-      if (normalized.startsWith(`${mp}/`)) {
-        // Prefix match - check if it's longer than previous best
-        if (mp.length > bestMatchLength) {
-          bestMatch = entry;
-          bestMatchLength = mp.length;
-        }
+      if (normalized.startsWith(`${mountPoint}/`)) {
+        return {
+          fs: filesystem,
+          relativePath: normalized.slice(mountPoint.length),
+        };
       }
-    }
-
-    if (bestMatch) {
-      const relativePath = normalized.slice(bestMatchLength);
-      return {
-        fs: bestMatch.filesystem,
-        relativePath: relativePath || "/",
-      };
     }
 
     // No mount found - use base filesystem
@@ -306,11 +287,11 @@ export class MountableFs implements IFileSystem {
     const normalized = normalizePath(path);
 
     // Check if this is exactly a mount point
-    const mountEntry = this.mounts.get(normalized);
-    if (mountEntry) {
+    const filesystem = this.mounts.get(normalized);
+    if (filesystem) {
       // Return stats from the root of the mounted filesystem
       try {
-        return await mountEntry.filesystem.stat("/");
+        return await filesystem.stat("/");
       } catch {
         // Fallback to synthetic directory stats
         return {
@@ -353,11 +334,11 @@ export class MountableFs implements IFileSystem {
     const normalized = normalizePath(path);
 
     // Check if this is exactly a mount point
-    const mountEntry = this.mounts.get(normalized);
-    if (mountEntry) {
+    const filesystem = this.mounts.get(normalized);
+    if (filesystem) {
       // Return stats from the root of the mounted filesystem
       try {
-        return await mountEntry.filesystem.lstat("/");
+        return await filesystem.lstat("/");
       } catch {
         // Fallback to synthetic directory stats
         return {
@@ -413,6 +394,73 @@ export class MountableFs implements IFileSystem {
 
     const { fs, relativePath } = this.routePath(path);
     return fs.mkdir(relativePath, options);
+  }
+
+  /**
+   * Atomically create a private file or directory on the owning filesystem.
+   * Mount points are existing directories, so a create targeting one is a
+   * collision. Delegated exclusivity is only as strong as the target
+   * filesystem provides; an external implementation predating
+   * `createExclusive` reports ENOSYS so callers can pick a fallback rather
+   * than silently getting non-exclusive creation.
+   */
+  async createExclusive(
+    path: string,
+    options: CreateExclusiveOptions,
+  ): Promise<void> {
+    const normalized = normalizePath(path);
+    const syscall = options.directory ? "mkdir" : "open";
+
+    if (this.mounts.has(normalized)) {
+      throw new Error(`EEXIST: file already exists, ${syscall} '${path}'`);
+    }
+
+    const { fs, relativePath } = this.routePath(path);
+    if (!fs.createExclusive) {
+      throw new ExclusiveCreateUnsupportedError(path, syscall);
+    }
+
+    // A directory that exists only because a child is mounted under it is
+    // real to every reader — stat reports it, and writeFile creates through
+    // it because backends make parents on write. An exclusive create refuses
+    // a missing parent, so materialize the synthetic one first; otherwise
+    // `mktemp -p /mnt` fails on a path `stat` calls a directory.
+    const parent = dirname(relativePath);
+    if (
+      parent !== "/" &&
+      this.getChildMountPoints(dirname(normalized)).length > 0 &&
+      !(await fs.exists(parent))
+    ) {
+      await fs.mkdir(parent, { recursive: true });
+    }
+
+    return fs.createExclusive(relativePath, options);
+  }
+
+  /**
+   * Synchronous mkdir, routed to the filesystem that owns the path.
+   * @throws Error if that filesystem has no synchronous writes
+   */
+  mkdirSync(path: string, options?: MkdirOptions): void {
+    const { fs, relativePath } = this.routePath(path);
+    const target = fs as SyncWrites;
+    if (!target.mkdirSync) {
+      throw new Error(`ENOSYS: function not implemented, mkdir '${path}'`);
+    }
+    target.mkdirSync(relativePath, options);
+  }
+
+  /**
+   * Synchronous writeFile, routed to the filesystem that owns the path.
+   * @throws Error if that filesystem has no synchronous writes
+   */
+  writeFileSync(path: string, content: string | Uint8Array): void {
+    const { fs, relativePath } = this.routePath(path);
+    const target = fs as SyncWrites;
+    if (!target.writeFileSync) {
+      throw new Error(`ENOSYS: function not implemented, write '${path}'`);
+    }
+    target.writeFileSync(relativePath, content);
   }
 
   async readdir(path: string): Promise<string[]> {
@@ -530,7 +578,7 @@ export class MountableFs implements IFileSystem {
     }
 
     // Add mount point directories and their parent paths
-    for (const mountPoint of this.mounts.keys()) {
+    for (const [mountPoint, filesystem] of this.mounts) {
       // Add all parent directories of the mount point
       const parts = mountPoint.split("/").filter(Boolean);
       let current = "";
@@ -540,9 +588,7 @@ export class MountableFs implements IFileSystem {
       }
 
       // Get paths from mounted filesystem, prefixed with mount point
-      const entry = this.mounts.get(mountPoint);
-      if (!entry) continue;
-      for (const p of entry.filesystem.getAllPaths()) {
+      for (const p of filesystem.getAllPaths()) {
         if (p === "/") {
           allPaths.add(mountPoint);
         } else {
@@ -558,9 +604,9 @@ export class MountableFs implements IFileSystem {
     const normalized = normalizePath(path);
 
     // Cannot chmod mount points directly
-    const mountEntry = this.mounts.get(normalized);
-    if (mountEntry) {
-      return mountEntry.filesystem.chmod("/", mode);
+    const filesystem = this.mounts.get(normalized);
+    if (filesystem) {
+      return filesystem.chmod("/", mode);
     }
 
     const { fs, relativePath } = this.routePath(path);
@@ -602,8 +648,7 @@ export class MountableFs implements IFileSystem {
     const normalized = normalizePath(path);
 
     // Check if this is exactly a mount point
-    const mountEntry = this.mounts.get(normalized);
-    if (mountEntry) {
+    if (this.mounts.has(normalized)) {
       // Mount point itself - return the mount point path
       return normalized;
     }
@@ -615,7 +660,7 @@ export class MountableFs implements IFileSystem {
     const resolvedRelative = await fs.realpath(relativePath);
 
     // Find the mount point for this path
-    for (const [mp, _entry] of this.mounts) {
+    for (const mp of this.mounts.keys()) {
       if (normalized === mp || normalized.startsWith(`${mp}/`)) {
         // Path is within this mount - reconstruct full path
         if (resolvedRelative === "/") {

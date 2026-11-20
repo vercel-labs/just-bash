@@ -35,6 +35,7 @@ export default defineConfig({
       ["forks", "**/python3.advanced.test.ts"],
       ["forks", "**/python3.env.test.ts"],
       ["forks", "**/python3.files.test.ts"],
+      ["forks", "**/python3.finalization.test.ts"],
       ["forks", "**/python3.http.test.ts"],
       ["forks", "**/python3.oop.test.ts"],
       ["forks", "**/python3.optin.test.ts"],

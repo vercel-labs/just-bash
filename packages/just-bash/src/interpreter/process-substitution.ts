@@ -274,6 +274,7 @@ async function runBody(
   const savedGroupStdin = ctx.state.groupStdin;
   const savedExitCode = ctx.state.lastExitCode;
   const savedExitCodeVar = ctx.state.env.get("?");
+  const savedSubstitutionExitCode = ctx.state.lastSubstitutionExitCode;
 
   ctx.substitutionDepth = currentDepth + 1;
   ctx.state.bashPid = ctx.state.nextVirtualPid++;
@@ -304,8 +305,11 @@ async function runBody(
     ctx.state.bashPid = savedBashPid;
     ctx.state.suppressVerbose = savedSuppressVerbose;
     ctx.state.groupStdin = savedGroupStdin;
-    // The body's status is never the shell's `$?` (bash forks it away).
+    // The body's status is never the shell's `$?` (bash forks it away), and
+    // a substitution inside it must not become the enclosing command's status
+    // either — `x=<(echo $(false))` is still 0.
     ctx.state.lastExitCode = savedExitCode;
+    ctx.state.lastSubstitutionExitCode = savedSubstitutionExitCode;
     if (savedExitCodeVar !== undefined) {
       ctx.state.env.set("?", savedExitCodeVar);
     } else {

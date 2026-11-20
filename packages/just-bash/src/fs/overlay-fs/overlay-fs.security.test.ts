@@ -1565,14 +1565,11 @@ describe("OverlayFs Security - Path Traversal Prevention", () => {
       expect(content).toBe("injected");
     });
 
-    it("should write to /dev/null file on stdout redirect (not a true discard device)", async () => {
+    it("should discard stdout redirected to /dev/null", async () => {
       const env = new Bash({ fs: overlay });
 
-      // stdout redirect to /dev/null actually writes to the file
-      // (only pre-truncation and noclobber are special-cased for /dev/null)
       const result = await env.exec("echo hello > /dev/null; cat /dev/null");
-      // /dev/null receives the content since it's a regular file in the VFS
-      expect(result.stdout.trim()).toBe("hello");
+      expect(result).toMatchObject({ stdout: "", stderr: "", exitCode: 0 });
     });
   });
 });

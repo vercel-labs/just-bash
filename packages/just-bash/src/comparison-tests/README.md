@@ -25,6 +25,27 @@ pnpm test:comparison:record
 RECORD_FIXTURES=force pnpm test:comparison
 ```
 
+## Recording the ripgrep compatibility fixtures
+
+`rg-grep-tool.comparison.test.ts` uses locked ripgrep **15.2.0** fixtures. Playback and ordinary record mode (`RECORD_FIXTURES=1`) reuse them without a host `rg`. To regenerate them, use `RECORD_FIXTURES=force` with a 15.2.0 binary first on `PATH`; do not force-record with a different installed version.
+
+If needed, build the tagged upstream source in a separate ripgrep checkout:
+
+```sh
+# In a ripgrep checkout at tag 15.2.0, with Rust installed:
+cargo build --release --locked
+./target/release/rg --version
+```
+
+Then run from the just-bash repository root, replacing the example path with the absolute path to that checkout:
+
+```sh
+PATH="/path/to/ripgrep/target/release:$PATH" RECORD_FIXTURES=force pnpm --filter just-bash test:comparison src/comparison-tests/rg-grep-tool.comparison.test.ts
+pnpm --filter just-bash test:comparison src/comparison-tests/rg-grep-tool.comparison.test.ts
+```
+
+After force-recording, restore `"locked": true` on every entry in this fixture file, then commit it with its test. Recording currently retains entries for removed test cases; inspect the diff and remove orphaned entries when changing existing cases.
+
 ## Adding New Tests
 
 ### 1. Add the test case
@@ -118,6 +139,7 @@ When recording:
 - `RECORD_FIXTURES=force` overwrites all fixtures including locked ones
 
 Currently locked fixtures:
+- `rg-grep-tool.comparison.test.ts` - All fixtures use the version-pinned ripgrep 15.2.0 oracle, which CI does not install
 - `ls -R` - Uses Linux-style output with ".:" header
 - `cat -n` with multiple files - Uses continuous line numbering (Linux behavior)
 

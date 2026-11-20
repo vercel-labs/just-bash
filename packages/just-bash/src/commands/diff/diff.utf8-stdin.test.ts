@@ -12,7 +12,6 @@ describe("diff reads UTF-8 from stdin", () => {
     const result = await env.exec("cat /a.txt | diff - /b.txt");
     // diff exits 1 when files differ.
     expect(result.exitCode).toBe(1);
-    expect(result.stdout).toContain("한글");
-    expect(result.stdout).toContain("different");
+    expect(result.stdout).toBe("1c1\n< 한글\n---\n> different\n");
   });
 });

@@ -1365,6 +1365,10 @@ async function runPython(input: WorkerInput): Promise<WorkerOutput> {
     );
 
     Module = await createPythonModule({
+      // Emscripten otherwise uses the host worker filename as argv[0]. Long
+      // installation paths can make CPython abort during script finalization.
+      // Keep the interpreter identity inside the virtual filesystem instead.
+      thisProgram: "/usr/bin/python3",
       noInitialRun: true,
       preRun: [onPreRun],
       print: onPrint,

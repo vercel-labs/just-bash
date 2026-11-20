@@ -30,7 +30,7 @@ const nextConfig: NextConfig = {
     "node-liblzma",
     "seek-bzip",
     "sql.js",
-    "quickjs-emscripten",
+    "run",
     "guarded-fetch",
   ],
   outputFileTracingIncludes: {

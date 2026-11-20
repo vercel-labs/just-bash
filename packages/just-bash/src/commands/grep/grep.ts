@@ -197,7 +197,7 @@ export const grepCommand: RuntimeCommand = {
     const includePatterns: string[] = [];
     const excludePatterns: string[] = [];
     const excludeDirPatterns: string[] = [];
-    let pattern: string | null = null;
+    let patterns: string[] = [];
     /** Paths given to -f/--file, in argument order. "-" means stdin. */
     const patternFiles: string[] = [];
     const operands: string[] = [];
@@ -218,7 +218,7 @@ export const grepCommand: RuntimeCommand = {
 
       if (parseOptions && arg.startsWith("-") && arg !== "-") {
         if (arg === "-e" && i + 1 < args.length) {
-          pattern = args[++i];
+          patterns.push(args[++i]);
           continue;
         }
 
@@ -351,22 +351,24 @@ export const grepCommand: RuntimeCommand = {
     }
 
     // The first operand is the pattern only when no -e/-f pattern was given.
-    if (pattern === null && patternFiles.length === 0) {
-      pattern = operands.shift() ?? null;
-      if (pattern === null) {
+    if (patterns.length === 0 && patternFiles.length === 0) {
+      const positionalPattern = operands.shift();
+      if (positionalPattern === undefined) {
         return {
           stdout: "",
           stderr: "grep: missing pattern\n",
           exitCode: 2,
         };
       }
+      patterns.push(positionalPattern);
     }
-    const files = operands;
+
+    // A pattern operand can hold several newline-separated patterns, so expand
+    // every collected operand once before the -f files are appended.
+    patterns = patterns.flatMap(splitPatternOperand);
 
     // Collect patterns: -e/positional first, then each -f file in order.
     // All of them OR-combine, exactly like GNU grep.
-    const patterns: string[] =
-      pattern === null ? [] : splitPatternOperand(pattern);
     /** True once `-f -` has drained stdin, so it can't also be searched. */
     let stdinUsedForPatterns = false;
     for (const patternFile of patternFiles) {
@@ -424,6 +426,7 @@ export const grepCommand: RuntimeCommand = {
     if (patterns.length === 0 && !invertMatch && !filesWithoutMatch) {
       return { stdout: "", stderr: "", exitCode: 1 };
     }
+    const files = operands;
 
     // Build regex using shared search-engine
     const regexMode: RegexMode = fixedStrings
@@ -503,6 +506,7 @@ export const grepCommand: RuntimeCommand = {
         beforeContext,
         afterContext,
         maxCount,
+        matchBeyondMaxCount: false,
         kResetGroup,
         preFilter,
         maxWork: getMatcherWorkLimit(ctx),
@@ -735,6 +739,7 @@ export const grepCommand: RuntimeCommand = {
               beforeContext,
               afterContext,
               maxCount,
+              matchBeyondMaxCount: false,
               kResetGroup,
               preFilter,
               maxWork: getMatcherWorkLimit(ctx),

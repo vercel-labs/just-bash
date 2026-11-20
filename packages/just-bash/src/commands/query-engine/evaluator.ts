@@ -604,10 +604,13 @@ function evaluateNode(
     }
 
     case "Index": {
+      // jq evaluates the index against the input, not the base, and before
+      // the base; the base varies fastest
+      const indices = evaluate(value, ast.index, ctx);
+      if (indices.length === 0) return [];
       const bases = ast.base ? evaluate(value, ast.base, ctx) : [value];
-      return boundedFlatMap(ctx, bases, (v) => {
-        const indices = evaluate(v, ast.index, ctx);
-        return boundedFlatMap(ctx, indices, (idx) => {
+      return boundedFlatMap(ctx, indices, (idx) =>
+        boundedFlatMap(ctx, bases, (v) => {
           if (typeof idx === "number" && Array.isArray(v)) {
             // Handle NaN - return null for NaN index
             if (Number.isNaN(idx)) {
@@ -627,8 +630,8 @@ function evaluateNode(
             return [obj[idx]];
           }
           return [null];
-        });
-      });
+        }),
+      );
     }
 
     case "Slice": {
@@ -1582,8 +1585,8 @@ function applyDel(
           return val; // Nothing to delete
         }
 
-        // Apply deletion on the nested value
-        const modified = deleteAt(nested, rightPath);
+        // Apply deletion on the nested value, whose keys the right side reads
+        const modified = applyDel(nested, rightPath, ctx);
 
         // Reconstruct the object with the modified nested value
         return setAt(val, leftPath, modified);
@@ -2144,14 +2147,23 @@ function collectPaths(
       "recursion",
     );
   }
-  const appendPath = (path: (string | number)[]): void => {
-    if (path.length > ctx.limits.maxDepth) {
+  const appendPath = (
+    suffix: (string | number)[],
+    key?: string | number,
+  ): void => {
+    const length =
+      currentPath.length + suffix.length + (key === undefined ? 0 : 1);
+    if (length > ctx.limits.maxDepth) {
       throw queryLimitError(
         `query depth limit exceeded (${ctx.limits.maxDepth})`,
         "recursion",
       );
     }
     assertQueryResultCapacity(ctx, paths.length);
+    // Charge every copied entry before allocating the result path.
+    chargeQueryWork(ctx, length);
+    const path = [...currentPath, ...suffix];
+    if (key !== undefined) path.push(key);
     paths.push(path);
   };
   // Handle Comma - collect paths for both parts
@@ -2165,8 +2177,44 @@ function collectPaths(
   // Try to extract a static path from the AST
   const staticPath = extractPathFromAst(expr);
   if (staticPath !== null) {
-    appendPath([...currentPath, ...staticPath]);
+    appendPath(staticPath);
     return;
+  }
+
+  // A computed key on a static base: the key reads the input, as when reading,
+  // and the base is still evaluated so its errors come out
+  if (expr.type === "Index") {
+    const basePath = expr.base ? extractPathFromAst(expr.base) : [];
+    const keys = basePath ? evaluate(value, expr.index, ctx) : [];
+    if (
+      basePath &&
+      keys.every(
+        (key): key is string | number =>
+          typeof key === "string" || typeof key === "number",
+      )
+    ) {
+      if (keys.length === 0) return;
+      const bases = expr.base ? evaluate(value, expr.base, ctx) : [value];
+      for (const key of keys) {
+        for (const base of bases) {
+          chargeQueryWork(ctx);
+          // Missing paths are valid, but existing containers must support the key.
+          if (
+            base !== null &&
+            (typeof key === "string"
+              ? typeof base !== "object" || Array.isArray(base)
+              : !Array.isArray(base))
+          ) {
+            const type = Array.isArray(base) ? "array" : typeof base;
+            throw new Error(
+              `Cannot index ${type} with ${typeof key === "string" ? `string "${key}"` : "number"}`,
+            );
+          }
+          appendPath(basePath, key);
+        }
+      }
+      return;
+    }
   }
 
   // For more complex expressions, evaluate and try to infer paths
@@ -2175,12 +2223,12 @@ function collectPaths(
     if (Array.isArray(value)) {
       for (let i = 0; i < value.length; i++) {
         chargeQueryWork(ctx);
-        appendPath([...currentPath, i]);
+        appendPath([], i);
       }
     } else if (value && typeof value === "object") {
       for (const key of Object.keys(value)) {
         chargeQueryWork(ctx);
-        appendPath([...currentPath, key]);
+        appendPath([], key);
       }
     }
     return;
@@ -2195,7 +2243,7 @@ function collectPaths(
       const entry = stack.pop();
       if (!entry) break;
       chargeQueryWork(ctx);
-      appendPath([...currentPath, ...entry.path]);
+      appendPath(entry.path);
       if (entry.value && typeof entry.value === "object") {
         const entries = Array.isArray(entry.value)
           ? entry.value.map((child, index) => [index, child] as const)
@@ -2232,6 +2280,6 @@ function collectPaths(
   // Fallback: if expression produces results, push current path
   const results = evaluate(value, expr, ctx);
   if (results.length > 0) {
-    appendPath(currentPath);
+    appendPath([]);
   }
 }

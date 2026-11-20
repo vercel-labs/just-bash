@@ -59,13 +59,11 @@ export function fromBuffer(
   encoding?: BufferEncoding | null,
 ): string {
   if (encoding === "base64") {
-    // Use chunked String.fromCharCode to avoid RangeError on large buffers.
-    // The spread operator (...buffer) creates one argument per byte and crashes
-    // on buffers larger than ~100KB due to call stack limits.
     if (typeof Buffer !== "undefined") {
       return Buffer.from(buffer).toString("base64");
     }
-    const chunkSize = 65536;
+    // Bound argument counts because engine limits depend on available stack space.
+    const chunkSize = 8192;
     let binary = "";
     for (let i = 0; i < buffer.length; i += chunkSize) {
       const chunk = buffer.subarray(i, i + chunkSize);
@@ -84,8 +82,8 @@ export function fromBuffer(
       return Buffer.from(buffer).toString(encoding);
     }
 
-    // Browser fallback - String.fromCharCode(...buffer) fails with buffers > ~100KB
-    const chunkSize = 65536; // 64KB chunks
+    // Bound argument counts because engine limits depend on available stack space.
+    const chunkSize = 8192; // 8KB chunks
     if (buffer.length <= chunkSize) {
       return String.fromCharCode(...buffer);
     }

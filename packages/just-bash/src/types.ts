@@ -77,6 +77,13 @@ export interface CommandExecOptions {
    */
   replaceEnv?: boolean;
   /**
+   * Initialize a nested shell's environment, as `sh`/`bash` do. Implies `replaceEnv`: `env`
+   * is the child's environment, so its keys are exported, and the shell
+   * initializes startup variables (IFS, OPTIND, SHELLOPTS, ...) without
+   * adding export attributes. Inherited export attributes are preserved.
+   */
+  newShell?: boolean;
+  /**
    * Working directory for the exec.
    * Required to prevent bugs where subcommands run in the wrong directory.
    * Always pass `ctx.cwd` from the calling command's context.
@@ -182,6 +189,14 @@ export interface RuntimeCommandContext {
    */
   stdin: ByteString;
   /**
+   * Whether this command's direct dispatch received pipeline or redirection
+   * input, even when empty. Inherited group stdin is intentionally excluded.
+   * @internal
+   */
+  stdinProvided?: boolean;
+  /** Whether fd 0 is closed or a character device, excluding implicit rg stdin search. @internal */
+  stdinUnavailable?: boolean;
+  /**
    * Execution limits configuration.
    * Fully resolved by Bash before a command is invoked.
    */
@@ -269,10 +284,15 @@ export interface RuntimeCommandContext {
   jsBootstrapCode?: string;
   /**
    * Tool invoker hook. When present, js-exec sets up a `tools` proxy that
-   * routes calls through this callback. Receives `(path, argsJson)` and
-   * returns a JSON result string.
+   * routes calls through this callback. Receives `(path, argsJson,
+   * abortSignal)` and returns a JSON result string. Implementations should
+   * forward the signal to cancelable work.
    */
-  invokeTool?: (path: string, argsJson: string) => Promise<string>;
+  invokeTool?: (
+    path: string,
+    argsJson: string,
+    abortSignal: AbortSignal,
+  ) => Promise<string>;
 }
 
 /** Legacy standalone context shape used by direct command invocations. */

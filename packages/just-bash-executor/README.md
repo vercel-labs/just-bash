@@ -94,8 +94,8 @@ const executor = await createExecutor({
     },
     "db.query": {
       description: "Run a SQL query",
-      execute: async (args) => {
-        const rows = await queryDatabase(args.sql);
+      execute: async (args, { abortSignal }) => {
+        const rows = await queryDatabase(args.sql, { signal: abortSignal });
         return { rows };
       },
     },
@@ -365,14 +365,16 @@ The bridge between QuickJS (where your script runs) and the host (where your
 tools execute) is just-bash's `invokeTool` callback on `JavaScriptConfig`. This
 package produces an `invokeTool` that routes through the executor pipeline
 (approval → invoke → elicitation), but you can write your own `invokeTool` for
-any tool framework — it's a generic `(path, argsJson) => Promise<string>` hook.
+any tool framework — it's a generic
+`(path, argsJson, abortSignal) => Promise<string>` hook.
 
 ```ts
 new Bash({
   javascript: {
-    invokeTool: async (path, argsJson) => {
+    invokeTool: async (path, argsJson, abortSignal) => {
       // path:     "math.add" (dot-separated)
       // argsJson: '{"a":1,"b":2}' (or "" for no args)
+      // abortSignal: aborts when js-exec is canceled or times out
       // return:   JSON-stringified result, or "" for undefined
       // throw:    propagates as an exception inside the sandbox
     },
@@ -382,3 +384,7 @@ new Bash({
 
 `@just-bash/executor` is one consumer of this hook; raw maps, MCP clients, or
 custom dispatchers are equally valid producers.
+
+The companion passes the signal directly to inline tool contexts and uses it
+to interrupt SDK Effect invocations. External clients used by a tool must
+remain interruptible for cancellation to stop already-started I/O.

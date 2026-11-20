@@ -67,6 +67,8 @@ never execute guest-provided JavaScript.
 Every invocation is bound by `maxExecutionTimeMs`. On cancellation, just-bash
 revokes the command context immediately; `maxExtensionCleanupTimeMs` only
 bounds how long it waits for the now-authority-free command promise to settle.
+A command that is still resolving, such as one whose module is loading, is
+never started and reports cancellation immediately instead.
 A late continuation cannot use `ctx.fs`, `ctx.env`, `ctx.exec`, or other context
 capabilities. Cleanup work that must run at scope closure can be registered with
 `ctx.executionScope.registerCleanup()`. A cleanup failure is returned as a
@@ -82,7 +84,7 @@ duplicating internal defaults.
 
 ### File Operations
 
-`cat`, `cp`, `file`, `ln`, `ls`, `mkdir`, `mv`, `readlink`, `rm`, `rmdir`, `split`, `stat`, `touch`, `tree`
+`cat`, `cp`, `file`, `ln`, `ls`, `mkdir`, `mktemp`, `mv`, `readlink`, `rm`, `rmdir`, `split`, `stat`, `touch`, `tree`
 
 ### Text Processing
 
@@ -106,7 +108,7 @@ duplicating internal defaults.
 
 ### Shell Utilities
 
-`alias`, `bash`, `chmod`, `clear`, `date`, `expr`, `false`, `help`, `history`, `seq`, `sh`, `sleep`, `time`, `timeout`, `true`, `unalias`, `which`, `whoami`
+`alias`, `bash`, `chmod`, `clear`, `date`, `expr`, `false`, `help`, `history`, `seq`, `sh`, `sleep`, `time`, `timeout`, `true`, `unalias`, `which`, `whoami`, `yes`
 
 ### Network
 
@@ -130,6 +132,12 @@ All commands support `--help` for usage information.
 - **Hard links**: `ln target link`
 
 </details>
+
+## Ripgrep Compatibility
+
+`rg` supports ripgrep-style search options, including `--line-number --heading --color never`, context with `-C`, file types, globs, per-file match limits, and paths-only output. Use `--` before a pattern that starts with `-`. Heading mode separates files with a blank line and omits the heading for one explicitly named file. Exit codes are 0 for matches, 1 for no matches, and 2 for command/search errors; execution limits remain enforced by the sandbox.
+
+Unlike real ripgrep, `rg` defaults to smart-case matching: lowercase patterns match case-insensitively. Use `-s` for case-sensitive matching or `-i` for case-insensitive matching. All accepted `--color` choices (`never`, `auto`, `always`, `ansi`) emit plain text. `--max-count 0` selects no matches; omitting the option leaves the match count unlimited within execution limits. Run `rg --help` for supported options.
 
 ## Configuration
 
@@ -447,7 +455,7 @@ await env.exec('js-exec -c "console.log(API_BASE)"');
 
 `fs.readFileSync()` returns a `Buffer` by default (matching Node.js). Pass an encoding like `'utf8'` to get a string.
 
-**Note:** The `js-exec` command only exists when `javascript` is configured. It is not available in browser environments. Execution runs in a QuickJS WASM sandbox with a 64 MB memory limit and configurable timeout (30 seconds in the default `normal` profile and 10 seconds in the opt-in `hardened` profile). Enabling network access does not extend the configured deadline.
+**Note:** The `js-exec` command only exists when `javascript` is configured. It is not available in browser environments. Execution uses the `run` package's QuickJS sandbox with a 64 MB memory limit and configurable timeout (30 seconds in the default `normal` profile and 10 seconds in the opt-in `hardened` profile). Enabling network access does not extend the configured deadline.
 
 #### Tool Invocation Hook
 
@@ -461,9 +469,10 @@ const bash = new Bash({
     // argsJson: '{"a":1,"b":2}'  (or "" for no args)
     // return:   JSON-stringified result, or "" for undefined
     // throw:    propagates as a sandbox exception
-    invokeTool: async (path, argsJson) => {
+    invokeTool: async (path, argsJson, abortSignal) => {
       const args = argsJson ? JSON.parse(argsJson) : undefined;
       if (path === "math.add") {
+        abortSignal.throwIfAborted();
         return JSON.stringify({ sum: args.a + args.b });
       }
       throw new Error(`Unknown tool: ${path}`);
@@ -473,6 +482,10 @@ const bash = new Bash({
 
 await bash.exec(`js-exec -c 'console.log((await tools.math.add({a:3,b:4})).sum)'`);
 ```
+
+The `abortSignal` fires when the JavaScript execution is canceled or times
+out. Tool implementations should forward it to network requests and other
+cancelable work so effects do not outlive the sandbox execution.
 
 The hook is generic — wire any tool framework through it (raw maps, MCP,
 Anthropic tool-use, etc.). For full GraphQL / OpenAPI / MCP discovery via
@@ -629,6 +642,7 @@ Options:
 - `-c <script>` - Execute script from argument
 - `--root <path>` - Root directory (default: current directory)
 - `--cwd <path>` - Working directory in sandbox
+- `--allow-write` - Allow write operations (in memory only; read-only by default)
 - `-e, --errexit` - Exit on first error
 - `--json` - Output as JSON
 
@@ -638,10 +652,10 @@ Options:
 pnpm shell
 ```
 
-The interactive shell has full internet access by default. Disable with `--no-network`:
+The interactive shell has network access disabled by default. Enable it with `--network`:
 
 ```bash
-pnpm shell --no-network
+pnpm shell --network
 ```
 
 ## Execution Protection
@@ -670,17 +684,22 @@ const env = new Bash({
 All resources remain bounded by default in both profiles. Explicit values
 override the selected profile; non-negative safe integers and the legacy
 `Infinity` spelling are accepted. Infinite deadlines omit the corresponding
-platform timer rather than overflowing it. Invalid values are rejected when
-`Bash` is constructed. Error messages identify the resource that was hit.
+platform timer rather than overflowing it; `js-exec` maps an infinite
+JavaScript deadline to `run`'s longest timeout (about 24.9 days). Invalid
+values are rejected when `Bash` is constructed. Error messages identify the
+resource that was hit.
 
 ## Security Model
 
-The Node.js package requires Node `>=20.18.1`.
+The Node.js package requires Node `>=20.19`.
 
 - The shell only has access to the provided filesystem.
 - All execution happens without VM isolation. This does introduce additional risk. The code base was designed to be robust against prototype-pollution attacks and other break outs to the host JS engine and filesystem.
 - There is no network access by default. When enabled, requests are checked against URL prefix allow-lists and HTTP-method allow-lists.
 - Python and JavaScript execution are off by default as they represent additional security surface.
+- `js-exec` guest code runs inside the `run` package's QuickJS/WASM realm. Its
+  primary isolation boundary is QuickJS plus the validated, bounded host
+  bridge; guest JavaScript does not execute in the Node worker realm.
 - Execution is protected against infinite loops and deep recursion with configurable limits.
 - Host-realm defense-in-depth uses the strongest scoped controls available on
   each supported Node runtime. Where `node:module.registerHooks()` is present,

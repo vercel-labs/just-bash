@@ -8,7 +8,6 @@
  */
 import { describe, expect, it } from "vitest";
 import { Bash } from "./Bash.js";
-import { type ByteString, bytesFromUint8Array } from "./encoding.js";
 import { InMemoryFs } from "./fs/in-memory-fs/in-memory-fs.js";
 import type { IFileSystem } from "./fs/interface.js";
 
@@ -49,14 +48,5 @@ describe("readFileBytes back-compat fallback", () => {
       stderr: r.stderr,
       exitCode: r.exitCode,
     }).toEqual({ stdout: "한글", stderr: "", exitCode: 0 });
-  });
-
-  it("bytesFromUint8Array round-trips bytes verbatim", () => {
-    const buf = new Uint8Array([0x00, 0x7f, 0x80, 0xc3, 0xa9, 0xff]);
-    const s: ByteString = bytesFromUint8Array(buf);
-    const back = Uint8Array.from(s as unknown as string, (c) =>
-      c.charCodeAt(0),
-    );
-    expect(Array.from(back)).toEqual(Array.from(buf));
   });
 });

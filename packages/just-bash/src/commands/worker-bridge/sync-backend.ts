@@ -44,13 +44,22 @@ export class SyncBackend {
     this.protocol.setStatus(Status.READY);
     this.protocol.notify();
 
-    // Wait for main thread to process (with timeout)
-    const waitResult = this.protocol.waitForResult(this.operationTimeoutMs);
-    if (waitResult === "timed-out") {
-      return { success: false, error: "Operation timed out" };
+    // Wait for main thread to process (with timeout). The main thread notifies
+    // after it stores a status, so the notify for the previous operation can
+    // land after this one is READY. Only a status change is an answer.
+    const deadline = Date.now() + this.operationTimeoutMs;
+    let status = this.protocol.getStatus();
+    while (status === Status.READY) {
+      const remainingMs = deadline - Date.now();
+      if (
+        remainingMs <= 0 ||
+        this.protocol.waitForResult(remainingMs) === "timed-out"
+      ) {
+        return { success: false, error: "Operation timed out" };
+      }
+      status = this.protocol.getStatus();
     }
 
-    const status = this.protocol.getStatus();
     if (status === Status.SUCCESS) {
       return { success: true, result: this.protocol.getResult() };
     }

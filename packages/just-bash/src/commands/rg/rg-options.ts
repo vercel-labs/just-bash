@@ -25,6 +25,8 @@ export interface RgOptions {
   stats: boolean;
   onlyMatching: boolean;
   maxCount: number;
+  help: boolean;
+  typeList: boolean;
   lineNumber: boolean;
   noFilename: boolean;
   withFilename: boolean;
@@ -85,7 +87,9 @@ export function createDefaultOptions(): RgOptions {
     filesWithoutMatch: false,
     stats: false,
     onlyMatching: false,
-    maxCount: 0,
+    maxCount: Infinity,
+    help: false,
+    typeList: false,
     lineNumber: true,
     noFilename: false,
     withFilename: false,

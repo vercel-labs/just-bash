@@ -172,6 +172,13 @@ export class WorkerDefenseInDepth {
     prop: string;
     descriptor: PropertyDescriptor | undefined;
   }> = [];
+  /**
+   * Restores the native accessor backing slot for module methods patched via
+   * their setter (see protectModuleMethod). Restoring the descriptor alone
+   * does not clear that slot, since the runtime's setter, not the descriptor
+   * shape, is what tracks the active override.
+   */
+  private moduleAccessorResets: Array<() => void> = [];
   private patchFailures: string[] = [];
   private violations: SecurityViolation[] = [];
   private executionId: string;
@@ -1310,10 +1317,9 @@ export class WorkerDefenseInDepth {
         throw new Error("method is non-configurable and non-writable");
       }
 
-      // @banned-pattern-ignore: intentional Proxy usage for security blocking
-      const proxy = new this.originalProxy(
-        original as (...args: unknown[]) => unknown,
-        {
+      const wrap = (fn: (...args: unknown[]) => unknown) =>
+        // @banned-pattern-ignore: intentional Proxy usage for security blocking
+        new self.originalProxy(fn, {
           apply(target, thisArg, args) {
             // All worker runtime dependencies must be loaded before activation.
             // There is intentionally no stack/source/function-name allowlist:
@@ -1330,21 +1336,91 @@ export class WorkerDefenseInDepth {
             }
             return Reflect.apply(target, thisArg, args);
           },
-        },
-      );
+        });
+      const proxy = wrap(original as (...args: unknown[]) => unknown);
 
       this.originalDescriptors.push({
         target: ModuleClass,
         prop,
         descriptor,
       });
-      Object.defineProperty(ModuleClass, prop, {
-        ...descriptor,
-        value: proxy,
-      });
-      const installed = Object.getOwnPropertyDescriptor(ModuleClass, prop);
-      if (ModuleClass[prop] !== proxy || installed?.value !== proxy) {
-        throw new Error("installed patch failed verification");
+
+      if ("value" in descriptor) {
+        Object.defineProperty(ModuleClass, prop, {
+          ...descriptor,
+          value: proxy,
+        });
+
+        const installed = Object.getOwnPropertyDescriptor(ModuleClass, prop);
+        if (ModuleClass[prop] !== proxy || installed?.value !== proxy) {
+          throw new Error("installed patch failed verification");
+        }
+      } else {
+        // Bun's loader reads a native override slot. Install through the
+        // original setter so both native dispatch and JS reads are protected.
+        const originalGet = descriptor.get;
+        const originalSet = descriptor.set;
+        if (typeof originalSet !== "function") {
+          throw new Error(
+            "accessor has no setter to install protection through",
+          );
+        }
+
+        // Register rollback before calling host code, which may mutate then throw.
+        this.moduleAccessorResets.push(() => {
+          originalSet.call(ModuleClass, original);
+        });
+
+        const guardedDescriptor: PropertyDescriptor = {
+          configurable: descriptor.configurable,
+          enumerable: descriptor.enumerable,
+          get: originalGet,
+          set: (next: unknown) => {
+            // Setting must be gated exactly like calling the method is:
+            // otherwise worker code could swap out the protected
+            // function via the host's setter instead of calling it.
+            const message = `${path} modification is blocked in worker context`;
+            const violation = self.recordViolation(
+              violationType,
+              path,
+              message,
+            );
+            if (!auditMode) {
+              throw new WorkerSecurityViolationError(message, violation);
+            }
+            const wrapped =
+              typeof next === "function"
+                ? wrap(next as (...args: unknown[]) => unknown)
+                : next;
+            const previous = originalGet?.call(ModuleClass);
+            try {
+              install(wrapped);
+            } catch (error) {
+              // A failed write must not leave a partially changed native slot.
+              install(previous);
+              throw error;
+            }
+          },
+        };
+        const install = (value: unknown) => {
+          try {
+            originalSet.call(ModuleClass, value);
+          } finally {
+            // Host setters may redefine the property, even before throwing.
+            // Reinstate the write gate before returning control to the caller.
+            Object.defineProperty(ModuleClass, prop, guardedDescriptor);
+          }
+          const installed = Object.getOwnPropertyDescriptor(ModuleClass, prop);
+          if (
+            installed?.get !== guardedDescriptor.get ||
+            installed?.set !== guardedDescriptor.set ||
+            originalGet?.call(ModuleClass) !== value ||
+            ModuleClass[prop] !== value
+          ) {
+            throw new Error("installed patch failed accessor verification");
+          }
+        };
+        install(proxy);
       }
     } catch {
       this.patchFailures.push(path);
@@ -1412,6 +1488,15 @@ export class WorkerDefenseInDepth {
    * Restore all original values.
    */
   private restorePatches(): void {
+    for (let i = this.moduleAccessorResets.length - 1; i >= 0; i--) {
+      try {
+        this.moduleAccessorResets[i]();
+      } catch {
+        // Could not reset the module accessor override slot
+      }
+    }
+    this.moduleAccessorResets = [];
+
     for (let i = this.originalDescriptors.length - 1; i >= 0; i--) {
       const { target, prop, descriptor } = this.originalDescriptors[i];
 

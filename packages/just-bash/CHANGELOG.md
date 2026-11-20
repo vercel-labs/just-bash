@@ -1,5 +1,300 @@
 # just-bash
 
+## 3.6.1
+
+### Patch Changes
+
+- [#590](https://github.com/vercel-labs/just-bash/pull/590) [`8386d25`](https://github.com/vercel-labs/just-bash/commit/8386d253f257ca8c2696075e44d0caedc44270aa) Thanks [@privatenumber](https://github.com/privatenumber)! - Bound `awk` field arrays by `maxArrayElements`. Assigning to `NF`, to `$N`, or to a field through `sub`/`gsub` now fails with `field count limit exceeded` before allocating, instead of padding the record with millions of empty fields. Splitting a record into fields (input records, `$0` assignment, `sub`/`gsub` on `$0`) stops at the same limit, so a record with more fields than `maxArrayElements` now fails with that error. Rebuilding `$0` checks the joined size against the string limit first, and a negative `NF` is rejected as in gawk.
+
+- [#562](https://github.com/vercel-labs/just-bash/pull/562) [`3ebd1c2`](https://github.com/vercel-labs/just-bash/commit/3ebd1c291462bc6bad3c6df7ebfe563d8799bfd9) Thanks [@Hazzng](https://github.com/Hazzng)! - Treat `/dev/null` redirects as a discard/EOF device without requiring filesystem device nodes. Output redirects discard data, input redirects return EOF, and read-write redirects support both behaviors. This works on filesystems that cannot initialize `/dev`, preserves command exit statuses, and prevents append redirects from growing a backing file.
+
+  This change covers redirect operators only. Commands that access `/dev/null` by path, such as `cat`, `cp`, and `test -e`, still depend on filesystem entries. `/dev/stdout` and `/dev/stderr` retain their existing behavior; stream-device identity and offset handling are separate work.
+
+- [#584](https://github.com/vercel-labs/just-bash/pull/584) [`8fc1930`](https://github.com/vercel-labs/just-bash/commit/8fc1930c50c198c4b6ea9d29c29ae1864ae38de3) Thanks [@privatenumber](https://github.com/privatenumber)! - Support `rg --color` and `--`, and align heading layout, context match prefixes, glob precedence, explicit-file selection, zero match limits, and error exit codes with ripgrep. Preserve the documented smart-case default and plain text output for all color choices.
+
+  Correct overlapping-context match prefixes in `grep`, `egrep`, and `fgrep`, while retaining context prefixes for trailing lines after their `-m` limit. Apply ripgrep's combined `--glob`/`--iglob` precedence, validate types in `rg --files` mode and malformed `--iglob` values, and accept attached values in combined short flags and leading `+` in nonnegative numeric values.
+
+  Honor per-file `-m` limits in line-based count mode for `rg`, `grep`, `egrep`, and `fgrep`, including `rg --count-matches`, which counts every occurrence on the selected matching lines.
+
+- [#552](https://github.com/vercel-labs/just-bash/pull/552) [`7c39159`](https://github.com/vercel-labs/just-bash/commit/7c391598ec1efc4ffcc12388546fbef8f76a7b4e) Thanks [@FredAmartey](https://github.com/FredAmartey)! - Evaluate the index of `X[expr]` in `jq` against the input, as jq does, so `.foo[.bar]` and `$m[.]` look up the right key. The index is read before the base and several keys come out in jq's order. `path()` and `del` follow the same rule, and `xan` can index with a column, as in `split(names, '|')[idx]`. Filters that leaned on the old reading change too: `.items[length-1]` now reads `length` from the input, so use `.items[-1]` for the last item.
+
+- [#439](https://github.com/vercel-labs/just-bash/pull/439) [`58d1ecf`](https://github.com/vercel-labs/just-bash/commit/58d1ecf31b768ea9834e151b166cf4cea32046ba) Thanks [@trieloff](https://github.com/trieloff)! - bash/sh: start nested shells from the exported environment only
+
+  `Bash.exec(…, { env, replaceEnv: true })` set its variables for commands run directly, but a nested `sh -c` or `bash -c` never saw them, and still saw the constructor's env instead:
+
+  ```js
+  const bash = new Bash({ env: { SECRET: "leak" } });
+  await bash.exec("sh", {
+    args: ["-c", "echo [$MARKER]; printenv SECRET"],
+    env: { MARKER: "YES" },
+    replaceEnv: true,
+  }); // was "[]\nleak\n", now "[YES]\n"
+  ```
+
+  Nested `sh` and `bash` now inherit only exported variables. Per-exec environment values reach them, `export -n` takes effect, and exports made in one `exec()` no longer affect later calls. Wrappers such as `env`, `time`, and `timeout` use the active caller's variables and exports, preserving script exports without restoring constructor variables during replacement execution.
+
+  Startup resets `IFS` and `OPTIND` while retaining inherited export attributes. `cd -` uses the current `OLDPWD`: an unset value reports an error, and an empty value succeeds without changing directory.
+
+- [#592](https://github.com/vercel-labs/just-bash/pull/592) [`ad9039a`](https://github.com/vercel-labs/just-bash/commit/ad9039a850d71ddd67d7786550b9f32ed8f12dc0) Thanks [@privatenumber](https://github.com/privatenumber)! - Each `exec()` now gets its own copy of `shopt` settings, readonly attributes, and hashed command paths, so changes made by one `exec()` no longer carry over to later calls on the same `Bash` instance. Nested executions (for example through `time` or a custom command's `ctx.exec`) still inherit the calling script's settings.
+
+- [#580](https://github.com/vercel-labs/just-bash/pull/580) [`f0baa00`](https://github.com/vercel-labs/just-bash/commit/f0baa001a3dfb69e1daed52c612400153a1ea2d8) Thanks [@privatenumber](https://github.com/privatenumber)! - Preserve prepared output destinations when commands change directories and apply output, read-write (`<>`), and input-only redirects in source order. Combined redirects to `/dev/stdout` and `/dev/stderr` use the selected stream, input redirects on stdout or stderr leave stdin unchanged, and duplicated read-write destinations retain both stdout and stderr output.
+
+- [#521](https://github.com/vercel-labs/just-bash/pull/521) [`864dfe5`](https://github.com/vercel-labs/just-bash/commit/864dfe5d4b9cf0447c4eb2002193f2ab2008bd0e) Thanks [@Hazzng](https://github.com/Hazzng)! - Fix `js-exec` Buffer encoding defaults, UTF-8 reads, typed-array inputs, character-boundary writes, and range validation. Reduce temporary allocations in byte conversion, `tr`, and `sed` while preserving execution limits.
+
+- [#561](https://github.com/vercel-labs/just-bash/pull/561) [`6df20ce`](https://github.com/vercel-labs/just-bash/commit/6df20cebf56bf9bcc2d63b425f26a7446b13a67d) Thanks [@Hazzng](https://github.com/Hazzng)! - Report a missing or non-directory parent of an output redirect target the way bash does
+
+  On a filesystem whose `writeFile` throws `ENOENT` for a missing parent directory, `echo x > /missing/f` rejected the whole `bash.exec()` call. Inside a loop, the loop stopped after its first iteration and the script still exited 0. The command now fails alone with `bash: /missing/f: No such file or directory` (or `Not a directory`), `$?` is 1, and the script continues. Numeric-fd redirects such as `exec 3> /missing/f` print the same message in place of `cannot open redirect target`. Other filesystem errors, such as `EROFS`, behave as before.
+
+- [#401](https://github.com/vercel-labs/just-bash/pull/401) [`9ab0e0d`](https://github.com/vercel-labs/just-bash/commit/9ab0e0d34c1d24978cd40ae890a91ccb223cc606) Thanks [@atesgoral](https://github.com/atesgoral)! - rg: search an empty piped or redirected stdin instead of the current directory
+
+  `printf '' | rg target` treated the empty pipe as absent stdin and recursively searched the current directory. Real ripgrep searches the empty input and exits 1 with no matches. A pipeline stage or an fd-0 redirection (`< empty-file`, an empty here-doc) now counts as stdin even when empty, including through `command rg` and `exec rg`.
+
+  This applies to every external command: inside a group with its own stdin, `{ cat < empty-file; } < other` now reads EOF instead of falling back to `other`.
+
+  `rg` searches the current directory for character-device stdin (`</dev/null`, `</dev/zero`, `</dev/random`, `</dev/urandom`) or closed stdin (`<&-`), as real ripgrep does. Custom commands continue to receive device descriptor content as an empty string in `fileDescriptors`.
+
+## 3.6.0
+
+### Minor Changes
+
+- [#377](https://github.com/vercel-labs/just-bash/pull/377) [`cc35fab`](https://github.com/vercel-labs/just-bash/commit/cc35fab4ffdd7498dd45ab6d2247a95b5db551ee) Thanks [@trieloff](https://github.com/trieloff)! - Add the `mktemp` command. It creates a unique temporary file (mode 0600) or directory (`-d`, mode 0700) and prints its path, supporting `-p`/`--tmpdir[=DIR]`, `-t`, `-u`/`--dry-run`, `-q`/`--quiet`, `--suffix=SUFF`, GNU-style `TEMPLATE` expansion, `--help` and `--version`. The default directory is `$TMPDIR` when set and non-empty, otherwise `/tmp`, so sandboxed embedders that point `TMPDIR` at a writable directory get a usable path. Random name characters come from the platform CSPRNG (`crypto.getRandomValues`), and existing paths are never returned.
+
+  Adds an optional `createExclusive(path, { mode, directory })` method to `IFileSystem`, which creates an entry only if the name is free and applies the mode at creation time rather than via a follow-up `chmod`. All built-in filesystems implement it. The member is optional, so external `IFileSystem` implementations remain source compatible; `mktemp` reports that such a filesystem cannot create atomically rather than substituting a non-atomic sequence. The accompanying `CreateExclusiveOptions` type is exported alongside the existing `MkdirOptions`/`RmOptions`.
+
+- [#409](https://github.com/vercel-labs/just-bash/pull/409) [`5d19cc3`](https://github.com/vercel-labs/just-bash/commit/5d19cc373e691f389a2e5c1ba24766b14fb08bad) Thanks [@trieloff](https://github.com/trieloff)! - Add the `yes` command. `yes [STRING]...` repeats a line built from its operands (`y` when there are none), so `yes | head -3` and `yes | some-prompt` work instead of failing with exit 127. Because pipeline stages here run to completion rather than streaming, the stream is finite: it ends after `executionLimits.maxLoopIterations` lines, or earlier if the repeated line would exceed the output size limit.
+
+### Patch Changes
+
+- [#445](https://github.com/vercel-labs/just-bash/pull/445) [`7313062`](https://github.com/vercel-labs/just-bash/commit/7313062a04dc9c04a7a7c4bc2f1e2f2b8d9097f0) Thanks [@trieloff](https://github.com/trieloff)! - interpreter: preserve complete associative-array values in `declare -A` compound assignments
+
+  Quoted values containing whitespace were reconstructed without quoting before the `declare` builtin parsed them, so every value was silently truncated at its first space. Associative-array declarations now retain whitespace and other quoted content.
+
+- [#346](https://github.com/vercel-labs/just-bash/pull/346) [`52a5617`](https://github.com/vercel-labs/just-bash/commit/52a5617043074e1e62e2158f211c61a4e901431c) Thanks [@iroiro147](https://github.com/iroiro147)! - fs: keep the Buffer-less `fromBuffer` fallback under the argument limit
+
+  Without `Buffer` (for example in a Chrome extension service worker), `fromBuffer` converted `base64`, `binary` and `latin1` content by spreading 64KB chunks into `String.fromCharCode`, which can exceed the engine's argument limit and throw `RangeError: Maximum call stack size exceeded` on a 64KB `cat`. The fallback now converts in 8KB chunks.
+
+- [#443](https://github.com/vercel-labs/just-bash/pull/443) [`a36c324`](https://github.com/vercel-labs/just-bash/commit/a36c3248d001e227378879c94a31b9fb54e6bd11) Thanks [@RyanGarber](https://github.com/RyanGarber)! - Handle accessor descriptors when installing module defense-in-depth proxies on Bun, preserving blocking behavior and original descriptors on teardown.
+
+- [#414](https://github.com/vercel-labs/just-bash/pull/414) [`31ac823`](https://github.com/vercel-labs/just-bash/commit/31ac823989ae8decc1bc534eee5caaede6d5fef3) Thanks [@mutewinter](https://github.com/mutewinter)! - find: report a directory it cannot read and keep going
+
+  A `readdir` failure inside the traversal threw out of the whole search, so one unreadable directory ended `find` with no results: exit 1 and `find: EACCES: permission denied, scandir '<path>'` on its own, and exit 0 with nothing at all once piped through `head` with stderr silenced. Every macOS home directory holds such a directory (`.Trash`, several under `Library`), so a recursive `find` over a mounted home directory never returned anything.
+
+  GNU find names the directory on stderr, continues with everything else, and exits 1 at the end. It now does the same here. The message is `find: <path>: Permission denied`, with the phrase taken from the errno alone, so nothing from the underlying error's text reaches the output. A failure that is not one of the errnos a directory read can produce (a cancellation, an execution limit, a filesystem policy refusal) still ends the search as before.
+
+  Messages are emitted in traversal order beside the node's own output, whatever order the parallel batch settled in, and a failed read still counts toward the trace's `readdirCalls` and `readdirTime`.
+
+- [#384](https://github.com/vercel-labs/just-bash/pull/384) [`e0cca16`](https://github.com/vercel-labs/just-bash/commit/e0cca16192e8ab62754b4272b7338467cc05ea92) Thanks [@taoche](https://github.com/taoche)! - Match real jq behavior for `to_entries` on arrays (numeric-key entries instead of null) and `tonumber` on empty or whitespace-only strings (error instead of 0).
+
+- [#417](https://github.com/vercel-labs/just-bash/pull/417) [`017a911`](https://github.com/vercel-labs/just-bash/commit/017a911d3b687d44bb0e2de707b78f02ec825569) Thanks [@trieloff](https://github.com/trieloff)! - interpreter: give a loop left via `break`/`continue` status 0 instead of the last command's
+
+  `break` and `continue` are builtins that return 0, and they are the last command a loop body runs. A loop exited through them reported the status of whatever ran _before_ the `break` instead:
+
+  ```bash
+  while :; do false; break; done; echo $?            # was 1, bash says 0
+  for i in 1; do false; break; done; echo $?         # was 1, bash says 0
+  for i in 1 2; do false; continue; done; echo $?    # was 1, bash says 0
+  ```
+
+  All four loop forms were affected — `for`, C-style `for`, `while`, `until` — as was a `break`/`continue` in a `while` condition and a multi-level `break 2` unwinding through an enclosing loop.
+
+  The stale status is invisible until something reads `$?`, and under `set -e` the phantom failing loop ends the script with no output and no diagnostic:
+
+  ```bash
+  set -euo pipefail
+  while :; do
+    [ 5 -eq 0 ] && break     # correctly exempt from errexit as the left operand of &&
+    break
+  done
+  echo ok                    # never ran
+  ```
+
+  `$?` moves with the status, so the next iteration sees it too — a `for` loop runs nothing between the `continue` and the next iteration's first command, and would otherwise still expose the failure there:
+
+  ```bash
+  for i in 1 2; do echo "$i:$?"; false; continue; done   # was 1:0 2:1, bash says 1:0 2:0
+  ```
+
+  `continue` sets the status at the point it runs but does not pin it: a later iteration still overwrites it, so `for i in 1 2; do if [ $i = 1 ]; then true; continue; fi; false; done` is still 1. A loop that ends normally is unchanged and reports its last command, and `return` from a function still reports the last command rather than 0.
+
+  Reported downstream as ai-ecoverse/slicc#2978.
+
+- [#488](https://github.com/vercel-labs/just-bash/pull/488) [`c21d678`](https://github.com/vercel-labs/just-bash/commit/c21d678ea07350bf8d535d352922f71303f4ca06) Thanks [@FredAmartey](https://github.com/FredAmartey)! - Give `MountableFs` synchronous `mkdirSync` and `writeFileSync`, routed to the filesystem that owns the path, so `Bash` sets up `/bin`, `/dev`, `/proc`, `/tmp` and the working directory in its base. Paths on a filesystem without synchronous writes throw `ENOSYS` and are left out of the layout.
+
+- [#416](https://github.com/vercel-labs/just-bash/pull/416) [`4af0dc0`](https://github.com/vercel-labs/just-bash/commit/4af0dc0ff06b2985f19f692067af115b4ab4669d) Thanks [@trieloff](https://github.com/trieloff)! - Fix default, assignment, and alternative parameter expansions used as an entire double-quoted word under `set -u`. For example, `echo "${U:-fallback}"` now prints `fallback` when `U` is unset instead of reporting "unbound variable". This also lets scripts safely check optional CI variables such as `GITHUB_STEP_SUMMARY`.
+
+- [#509](https://github.com/vercel-labs/just-bash/pull/509) [`632090a`](https://github.com/vercel-labs/just-bash/commit/632090a60b710608e2180638a757172dc0316b2c) Thanks [@janneh](https://github.com/janneh)! - Bundle the patched `smol-toml` 1.9.0.
+
+  The Node bundle inlines `smol-toml`, so a consumer can't pick up its fix through its own lockfile. Only a just-bash release carries it.
+
+- [#444](https://github.com/vercel-labs/just-bash/pull/444) [`128feaa`](https://github.com/vercel-labs/just-bash/commit/128feaae87b438d7484d55bd22abbd4d106a4aa0) Thanks [@RyanGarber](https://github.com/RyanGarber)! - Use a virtual executable name for CPython instead of the host worker path, avoiding script finalization failures under long installation paths without weakening worker protections.
+
+- [#314](https://github.com/vercel-labs/just-bash/pull/314) [`90df057`](https://github.com/vercel-labs/just-bash/commit/90df0572d3a60a459ec1bd0d13035a17c53ca63f) Thanks [@tylergibbs1](https://github.com/tylergibbs1)! - Repeated `grep -e` options overwrote the earlier patterns, so only the last one was used. All `-e` patterns now combine.
+
+- [#503](https://github.com/vercel-labs/just-bash/pull/503) [`130da94`](https://github.com/vercel-labs/just-bash/commit/130da942f0ebd948bd957c1208ec8908503281b7) Thanks [@asafyish](https://github.com/asafyish)! - Host operations that settle after a cancelled execution no longer surface as a process-level `unhandledRejection`.
+
+  Aborting or timing out an execution while the worker bridge was awaiting a host tool (or an `exec`) left that operation to settle after the defense-in-depth box deactivated. The box's `Promise.prototype.then` guard, which blocks sandbox callbacks once their execution ends, then dropped the handlers meant to consume that result: a late rejection crashed processes that treat unhandled rejections as fatal, and a late success never reached the bridge. Host-side settlement now goes through `await`, which bypasses the guarded `then`.
+
+- [#487](https://github.com/vercel-labs/just-bash/pull/487) [`0353b22`](https://github.com/vercel-labs/just-bash/commit/0353b22ca56ae88f06a5c4e9c784ca9b075051b2) Thanks [@FredAmartey](https://github.com/FredAmartey)! - Keep leading blanks after `a\`, `i\` and `c\` in `sed` text, as GNU does, including blanks escaped with a backslash. The one-line `a text` form now strips every leading blank instead of only the first.
+
+- [#513](https://github.com/vercel-labs/just-bash/pull/513) [`ef8c75d`](https://github.com/vercel-labs/just-bash/commit/ef8c75deaeb74fc314767512d1550bcc84407d4e) Thanks [@jamalkamaladdin](https://github.com/jamalkamaladdin)! - Fix intermittent `python3` failures with `OSError: [Errno 29] I/O error` on a busy host. A wakeup left over from the previous bridge call could end the wait for the next call before the main thread answered it. The worker now keeps waiting until the call is answered, within the same operation timeout.
+
+- [#506](https://github.com/vercel-labs/just-bash/pull/506) [`4ee035b`](https://github.com/vercel-labs/just-bash/commit/4ee035b6770bb0d6fd7998f22ea6651544433cf9) Thanks [@privatenumber](https://github.com/privatenumber)! - timeout: a deadline that lands while a command is still loading no longer aborts the rest of the script
+
+  `timeout` on a cold command — the first use of any lazily loaded command — could return 124 and still kill every statement after it. Cancelled invocations now stop waiting for the load and report cancellation instead.
+
+## 3.5.0
+
+### Minor Changes
+
+- [#413](https://github.com/vercel-labs/just-bash/pull/413) [`2d9d41f`](https://github.com/vercel-labs/just-bash/commit/2d9d41fd90ad024cf54a7bc0caa345af7966c410) Thanks [@trieloff](https://github.com/trieloff)! - `diff` now defaults to POSIX normal format (`2c2` / `<` / `---` / `>`) instead of unified, matching GNU diffutils and POSIX. **This changes the default output and will break anything parsing the previous unified-by-default output** — pass `-u` to keep unified.
+
+  Previously `-u` was parsed and discarded, `createTwoFilesPatch` was the only output path, and every invocation was prefixed with jsdiff's 67-character `===...===` banner, which is not valid output in any GNU format. Normal format was unreachable by any flag, so `diff a b | grep '^<'` — the canonical "lines only in A" idiom — silently matched nothing and exited cleanly on files that differ.
+
+  - `-u` / `--unified` now selects unified format, and `--normal` selects the default explicitly.
+  - New `-c` / `--context` for context format (`*** ` / `--- ` / `***************` / `! `).
+  - New `--version`.
+  - The `===` banner is gone from every format. The `-u` / `-c` file headers carry no timestamp, so output is reproducible; GNU puts each file's mtime there.
+  - Filenames in `-u` / `-c` headers are quoted and escaped as GNU does, so a filename containing a newline can no longer forge header or `@@` lines in the emitted patch.
+  - Two output styles at once (for example `diff -u -c`) is now an error, as in GNU: `diff: conflicting output style options`, exit 2.
+  - `\ No newline at end of file` is reported in all three formats.
+
+  `-q`, `-s`, `-i`, `-` for stdin, and the exit codes are unchanged.
+
+  Hunk selection is unchanged: where several equally minimal edit scripts exist, just-bash may group ambiguous changes differently than GNU. The output is always a correct, equally minimal patch, but the `NcN` line numbers can differ on such inputs.
+
+- [#380](https://github.com/vercel-labs/just-bash/pull/380) [`63cd013`](https://github.com/vercel-labs/just-bash/commit/63cd01319691db61d4f239335c58940257c1f864) Thanks [@caleb-vercel](https://github.com/caleb-vercel)! - Replace bespoke `secureFetch` with `guarded-fetch` 0.1.3 for the SSRF/DNS-rebinding/transport layer
+
+  `src/network/fetch.ts` becomes an adapter over
+  [`guarded-fetch`](https://www.npmjs.com/package/guarded-fetch) (0.1.3, Vercel,
+  Apache-2.0, undici-backed). The public `createSecureFetch` / `SecureFetch` /
+  `SecureFetchOptions` / `FetchResult` contract is unchanged, so Bash, curl, and
+  worker-bridge callers need no changes.
+
+  **Delegated**: SSRF/private-IP blocking, DNS-rebinding protection (connect-time
+  IP pinning), protocol allow-listing, URL validation.
+
+  **Retained**: path-prefix allow-list (guarded-fetch is hostname-only), firewall
+  header transforms, response-size limits, `FetchResult` translation, and error
+  mapping back to just-bash's domain errors.
+
+  **Redirects** are still driven here so firewall headers and path policy are
+  re-applied per hop. Method rewriting follows the fetch standard (301/302 rewrite
+  POST only, 303 rewrites all but GET/HEAD, 307/308 preserve both), the rewritten
+  method is re-checked against `allowedMethods`, and user credentials are dropped
+  on cross-origin hops.
+
+  **Transport**: with `denyPrivateRanges` on, requests use guarded-fetch's own
+  undici `fetch` — a host-wrapped `globalThis.fetch` (framework fetch cache, APM
+  agent, request mocking) can rebuild the init and drop the non-standard
+  `dispatcher`, silently reopening the rebinding window. With it off, no pinning
+  is promised and the ambient `fetch` is used.
+
+  **Browser**: no guarded transport exists (undici is Node-only), so the ambient
+  `fetch` path is kept and `denyPrivateRanges` fails closed with "DNS pinning
+  unavailable for private IP enforcement", matching the old
+  `DnsPinningUnavailableError`. The bundle contains no import of `guarded-fetch`.
+
+  **Not delegated**: header sanitization (`sanitizeHeaders: false`) — just-bash's
+  firewall headers are its own layer, and the sandbox may set Cookie/Host via
+  curl; and guarded-fetch's own redirect following, for the reason above.
+
+  ## Breaking-ish notes
+
+  - Node engine floor `>=20.18.1` → `>=20.19` (guarded-fetch's).
+  - `guarded-fetch` is externalized in the `build:lib`, `build:lib:cjs`, and
+    `build:browser` bundles. Consumers who re-bundle just-bash must mark it
+    external; `AGENTS.npm.md` now documents all six such packages.
+  - `NetworkConfig._dnsResolve` and `._createConnectionOwner` (both `@internal`)
+    can no longer be honored and now **throw**, rather than being accepted while a
+    weaker policy runs. `._fetch` replaces them for tests.
+  - Header keys arrive lowercased (undici `Headers`); a few assertions updated.
+  - A redirect hop blocked on its own address reports `RedirectNotAllowedError`
+    (curl 47) as before, and a resolution failure keeps its own message.
+
+  ## Tests
+
+  `dns-guarded-path.test.ts` covers the enforcing path by mocking
+  `node:dns/promises` (guarded-fetch is inlined in the vitest configs so the mock
+  reaches it): resolve-then-reject-private, fail-closed on resolution failure and
+  empty answers, allow-listed hosts still resolved (the regression guard for
+  `skipSsrfCheckForAllowedHosts`), per-hop re-resolution, and no resolution at all
+  when enforcement is off. `browser-build.test.ts` bundles the module the way
+  `build:browser` does and asserts no `guarded-fetch` import, no unhandled
+  rejection on import, ambient-`fetch` requests, and fail-closed enforcement.
+
+### Patch Changes
+
+- [#400](https://github.com/vercel-labs/just-bash/pull/400) [`f559fc1`](https://github.com/vercel-labs/just-bash/commit/f559fc1baadc6626fb88cb0446ac7740babb0d59) Thanks [@trieloff](https://github.com/trieloff)! - interpreter: give a bare assignment exit status 0 instead of the previous command's
+
+  A command with no command word — `x=1`, `arr=(a b)`, `> file`, a `$empty` that expands to nothing — reported whatever `$?` already held rather than success. Bash gives such a command status 0 unless a command substitution ran while expanding it.
+
+  The leak is invisible until something reads `$?`, and an `else` branch is where it bites: the branch runs with `$?` set to 1 by the condition that just failed, so an `else` branch ending in an assignment made the whole `if` report failure. Under `set -e` that ended the script with no output and no diagnostic:
+
+  ```bash
+  set -e
+  if false; then :; else x=1; fi
+  echo done                          # never ran
+  ```
+
+  A command substitution still sets the status where bash says it does. It counts from an assigned value or a redirection word, assignments expanded first and the last substitution winning: `x=$(exit 7)` is 7, `> /dev/null$(exit 5)` is 5, and `x=$(exit 7) > /dev/null$(exit 5)` is 5. A redirection onto fd 0 discards it and reports 0, matching bash 5.x, which forks a child to perform such a command's redirections. Process substitution never contributes, and neither does a command substitution in `PS4` under `set -x`.
+
+- [#389](https://github.com/vercel-labs/just-bash/pull/389) [`de3c2f3`](https://github.com/vercel-labs/just-bash/commit/de3c2f368ee1c11bab4d7250aaf43306e052a008) Thanks [@trieloff](https://github.com/trieloff)! - Implement `curl -D` / `--dump-header` (file, `-`, `--dump-header=`, redirect hops, `-f` dumps). `curl -I` header blocks now end with a blank line (`\r\n\r\n`), matching real curl.
+
+- [#378](https://github.com/vercel-labs/just-bash/pull/378) [`a2a5843`](https://github.com/vercel-labs/just-bash/commit/a2a5843e4b3526148c7bab04dcd7be8e859e713a) Thanks [@trieloff](https://github.com/trieloff)! - curl: don't build the stdout string when the body is written to a file
+
+  `curl -o FILE URL` (and `-O`) stringified the entire response body for stdout
+  and then immediately discarded it, holding a full UTF-16 copy of the payload in
+  memory alongside the bytes being written. Large downloads could exhaust memory
+  (a browser-hosted embedder OOM'd its renderer on a 250 MB download). The stdout
+  string is now skipped entirely on that path; `-v`, `--write-out`, `-I/--head`
+  and all other behaviour are unchanged.
+
+- [#365](https://github.com/vercel-labs/just-bash/pull/365) [`bbf3881`](https://github.com/vercel-labs/just-bash/commit/bbf38812f621081f9c3203b7f887d1e5cb12dcaa) Thanks [@mutewinter](https://github.com/mutewinter)! - Report gzip files from their header instead of inflating them. `file` no longer enters `file-type`'s nested gzip probe, which decompressed up to 16 MB of input to look for an inner tar and leaked an `AbortError` unhandled rejection after the command had already returned. Gzipped tar archives now read as `gzip compressed data` rather than `gzip archive data`, matching `file`.
+
+- [#397](https://github.com/vercel-labs/just-bash/pull/397) [`062ce00`](https://github.com/vercel-labs/just-bash/commit/062ce005c0a7676163852fb6f0c8590cbdaa1d45) Thanks [@taoche](https://github.com/taoche)! - Run lazy file providers in the defense-in-depth trusted scope during materialization. Host-supplied providers doing real async I/O (`setTimeout`, `fetch`, `process.env`) previously tripped the blocked-globals traps when a script first read the file mid-exec, surfacing as a `SecurityViolationError` (formerly a silent empty read / ENOENT). Fixes [#253](https://github.com/vercel-labs/just-bash/issues/253).
+
+- [#391](https://github.com/vercel-labs/just-bash/pull/391) [`43c37ce`](https://github.com/vercel-labs/just-bash/commit/43c37cea24cea8e2f9ed9eab38906f85836f3502) Thanks [@mutewinter](https://github.com/mutewinter)! - ln: report a refused symlink as a symlink failure, not as a hard link on a directory
+
+  `ln -s` against a filesystem constructed without symlink support failed with `ln: 'file.txt': hard link not allowed for directory`. Nothing in that sentence is true of the call: `-s` asks for a symbolic link rather than a hard one, and the named operand is the target rather than the directory the message blames.
+
+  Both link kinds shared one `EPERM` branch, which carried the hard-link wording unconditionally. `link` reports `EPERM` only for a directory, so that wording is right there and is kept. `symlink` reports it when the filesystem allows no symlinks at all, which is a different condition with a different remedy, and it now reads `ln: failed to create symbolic link 'link': Operation not permitted`, matching the shape GNU `ln` uses and the shape this command already uses for `File exists`.
+
+- [#363](https://github.com/vercel-labs/just-bash/pull/363) [`4de3cd6`](https://github.com/vercel-labs/just-bash/commit/4de3cd6e167bb54cf239aae92c45ac15cc9e2117) Thanks [@mutewinter](https://github.com/mutewinter)! - Append type indicators in `ls -l` only when `-F` asks for them. Long format previously suffixed every directory with `/` regardless, so a name read out of `ls -l` output carried a trailing slash that is not part of it, and `ls -l` disagreed with `ls` about what the same entry is called.
+
+- [#390](https://github.com/vercel-labs/just-bash/pull/390) [`b7f556f`](https://github.com/vercel-labs/just-bash/commit/b7f556fcbedc21ee4e346ad858f29c4d7d35a49e) Thanks [@trieloff](https://github.com/trieloff)! - Bound `ls` directory entry collections before per-entry work. A filesystem backend returning a very large directory could previously drive `ls` into sorting, statting, classifying and formatting every entry before any limit applied, and piping to `head` did not help because pipeline producers are materialized before consumers run. Oversized listings now fail with exit code 126 (`array element limit exceeded` / `filesystem traversal entry limit exceeded`), the recursive descent no longer fans out across sibling directories, and every operand of a multi-directory listing is charged to the same budget.
+
+- [#363](https://github.com/vercel-labs/just-bash/pull/363) [`4de3cd6`](https://github.com/vercel-labs/just-bash/commit/4de3cd6e167bb54cf239aae92c45ac15cc9e2117) Thanks [@mutewinter](https://github.com/mutewinter)! - Resolve `ls` operands as literal paths instead of matching them as glob patterns a second time. Pathname expansion is the shell's job, so an operand still holding `*`, `?` or `[` is a real filename; re-matching it made `ls 'report [1].pdf'` report an existing file as missing and stripped the leading directories from names containing `?` or `*`.
+
+- [#363](https://github.com/vercel-labs/just-bash/pull/363) [`4de3cd6`](https://github.com/vercel-labs/just-bash/commit/4de3cd6e167bb54cf239aae92c45ac15cc9e2117) Thanks [@mutewinter](https://github.com/mutewinter)! - Group `ls` operands the way GNU and BSD `ls` do. Non-directory operands now print first as a single unseparated block in sort order, then each directory prints under a `name:` label preceded by a blank line. Previously every operand was separated by a blank line, including plain files, so `find … -exec ls -l {} +` and `xargs ls -l` returned a listing with an empty line between each entry.
+
+- [#363](https://github.com/vercel-labs/just-bash/pull/363) [`4de3cd6`](https://github.com/vercel-labs/just-bash/commit/4de3cd6e167bb54cf239aae92c45ac15cc9e2117) Thanks [@mutewinter](https://github.com/mutewinter)! - Order `ls -R` sections by the active sort key, so `-t` and `-S` reach the descent rather than only each directory's own listing, and charge the traversal budget while resolving operands rather than only once the walk has started. Each operand costs one entry rather than two, `-d` charges its operands instead of returning before the budget sees them, and the metadata reads `-t` and `-S` need to sort are charged before they run.
+
+- [#363](https://github.com/vercel-labs/just-bash/pull/363) [`4de3cd6`](https://github.com/vercel-labs/just-bash/commit/4de3cd6e167bb54cf239aae92c45ac15cc9e2117) Thanks [@mutewinter](https://github.com/mutewinter)! - Implement `ls -t`. The flag was parsed and discarded, so `ls -lt` silently returned the same name-ordered listing as `ls -l` while `--help` documented it as "sort by time, newest first". `-S` and `-t` now follow GNU's precedence, where whichever is written last wins, and both break ties by name so a listing no longer depends on the order the filesystem returned entries in. Sort keys come from `lstat`, so a symlink orders on its own size and mtime rather than its target's.
+
+- [#454](https://github.com/vercel-labs/just-bash/pull/454) [`022e260`](https://github.com/vercel-labs/just-bash/commit/022e260ec9bcdadd517704a3b96ffb5d948abd99) Thanks [@FredAmartey](https://github.com/FredAmartey)! - Let `ReadWriteFs.lstat` and `ReadWriteFs.readlink` accept the sandbox root. Both authorized a path by validating the directory above it, which for `/` lies outside the sandbox, so they failed with `EACCES`. Since 3.2.0 moved `find`, `du`, `chmod -R` and `file` onto `lstat`, `find .` and `find /` at the root printed nothing and exited 0. `du` and `chmod -R` reported `cannot access '/'` and `file /` reported `cannot open`. The root is now validated directly, as `mkdir` and `link` already do. Fixes [#402](https://github.com/vercel-labs/just-bash/issues/402).
+
+- [#399](https://github.com/vercel-labs/just-bash/pull/399) [`108c5cc`](https://github.com/vercel-labs/just-bash/commit/108c5ccf028e82bdcaabb2a5fd6b2640e56168f5) Thanks [@taoche](https://github.com/taoche)! - regex: cache compiled RE2 patterns across `UserRegex` constructions
+
+  Every `createUserRegex()` call recompiled its pattern from source
+  (`translateRegExp` → parse → simplify → compile). Commands that build a
+  `UserRegex` inside a per-row loop therefore recompiled the same pattern once per
+  row: jq's `test`/`match`/`capture`/`scan`/`splits`/`sub`/`gsub`, awk's `~`/`!~`
+  and `sub`/`gsub`/`match`/`split`, and sed's `s///` (which compiled the same
+  pattern twice per line for the `g` and Nth-occurrence paths). Compiling costs
+  ~23µs against ~1.5µs to match with an already-compiled pattern, so compilation
+  dominated these workloads.
+
+  Compiled patterns are now memoized in a 256-entry cache keyed on the pattern and
+  the RE2 flags, mirroring the existing glob regex cache in `src/utils/glob.ts`.
+  Patterns longer than 1024 characters are compiled but not retained, bounding the
+  cache's retained pattern source at 256 KiB. Only the compiled pattern is shared — `lastIndex`, the reusable matcher, result
+  limits and the abort signal stay per-instance, so matching semantics are
+  unchanged. Over 100k rows: jq `test()` 8.96s → 4.26s, awk `~` 4.15s → 2.55s,
+  awk `gsub` 7.16s → 6.10s, sed `s///g` 10.46s → 8.29s. Commands that already
+  hoisted compilation out of their loop (grep, rg) are unaffected.
+
+- [#394](https://github.com/vercel-labs/just-bash/pull/394) [`556a739`](https://github.com/vercel-labs/just-bash/commit/556a7397563f3db5b000329d58bc66fa0074ce77) Thanks [@cramforce](https://github.com/cramforce)! - Replace the custom js-exec QuickJS worker with run, using synchronous host bindings and native module loading while preserving filesystem, tools, process, fetch, output-limit, and cancellation behavior. Keep queue admission inside the JavaScript deadline, restore argv-only `spawnSync` execution, top-level-await module detection, optional tool exposure, and the historical 8 MiB per-call bridge ceiling. Make the aggregate bridge request ceiling configurable, bound filesystem and module reads before allocation, preserve module-loader and bootstrap diagnostics, and enforce source, generated guest configuration, and combined-output byte limits without allowing `process.exit()` to clear limit failures. Preserve binary `Buffer` filesystem writes and the `ArrayBuffer` filesystem contract, project command results before they cross into the guest, gate bootstrap-only host behavior to the bootstrap phase, parse guest stacks with bounded linear work, redact runtime stack paths, and forward cancellation through the companion executor into inline tool contexts and SDK Effect execution.
+
 ## 3.4.2
 
 ### Patch Changes

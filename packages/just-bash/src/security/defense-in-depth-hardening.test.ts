@@ -1055,20 +1055,22 @@ describeDefense("Defense-in-Depth Hardening", () => {
   describe("Category H: Glob pattern depth limit", () => {
     it("should reject patterns with too many ** segments", async () => {
       const bash = new Bash();
-      await bash.exec("shopt -s globstar");
 
       // Create a pattern with 6 ** segments (exceeds limit of 5)
-      const result = await bash.exec("echo **/**/**/**/**/**/foo");
+      const result = await bash.exec(
+        "shopt -s globstar; echo **/**/**/**/**/**/foo",
+      );
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr).toContain("too many ** segments");
     });
 
     it("should allow patterns with 5 or fewer ** segments", async () => {
       const bash = new Bash();
-      await bash.exec("shopt -s globstar");
 
       // Pattern with 1 ** segment - should work
-      const result = await bash.exec("echo **/foo 2>/dev/null || echo ok");
+      const result = await bash.exec(
+        "shopt -s globstar; echo **/foo 2>/dev/null || echo ok",
+      );
       expect(result.exitCode).toBe(0);
     });
   });

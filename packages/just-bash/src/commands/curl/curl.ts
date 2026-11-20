@@ -5,7 +5,13 @@
  * Network access must be explicitly configured via BashEnvOptions.network.
  */
 
-import { fromBuffer } from "../../fs/encoding.js";
+import {
+  decodeBytesToUtf8,
+  EMPTY_BYTES,
+  latin1FromBytes,
+  utf8ByteLength,
+} from "../../encoding.js";
+import { fromBuffer, toBuffer } from "../../fs/encoding.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import { _Headers } from "../../security/trusted-globals.js";
 import type {
@@ -24,6 +30,9 @@ import {
 } from "./response-formatting.js";
 import type { CurlOptions } from "./types.js";
 
+const requestDataEncoder = new TextEncoder();
+const requestDataDecoder = new TextDecoder("utf8", { ignoreBOM: true });
+
 /**
  * Resolve every `-d`/`--data*`/`--data-urlencode` part into a single payload,
  * reading any `@file` references and joining the parts with `&` — matching
@@ -31,27 +40,50 @@ import type { CurlOptions } from "./types.js";
  * data flags were given.
  *
  * Per-part `@file` handling mirrors real curl:
- *   - ascii (`-d`/`--data` @file): strip CR and LF after reading.
+ *   - ascii (`-d`/`--data` @file): strip NUL, CR, and LF after reading.
  *   - binary (`--data-binary` @file): send the bytes verbatim.
  *   - urlencode (`--data-urlencode` @file/name@file): URL-encode the whole
  *     file body as one value (so a `=` byte inside the file is percent-encoded
  *     rather than treated as a name/value separator), with an optional
  *     `name=` prefix.
+ * The exact `-` source consumes command stdin once; later references are empty.
  */
 async function resolveData(
   options: CurlOptions,
   ctx: RuntimeCommandContext,
-): Promise<string | undefined> {
+): Promise<string | Uint8Array<ArrayBuffer> | undefined> {
   if (options.dataParts.length === 0) return undefined;
-  const parts: string[] = [];
+  const parts: (string | Uint8Array)[] = [];
+  let stdinConsumed = false;
+  let hasBinaryData = false;
   for (const part of options.dataParts) {
     if (part.file) {
-      const filePath = ctx.fs.resolvePath(ctx.cwd, part.file.path);
-      const content = await ctx.fs.readFile(filePath);
+      if (part.file.mode === "binary") {
+        hasBinaryData = true;
+        if (part.file.path === "-") {
+          parts.push(
+            toBuffer(
+              latin1FromBytes(stdinConsumed ? EMPTY_BYTES : ctx.stdin),
+              "binary",
+            ),
+          );
+          stdinConsumed = true;
+        } else {
+          parts.push(
+            await ctx.fs.readFileBuffer(
+              ctx.fs.resolvePath(ctx.cwd, part.file.path),
+            ),
+          );
+        }
+        continue;
+      }
+      const content =
+        part.file.path === "-"
+          ? decodeBytesToUtf8(stdinConsumed ? EMPTY_BYTES : ctx.stdin)
+          : await ctx.fs.readFile(ctx.fs.resolvePath(ctx.cwd, part.file.path));
+      if (part.file.path === "-") stdinConsumed = true;
       if (part.file.mode === "ascii") {
-        parts.push(content.replace(/[\r\n]/g, ""));
-      } else if (part.file.mode === "binary") {
-        parts.push(content);
+        parts.push(content.replace(/[\x00\r\n]/g, ""));
       } else {
         const encoded = encodeCurlData(content);
         parts.push(part.file.name ? `${part.file.name}=${encoded}` : encoded);
@@ -60,7 +92,31 @@ async function resolveData(
       parts.push(part.value ?? "");
     }
   }
-  return parts.join("&");
+  if (!hasBinaryData) return parts.join("&");
+  let byteLength = parts.length - 1;
+  for (const part of parts) {
+    byteLength +=
+      typeof part === "string" ? utf8ByteLength(part) : part.byteLength;
+  }
+  const body = new Uint8Array(byteLength);
+  let offset = 0;
+  for (let index = 0; index < parts.length; index += 1) {
+    if (index > 0) {
+      body[offset] = 0x26;
+      offset += 1;
+    }
+    const part = parts[index];
+    if (typeof part === "string") {
+      offset += requestDataEncoder.encodeInto(
+        part,
+        body.subarray(offset),
+      ).written;
+    } else {
+      body.set(part, offset);
+      offset += part.byteLength;
+    }
+  }
+  return body;
 }
 
 /**
@@ -70,8 +126,8 @@ async function resolveData(
 async function prepareRequestBody(
   options: CurlOptions,
   ctx: RuntimeCommandContext,
-  resolvedData: string | undefined,
-): Promise<{ body?: string; contentType?: string }> {
+  resolvedData: string | Uint8Array<ArrayBuffer> | undefined,
+): Promise<{ body?: string | Uint8Array<ArrayBuffer>; contentType?: string }> {
   // Handle -T/--upload-file
   if (options.uploadFile) {
     const filePath = ctx.fs.resolvePath(ctx.cwd, options.uploadFile);
@@ -291,7 +347,12 @@ export const curlCommand: RuntimeCommand = {
       const resolvedData = await resolveData(options, ctx);
 
       if (options.getMode) {
-        url = appendDataToUrl(url, resolvedData);
+        url = appendDataToUrl(
+          url,
+          resolvedData instanceof Uint8Array
+            ? requestDataDecoder.decode(resolvedData)
+            : resolvedData,
+        );
       }
 
       // Prepare body and headers
@@ -364,10 +425,17 @@ export const curlCommand: RuntimeCommand = {
         };
       }
 
-      let output = buildOutput(options, result, url);
+      // When the body goes to a file and we're not verbose, the block below
+      // overwrites `output` unconditionally (with "" or the -D - header block),
+      // so building it first would stringify the whole response body just to
+      // throw the string away — a full UTF-16 copy of the payload on top of the
+      // bytes we write out. Skip buildOutput entirely on that path.
+      const writesToFile = Boolean(options.outputFile || options.useRemoteName);
+      const skipStdoutBody = writesToFile && !options.verbose;
+      let output = skipStdoutBody ? "" : buildOutput(options, result, url);
 
       // Write body to file when -o/-O is set
-      if (options.outputFile || options.useRemoteName) {
+      if (writesToFile) {
         const filename = options.outputFile || extractFilename(url);
         const filePath = ctx.fs.resolvePath(ctx.cwd, filename);
         await ctx.fs.writeFile(filePath, options.headOnly ? "" : result.body);

@@ -101,6 +101,19 @@ describe("grep advanced", () => {
 
   // Context flags (-A, -B, -C) tests
   describe("context flags (-A, -B, -C)", () => {
+    for (const command of ["grep", "egrep", "fgrep"]) {
+      for (const input of ["printf 'a\\na\\na\\n' |", ""]) {
+        it(`${command} labels matching trailing lines as context after -m (${input ? "stdin" : "file"})`, async () => {
+          const env = new Bash({ files: { "/test.txt": "a\na\na\n" } });
+          const result = await env.exec(
+            `${input} ${command} -n -m1 -A2 a ${input ? "" : "/test.txt"}`,
+          );
+          expect(result.stdout).toBe("1:a\n2-a\n3-a\n");
+          expect(result.stderr).toBe("");
+          expect(result.exitCode).toBe(0);
+        });
+      }
+    }
     const contextEnv = () =>
       new Bash({
         files: {
@@ -158,16 +171,28 @@ describe("grep advanced", () => {
     it("should handle overlapping context ranges", async () => {
       const env = new Bash({
         files: {
-          "/test.txt": "a\nmatch1\nb\nmatch2\nc\n",
+          "/test.txt": "a\nmatch1\nmatch2\nc\n",
         },
       });
-      const result = await env.exec("grep -C1 match /test.txt");
-      expect(result.stdout).toBe("a\nmatch1\nb\nmatch2\nc\n");
+      const result = await env.exec("grep -n -C1 match /test.txt");
+      expect(result.stdout).toBe("1-a\n2:match1\n3:match2\n4-c\n");
+      expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
     });
   });
 
   describe("-m flag (max count)", () => {
+    for (const input of ["printf 'foo foo\\nfoo\\nfoo\\n' |", ""]) {
+      it(`limits count output with -m (${input ? "stdin" : "file"})`, async () => {
+        const env = new Bash({ files: { "/test.txt": "foo foo\nfoo\nfoo\n" } });
+        const result = await env.exec(
+          `${input} grep -c -m1 foo ${input ? "" : "/test.txt"}`,
+        );
+        expect(result.stdout).toBe("1\n");
+        expect(result.stderr).toBe("");
+        expect(result.exitCode).toBe(0);
+      });
+    }
     it("should stop after -m matches", async () => {
       const env = new Bash({
         files: { "/test.txt": "line1\nline2\nline3\nline4\nline5\n" },

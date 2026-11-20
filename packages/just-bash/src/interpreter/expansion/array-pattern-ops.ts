@@ -18,7 +18,10 @@ import type {
   ExpandWordPartsAsyncFn,
 } from "./array-word-expansion.js";
 import { patternToRegex } from "./pattern.js";
-import { applyPatternRemoval } from "./pattern-removal.js";
+import {
+  applyPatternRemoval,
+  buildPatternRemovalRegex,
+} from "./pattern-removal.js";
 import { getArrayElements } from "./variable.js";
 
 /**
@@ -215,28 +218,15 @@ export async function handleArrayPatternRemoval(
   }
 
   // Build the regex pattern string
-  let regexStr = "";
-  const extglob = ctx.state.shoptOptions.extglob;
-  if (operation.pattern) {
-    for (const part of operation.pattern.parts) {
-      if (part.type === "Glob") {
-        regexStr += patternToRegex(part.pattern, operation.greedy, extglob);
-      } else if (part.type === "Literal") {
-        regexStr += patternToRegex(part.value, operation.greedy, extglob);
-      } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
-        regexStr += escapeRegex(part.value);
-      } else if (part.type === "DoubleQuoted") {
-        const expanded = await expandWordPartsAsync(ctx, part.parts);
-        regexStr += escapeRegex(expanded);
-      } else if (part.type === "ParameterExpansion") {
-        const expanded = await expandPart(ctx, part);
-        regexStr += patternToRegex(expanded, operation.greedy, extglob);
-      } else {
-        const expanded = await expandPart(ctx, part);
-        regexStr += escapeRegex(expanded);
-      }
-    }
-  }
+  const regexStr = operation.pattern
+    ? await buildPatternRemovalRegex(
+        ctx,
+        operation.pattern,
+        operation.greedy,
+        expandWordPartsAsync,
+        expandPart,
+      )
+    : "";
 
   // Apply pattern removal to each element
   const resultValues: string[] = [];

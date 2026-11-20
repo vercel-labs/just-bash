@@ -21,6 +21,7 @@ export default defineConfig({
     setupFiles: [resolve(__dirname, "src/vitest-setup.ts")],
     // WASM worker tests need process-level isolation because
     // defense-in-depth patches globalThis which is shared across threads.
+    maxWorkers: 2,
     poolMatchGlobs: [
       ["forks", "**/python3*.test.ts"],
       ["forks", "**/sqlite3*.test.ts"],

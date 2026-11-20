@@ -51,9 +51,9 @@ describe("SED Execution Limits", () => {
 
       const result = await env.exec(`sed 's/a/b/g' /input.txt`);
 
-      // Should complete without hanging
       expect(result.exitCode).toBe(0);
-      expect(result.stdout.length).toBeGreaterThan(0);
+      expect(result.stdout).toBe("b".repeat(longLine.length));
+      expect(result.stderr).toBe("");
     });
 
     it("should handle backreference expansion limits", async () => {

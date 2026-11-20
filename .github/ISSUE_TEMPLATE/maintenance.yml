@@ -1,0 +1,27 @@
+name: Maintenance task
+description: Repository work that does not change how just-bash behaves for users
+labels: ["chore"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for work that keeps the repository healthy: dependencies, CI, tooling, and internal development. It does not describe a behavior change for users.
+  - type: textarea
+    id: task
+    attributes:
+      label: What needs to change?
+      description: The dependency, workflow, tool, or internal area, and the change to make.
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why?
+      description: The problem this prevents or the maintenance burden it removes.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: The packages or files involved, whether users are affected, and links to failing CI runs, logs, or dependency references when relevant.

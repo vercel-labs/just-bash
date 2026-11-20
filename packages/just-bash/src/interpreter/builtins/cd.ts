@@ -42,7 +42,11 @@ export async function handleCd(
   } else if (remainingArgs[0] === "~") {
     target = ctx.state.env.get("HOME") || "/";
   } else if (remainingArgs[0] === "-") {
-    target = ctx.state.previousDir;
+    const oldPwd = ctx.state.env.get("OLDPWD");
+    if (oldPwd === undefined) {
+      return failure("bash: cd: OLDPWD not set\n");
+    }
+    target = oldPwd;
     printPath = true; // cd - prints the new directory
   } else {
     target = remainingArgs[0];
@@ -51,6 +55,7 @@ export async function handleCd(
   // CDPATH support: if target doesn't start with / or ., search CDPATH directories
   // CDPATH is only used for relative paths that don't start with .
   if (
+    target !== "" &&
     !target.startsWith("/") &&
     !target.startsWith("./") &&
     !target.startsWith("../") &&
@@ -120,5 +125,6 @@ export async function handleCd(
   ctx.state.env.set("OLDPWD", ctx.state.previousDir);
 
   // cd - prints the new directory
-  return success(printPath ? `${newDir}\n` : "");
+  // An empty OLDPWD keeps cwd unchanged and cd - prints an empty line.
+  return success(printPath ? `${target === "" ? "" : newDir}\n` : "");
 }

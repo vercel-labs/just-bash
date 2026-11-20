@@ -110,10 +110,37 @@ export function initFilesystem(
   useDefaultLayout: boolean,
   processInfo: VirtualProcessInfo = { pid: 1, ppid: 0, uid: 1000, gid: 1000 },
 ): void {
-  // Initialize for filesystems that support sync methods (InMemoryFs and OverlayFs)
+  // Initialize for filesystems that support sync methods (InMemoryFs, OverlayFs and MountableFs)
   if (isSyncInitFs(fs)) {
-    initCommonDirectories(fs, useDefaultLayout);
-    initDevFiles(fs);
-    initProcFiles(fs, processInfo);
+    const layoutFs = skipUnsupported(fs);
+    initCommonDirectories(layoutFs, useDefaultLayout);
+    initDevFiles(layoutFs);
+    initProcFiles(layoutFs, processInfo);
   }
+}
+
+/**
+ * Skip paths a MountableFs routes to a filesystem without sync writes, such
+ * as ReadWriteFs. It throws ENOSYS for those.
+ */
+function skipUnsupported(fs: SyncInitFs): SyncInitFs {
+  const attempt = (write: () => void) => {
+    try {
+      write();
+    } catch (error) {
+      if (!(error instanceof Error && error.message.startsWith("ENOSYS"))) {
+        throw error;
+      }
+    }
+  };
+  const layoutFs: SyncInitFs = {
+    mkdirSync: (path, options) => attempt(() => fs.mkdirSync(path, options)),
+    writeFileSync: (path, content) =>
+      attempt(() => fs.writeFileSync(path, content)),
+  };
+  if (fs.writeFileLazy) {
+    layoutFs.writeFileLazy = (path, lazy) =>
+      attempt(() => fs.writeFileLazy?.(path, lazy));
+  }
+  return layoutFs;
 }

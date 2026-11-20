@@ -48,7 +48,11 @@ afterAll(() => {
 });
 
 function javascriptWithInvokeTool(
-  invokeTool: (path: string, argsJson: string) => Promise<string>,
+  invokeTool: (
+    path: string,
+    argsJson: string,
+    abortSignal: AbortSignal,
+  ) => Promise<string>,
 ): NonNullable<
   NonNullable<ConstructorParameters<typeof Bash>[0]>["javascript"]
 > {
@@ -459,6 +463,36 @@ describe("executor.setup: GraphQL tool discovery", () => {
       '`);
       expect(r.stdout.trim()).toBe("FOUND");
     }
+  });
+});
+
+describe("executor.setup: cancellation", () => {
+  it("interrupts SDK Effect execution with the js-exec abort signal", async () => {
+    const executor = await createExecutor({
+      exposeToolsAsCommands: false,
+      setup: async (sdk: ExecutorSDKHandle) => {
+        await sdk.sources.add({
+          kind: "custom",
+          name: "wait",
+          tools: {
+            forever: {
+              execute: () => new Promise(() => {}),
+            },
+          },
+        });
+      },
+    });
+    const controller = new AbortController();
+    const invocation = executor.invokeTool(
+      "wait.forever",
+      "",
+      controller.signal,
+    );
+
+    controller.abort();
+
+    await expect(invocation).rejects.toBeDefined();
+    await executor.sdk?.close();
   });
 });
 

@@ -45,6 +45,23 @@ describe("cd builtin", () => {
   });
 
   describe("cd with special paths", () => {
+    it("cd - fails when OLDPWD is unset after changing directory", async () => {
+      const bash = new Bash();
+      const result = await bash.exec("cd /tmp; unset OLDPWD; cd -");
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("bash: cd: OLDPWD not set\n");
+      expect(result.exitCode).toBe(1);
+      expect(result.env.PWD).toBe("/tmp");
+    });
+
+    it("cd - accepts an empty OLDPWD without changing directory", async () => {
+      const bash = new Bash();
+      const result = await bash.exec("CDPATH=/tmp; OLDPWD=; cd -; pwd");
+      expect(result.stdout).toBe("\n/home/user\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should handle cd -", async () => {
       const env = new Bash();
       await env.exec("mkdir -p /tmp/orig /tmp/new");

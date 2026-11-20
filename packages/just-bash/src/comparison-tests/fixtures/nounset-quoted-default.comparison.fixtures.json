@@ -1,0 +1,65 @@
+{
+  "13c78cdc75c3d4cb": {
+    "command": "set -u; JB_NOUNSET_G=value; JB_NOUNSET_H=; echo \"${JB_NOUNSET_G:-fallback}\"; printf \"<%s>\\n\" \"${JB_NOUNSET_H:-fallback}\" \"${JB_NOUNSET_H-fallback}\" \"${JB_NOUNSET_G:+alt}\"",
+    "files": {},
+    "stdout": "value\n<fallback>\n<>\n<alt>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1b2db3b9a95ab84a": {
+    "command": "set -u; unset JB_NOUNSET_F; printf \"<%s>\\n\" \"${JB_NOUNSET_F+alt}\"",
+    "files": {},
+    "stdout": "<>\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "21803fe924c962d8": {
+    "command": "set -u; unset JB_NOUNSET_D; echo \"${JB_NOUNSET_D=assigned}\"; echo \"$JB_NOUNSET_D\"",
+    "files": {},
+    "stdout": "assigned\nassigned\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "42bf6bb9eaecafe8": {
+    "command": "set -euo pipefail\nunset GITHUB_STEP_SUMMARY\nif [ -n \"${GITHUB_STEP_SUMMARY:-}\" ]; then echo \"writing to $GITHUB_STEP_SUMMARY\"; else echo \"no step summary\"; fi\nGITHUB_STEP_SUMMARY=summary.md\nif [ -n \"${GITHUB_STEP_SUMMARY:-}\" ]; then echo \"report\" >> \"$GITHUB_STEP_SUMMARY\"; fi\ncat summary.md",
+    "files": {},
+    "stdout": "no step summary\nreport\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5f5535bb94da437c": {
+    "command": "set -u; unset JB_NOUNSET_C; echo \"${JB_NOUNSET_C:=assigned}\"; echo \"$JB_NOUNSET_C\"",
+    "files": {},
+    "stdout": "assigned\nassigned\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "81e8cd70967cddeb": {
+    "command": "set -u; unset JB_NOUNSET_ARR; echo \"${JB_NOUNSET_ARR[@]:-fallback}\"; echo \"[${JB_NOUNSET_ARR[@]:+alt}]\"",
+    "files": {},
+    "stdout": "fallback\n[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ae1a1d7f33660417": {
+    "command": "set -u; unset JB_NOUNSET_A; echo \"${JB_NOUNSET_A:-fallback}\"",
+    "files": {},
+    "stdout": "fallback\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "aeea8559e831ba3b": {
+    "command": "set -u; unset JB_NOUNSET_B; echo \"${JB_NOUNSET_B-fallback}\"; echo \"[${JB_NOUNSET_B-}]\"",
+    "files": {},
+    "stdout": "fallback\n[]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d35bbfd86e93924e": {
+    "command": "set -u; unset JB_NOUNSET_E; printf \"<%s>\\n\" \"${JB_NOUNSET_E:+alt}\"",
+    "files": {},
+    "stdout": "<>\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

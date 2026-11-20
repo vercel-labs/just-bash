@@ -1,0 +1,32 @@
+name: Feature request
+description: A command, flag, or capability that does not exist yet
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. Describe the task this would enable. For shell or command compatibility, include the behavior to match and a reference when one exists, such as the real command's documentation or `--help` output.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the task or script. If a real command or tool covers this, link its documentation or paste its `--help` output.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What just-bash should do. For a missing command or flag, describe the behavior to match.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Workarounds you have tried, or other designs you considered.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else that would help, such as the embedding environment or related issues.

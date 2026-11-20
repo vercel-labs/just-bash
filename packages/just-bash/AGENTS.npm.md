@@ -78,9 +78,9 @@ const result = await bash.exec("cat input.txt | grep pattern");
 
 **Data processing**: `jq` (JSON), `js-exec` (JavaScript/TypeScript via QuickJS), `python3`/`python` (Python via WASM/CPython), `sqlite3` (SQLite), `xan` (CSV), `yq` (YAML/XML/TOML/CSV)
 
-**File operations**: `basename`, `chmod`, `cp`, `dirname`, `du`, `file`, `find`, `ln`, `ls`, `mkdir`, `mv`, `od`, `pwd`, `readlink`, `rm`, `rmdir`, `split`, `stat`, `touch`, `tree`
+**File operations**: `basename`, `chmod`, `cp`, `dirname`, `du`, `file`, `find`, `ln`, `ls`, `mkdir`, `mktemp`, `mv`, `od`, `pwd`, `readlink`, `rm`, `rmdir`, `split`, `stat`, `touch`, `tree`
 
-**Utilities**: `alias`, `base64`, `bash`, `clear`, `curl`, `date`, `diff`, `echo`, `env`, `expr`, `false`, `gzip`, `gunzip`, `help`, `history`, `hostname`, `html-to-markdown`, `md5sum`, `printenv`, `printf`, `seq`, `sh`, `sha1sum`, `sha256sum`, `sleep`, `tar`, `tee`, `time`, `timeout`, `true`, `unalias`, `which`, `whoami`, `zcat`
+**Utilities**: `alias`, `base64`, `bash`, `clear`, `curl`, `date`, `diff`, `echo`, `env`, `expr`, `false`, `gzip`, `gunzip`, `help`, `history`, `hostname`, `html-to-markdown`, `md5sum`, `printenv`, `printf`, `seq`, `sh`, `sha1sum`, `sha256sum`, `sleep`, `tar`, `tee`, `time`, `timeout`, `true`, `unalias`, `which`, `whoami`, `yes`, `zcat`
 
 All commands support `--help` for usage details.
 
@@ -349,7 +349,7 @@ to inline these, and some of them cannot be inlined. Mark all six as external:
 | `@mongodb-js/zstd` | native binding (`optionalDependencies`) |
 | `node-liblzma` | native binding (`optionalDependencies`) |
 | `sql.js` | ships a `.wasm` asset |
-| `quickjs-emscripten` | ships a `.wasm` asset |
+| `run` | embeds the QuickJS WASM runtime |
 | `seek-bzip` | CommonJS-only bzip2 decoder |
 | `guarded-fetch` | imports `node:dns/promises`, `node:net`, `node:dns` |
 
@@ -369,7 +369,7 @@ const nextConfig = {
     "node-liblzma",
     "seek-bzip",
     "sql.js",
-    "quickjs-emscripten",
+    "run",
     "guarded-fetch",
   ],
 };

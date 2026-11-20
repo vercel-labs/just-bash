@@ -1,0 +1,24 @@
+name: Documentation issue
+description: Documentation that is wrong, unclear, or missing
+labels: ["documentation"]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Location
+      description: Link the affected page or file. If the documentation is missing, describe where you expected to find it.
+      placeholder: https://github.com/vercel-labs/just-bash/blob/main/packages/just-bash/README.md
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong or missing?
+      description: Quote the text if it exists, and describe what it gets wrong or leaves out.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested change
+      description: The wording or example you would expect instead.

@@ -6,7 +6,7 @@
 
 import { ExecutionLimitError } from "../../../interpreter/errors.js";
 import type { AwkRuntimeContext } from "./context.js";
-import { setFieldSeparator } from "./fields.js";
+import { ensureFieldCount, rebuildLine, setFieldSeparator } from "./fields.js";
 import { toAwkString, toNumber } from "./type-coercion.js";
 import type { AwkValue } from "./types.js";
 
@@ -70,14 +70,18 @@ export function setVariable(
       return;
     case "NF": {
       const newNF = Math.floor(toNumber(value));
-      if (newNF < ctx.NF) {
+      if (!Number.isFinite(newNF)) {
+        // Rejects NaN and both infinities before touching fields
+        ensureFieldCount(ctx, newNF);
+      } else if (newNF < 0) {
+        throw new Error("NF set to negative value");
+      } else if (newNF < ctx.NF) {
         ctx.fields = ctx.fields.slice(0, newNF);
-        ctx.line = ctx.fields.join(ctx.OFS);
-      } else if (newNF > ctx.NF) {
-        while (ctx.fields.length < newNF) {
-          ctx.fields.push("");
-        }
-        ctx.line = ctx.fields.join(ctx.OFS);
+        rebuildLine(ctx);
+      } else if (!(newNF <= ctx.NF)) {
+        // Also taken when the current NF is NaN
+        ensureFieldCount(ctx, newNF);
+        rebuildLine(ctx);
       }
       ctx.NF = newNF;
       return;

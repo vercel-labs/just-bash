@@ -101,7 +101,10 @@ export function buildIfsCharClassPattern(ifs: string): string {
 export function getIfsSeparator(env: Map<string, string>): string {
   const ifs = env.get("IFS");
   if (ifs === undefined) return " ";
-  return ifs[0] || "";
+  const firstCodePoint = ifs.codePointAt(0);
+  return firstCodePoint === undefined
+    ? ""
+    : String.fromCodePoint(firstCodePoint);
 }
 
 /** IFS whitespace characters */

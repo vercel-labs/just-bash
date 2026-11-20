@@ -385,6 +385,10 @@ describe("Fuzz-discovered attack vectors", () => {
       assertExecResultSafe(result);
     });
 
+    // The loop condition is a pipeline of two assignments, which bash gives
+    // status 0, so this loop does not terminate on its own — the execution
+    // limits are what stop it. Running to the iteration limit takes longer
+    // than the 5s default on the slower CI runners.
     it("while loop with brace expansion and prototype assignment", async () => {
       const env = new Bash();
       const script = `
@@ -396,7 +400,7 @@ describe("Fuzz-discovered attack vectors", () => {
       `;
       const result = await env.exec(`${script} 2>&1 || true`);
       assertExecResultSafe(result);
-    });
+    }, 30_000);
 
     it("yq pipe with for loop using prototype variables", async () => {
       const env = new Bash();

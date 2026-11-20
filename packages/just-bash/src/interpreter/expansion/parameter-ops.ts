@@ -38,6 +38,7 @@ import type { InterpreterContext } from "../types.js";
 import { patternToRegex } from "./pattern.js";
 import {
   applyPatternRemoval,
+  buildPatternRemovalRegex,
   getVarNamesWithPrefix,
 } from "./pattern-removal.js";
 import { applyPatternReplacementBounded } from "./pattern-replacement.js";
@@ -105,6 +106,16 @@ export async function handleDefaultValue(
   return opCtx.effectiveValue;
 }
 
+export function assertDefaultAssignmentTarget(parameter: string): void {
+  if (/^(?:\d+|[@*#?$!-])$/.test(parameter)) {
+    throw new ExitError(
+      1,
+      "",
+      `bash: $${parameter}: cannot assign in this way\n`,
+    );
+  }
+}
+
 /**
  * Handle AssignDefault operation: ${param:=word}
  */
@@ -117,6 +128,9 @@ export async function handleAssignDefault(
 ): Promise<string> {
   ctx.coverage?.hit("bash:expansion:assign_default");
   const useDefault = opCtx.isUnset || (operation.checkEmpty && opCtx.isEmpty);
+  if (useDefault) {
+    assertDefaultAssignmentTarget(parameter);
+  }
   if (useDefault && operation.word) {
     const defaultValue = await expandWordPartsAsync(
       ctx,
@@ -127,6 +141,13 @@ export async function handleAssignDefault(
     const arrayMatch = parameter.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\[(.+)\]$/);
     if (arrayMatch) {
       const [, arrayName, subscriptExpr] = arrayMatch;
+      if (subscriptExpr === "@" || subscriptExpr === "*") {
+        throw new ExitError(
+          1,
+          "",
+          `${ctx.state.expansionStderr || ""}bash: ${parameter}: bad array subscript\n`,
+        );
+      }
       // Evaluate subscript as arithmetic expression
       let index: number;
       if (/^\d+$/.test(subscriptExpr)) {
@@ -213,29 +234,15 @@ export async function handlePatternRemoval(
 ): Promise<string> {
   ctx.coverage?.hit("bash:expansion:pattern_removal");
   // Build regex pattern from parts, preserving literal vs glob distinction
-  let regexStr = "";
-  const extglob = ctx.state.shoptOptions.extglob;
-  if (operation.pattern) {
-    for (const part of operation.pattern.parts) {
-      if (part.type === "Glob") {
-        regexStr += patternToRegex(part.pattern, operation.greedy, extglob);
-      } else if (part.type === "Literal") {
-        // Unquoted literal - treat as glob pattern (may contain *, ?, [...])
-        regexStr += patternToRegex(part.value, operation.greedy, extglob);
-      } else if (part.type === "SingleQuoted" || part.type === "Escaped") {
-        regexStr += escapeRegex(part.value);
-      } else if (part.type === "DoubleQuoted") {
-        const expanded = await expandWordPartsAsync(ctx, part.parts);
-        regexStr += escapeRegex(expanded);
-      } else if (part.type === "ParameterExpansion") {
-        const expanded = await expandPart(ctx, part);
-        regexStr += patternToRegex(expanded, operation.greedy, extglob);
-      } else {
-        const expanded = await expandPart(ctx, part);
-        regexStr += escapeRegex(expanded);
-      }
-    }
-  }
+  const regexStr = operation.pattern
+    ? await buildPatternRemovalRegex(
+        ctx,
+        operation.pattern,
+        operation.greedy,
+        expandWordPartsAsync,
+        expandPart,
+      )
+    : "";
 
   return applyPatternRemoval(
     ctx,
@@ -753,18 +760,16 @@ export function computeIsEmpty(
       // - Quoted "${a[*]:-default}": uses default if IFS-joined result is empty
       // - Unquoted ${a[*]:-default}: like $*, only "empty" if array has no elements
       //   (even if IFS="" makes the joined expansion an empty string)
-      const ifsSep = getIfsSeparator(ctx.state.env);
-      const joined = elements.map(([, v]) => v).join(ifsSep);
       return {
-        isEmpty: inDoubleQuotes ? joined === "" : false,
-        effectiveValue: joined, // Use IFS-joined value instead of space-joined
+        isEmpty: inDoubleQuotes ? value === "" : false,
+        effectiveValue: value,
       };
     }
     // a[@] - empty only if all elements are empty AND there's exactly one
     // (similar to $@ behavior with single empty param)
     return {
       isEmpty: elements.length === 1 && elements.every(([, v]) => v === ""),
-      effectiveValue: elements.map(([, v]) => v).join(" "),
+      effectiveValue: value,
     };
   }
 

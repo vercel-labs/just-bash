@@ -18,6 +18,19 @@ const limits = (
 });
 
 describe("query builtin prospective resource limits", () => {
+  it("allows array to_entries at the limit and rejects one element over", () => {
+    const filter = parse("to_entries");
+    const options = limits({ maxArrayElements: 2 });
+    expect(evaluate(["a", "b"], filter, options)).toEqual([
+      [
+        { key: 0, value: "a" },
+        { key: 1, value: "b" },
+      ],
+    ]);
+    expect(() => evaluate(["a", "b", "c"], filter, options)).toThrow(
+      ExecutionLimitError,
+    );
+  });
   it("allows has on internally-created entry objects", () => {
     const input = sanitizeParsedData({ answer: 42 });
     expect(evaluate(input, parse(`to_entries[] | has("key")`))).toEqual([true]);
@@ -124,6 +137,38 @@ describe("query builtin prospective resource limits", () => {
         limits({ maxIterations: 3 }),
       ),
     ).toThrow(/too many iterations \(3\)/);
+  });
+
+  it("charges computed path keys to the shared query work budget", () => {
+    const k = Array.from({ length: 50 }, (_, i) => `k${i}`);
+    expect(() =>
+      evaluate(
+        { a: {}, k },
+        parse("path(.a[.k[]])"),
+        limits({ maxIterations: 30, maxArrayElements: 64 }),
+      ),
+    ).toThrow(/too many iterations \(30\)/);
+  });
+
+  it("charges computed path copies in proportion to base-path length", () => {
+    const keys = Array.from({ length: 1000 }, (_, i) => `k${i}`);
+    const options = limits({
+      maxIterations: 4000,
+      maxDepth: 256,
+      maxArrayElements: 2000,
+    });
+    expect(
+      evaluate({ a: {}, keys }, parse("[path(.a[.keys[]])] | length"), options),
+    ).toEqual([1000]);
+    let base: unknown = {};
+    for (let i = 0; i < 100; i++) base = { a: base };
+    expect(() =>
+      evaluate(
+        { ...(base as object), keys },
+        parse(`[path(${".a".repeat(100)}[.keys[]])] | length`),
+        options,
+      ),
+    ).toThrow(/too many iterations \(4000\)/);
   });
 
   it("preserves jq's negative-index error for pick(last)", () => {
