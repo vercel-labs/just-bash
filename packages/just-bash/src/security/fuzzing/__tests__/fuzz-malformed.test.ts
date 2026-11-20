@@ -34,21 +34,47 @@ const config = createFuzzConfig({
   failureLogFile: "fuzz-malformed-failures.log",
 });
 
+let lastTestedScript = "";
+let lastResult: FuzzResult | null = null;
 let lastFailureReason = "";
+
+function trackScript(script: string): string {
+  lastTestedScript = script;
+  return script;
+}
+
+function trackResult(result: FuzzResult, reason: string): void {
+  lastResult = result;
+  lastFailureReason = reason;
+}
 
 describe("Malformed Script Fuzzing", () => {
   const runner = new FuzzRunner(config);
   const oracle = new SandboxOracle();
 
-  async function logFailure(result: FuzzResult, reason: string): Promise<void> {
-    await runner.logFailure(result, reason);
+  function logFailure(result: FuzzResult, reason: string): void {
+    runner.logFailure(result, reason);
   }
 
   afterEach((context) => {
     if (context.task.result?.state === "fail") {
-      console.error(
-        `Malformed fuzz failure: ${lastFailureReason.split("\n", 1)[0].slice(0, 160) || "see test failure"}. Records: ${runner.getDiagnosticsPath()}`,
-      );
+      console.error("\n=== Malformed Fuzz Test Failure ===");
+      console.error(`Script: ${lastTestedScript}`);
+      console.error(`Reason: ${lastFailureReason}`);
+      if (lastResult) {
+        console.error(`Completed: ${lastResult.completed}`);
+        console.error(`Timed out: ${lastResult.timedOut}`);
+        console.error(`Hit limit: ${lastResult.hitLimit}`);
+        console.error(`Exit code: ${lastResult.exitCode}`);
+        console.error(`Duration: ${lastResult.durationMs}ms`);
+        if (lastResult.error) {
+          console.error(`Error: ${lastResult.error.message}`);
+        }
+        if (lastResult.stderr) {
+          console.error(`Stderr: ${lastResult.stderr.slice(0, 200)}`);
+        }
+      }
+      console.error("===================================\n");
     }
   });
 
@@ -62,15 +88,16 @@ describe("Malformed Script Fuzzing", () => {
   ): Promise<void> {
     await fc.assert(
       fc.asyncProperty(arb, async (script) => {
-        lastFailureReason = "";
-        const result = await runner.run(script, label);
+        trackScript(script);
+        const result = await runner.run(script);
+        trackResult(result, "");
 
         // Script must either complete, timeout, or hit a limit
         const handled = result.completed || result.timedOut || result.hitLimit;
         if (!handled) {
           const reason = `${label}: script neither completed nor timed out`;
-          lastFailureReason = reason;
-          await logFailure(result, reason);
+          trackResult(result, reason);
+          logFailure(result, reason);
           expect(handled, reason).toBe(true);
         }
 
@@ -85,8 +112,8 @@ describe("Malformed Script Fuzzing", () => {
             msg.includes("Maximum call stack");
           if (!acceptable) {
             const reason = `${label}: unexpected error: ${msg}`;
-            lastFailureReason = reason;
-            await logFailure(result, reason);
+            trackResult(result, reason);
+            logFailure(result, reason);
             expect(acceptable, reason).toBe(true);
           }
         }
@@ -99,8 +126,8 @@ describe("Malformed Script Fuzzing", () => {
           oracle.containsNativeCode(stderr)
         ) {
           const reason = `${label}: native code leak detected`;
-          lastFailureReason = reason;
-          await logFailure(result, reason);
+          trackResult(result, reason);
+          logFailure(result, reason);
           expect(false, reason).toBe(true);
         }
       }),

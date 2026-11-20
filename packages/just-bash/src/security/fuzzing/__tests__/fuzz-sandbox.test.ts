@@ -41,6 +41,7 @@ const config = createFuzzConfig({
   failureLogFile: "fuzz-sandbox-failures.log",
 });
 
+let lastTestedScript = "";
 let lastResult: FuzzResult | null = null;
 let lastFailureReason = "";
 // Track the first failure (fast-check shrinking can overwrite with passing scripts)
@@ -65,8 +66,13 @@ function isExecutionLimitError(output: string): boolean {
   return EXECUTION_LIMIT_PATTERNS.some((p) => p.test(output));
 }
 
+function trackScript(script: string): string {
+  lastTestedScript = script;
+  return script;
+}
+
 function formatError(context: string): string {
-  // Detailed failure evidence is in the runner's diagnostics.
+  // Keep error messages short - detailed info is in afterEach output
   return `Security check failed: ${context}`;
 }
 
@@ -74,11 +80,11 @@ describe("Sandbox Escape Fuzzing", () => {
   const runner = new FuzzRunner(config);
   const oracle = new SandboxOracle();
 
-  async function checkNoNativeCode(
+  function checkNoNativeCode(
     result: FuzzResult,
     script: string,
     context: string,
-  ): Promise<void> {
+  ): void {
     lastResult = result;
 
     // Execution limits being hit is intended defense behavior, not a failure
@@ -101,7 +107,7 @@ describe("Sandbox Escape Fuzzing", () => {
         firstFailedResult = result;
       }
       // Log failure immediately to file (append-only)
-      await runner.logFailure(result, lastFailureReason);
+      runner.logFailure(result, lastFailureReason);
       expect(false, formatError(`${context} - stdout has native code`)).toBe(
         true,
       );
@@ -116,7 +122,7 @@ describe("Sandbox Escape Fuzzing", () => {
         firstFailedResult = result;
       }
       // Log failure immediately to file (append-only)
-      await runner.logFailure(result, lastFailureReason);
+      runner.logFailure(result, lastFailureReason);
       expect(false, formatError(`${context} - stderr has native code`)).toBe(
         true,
       );
@@ -127,11 +133,12 @@ describe("Sandbox Escape Fuzzing", () => {
   }
 
   async function runAndCheck(script: string, context: string): Promise<true> {
+    trackScript(script);
     lastFailureReason = "Script execution in progress...";
     lastResult = null;
 
     try {
-      const result = await runner.run(script, context);
+      const result = await runner.run(script);
       lastResult = result;
 
       // Execution limits being hit (with error) is expected defense behavior
@@ -150,12 +157,12 @@ describe("Sandbox Escape Fuzzing", () => {
           firstFailedResult = result;
         }
         // Log failure immediately to file (append-only)
-        await runner.logFailure(result, lastFailureReason);
+        runner.logFailure(result, lastFailureReason);
         throw new Error(lastFailureReason);
       }
 
       lastFailureReason = "Checking for native code...";
-      await checkNoNativeCode(result, script, context);
+      checkNoNativeCode(result, script, context);
       // Track that we passed all checks (helps debug false positives)
       lastFailureReason = "PASSED: All security checks passed";
       // Debug: confirm we're returning true
@@ -177,34 +184,44 @@ describe("Sandbox Escape Fuzzing", () => {
       }
       // Log failure immediately to file (append-only)
       if (lastResult) {
-        await runner.logFailure(lastResult, lastFailureReason);
+        runner.logFailure(lastResult, lastFailureReason);
       }
       throw e;
     }
   }
 
-  afterEach(async (context) => {
+  afterEach((context) => {
     if (context.task.result?.state === "fail") {
       // Prefer first failure info (fast-check shrinking can overwrite with passing scripts)
+      const failedScript = firstFailedScript || lastTestedScript;
       const failureReason = firstFailureReason || lastFailureReason;
       const failedResult = firstFailedResult || lastResult;
 
-      console.error(
-        `Sandbox fuzz failure: ${failureReason.split("\n", 1)[0].slice(0, 160) || "see test failure"}. Records: ${runner.getDiagnosticsPath()}`,
-      );
+      // Use a distinctive header so we can tell this is from afterEach
+      console.error("\n\n########## FUZZ FAILURE DETAILS ##########");
+      console.error(`Script: ${failedScript || "(no script tracked)"}`);
+      console.error(`Reason: ${failureReason || "(no reason tracked)"}`);
       if (failedResult) {
+        console.error(
+          `Result: completed=${failedResult.completed}, timedOut=${failedResult.timedOut}, exitCode=${failedResult.exitCode}`,
+        );
+        if (failedResult.stdout)
+          console.error(`Stdout: ${failedResult.stdout.slice(0, 200)}`);
+        if (failedResult.stderr)
+          console.error(`Stderr: ${failedResult.stderr.slice(0, 200)}`);
         // Only log REAL failures to file (skip false positives and execution limit hits)
         const isFalsePositive = failureReason?.startsWith("PASSED:");
         const isLimitHit = isExecutionLimitError(failedResult.stderr || "");
         if (!isFalsePositive && !isLimitHit) {
-          await runner.logFailure(
-            failedResult,
-            failureReason || "Unknown failure",
-          );
+          runner.logFailure(failedResult, failureReason || "Unknown failure");
         }
+      } else {
+        console.error("Result: (no result tracked)");
       }
+      console.error("##########################################\n\n");
     }
     // Reset all tracking for next test
+    lastTestedScript = "";
     lastResult = null;
     lastFailureReason = "";
     firstFailedScript = "";
@@ -216,7 +233,7 @@ describe("Sandbox Escape Fuzzing", () => {
     describe("Sandbox Escapes", () => {
       for (const attack of SANDBOX_ESCAPES) {
         it(`should block: ${attack.name}`, async () => {
-          const result = await runner.run(attack.script, attack.name);
+          const result = await runner.run(attack.script);
           expect(
             oracle.containsSensitiveData(result.stdout || ""),
             formatError("Sensitive data leaked in stdout"),
@@ -228,7 +245,7 @@ describe("Sandbox Escape Fuzzing", () => {
     describe("Pollution Attacks", () => {
       for (const attack of POLLUTION_ATTACKS) {
         it(`should handle safely: ${attack.name}`, async () => {
-          const result = await runner.run(attack.script, attack.name);
+          const result = await runner.run(attack.script);
           expect(
             oracle.containsNativeCode(result.stdout || ""),
             formatError("Pollution attack exposed native code in stdout"),
@@ -244,7 +261,7 @@ describe("Sandbox Escape Fuzzing", () => {
     describe("Injection Attacks", () => {
       for (const attack of INJECTION_ATTACKS) {
         it(`should handle safely: ${attack.name}`, async () => {
-          const result = await runner.run(attack.script, attack.name);
+          const result = await runner.run(attack.script);
           expect(
             result.completed,
             formatError("Injection attack did not complete"),

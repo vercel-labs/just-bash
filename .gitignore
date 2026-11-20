@@ -17,6 +17,7 @@ todo/
 .docs-test-tmp/
 fuzz-*.log
 fuzz-*.jsonl
+/packages/just-bash/test-support/.fuzz-crash-*/
 .claude/settings.local.json
 .deepsec/
 plans/
