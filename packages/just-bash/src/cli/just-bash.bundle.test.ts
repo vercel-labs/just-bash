@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { readdir, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
@@ -6,6 +7,36 @@ import { describe, expect, it } from "vitest";
 
 const execFileAsync = promisify(execFile);
 const binPath = resolve(__dirname, "../../dist/bin/just-bash.js");
+
+describe("bundled Turndown patch", () => {
+  it.each([
+    ["Node ESM", "bundle/chunks"],
+    ["Node CJS", "bundle/index.cjs"],
+    ["browser", "bundle/browser.js"],
+    ["CLI", "bin/chunks"],
+    ["shell", "bin/shell/chunks"],
+  ])("includes both linear-time fixes in %s", async (_, output) => {
+    const location = resolve(__dirname, "../../dist", output);
+    const files = output.endsWith("/chunks")
+      ? (await readdir(location))
+          .filter((name) => name.endsWith(".js"))
+          .map((name) => resolve(location, name))
+      : [location];
+    const sources = await Promise.all(
+      files.map((file) => readFile(file, "utf8")),
+    );
+    const patched = sources.some((source) => {
+      const padding = source.indexOf(String.raw`/[\n\r\u2028\u2029]/g`);
+      if (padding < 0) return false;
+      // The patch places the two helpers together. Check both to catch an
+      // externalized Turndown or a bundle that contains only one fix.
+      return /\/\\s\/\.test\([\w$]+\[[\w$]+-1\]\)/.test(
+        source.slice(Math.max(0, padding - 512), padding),
+      );
+    });
+    expect(patched).toBe(true);
+  });
+});
 
 async function runBin(
   args: string[],
