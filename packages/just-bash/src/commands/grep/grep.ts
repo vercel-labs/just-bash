@@ -7,6 +7,7 @@ import type {
   RuntimeCommand,
   RuntimeCommandContext,
 } from "../../types.js";
+import { describeFsError } from "../../utils/fs-error.js";
 import { matchGlob } from "../../utils/glob.js";
 import { showHelp, unknownOption } from "../help.js";
 import {
@@ -25,6 +26,7 @@ const STDIN_FILENAME = "(standard input)";
 /** File entry with optional type info from glob expansion */
 interface FileEntry {
   path: string;
+  error?: string;
   isFile?: boolean; // undefined means we need to stat
   /** True for the `-` operand, which names standard input instead of a file. */
   isStdin?: boolean;
@@ -156,7 +158,8 @@ const grepHelp = {
     "-h, --no-filename        suppress the file name prefix on output",
     "-o, --only-matching      show only nonempty parts of lines that match",
     "-q, --quiet, --silent    suppress all normal output",
-    "-r, -R, --recursive      search directories recursively",
+    "-r, --recursive          recurse; follow operand symlinks only",
+    "-R, --dereference-recursive  recurse and follow all symlinks",
     "-A NUM                   print NUM lines of trailing context",
     "-B NUM                   print NUM lines of leading context",
     "-C NUM                   print NUM lines of context",
@@ -183,6 +186,7 @@ export const grepCommand: RuntimeCommand = {
     let filesWithMatches = false;
     let filesWithoutMatch = false;
     let recursive = false;
+    let followSymlinks = false;
     let wholeWord = false;
     let lineRegexp = false;
     let extendedRegex = false;
@@ -325,9 +329,16 @@ export const grepCommand: RuntimeCommand = {
             filesWithMatches = true;
           else if (flag === "L" || flag === "--files-without-match")
             filesWithoutMatch = true;
-          else if (flag === "r" || flag === "R" || flag === "--recursive")
+          else if (
+            flag === "r" ||
+            flag === "R" ||
+            flag === "--recursive" ||
+            flag === "--dereference-recursive"
+          ) {
             recursive = true;
-          else if (flag === "w" || flag === "--word-regexp") wholeWord = true;
+            followSymlinks ||=
+              flag === "R" || flag === "--dereference-recursive";
+          } else if (flag === "w" || flag === "--word-regexp") wholeWord = true;
           else if (flag === "x" || flag === "--line-regexp") lineRegexp = true;
           else if (flag === "E" || flag === "--extended-regexp")
             extendedRegex = true;
@@ -427,6 +438,7 @@ export const grepCommand: RuntimeCommand = {
       return { stdout: "", stderr: "", exitCode: 1 };
     }
     const files = operands;
+    if (recursive && files.length === 0) files.push("");
 
     // Build regex using shared search-engine
     const regexMode: RegexMode = fixedStrings
@@ -604,6 +616,7 @@ export const grepCommand: RuntimeCommand = {
               excludeDirPatterns,
               f.isFile,
               traversalBudget,
+              followSymlinks,
             );
             appendFiles(recursiveExpanded);
           }
@@ -619,6 +632,7 @@ export const grepCommand: RuntimeCommand = {
           excludeDirPatterns,
           undefined,
           traversalBudget,
+          followSymlinks,
         );
         appendFiles(expanded);
       } else {
@@ -644,6 +658,7 @@ export const grepCommand: RuntimeCommand = {
       // Process batch in parallel
       const results = await Promise.all(
         batch.map(async (fileEntry) => {
+          if (fileEntry.error) return { error: fileEntry.error };
           const file = fileEntry.path;
           const basename = file.split("/").pop() || file;
 
@@ -770,7 +785,7 @@ export const grepCommand: RuntimeCommand = {
           anyMatch = true;
           if (quietMode) {
             // In quiet mode, exit immediately on first match
-            return { stdout: "", stderr: "", exitCode: 0 };
+            return { stdout: "", stderr, exitCode: 0 };
           }
           if (filesWithMatches) {
             stdout += `${file}\n`;
@@ -805,7 +820,7 @@ export const grepCommand: RuntimeCommand = {
     }
 
     if (quietMode) {
-      return { stdout: "", stderr: "", exitCode };
+      return { stdout: "", stderr, exitCode };
     }
 
     return {
@@ -973,6 +988,7 @@ async function expandRecursiveWithTypes(
     maxOperations: ctx.limits.maxGlobOperations,
     maxResults: ctx.limits.maxArrayElements,
   },
+  followSymlinks = false,
   result: FileEntry[] = [],
   depth = 0,
 ): Promise<FileEntry[]> {
@@ -989,7 +1005,11 @@ async function expandRecursiveWithTypes(
       isDirectory = !knownIsFile;
     } else {
       useTraversalOperation(budget);
-      const stat = await ctx.fs.stat(fullPath);
+      const stat =
+        depth > 0 && !followSymlinks
+          ? await ctx.fs.lstat(fullPath)
+          : await ctx.fs.stat(fullPath);
+      if (stat.isSymbolicLink) return result;
       isFile = stat.isFile;
       isDirectory = stat.isDirectory;
     }
@@ -1045,17 +1065,20 @@ async function expandRecursiveWithTypes(
       const entries = await ctx.fs.readdirWithFileTypes(fullPath);
       for (const entry of entries) {
         useTraversalOperation(budget);
-        if (entry.name.startsWith(".")) continue; // Skip hidden files
+        if (entry.isSymbolicLink && !followSymlinks) continue;
 
-        const entryPath = path === "." ? entry.name : `${path}/${entry.name}`;
+        const entryPath = path
+          ? `${path.replace(/\/$/, "")}/${entry.name}`
+          : entry.name;
         await expandRecursiveWithTypes(
           entryPath,
           ctx,
           includePatterns,
           excludePatterns,
           excludeDirPatterns,
-          entry.isFile,
+          entry.isSymbolicLink ? undefined : entry.isFile,
           budget,
+          followSymlinks,
           result,
           depth + 1,
         );
@@ -1065,9 +1088,8 @@ async function expandRecursiveWithTypes(
       const entries = await ctx.fs.readdir(fullPath);
       for (const entry of entries) {
         useTraversalOperation(budget);
-        if (entry.startsWith(".")) continue; // Skip hidden files
 
-        const entryPath = path === "." ? entry : `${path}/${entry}`;
+        const entryPath = path ? `${path.replace(/\/$/, "")}/${entry}` : entry;
         await expandRecursiveWithTypes(
           entryPath,
           ctx,
@@ -1076,6 +1098,7 @@ async function expandRecursiveWithTypes(
           excludeDirPatterns,
           undefined,
           budget,
+          followSymlinks,
           result,
           depth + 1,
         );
@@ -1083,7 +1106,8 @@ async function expandRecursiveWithTypes(
     }
   } catch (error) {
     rethrowFatalExecutionError(error);
-    // Ignore errors
+    addTraversalResult(budget);
+    result.push({ path, error: `grep: ${path}: ${describeFsError(error)}\n` });
   }
 
   return result;
