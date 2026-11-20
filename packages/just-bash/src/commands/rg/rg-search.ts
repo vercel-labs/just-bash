@@ -378,7 +378,12 @@ export async function executeSearch(
   );
 
   if (files.length === 0) {
-    return { stdout: "", stderr, exitCode: stderr ? 2 : 1 };
+    // --no-messages suppresses the diagnostics text, never the exit code.
+    return {
+      stdout: "",
+      stderr: options.messages ? stderr : "",
+      exitCode: stderr ? 2 : 1,
+    };
   }
 
   // Determine output settings
@@ -901,7 +906,11 @@ async function listFiles(
   );
 
   if (files.length === 0) {
-    return { stdout: "", stderr, exitCode: stderr ? 2 : 1 };
+    return {
+      stdout: "",
+      stderr: options.messages ? stderr : "",
+      exitCode: stderr ? 2 : 1,
+    };
   }
 
   // In quiet mode, just indicate success without output
@@ -918,7 +927,11 @@ async function listFiles(
   for (const file of files) output.append(file).append(sep);
   const stdout = output.build();
 
-  return { stdout, stderr, exitCode: stderr ? 2 : 0 };
+  return {
+    stdout,
+    stderr: options.messages ? stderr : "",
+    exitCode: stderr ? 2 : 0,
+  };
 }
 
 /**
@@ -1379,10 +1392,11 @@ async function searchFiles(
   const stderr = errors.build();
   if (stderr && !(options.quiet && anyMatch)) exitCode = 2;
 
-  // rg emits text; the pipeline handles encoding.
+  // rg emits text; the pipeline handles encoding. --no-messages drops the
+  // diagnostics text only; the exit code above already accounted for them.
   return {
     stdout: finalStdout,
-    stderr,
+    stderr: options.messages ? stderr : "",
     exitCode,
   };
 }
