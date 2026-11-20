@@ -122,7 +122,7 @@ export class GlobExpander {
 
     return results.filter((path) => {
       // Get the basename for matching
-      const basename = path.split("/").pop() || path;
+      const basename = path.replace(/\/$/, "").split("/").pop() || path;
 
       // Filter . and .. when GLOBIGNORE is set OR globskipdots is enabled
       if (
@@ -213,6 +213,13 @@ export class GlobExpander {
    * Expand a single glob pattern
    */
   async expand(pattern: string): Promise<string[]> {
+    // A trailing slash restricts matches to directories and is kept (as a
+    // single slash) on each result, so `*/` yields `a/ b/` and `*//` too.
+    const dirsOnly = pattern.length > 1 && pattern.endsWith("/");
+    if (dirsOnly) {
+      pattern = pattern.replace(/\/+$/, "") || "/";
+    }
+
     // Reject patterns with excessive ** segments to prevent combinatorial explosion
     if (this.globstar) {
       const segments = pattern.split("/");
@@ -239,15 +246,50 @@ export class GlobExpander {
       this.globstar &&
       this.isGlobstarValid(pattern)
     ) {
-      results = await this.expandRecursive(pattern);
+      results = await this.expandRecursive(pattern, dirsOnly);
     } else {
       // When globstar is disabled or ** is not a complete segment, treat ** as *
       const normalizedPattern = pattern.replace(/\*\*+/g, "*");
-      results = await this.expandSimple(normalizedPattern);
+      results = await this.expandSimple(normalizedPattern, dirsOnly);
+    }
+
+    if (dirsOnly) {
+      // GLOBIGNORE and ordering see the match with its slash, as in bash
+      results = results.map((match) => `${match}/`);
+      return this.filterGlobignore(results).sort();
     }
 
     // Apply GLOBIGNORE filtering
     return this.filterGlobignore(results);
+  }
+
+  /**
+   * Keep only the paths that are directories (stats run in parallel batches)
+   */
+  private async filterDirectories(paths: string[]): Promise<string[]> {
+    const directories: string[] = [];
+    for (let i = 0; i < paths.length; i += DEFAULT_BATCH_SIZE) {
+      const batch = paths.slice(i, i + DEFAULT_BATCH_SIZE);
+      const flags = await Promise.all(
+        batch.map(async (path) => {
+          try {
+            this.checkOpsLimit(); // Count stat operation
+            return (await this.fs.stat(this.fs.resolvePath(this.cwd, path)))
+              .isDirectory;
+          } catch (error) {
+            // ExecutionLimitError must propagate
+            if (error instanceof ExecutionLimitError) {
+              throw error;
+            }
+            return false;
+          }
+        }),
+      );
+      batch.forEach((path, index) => {
+        if (flags[index]) directories.push(path);
+      });
+    }
+    return directories;
   }
 
   /**
@@ -295,7 +337,10 @@ export class GlobExpander {
    * Expand a simple glob pattern (no **).
    * Handles multi-segment patterns like /dm/star/star.json
    */
-  private async expandSimple(pattern: string): Promise<string[]> {
+  private async expandSimple(
+    pattern: string,
+    dirsOnly = false,
+  ): Promise<string[]> {
     // Split pattern into segments
     const isAbsolute = pattern.startsWith("/");
     const segments = pattern.split("/").filter((s) => s !== "");
@@ -311,7 +356,7 @@ export class GlobExpander {
 
     // No glob characters - return pattern as-is (shouldn't happen but be safe)
     if (firstGlobIndex === -1) {
-      return [pattern];
+      return dirsOnly ? [] : [pattern];
     }
 
     // Build the base path for filesystem operations (may include cwd for relative paths)
@@ -346,6 +391,7 @@ export class GlobExpander {
       fsBasePath,
       resultPrefix,
       remainingSegments,
+      dirsOnly,
     );
 
     return results.sort();
@@ -361,6 +407,7 @@ export class GlobExpander {
     fsPath: string,
     resultPrefix: string,
     segments: string[],
+    dirsOnly = false,
   ): Promise<string[]> {
     // Check glob operation limit at entry point
     this.checkOpsLimit();
@@ -437,7 +484,16 @@ export class GlobExpander {
 
             if (remainingSegments.length === 0) {
               // No more segments - add this path to results
-              matchPromises.push(Promise.resolve([newResultPrefix]));
+              if (!dirsOnly || entry.isDirectory) {
+                matchPromises.push(Promise.resolve([newResultPrefix]));
+              } else if (entry.isSymbolicLink) {
+                // A symlink counts as a directory when its target is one
+                matchPromises.push(
+                  this.filterDirectories([newFsPath]).then((found) =>
+                    found.length > 0 ? [newResultPrefix] : [],
+                  ),
+                );
+              }
             } else if (entry.isDirectory) {
               // More segments to match and this is a directory - recurse
               matchPromises.push(
@@ -445,6 +501,7 @@ export class GlobExpander {
                   newFsPath,
                   newResultPrefix,
                   remainingSegments,
+                  dirsOnly,
                 ),
               );
             }
@@ -503,22 +560,25 @@ export class GlobExpander {
               newResultPrefix = `${resultPrefix}/${entry}`;
             }
 
-            if (remainingSegments.length === 0) {
+            if (remainingSegments.length === 0 && !dirsOnly) {
               // No more segments - add this path to results
               matchPromises.push(Promise.resolve([newResultPrefix]));
             } else {
-              // More segments to match - check if this is a directory and recurse
+              // More segments to match, or a directory is required: stat it
               matchPromises.push(
                 (async (): Promise<string[]> => {
                   try {
                     this.checkOpsLimit(); // Count stat operation
                     const stat = await this.fs.stat(newFsPath);
                     if (stat.isDirectory) {
-                      return this.expandSegments(
-                        newFsPath,
-                        newResultPrefix,
-                        remainingSegments,
-                      );
+                      return remainingSegments.length === 0
+                        ? [newResultPrefix]
+                        : this.expandSegments(
+                            newFsPath,
+                            newResultPrefix,
+                            remainingSegments,
+                            dirsOnly,
+                          );
                     }
                   } catch (error) {
                     // ExecutionLimitError must propagate
@@ -553,7 +613,10 @@ export class GlobExpander {
   /**
    * Expand a recursive glob pattern (contains **)
    */
-  private async expandRecursive(pattern: string): Promise<string[]> {
+  private async expandRecursive(
+    pattern: string,
+    dirsOnly = false,
+  ): Promise<string[]> {
     const results: string[] = [];
 
     // Split pattern at first **
@@ -575,9 +638,22 @@ export class GlobExpander {
       );
       // Dedupe results since multiple ** can match the same file from different paths
       const unique = [...new Set(results)];
-      return unique.sort();
+      return dirsOnly
+        ? (await this.filterDirectories(unique)).sort()
+        : unique.sort();
     } else {
-      await this.walkDirectory(beforeDoubleStar, filePattern, results);
+      if (dirsOnly && !filePattern && beforeDoubleStar !== ".") {
+        // `dir/**/` also matches dir itself (zero levels)
+        if ((await this.filterDirectories([beforeDoubleStar])).length > 0) {
+          results.push(beforeDoubleStar);
+        }
+      }
+      await this.walkDirectory(
+        beforeDoubleStar,
+        filePattern,
+        results,
+        dirsOnly,
+      );
     }
 
     return results.sort();
@@ -686,6 +762,7 @@ export class GlobExpander {
     dir: string,
     filePattern: string,
     results: string[],
+    dirsOnly = false,
   ): Promise<void> {
     // Check glob operation limit before directory scan
     this.checkOpsLimit();
@@ -706,7 +783,14 @@ export class GlobExpander {
           const entryPath = dir === "." ? entry.name : `${dir}/${entry.name}`;
           if (entry.isDirectory) {
             dirs.push(entryPath);
+            if (
+              dirsOnly &&
+              (!filePattern || this.matchPattern(entry.name, filePattern))
+            ) {
+              files.push(entryPath);
+            }
           } else if (
+            !dirsOnly &&
             filePattern &&
             this.matchPattern(entry.name, filePattern)
           ) {
@@ -722,7 +806,7 @@ export class GlobExpander {
           const batch = dirs.slice(i, i + DEFAULT_BATCH_SIZE);
           await Promise.all(
             batch.map((dirPath) =>
-              this.walkDirectory(dirPath, filePattern, results),
+              this.walkDirectory(dirPath, filePattern, results, dirsOnly),
             ),
           );
         }
@@ -769,7 +853,14 @@ export class GlobExpander {
 
         // Process files
         for (const entry of entryInfos) {
-          if (!entry.isDirectory && filePattern) {
+          if (dirsOnly) {
+            if (
+              entry.isDirectory &&
+              (!filePattern || this.matchPattern(entry.name, filePattern))
+            ) {
+              results.push(entry.path);
+            }
+          } else if (!entry.isDirectory && filePattern) {
             if (this.matchPattern(entry.name, filePattern)) {
               results.push(entry.path);
             }
@@ -782,7 +873,7 @@ export class GlobExpander {
           const batch = dirs.slice(i, i + DEFAULT_BATCH_SIZE);
           await Promise.all(
             batch.map((entry) =>
-              this.walkDirectory(entry.path, filePattern, results),
+              this.walkDirectory(entry.path, filePattern, results, dirsOnly),
             ),
           );
         }

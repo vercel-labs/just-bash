@@ -105,4 +105,65 @@ describe("glob expansion - Real Bash Comparison", () => {
     });
     await compareOutputs(env, testDir, "cat data/*/config.json");
   });
+
+  it("should match only directories when the pattern ends in a slash", async () => {
+    const env = await setupFiles(testDir, {
+      "dir1/file.txt": "one",
+      "dir2/file.txt": "two",
+      "plain.txt": "plain",
+    });
+    await compareOutputs(env, testDir, "echo */");
+  });
+
+  it("should keep the slash when looping over directory globs", async () => {
+    const env = await setupFiles(testDir, {
+      "dir1/file.txt": "one",
+      "dir2/file.txt": "two",
+      "plain.txt": "plain",
+    });
+    await compareOutputs(env, testDir, 'for d in */; do echo "[$d]"; done');
+  });
+
+  it("should match directories only for a nested pattern ending in a slash", async () => {
+    const env = await setupFiles(testDir, {
+      "a/x/file.txt": "ax",
+      "a/y.txt": "ay",
+      "b/z/file.txt": "bz",
+    });
+    await compareOutputs(env, testDir, "echo */*/");
+  });
+
+  it("should leave the pattern unchanged when no directory matches a trailing slash", async () => {
+    const env = await setupFiles(testDir, {
+      "one.txt": "one",
+      "two.txt": "two",
+    });
+    await compareOutputs(env, testDir, "echo */");
+  });
+
+  it("should sort trailing-slash matches with the slash included", async () => {
+    const env = await setupFiles(testDir, {
+      "a/file.txt": "a",
+      "a.b/file.txt": "ab",
+      "a-b/file.txt": "a-b",
+    });
+    await compareOutputs(env, testDir, "echo */");
+  });
+
+  it("should collapse repeated trailing slashes to one", async () => {
+    const env = await setupFiles(testDir, {
+      "a/file.txt": "a",
+      "b.txt": "b",
+    });
+    await compareOutputs(env, testDir, "echo *//");
+  });
+
+  it("should apply GLOBIGNORE to matches that keep the trailing slash", async () => {
+    const env = await setupFiles(testDir, {
+      "a/file.txt": "a",
+      "b/file.txt": "b",
+    });
+    await compareOutputs(env, testDir, "GLOBIGNORE='a/'; echo */");
+    await compareOutputs(env, testDir, "GLOBIGNORE='a'; echo */");
+  });
 });
