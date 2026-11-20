@@ -21,6 +21,8 @@ export interface HeadTailOptions {
   files: string[];
   /** tail-specific: start from line N instead of last N lines */
   fromLine?: boolean;
+  /** tail-specific: `-c +N` starts at byte N instead of the last N bytes */
+  bytesFromStart?: boolean;
 }
 
 export type HeadTailParseResult =
@@ -40,6 +42,11 @@ export function parseHeadTailArgs(
   let quiet = false;
   let verbose = false;
   let fromLine = false;
+  let bytesFromStart = false;
+  const parseBytes = (value: string): number => {
+    bytesFromStart = cmdName === "tail" && value.startsWith("+");
+    return parseInt(value, 10);
+  };
   const files: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -60,11 +67,11 @@ export function parseHeadTailArgs(
     } else if (arg.startsWith("-n")) {
       lines = parseInt(arg.slice(2), 10);
     } else if (arg === "-c" && i + 1 < args.length) {
-      bytes = parseInt(args[++i], 10);
+      bytes = parseBytes(args[++i]);
     } else if (arg.startsWith("-c")) {
-      bytes = parseInt(arg.slice(2), 10);
+      bytes = parseBytes(arg.slice(2));
     } else if (arg.startsWith("--bytes=")) {
-      bytes = parseInt(arg.slice(8), 10);
+      bytes = parseBytes(arg.slice(8));
     } else if (arg.startsWith("--lines=")) {
       lines = parseInt(arg.slice(8), 10);
     } else if (arg === "-q" || arg === "--quiet" || arg === "--silent") {
@@ -108,7 +115,7 @@ export function parseHeadTailArgs(
 
   return {
     ok: true,
-    options: { lines, bytes, quiet, verbose, files, fromLine },
+    options: { lines, bytes, quiet, verbose, files, fromLine, bytesFromStart },
   };
 }
 
@@ -248,8 +255,11 @@ export function getTail(
   lines: number,
   bytes: number | null,
   fromLine: boolean,
+  bytesFromStart = false,
 ): string {
   if (bytes !== null) {
+    // `-c +N` starts output at byte N (1-based); +0 and +1 print everything.
+    if (bytesFromStart) return content.slice(Math.max(bytes - 1, 0));
     if (bytes === 0) return "";
     return content.slice(-bytes);
   }

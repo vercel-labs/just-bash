@@ -1,0 +1,51 @@
+{
+  "194f3e14890ed4a2": {
+    "command": "printf 'one\\ntwo\\n' | tail -c +8",
+    "files": {},
+    "stdout": "\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4558286e2744fcd7": {
+    "command": "printf 'one\\ntwo\\n' | tail -c +100",
+    "files": {},
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "63edd98db4febd7e": {
+    "command": "printf 'one\\ntwo\\n' | tail -c +0",
+    "files": {},
+    "stdout": "one\ntwo\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7cdf4bb9b2834fb7": {
+    "command": "printf 'one\\ntwo\\n' | tail -c +1",
+    "files": {},
+    "stdout": "one\ntwo\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b5a59b8885ecd678": {
+    "command": "printf 'one\\ntwo\\n' | tail --bytes=+5",
+    "files": {},
+    "stdout": "two\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c6e72d149bc7738b": {
+    "command": "printf 'one\\ntwo\\n' | tail -c +4",
+    "files": {},
+    "stdout": "\ntwo\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f2d4eea6caf92984": {
+    "command": "printf 'one\\ntwo\\n' | tail -c 4",
+    "files": {},
+    "stdout": "two\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
