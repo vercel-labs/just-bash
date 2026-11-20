@@ -215,10 +215,45 @@ describe("jq builtin functions", () => {
         `echo '[{"a":1,"b":2},{"a":1,"b":1}]' | jq -c 'sort_by(.a, .b) | map(.b)'`,
       );
       expect(result.stdout).toBe("[1,2]\n");
-      const semicolon = await env.exec(
+    });
+
+    it("should reject sort_by with a semicolon-separated second key", async () => {
+      const env = new Bash();
+      // Real jq rejects sort_by/2 at compile time (exit 3); only the
+      // comma form is a valid multi-key sort.
+      const result = await env.exec(
         `echo '[{"a":1,"b":2},{"a":1,"b":1}]' | jq -c 'sort_by(.a; .b) | map(.b)'`,
       );
-      expect(semicolon.stdout).toBe("[1,2]\n");
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("jq: parse error: sort_by/2 is not defined\n");
+      expect(result.exitCode).toBe(5);
+    });
+
+    it("should reject the other _by builtins with anything but one key", async () => {
+      const env = new Bash();
+      // Real jq rejects group_by/2, unique_by/2, min_by/2, max_by/2 and
+      // the /0 forms at compile time (exit 3).
+      const cases: Array<[string, string]> = [
+        ["group_by/2", "group_by(.[0]; .[0])"],
+        ["unique_by/2", "unique_by(.a; .b)"],
+        ["min_by/2", "min_by(.a; .b)"],
+        ["max_by/2", "max_by(.a; .b)"],
+        ["sort_by/0", "sort_by"],
+        ["group_by/0", "group_by"],
+        ["unique_by/0", "unique_by"],
+        ["min_by/0", "min_by"],
+        ["max_by/0", "max_by"],
+      ];
+      for (const [arity, program] of cases) {
+        const result = await env.exec(
+          `echo '[{"a":1,"b":2}]' | jq -c '${program}'`,
+        );
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toBe(
+          `jq: parse error: ${arity} is not defined\n`,
+        );
+        expect(result.exitCode).toBe(5);
+      }
     });
   });
 

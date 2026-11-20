@@ -83,7 +83,7 @@ describe("jq ordering and deduplication", () => {
     // Each range() stays under the element cap (1000000) on its own;
     // the concatenated key must not.
     const result = await env.exec(
-      "echo '[2,1]' | jq -c 'sort_by(range(400000); range(400000); range(400000))'",
+      "echo '[2,1]' | jq -c 'sort_by(range(400000), range(400000), range(400000))'",
     );
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("element limit");
@@ -92,9 +92,67 @@ describe("jq ordering and deduplication", () => {
   it("caps the total size of a group_by key across all arguments (fixes #736)", async () => {
     const env = new Bash();
     const result = await env.exec(
-      "echo '[1]' | jq -c 'group_by(range(600000); range(600000))'",
+      "echo '[1]' | jq -c 'group_by(range(600000), range(600000))'",
     );
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("element limit");
+  });
+
+  it("unique keeps both NaNs, like jq 1.7 (fixes #736)", async () => {
+    const env = new Bash();
+    // jq never equates NaN with itself, so deduplication keeps both.
+    const both = await env.exec(
+      "echo null | jq -n '[nan,nan] | unique | length'",
+    );
+    expect(both.stdout).toBe("2\n");
+    const mixed = await env.exec(
+      "echo null | jq -n '[nan,1,nan] | unique | length'",
+    );
+    expect(mixed.stdout).toBe("3\n");
+    expect(mixed.exitCode).toBe(0);
+  });
+
+  it("unique keeps input order for NaN-led arrays, like jq 1.7 (fixes #736)", async () => {
+    const env = new Bash();
+    // jq orders NaN below everything including itself, so [nan,2] and
+    // [nan,1] compare "less" both ways and a stable sort keeps input order.
+    const result = await env.exec(
+      "echo null | jq -n -c '[[nan,2],[nan,1]] | unique'",
+    );
+    expect(result.stdout).toBe("[[null,2],[null,1]]\n");
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("caps total retained group_by key elements across all items", async () => {
+    const env = new Bash({ executionLimits: { maxQueryElements: 1000 } });
+    // Each key is 20 elements (under the 1000 cap on its own), but 100
+    // items retain 2000 key elements in total.
+    const result = await env.exec(
+      "echo null | jq -n -c '[range(100)] | group_by(range(20)) | length'",
+    );
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("element limit");
+  });
+
+  it("caps total retained group_by key encoding across all items", async () => {
+    const env = new Bash({ executionLimits: { maxStringLength: 500 } });
+    // Each key encodes to ~28 chars; 100 of them retain ~2800 chars.
+    const result = await env.exec(
+      `echo null | jq -n -c '[range(100) | ("x" * 20)] | group_by(.) | length'`,
+    );
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("key encoding size limit exceeded");
+  });
+
+  it("charges long shared-prefix string comparisons to the work budget", async () => {
+    const env = new Bash({ executionLimits: { maxJqIterations: 10000 } });
+    // 200 strings sharing a 20000-char prefix: ~1600 comparisons walk
+    // ~20000 code points each. Uncharged, this sorts fine; charged at
+    // one operation per 1024 code points it exhausts the budget.
+    const result = await env.exec(
+      `echo null | jq -n -c '[range(200) | ("x" * 20000) + "\\(.)"] | sort | length'`,
+    );
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("too many iterations");
   });
 });
