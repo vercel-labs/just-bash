@@ -39,6 +39,7 @@ export interface RgOptions {
   beforeContext: number;
   contextSeparator: string;
   quiet: boolean;
+  noMessages: boolean;
   heading: boolean;
   passthru: boolean;
   includeZero: boolean;
@@ -102,6 +103,7 @@ export function createDefaultOptions(): RgOptions {
     beforeContext: 0,
     contextSeparator: "--",
     quiet: false,
+    noMessages: false,
     heading: false,
     passthru: false,
     includeZero: false,
