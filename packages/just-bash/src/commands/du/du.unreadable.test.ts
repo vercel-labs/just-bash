@@ -85,7 +85,7 @@ describe("du over an unreadable directory", () => {
   it.each([
     new ExecutionAbortedError(),
     new ExecutionLimitError("test traversal limit", "iterations"),
-    new FileSystemPolicyError("readdir", "/data/locked", "refused"),
+    new FileSystemPolicyError("readdir", "/data/locked", "EACCES: refused"),
   ])("does not continue after a non-filesystem failure: %s", async (error) => {
     const result = await new Bash({
       fs: new UnreadableFs(error),

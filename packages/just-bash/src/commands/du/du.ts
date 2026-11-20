@@ -1,4 +1,11 @@
-import { traverseFileTree } from "../../fs/traversal.js";
+import {
+  encodeUtf8ToBytes,
+  latin1FromBytes,
+  utf8ByteLength,
+} from "../../encoding.js";
+import { ExecutionOutputAccumulator } from "../../execution-output.js";
+import type { ExecutionScope } from "../../execution-scope.js";
+import { FileSystemPolicyError, traverseFileTree } from "../../fs/traversal.js";
 import {
   ExecutionAbortedError,
   ExecutionLimitError,
@@ -74,6 +81,30 @@ export const duCommand: RuntimeCommand = {
     let stdout = "";
     let stderr = "";
     let grandTotal = 0;
+    let exitCode = 0;
+    const output = ctx.executionScope
+      ? new ExecutionOutputAccumulator(
+          ctx.executionScope as ExecutionScope,
+          "du",
+        )
+      : undefined;
+    let fallbackOutputBytes = 0;
+    const append = (stream: "stdout" | "stderr", value: string): void => {
+      if (output) output.append(stream, value);
+      else {
+        const bytes = utf8ByteLength(value);
+        if (bytes > ctx.limits.maxOutputSize - fallbackOutputBytes) {
+          throw new ExecutionLimitError(
+            `du: output size limit exceeded (${ctx.limits.maxOutputSize} bytes)`,
+            "output_size",
+          );
+        }
+        fallbackOutputBytes += bytes;
+        if (stream === "stdout") stdout += value;
+        else stderr += value;
+      }
+      if (stream === "stderr" && value) exitCode = 1;
+    };
 
     for (const target of targets) {
       const fullPath = ctx.fs.resolvePath(ctx.cwd, target);
@@ -81,34 +112,39 @@ export const duCommand: RuntimeCommand = {
       try {
         // Check if path exists first
         await ctx.fs.stat(fullPath);
-        const result = await calculateSize(ctx, fullPath, target, options, 0);
-        stdout += result.output;
-        grandTotal += result.totalSize;
-        stderr += result.stderr;
+        grandTotal += await calculateSize(
+          ctx,
+          fullPath,
+          target,
+          options,
+          0,
+          append,
+        );
       } catch (error) {
         if (
           error instanceof ExecutionLimitError ||
-          error instanceof ExecutionAbortedError
+          error instanceof ExecutionAbortedError ||
+          error instanceof FileSystemPolicyError
         ) {
           throw error;
         }
-        stderr += `du: cannot access '${target}': No such file or directory\n`;
+        append(
+          "stderr",
+          `du: cannot access ${quotePath(target)}: No such file or directory\n`,
+        );
       }
     }
 
     if (options.grandTotal && targets.length > 0) {
-      stdout += `${formatSize(grandTotal, options.humanReadable)}\ttotal\n`;
+      append(
+        "stdout",
+        `${formatSize(grandTotal, options.humanReadable)}\ttotal\n`,
+      );
     }
 
-    return { stdout, stderr, exitCode: stderr ? 1 : 0 };
+    return output?.build(exitCode) ?? { stdout, stderr, exitCode };
   },
 };
-
-interface SizeResult {
-  output: string;
-  totalSize: number;
-  stderr: string;
-}
 
 async function calculateSize(
   ctx: RuntimeCommandContext,
@@ -116,8 +152,15 @@ async function calculateSize(
   displayPath: string,
   options: DuOptions,
   depth: number,
-): Promise<SizeResult> {
-  const result: SizeResult = { output: "", totalSize: 0, stderr: "" };
+  append: (stream: "stdout" | "stderr", value: string) => void,
+): Promise<number> {
+  let totalSize = 0;
+  const shownPath = (path: string): string => {
+    const relative = path.slice(fullPath === "/" ? 1 : fullPath.length + 1);
+    if (!relative) return displayPath.replace(/\/+$/, "/");
+    const prefix = displayPath.replace(/\/+$/, "");
+    return `${prefix}/${relative}`;
+  };
   const directorySizes = new Map<string, number>();
 
   await traverseFileTree(
@@ -130,25 +173,25 @@ async function calculateSize(
       site: "du",
       symlinks: "never",
       includeLeave: true,
-      onReadDirectoryError(error, path) {
+      onError(error, path, operation) {
+        if (
+          error instanceof ExecutionLimitError ||
+          error instanceof ExecutionAbortedError ||
+          error instanceof FileSystemPolicyError
+        )
+          throw error;
         const code = getErrorCode(error);
-        const reason = code && UNREADABLE_DIRECTORY_REASONS.get(code);
+        const reason = code && TRAVERSAL_ERROR_REASONS.get(code);
         if (!reason) throw error;
-        const relative = path.slice(fullPath.length).replace(/^\//, "");
-        const separator = displayPath.endsWith("/") ? "" : "/";
-        const shown = relative
-          ? `${displayPath}${separator}${relative}`
-          : displayPath;
-        result.stderr += `du: cannot read directory '${shown}': ${reason}\n`;
+        const action = operation === "readdir" ? "read directory" : "access";
+        append(
+          "stderr",
+          `du: cannot ${action} ${quotePath(shownPath(path))}: ${reason}\n`,
+        );
       },
     },
     (entry) => {
-      const relative = entry.path.slice(fullPath.length).replace(/^\//, "");
-      const shown = relative
-        ? displayPath === "."
-          ? relative
-          : `${displayPath}/${relative}`
-        : displayPath;
+      const shown = shownPath(entry.path);
       const parent =
         entry.path === "/"
           ? "/"
@@ -164,9 +207,12 @@ async function calculateSize(
           (directorySizes.get(parent) ?? 0) + entry.stat.size,
         );
         if ((options.allFiles || entry.depth === depth) && !options.summarize) {
-          result.output += `${formatSize(entry.stat.size, options.humanReadable)}\t${shown}\n`;
+          append(
+            "stdout",
+            `${formatSize(entry.stat.size, options.humanReadable)}\t${shown}\n`,
+          );
         }
-        if (entry.depth === depth) result.totalSize = entry.stat.size;
+        if (entry.depth === depth) totalSize = entry.stat.size;
         return;
       }
 
@@ -174,7 +220,7 @@ async function calculateSize(
       if (entry.depth > depth) {
         directorySizes.set(parent, (directorySizes.get(parent) ?? 0) + size);
       } else {
-        result.totalSize = size;
+        totalSize = size;
       }
       const relativeDepth = entry.depth - depth;
       if (
@@ -182,16 +228,19 @@ async function calculateSize(
         (!options.summarize &&
           (options.maxDepth === null || relativeDepth <= options.maxDepth))
       ) {
-        result.output += `${formatSize(size, options.humanReadable)}\t${shown}\n`;
+        append(
+          "stdout",
+          `${formatSize(size, options.humanReadable)}\t${shown}\n`,
+        );
       }
     },
   );
 
-  return result;
+  return totalSize;
 }
 
 // Match find's recoverable directory-read errors; never expose backend messages.
-const UNREADABLE_DIRECTORY_REASONS = new Map<string, string>([
+const TRAVERSAL_ERROR_REASONS = new Map<string, string>([
   ["EACCES", "Permission denied"],
   ["EIO", "Input/output error"],
   ["ELOOP", "Too many levels of symbolic links"],
@@ -200,6 +249,32 @@ const UNREADABLE_DIRECTORY_REASONS = new Map<string, string>([
   ["ENOTDIR", "Not a directory"],
   ["EPERM", "Permission denied"],
 ]);
+
+// GNU du uses shell-escape-always quoting for diagnostics. Keep control
+// characters out of log lines while leaving the displayed path recognizable.
+function quotePath(path: string): string {
+  if (path.includes("'") && !/["\\$`\u0000-\u001f\u007f-\u009f]/.test(path)) {
+    return `"${path}"`;
+  }
+  const quoted = path
+    .replace(/'/g, "'\\''")
+    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, (controls) => {
+      let escaped = "";
+      for (const char of controls) {
+        const index = "\u0007\b\t\n\u000b\f\r".indexOf(char);
+        if (index >= 0) escaped += `\\${"abtnvfr"[index]}`;
+        else {
+          for (const byte of latin1FromBytes(encodeUtf8ToBytes(char))) {
+            escaped += `\\${byte.charCodeAt(0).toString(8).padStart(3, "0")}`;
+          }
+        }
+      }
+      return `'$'${escaped}''`;
+    });
+  return /[\u0000-\u001f\u007f-\u009f]$/.test(path)
+    ? `'${quoted.slice(0, -1)}`
+    : `'${quoted}'`;
+}
 
 function formatSize(bytes: number, humanReadable: boolean): string {
   if (!humanReadable) {

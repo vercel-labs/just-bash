@@ -117,7 +117,7 @@ describe("filesystem traversal primitives", () => {
           // Root visit/read and a visit/read exhaust the budget, even when a's read fails.
           limits: resolveLimits({ maxTraversalWork: 4 }),
           site: "test",
-          onReadDirectoryError: () => undefined,
+          onError: () => undefined,
         },
         (entry) => {
           visited.push(entry.path);
@@ -125,6 +125,26 @@ describe("filesystem traversal primitives", () => {
       ),
     ).rejects.toBeInstanceOf(ExecutionLimitError);
     expect(visited).toEqual(["/root", "/root/a"]);
+  });
+
+  it("preserves an unhandled read failure when the work budget is exhausted", async () => {
+    const failure = new Error("EACCES: permission denied");
+    class UnreadableFs extends InMemoryFs {
+      override async readdir(): Promise<string[]> {
+        throw failure;
+      }
+    }
+    await expect(
+      traverseFileTree(
+        {
+          fs: new UnreadableFs({ "/root/file": "x" }),
+          root: "/root",
+          limits: resolveLimits({ maxTraversalWork: 1 }),
+          site: "test",
+        },
+        () => undefined,
+      ),
+    ).rejects.toBe(failure);
   });
 
   it("observes cancellation between filesystem operations", async () => {
