@@ -123,6 +123,16 @@ EOF
       expect(result.stderr).toContain("filename argument required");
       expect(result.exitCode).toBe(2);
     });
+
+    it("should run the next command after a lexer error in the file", async () => {
+      const env = new Bash({ files: { "/script.sh": "x=$(echo a # )\n" } });
+      const result = await env.exec("echo start; source /script.sh; echo end");
+      expect(result.stdout).toBe("start\nend\n");
+      expect(result.stderr).toBe(
+        "bash: /script.sh: line 2: unexpected EOF while looking for matching `)'\n",
+      );
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("sandbox isolation", () => {

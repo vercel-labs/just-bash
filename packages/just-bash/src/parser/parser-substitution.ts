@@ -351,12 +351,22 @@ function findSubstitutionBodyEnd(
   // Heredocs opened on the current line, in the order their bodies follow the
   // next newline. Their bodies are literal and must be skipped without quote
   // tracking so e.g. an apostrophe in the body isn't read as a shell quote.
-  const pendingHeredocs: { delim: string; stripTabs: boolean }[] = [];
+  let pendingHeredocs: { delim: string; stripTabs: boolean }[] = [];
   // Depth of arithmetic `((...))` regions. Inside one, `<<` is the left-shift
   // operator, not a heredoc opener, so heredoc detection is suppressed. The
   // outer substitution is never arithmetic here (`$((` is routed to arithmetic
   // parsing), but a nested `$((`/`((` can still appear in the command body.
   let arithDepth = 0;
+  // A `$(` inside double quotes starts a new quoting context. Each entry holds
+  // the depth at that `$(` and the case, arithmetic and heredoc state to
+  // restore, with the double quotes, at its closing `)`.
+  const quoteResume: {
+    depth: number;
+    caseDepth: number;
+    inCasePattern: boolean;
+    arithDepth: number;
+    pendingHeredocs: { delim: string; stripTabs: boolean }[];
+  }[] = [];
 
   while (i < value.length && depth > 0) {
     const c = value[i];
@@ -368,6 +378,21 @@ function findSubstitutionBodyEnd(
         i++; // Skip escaped char
       } else if (c === '"') {
         inDoubleQuote = false;
+      } else if (c === "$" && value[i + 1] === "(") {
+        // Leave the double quotes for the command substitution. Its closing
+        // `)` restores them.
+        quoteResume.push({
+          depth,
+          caseDepth,
+          inCasePattern,
+          arithDepth,
+          pendingHeredocs,
+        });
+        inDoubleQuote = false;
+        caseDepth = 0;
+        inCasePattern = false;
+        arithDepth = 0;
+        pendingHeredocs = [];
       }
     } else {
       // Track arithmetic `((...))` nesting so a left-shift `<<` inside it is not
@@ -386,7 +411,9 @@ function findSubstitutionBodyEnd(
         arithDepth === 0 &&
         c === "<" &&
         value[i + 1] === "<" &&
-        value[i + 2] !== "<"
+        // `<<<` is a here-string. Its second `<` is not a heredoc either.
+        value[i + 2] !== "<" &&
+        value[i - 1] !== "<"
       ) {
         let p = i + 2;
         let stripTabs = false;
@@ -463,6 +490,15 @@ function findSubstitutionBodyEnd(
             inCasePattern = false;
           } else {
             depth--;
+            const resume = quoteResume[quoteResume.length - 1];
+            if (resume?.depth === depth) {
+              quoteResume.pop();
+              inDoubleQuote = true;
+              caseDepth = resume.caseDepth;
+              inCasePattern = resume.inCasePattern;
+              arithDepth = resume.arithDepth;
+              pendingHeredocs = resume.pendingHeredocs;
+            }
           }
         } else if (c === ";") {
           // ;; in case body means next pattern

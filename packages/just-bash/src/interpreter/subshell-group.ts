@@ -395,8 +395,12 @@ export async function executeUserScript(
       throw error;
     }
 
-    // Handle parse errors
-    if ((error as ParseException).name === "ParseException") {
+    // Handle parse errors. A lexer error, such as an unclosed quote or `$(`,
+    // is a syntax error too.
+    if (
+      (error as ParseException).name === "ParseException" ||
+      (error as Error).name === "LexerError"
+    ) {
       return failure(`bash: ${scriptPath}: ${(error as Error).message}\n`);
     }
 

@@ -141,7 +141,11 @@ export async function handleSource(
       return result(error.stdout, error.stderr, error.exitCode);
     }
 
-    if ((error as ParseException).name === "ParseException") {
+    // A lexer error, such as an unclosed quote or `$(`, is a syntax error too.
+    if (
+      (error as ParseException).name === "ParseException" ||
+      (error as Error).name === "LexerError"
+    ) {
       return failure(`bash: ${filename}: ${(error as Error).message}\n`);
     }
     throw error;

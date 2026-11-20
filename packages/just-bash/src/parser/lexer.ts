@@ -1358,10 +1358,26 @@ export class Lexer {
         let caseDepth = 0; // Track nested case statements
         let inCasePattern = false; // Are we in case pattern (after 'in', before ')')
         let wordBuffer = ""; // Track recent word for keyword detection
+        // True where a new word starts. As in bash, a `#` starts a comment only
+        // there, so `a#b`, `"a"#b`, `$#` and `$(cmd)#x` keep their `#`.
+        let atWordStart = true;
+        // One entry per `(` counted in `depth`: true if the `(` is part of a
+        // word (`$(`, `<(`, `>(`), so its `)` does not end the word.
+        const parenInWord: boolean[] = [];
+        // A `$(` inside double quotes starts a new quoting context. Each entry
+        // holds the depth at that `$(` and the case, arithmetic and heredoc
+        // state to restore, with the double quotes, at its closing `)`.
+        const quoteResume: {
+          depth: number;
+          caseDepth: number;
+          inCasePattern: boolean;
+          arithDepth: number;
+          pendingHeredocs: { delim: string; stripTabs: boolean }[];
+        }[] = [];
         // Heredocs opened on the current line whose (literal) bodies must be
         // skipped without quote tracking so an apostrophe in the body is not
         // mistaken for a shell quote when finding the closing `)`.
-        const pendingHeredocs: { delim: string; stripTabs: boolean }[] = [];
+        let pendingHeredocs: { delim: string; stripTabs: boolean }[] = [];
         // Check if this is $((...)) arithmetic expansion
         // When $(( is followed by content that spans multiple lines and closes with ) ),
         // it's $( ( subshell ) ) not $(( arithmetic ))
@@ -1376,6 +1392,10 @@ export class Lexer {
         while (depth > 0 && pos < len) {
           const c = input[pos];
           value += c;
+          // Most characters continue a word. The cases below set this again
+          // for blanks, operators and parentheses.
+          const wordStart: boolean = atWordStart;
+          atWordStart = false;
 
           if (inSingleQuote) {
             if (c === "'") inSingleQuote = false;
@@ -1387,6 +1407,21 @@ export class Lexer {
               col++;
             } else if (c === '"') {
               inDoubleQuote = false;
+            } else if (c === "$" && input[pos + 1] === "(") {
+              // Leave the double quotes for the command substitution. Its
+              // closing `)` restores them.
+              quoteResume.push({
+                depth,
+                caseDepth,
+                inCasePattern,
+                arithDepth,
+                pendingHeredocs,
+              });
+              inDoubleQuote = false;
+              caseDepth = 0;
+              inCasePattern = false;
+              arithDepth = 0;
+              pendingHeredocs = [];
             }
           } else {
             // Not in quotes
@@ -1412,7 +1447,9 @@ export class Lexer {
               arithDepth === 0 &&
               c === "<" &&
               input[pos + 1] === "<" &&
-              input[pos + 2] !== "<"
+              // `<<<` is a here-string. Its second `<` is not a heredoc either.
+              input[pos + 2] !== "<" &&
+              input[pos - 1] !== "<"
             ) {
               // Scan the operator and delimiter without mutating any state yet,
               // so that a non-heredoc `<<` (no delimiter) falls through cleanly
@@ -1481,6 +1518,7 @@ export class Lexer {
               // `bodyPos` is `lineEnd + 1`, which overshoots to `len + 1` when
               // the final body line has no trailing newline; clamp to `len`.
               pos = Math.min(bodyPos, len);
+              atWordStart = true;
               continue;
             }
 
@@ -1491,7 +1529,9 @@ export class Lexer {
               inDoubleQuote = true;
               wordBuffer = "";
             } else if (c === "\\" && pos + 1 < len) {
-              // Skip escaped char
+              // Skip escaped char. A line continuation is removed, so it does
+              // not change whether a word starts.
+              if (input[pos + 1] === "\n") atWordStart = wordStart;
               value += input[pos + 1];
               pos++;
               col++;
@@ -1543,7 +1583,7 @@ export class Lexer {
             } else if (
               c === "#" &&
               !isArithmetic && // # is NOT a comment in arithmetic expansion
-              (wordBuffer === "" || /\s/.test(input[pos - 1] || ""))
+              wordStart
             ) {
               // Comment - skip to end of line (only in command substitution, not arithmetic)
               while (pos + 1 < len && input[pos + 1] !== "\n") {
@@ -1566,22 +1606,41 @@ export class Lexer {
                 inCasePattern = false;
               }
               wordBuffer = "";
+              // Blanks and operator characters end a word.
+              atWordStart = /[ \t\n;&|<>]/.test(c);
 
               if (c === "(") {
+                atWordStart = true;
                 // Check for $( which starts nested command substitution
                 if (pos > 0 && input[pos - 1] === "$") {
                   depth++;
+                  parenInWord.push(true);
                 } else if (!inCasePattern) {
-                  // Regular ( in non-pattern context
+                  // Regular ( in non-pattern context. `<(` and `>(` are
+                  // process substitutions, which are part of a word.
                   depth++;
+                  parenInWord.push(
+                    input[pos - 1] === "<" || input[pos - 1] === ">",
+                  );
                 }
                 // In case pattern, ( is part of extended glob or literal
               } else if (c === ")") {
                 if (inCasePattern) {
                   // ) ends the case pattern, doesn't affect depth
                   inCasePattern = false;
+                  atWordStart = true;
                 } else {
                   depth--;
+                  atWordStart = !parenInWord.pop();
+                  const resume = quoteResume[quoteResume.length - 1];
+                  if (resume?.depth === depth) {
+                    quoteResume.pop();
+                    inDoubleQuote = true;
+                    caseDepth = resume.caseDepth;
+                    inCasePattern = resume.inCasePattern;
+                    arithDepth = resume.arithDepth;
+                    pendingHeredocs = resume.pendingHeredocs;
+                  }
                 }
               } else if (c === ";") {
                 if (caseDepth > 0) {
@@ -1605,6 +1664,13 @@ export class Lexer {
           }
           pos++;
           col++;
+        }
+        if (depth > 0) {
+          throw new LexerError(
+            "unexpected EOF while looking for matching `)'",
+            ln,
+            col,
+          );
         }
         continue;
       }

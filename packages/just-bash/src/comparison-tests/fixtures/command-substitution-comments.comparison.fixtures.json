@@ -1,0 +1,126 @@
+{
+  "229bd48cc65a299e": {
+    "command": "x=$(#c\necho a;#c\necho b|#c\ncat&&#c\necho c); echo \"[$x]\"",
+    "files": {},
+    "stdout": "[a\nb\nc]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "316f15b4751efa33": {
+    "command": "x=$(echo a-#b 1#b 'q'#b \"q\"#b \\ #c {#d); echo \"[$x]\"; echo after",
+    "files": {},
+    "stdout": "[a-#b 1#b q#b q#b  #c {#d]\nafter\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "3b39119943e30791": {
+    "command": "echo start; eval 'x=$(echo a # )'; echo end",
+    "files": {},
+    "stdout": "start\nend\n",
+    "stderr": "/bin/bash: eval: line 2: unexpected EOF while looking for matching `)'\n",
+    "exitCode": 0
+  },
+  "47047eacfb9e7676": {
+    "command": "set -- a b; v=1; x=$(echo $# ${v}#a $(echo b)#c $((2))#d); echo \"[$x]\"; echo after",
+    "files": {},
+    "stdout": "[2 1#a b#c 2#d]\nafter\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4cd44d5e82e90fef": {
+    "command": "v=hello; x=$(echo ${#v}; cat <<'E'\n#a \"b\nE\n); echo \"[$x]\"",
+    "files": {},
+    "stdout": "[5\n#a \"b]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "68902a97a3f5a217": {
+    "command": "x=$( (echo a)#c\ncase b in b)#c\necho b;; esac); echo \"[$x]\"",
+    "files": {},
+    "stdout": "[a\nb]\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "8042b850087b68ec": {
+    "command": "x=$(echo \"$((echo a) )\"\ncat <<E\n)\nE\n)\necho \"[$x]\"",
+    "files": {},
+    "stdout": "[a\n)]\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "ac1299f84e22ed98": {
+    "command": "v=abc\nx=$(\n  y=\"$(cat <<<\"$v\")\"\n  echo \"$y\"\n)\necho \"[$x]\"",
+    "files": {},
+    "stdout": "[abc]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ade133fec384b7fd": {
+    "command": "x=$(echo \"$(echo \")\")\" \"$(echo \"(\")\"); echo \"[$x]\"",
+    "files": {},
+    "stdout": "[) (]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b015b5376214e0fd": {
+    "command": "x=$(echo \"$(case a in a) echo \"#y\";; esac)\"; case x in \"$(echo x)\") echo \"#m\";; esac); echo \"[$x]\"",
+    "files": {},
+    "stdout": "[#y\n#m]\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "b88bc8e80632f010": {
+    "command": "x=$(echo \"$(echo \"#a\")\")\necho \"after x=[$x]\"\nexit 7",
+    "files": {},
+    "stdout": "after x=[#a]\n",
+    "stderr": "",
+    "exitCode": 7
+  },
+  "c71f286e82fc8af9": {
+    "command": "x=$(echo a\\\n#c); echo \"[$x]\"",
+    "files": {},
+    "stdout": "[a#c]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c9c6127a368f9383": {
+    "command": "x=$(echo a \\\n#c\n); echo \"[$x]\"",
+    "files": {},
+    "stdout": "[a]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cb78a617d74afd9c": {
+    "command": "x=$(echo \"$(echo \"$(echo \"#deep\")\")\" \"x$(echo \"#a\")y\"); echo \"[$x]\"",
+    "files": {},
+    "stdout": "[#deep x#ay]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e1e6790ffa5fb4e0": {
+    "command": "x=$(a=#b; echo \"$a\"); echo \"[$x]\"",
+    "files": {},
+    "stdout": "[#b]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ebb5b2bf1e9e3b54": {
+    "command": "x=$(echo a # )\necho after",
+    "files": {},
+    "stdout": "",
+    "stderr": "/bin/bash: -c: line 3: unexpected EOF while looking for matching `)'\n",
+    "exitCode": 2
+  },
+  "f4ab5d365c397cfe": {
+    "command": "x=$(cat <<E; echo \"$(echo a\n)\"\nit's\nE\n)\necho \"[$x]\"",
+    "files": {},
+    "stdout": "[it's\na]\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}

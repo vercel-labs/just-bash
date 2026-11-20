@@ -106,6 +106,25 @@ describe("eval builtin", () => {
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("Parse error");
     });
+
+    it.each([
+      [
+        "an unclosed $(",
+        "x=$(echo a # )",
+        "line 1: unexpected EOF while looking for matching `)'",
+      ],
+      [
+        "an unclosed quote",
+        'echo "a',
+        "line 1: unexpected EOF while looking for matching `\"'",
+      ],
+    ])("should run the next command after %s", async (_name, script, error) => {
+      const env = new Bash();
+      const result = await env.exec(`echo start; eval '${script}'; echo end`);
+      expect(result.stdout).toBe("start\nend\n");
+      expect(result.stderr).toBe(`bash: eval: ${error}\n`);
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("scope and environment", () => {
