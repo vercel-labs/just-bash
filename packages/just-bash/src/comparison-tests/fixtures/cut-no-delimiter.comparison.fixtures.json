@@ -1,0 +1,44 @@
+{
+  "5781db2cad963017": {
+    "command": "printf 'a:b\\nc\\n' | cut -d: -f2",
+    "files": {},
+    "stdout": "b\nc\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5cc171acd69931bf": {
+    "command": "printf 'a:b:c\\nplain\\n' | cut -d: -f1",
+    "files": {},
+    "stdout": "a\nplain\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "613eeef2c78170d5": {
+    "command": "printf 'a:b\\n\\nc:d\\n' | cut -d: -f2",
+    "files": {},
+    "stdout": "b\n\nd\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6a57608177209a45": {
+    "command": "printf 'a:b\\nc\\n' | cut -s -d: -f2",
+    "files": {},
+    "stdout": "b\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "80c71f07b2896c75": {
+    "command": "printf 'a\\tb\\nplain\\n' | cut -f2",
+    "files": {},
+    "stdout": "b\nplain\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9d90ffedc4ba4adf": {
+    "command": "printf 'a:b:c\\nplain\\n' | cut -d: -f2-",
+    "files": {},
+    "stdout": "b:c\nplain\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

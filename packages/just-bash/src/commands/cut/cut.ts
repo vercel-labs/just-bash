@@ -205,8 +205,12 @@ export const cutCommand: RuntimeCommand = {
         output.append(`${selected.join("")}\n`);
       } else {
         // Field mode
-        // If -s is set, skip lines that don't contain the delimiter
-        if (suppressNoDelim && !line.includes(delimiter)) {
+        // A line without the delimiter is skipped with -s and otherwise
+        // printed whole, whatever the field list selects.
+        if (!line.includes(delimiter)) {
+          if (!suppressNoDelim) {
+            output.append(`${line}\n`);
+          }
           continue;
         }
         const fields = line.split(delimiter);
