@@ -4,7 +4,8 @@
  * Handles first, last, nth, range, limit, isempty, isvalid, skip, until, while, repeat.
  */
 
-import type { EvalContext } from "../evaluator.js";
+import { rethrowFatalExecutionError } from "../../../fatal-execution-error.js";
+import { chargeQueryWork, type EvalContext } from "../evaluator.js";
 import type { AstNode } from "../parser.js";
 import type { QueryValue } from "../value-operations.js";
 
@@ -48,8 +49,7 @@ export function evalControlBuiltin(
           const results = evaluateWithPartialResults(value, args[0], ctx);
           return results.length > 0 ? [results[0]] : [];
         } catch (e) {
-          // Always re-throw execution limit errors
-          if (e instanceof ExecutionLimitError) throw e;
+          rethrowFatalExecutionError(e);
           return [];
         }
       }
@@ -82,8 +82,7 @@ export function evalControlBuiltin(
         try {
           results = evaluateWithPartialResults(value, args[1], ctx);
         } catch (e) {
-          // Always re-throw execution limit errors
-          if (e instanceof ExecutionLimitError) throw e;
+          rethrowFatalExecutionError(e);
           results = [];
         }
         return ns.flatMap((nv) => {
@@ -117,6 +116,7 @@ export function evalControlBuiltin(
             "array_elements",
           );
         }
+        chargeQueryWork(ctx);
         result.push(item);
       };
       const startsVals = evaluate(value, args[0], ctx);
@@ -125,6 +125,7 @@ export function evalControlBuiltin(
         // Handle generator args - each value produces its own range
         const result: number[] = [];
         for (const n of startsVals) {
+          chargeQueryWork(ctx);
           const num = n as number;
           for (let i = 0; i < num; i++) {
             appendRangeValue(result, i);
@@ -138,7 +139,9 @@ export function evalControlBuiltin(
         // But jq allows generators, so we need to handle multiple values
         const result: number[] = [];
         for (const s of startsVals) {
+          chargeQueryWork(ctx);
           for (const e of endsVals) {
+            chargeQueryWork(ctx);
             const start = s as number;
             const end = e as number;
             for (let i = start; i < end; i++) {
@@ -152,8 +155,11 @@ export function evalControlBuiltin(
       const stepsVals = evaluate(value, args[2], ctx);
       const result: number[] = [];
       for (const s of startsVals) {
+        chargeQueryWork(ctx);
         for (const e of endsVals) {
+          chargeQueryWork(ctx);
           for (const st of stepsVals) {
+            chargeQueryWork(ctx);
             const start = s as number;
             const end = e as number;
             const step = st as number;
@@ -190,8 +196,7 @@ export function evalControlBuiltin(
         try {
           results = evaluateWithPartialResults(value, args[1], ctx);
         } catch (e) {
-          // Always re-throw execution limit errors
-          if (e instanceof ExecutionLimitError) throw e;
+          rethrowFatalExecutionError(e);
           results = [];
         }
         return results.slice(0, n);
@@ -208,8 +213,7 @@ export function evalControlBuiltin(
         const results = evaluateWithPartialResults(value, args[0], ctx);
         return [results.length === 0];
       } catch (e) {
-        // Always re-throw execution limit errors
-        if (e instanceof ExecutionLimitError) throw e;
+        rethrowFatalExecutionError(e);
         // If an error occurs without any results, return true
         return [true];
       }
@@ -222,8 +226,7 @@ export function evalControlBuiltin(
         const results = evaluate(value, args[0], ctx);
         return [results.length > 0];
       } catch (e) {
-        // Always re-throw execution limit errors
-        if (e instanceof ExecutionLimitError) throw e;
+        rethrowFatalExecutionError(e);
         // Any other error means invalid
         return [false];
       }

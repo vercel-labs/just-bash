@@ -1,4 +1,9 @@
 import { decodeBytesToUtf8 } from "../../encoding.js";
+import {
+  type CommandExecutionBudget,
+  DEADLINE_CHECK_STRIDE,
+} from "../../execution-scope.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { ExecutionLimits } from "../../limits.js";
@@ -6,7 +11,6 @@ import {
   assertDefenseContext,
   awaitWithDefenseContext,
 } from "../../security/defense-context.js";
-import { SecurityViolationError } from "../../security/defense-in-depth-box.js";
 import type {
   ExecResult,
   FeatureCoverageWriter,
@@ -78,6 +82,8 @@ interface ProcessContentOptions {
   cwd?: string;
   coverage?: FeatureCoverageWriter;
   requireDefenseContext?: boolean;
+  /** Shared accounting; supplies the wall-clock deadline during the line loop. */
+  executionScope?: CommandExecutionBudget;
 }
 
 async function processContent(
@@ -86,8 +92,15 @@ async function processContent(
   silent: boolean,
   options: ProcessContentOptions = {},
 ): Promise<{ output: string; exitCode?: number; errorMessage?: string }> {
-  const { limits, filename, fs, cwd, coverage, requireDefenseContext } =
-    options;
+  const {
+    limits,
+    filename,
+    fs,
+    cwd,
+    coverage,
+    requireDefenseContext,
+    executionScope,
+  } = options;
   assertDefenseContext(requireDefenseContext, "sed", "processing entry");
   const withDefenseContext = <T>(
     phase: string,
@@ -140,6 +153,8 @@ async function processContent(
       }
     : undefined;
 
+  // Commands such as N advance lineIndex, while D can restart a cycle.
+  let cyclesProcessed = 0;
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     const state: SedState = {
       ...createInitialState(totalLines, filename, rangeStates),
@@ -168,6 +183,9 @@ async function processContent(
       if (cycleIterations > maxCycleIterations) {
         // Prevent infinite loops
         break;
+      }
+      if (cyclesProcessed++ % DEADLINE_CHECK_STRIDE === 0) {
+        executionScope?.throwIfAborted("sed");
       }
 
       state.restartCycle = false;
@@ -207,9 +225,7 @@ async function processContent(
               }
             }
           } catch (e) {
-            if (e instanceof SecurityViolationError) {
-              throw e;
-            }
+            rethrowFatalExecutionError(e);
             // File not found - silently ignore (matches GNU sed behavior)
           }
         }
@@ -315,13 +331,12 @@ async function processContent(
   if (fs && cwd) {
     for (const [filePath, fileContent] of fileWrites) {
       try {
+        executionScope?.throwIfAborted("sed");
         await withDefenseContext("flush pending file writes", () =>
           fs.writeFile(filePath, fileContent),
         );
       } catch (e) {
-        if (e instanceof SecurityViolationError) {
-          throw e;
-        }
+        rethrowFatalExecutionError(e);
         // Write error - silently ignore for now
       }
     }
@@ -338,6 +353,18 @@ async function processContent(
   }
 
   return { output, exitCode };
+}
+
+/** Rethrow an execution limit as fatal, with sed's diagnostic and no partial output. */
+function rethrowSedLimit(error: unknown): void {
+  if (error instanceof ExecutionLimitError) {
+    throw new ExecutionLimitError(
+      error.message,
+      error.limitType,
+      "",
+      `sed: ${sanitizeErrorMessage(error.message)}\n`,
+    );
+  }
 }
 
 export const sedCommand: RuntimeCommand = {
@@ -440,9 +467,7 @@ export const sedCommand: RuntimeCommand = {
           }
         }
       } catch (e) {
-        if (e instanceof SecurityViolationError) {
-          throw e;
-        }
+        rethrowFatalExecutionError(e);
         return {
           stdout: "",
           stderr: `sed: couldn't open file ${scriptFile}: No such file or directory\n`,
@@ -507,6 +532,7 @@ export const sedCommand: RuntimeCommand = {
               cwd: ctx.cwd,
               coverage: ctx.coverage,
               requireDefenseContext: ctx.requireDefenseContext,
+              executionScope: ctx.executionScope,
             }),
           );
           if (result.errorMessage) {
@@ -516,21 +542,13 @@ export const sedCommand: RuntimeCommand = {
               exitCode: result.exitCode ?? 1,
             };
           }
+          ctx.executionScope?.throwIfAborted("sed");
           await withDefenseContext("in-place output write", () =>
             ctx.fs.writeFile(filePath, result.output),
           );
         } catch (e) {
-          if (e instanceof SecurityViolationError) {
-            throw e;
-          }
-          if (e instanceof ExecutionLimitError) {
-            const message = sanitizeErrorMessage(e.message);
-            return {
-              stdout: "",
-              stderr: `sed: ${message}\n`,
-              exitCode: ExecutionLimitError.EXIT_CODE,
-            };
-          }
+          rethrowSedLimit(e);
+          rethrowFatalExecutionError(e);
           return {
             stdout: "",
             stderr: `sed: ${file}: No such file or directory\n`,
@@ -556,6 +574,7 @@ export const sedCommand: RuntimeCommand = {
             cwd: ctx.cwd,
             coverage: ctx.coverage,
             requireDefenseContext: ctx.requireDefenseContext,
+            executionScope: ctx.executionScope,
           }),
         );
         // sed emits text; the pipeline handles encoding.
@@ -565,17 +584,7 @@ export const sedCommand: RuntimeCommand = {
           exitCode: result.exitCode ?? 0,
         };
       } catch (e) {
-        if (e instanceof SecurityViolationError) {
-          throw e;
-        }
-        if (e instanceof ExecutionLimitError) {
-          const message = sanitizeErrorMessage(e.message);
-          return {
-            stdout: "",
-            stderr: `sed: ${message}\n`,
-            exitCode: ExecutionLimitError.EXIT_CODE,
-          };
-        }
+        rethrowSedLimit(e);
         throw e;
       }
     }
@@ -600,17 +609,8 @@ export const sedCommand: RuntimeCommand = {
             ctx.fs.readFile(filePath),
           );
         } catch (e) {
-          if (e instanceof SecurityViolationError) {
-            throw e;
-          }
-          if (e instanceof ExecutionLimitError) {
-            const message = sanitizeErrorMessage(e.message);
-            return {
-              stdout: "",
-              stderr: `sed: ${message}\n`,
-              exitCode: ExecutionLimitError.EXIT_CODE,
-            };
-          }
+          rethrowSedLimit(e);
+          rethrowFatalExecutionError(e);
           return {
             stdout: "",
             stderr: `sed: ${file}: No such file or directory\n`,
@@ -639,6 +639,7 @@ export const sedCommand: RuntimeCommand = {
           cwd: ctx.cwd,
           coverage: ctx.coverage,
           requireDefenseContext: ctx.requireDefenseContext,
+          executionScope: ctx.executionScope,
         }),
       );
       return {
@@ -647,17 +648,7 @@ export const sedCommand: RuntimeCommand = {
         exitCode: result.exitCode ?? 0,
       };
     } catch (e) {
-      if (e instanceof SecurityViolationError) {
-        throw e;
-      }
-      if (e instanceof ExecutionLimitError) {
-        const message = sanitizeErrorMessage(e.message);
-        return {
-          stdout: "",
-          stderr: `sed: ${message}\n`,
-          exitCode: ExecutionLimitError.EXIT_CODE,
-        };
-      }
+      rethrowSedLimit(e);
       throw e;
     }
   },

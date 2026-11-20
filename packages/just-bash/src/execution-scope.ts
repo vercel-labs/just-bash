@@ -35,6 +35,12 @@ export interface CommandExecutionBudget {
 }
 
 type Cleanup = () => void | Promise<void>;
+
+/**
+ * Work units between deadline checks inside data-command loops. One unit may
+ * process multiple rows or a whole string.
+ */
+export const DEADLINE_CHECK_STRIDE = 1024;
 const OUTPUT_RELEASE_AUTHORITY = Object.freeze(Object.create(null) as object);
 
 /**

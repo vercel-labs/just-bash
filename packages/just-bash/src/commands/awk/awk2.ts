@@ -7,13 +7,15 @@
 import { decodeBytesToUtf8 } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { mapToRecord } from "../../helpers/env.js";
-import { ExecutionLimitError } from "../../interpreter/errors.js";
+import {
+  ExecutionAbortedError,
+  ExecutionLimitError,
+} from "../../interpreter/errors.js";
 import { ConstantRegex, createUserRegex } from "../../regex/index.js";
 import {
   assertDefenseContext,
   awaitWithDefenseContext,
 } from "../../security/defense-context.js";
-import { SecurityViolationError } from "../../security/defense-in-depth-box.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -137,9 +139,7 @@ export const awkCommand2: RuntimeCommand = {
             ctx.fs.writeFile(path, existing + content),
           );
         } catch (e) {
-          if (e instanceof SecurityViolationError) {
-            throw e;
-          }
+          rethrowFatalExecutionError(e);
           // File doesn't exist, just write
           await withDefenseContext("appendFile create", () =>
             ctx.fs.writeFile(path, content),
@@ -159,6 +159,7 @@ export const awkCommand2: RuntimeCommand = {
         ctx.limits.maxOutputSize,
       ),
       maxArrayElements: ctx.limits.maxArrayElements,
+      executionScope: ctx.executionScope,
       fs: awkFs,
       cwd: ctx.cwd,
       // Wrap ctx.exec to match the expected signature for command pipe getline
@@ -300,12 +301,7 @@ export const awkCommand2: RuntimeCommand = {
               ctx.fs.readFile(filePath),
             );
           } catch (e) {
-            if (
-              e instanceof SecurityViolationError ||
-              e instanceof ExecutionLimitError
-            ) {
-              throw e;
-            }
+            rethrowFatalExecutionError(e);
             return {
               stdout: "",
               stderr: `awk: ${file}: No such file or directory\n`,
@@ -335,17 +331,24 @@ export const awkCommand2: RuntimeCommand = {
         exitCode: interp.getExitCode(),
       };
     } catch (e) {
-      if (e instanceof SecurityViolationError) {
-        throw e;
+      if (e instanceof ExecutionLimitError) {
+        throw new ExecutionLimitError(
+          e.message,
+          e.limitType,
+          "",
+          `awk: ${e.message}\n`,
+        );
       }
+      if (e instanceof ExecutionAbortedError) {
+        throw new ExecutionAbortedError("", e.stderr);
+      }
+      rethrowFatalExecutionError(e);
       // Handle errors during execution
       const msg = e instanceof Error ? e.message : String(e);
-      const exitCode =
-        e instanceof ExecutionLimitError ? ExecutionLimitError.EXIT_CODE : 2;
       return {
         stdout: interp.getOutput(),
         stderr: `awk: ${msg}\n`,
-        exitCode,
+        exitCode: 2,
       };
     }
   },

@@ -512,6 +512,7 @@ export const grepCommand: RuntimeCommand = {
         maxWork: getMatcherWorkLimit(ctx),
         maxMatches: ctx.limits.maxArrayElements,
         signal: ctx.signal,
+        budget: ctx.executionScope,
       });
       if (quietMode) {
         return { stdout: "", stderr: "", exitCode: result.matched ? 0 : 1 };
@@ -701,6 +702,8 @@ export const grepCommand: RuntimeCommand = {
               content = await ctx.fs.readFile(filePath);
             }
 
+            ctx.executionScope?.throwIfAborted("grep");
+
             // File-level preFilter: skip searchContent entirely when no needle exists in file.
             // Avoids content.split("\n") and all per-line work for the common zero-match case.
             if (preFilter && !invertMatch) {
@@ -708,6 +711,7 @@ export const grepCommand: RuntimeCommand = {
                 ? content.toLowerCase()
                 : content;
               if (!preFilter.needles.some((n) => haystack.includes(n))) {
+                ctx.executionScope?.throwIfAborted("grep");
                 if (countOnly) {
                   const countStr = showFilename ? `${file}:0` : "0";
                   return {
@@ -741,6 +745,7 @@ export const grepCommand: RuntimeCommand = {
               maxWork: getMatcherWorkLimit(ctx),
               maxMatches: ctx.limits.maxArrayElements,
               signal: ctx.signal,
+              budget: ctx.executionScope,
             });
 
             return { file, result };

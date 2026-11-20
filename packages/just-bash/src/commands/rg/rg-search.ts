@@ -11,7 +11,10 @@ import {
   unsafeBytesFromLatin1,
   utf8ByteLength,
 } from "../../encoding.js";
-import type { ResourceLease } from "../../execution-scope.js";
+import {
+  DEADLINE_CHECK_STRIDE,
+  type ResourceLease,
+} from "../../execution-scope.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { FileTraversalBudget } from "../../fs/traversal.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
@@ -320,6 +323,7 @@ export async function executeSearch(
       maxWork: ctx.limits.maxLoopIterations,
       maxMatches: ctx.limits.maxArrayElements,
       signal: ctx.signal,
+      budget: ctx.executionScope,
     });
 
     if (options.quiet) {
@@ -1151,20 +1155,21 @@ async function searchFiles(
         if (!fileData) return null;
 
         const { content, isBinary, lease } = fileData;
-        bytesSearched += content.length;
-
-        // Skip binary files unless -a/--text is specified.
-        if (isBinary && !options.searchBinary) {
-          lease?.release();
-          return null;
-        }
-
-        const filenameForSearch =
-          showFilename &&
-          (!options.heading || options.count || options.countMatches)
-            ? file
-            : "";
         try {
+          ctx.executionScope?.throwIfAborted("rg");
+          bytesSearched += content.length;
+
+          // Skip binary files unless -a/--text is specified.
+          if (isBinary && !options.searchBinary) {
+            lease?.release();
+            return null;
+          }
+
+          const filenameForSearch =
+            showFilename &&
+            (!options.heading || options.count || options.countMatches)
+              ? file
+              : "";
           const result = searchContent(content, regex, {
             invertMatch: options.invertMatch,
             showLineNumbers: effectiveLineNumbers,
@@ -1189,6 +1194,7 @@ async function searchFiles(
             maxWork: ctx.limits.maxLoopIterations,
             maxMatches: ctx.limits.maxArrayElements,
             signal: ctx.signal,
+            budget: ctx.executionScope,
           });
 
           // JSON formatting below needs the source after this task ends, so
@@ -1233,6 +1239,9 @@ async function searchFiles(
           regex.lastIndex = 0;
           let lineOffset = 0;
           for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+            if (lineIdx % DEADLINE_CHECK_STRIDE === 0) {
+              ctx.executionScope?.throwIfAborted("rg");
+            }
             const line = lines[lineIdx];
             regex.lastIndex = 0;
             const submatches: JsonSubmatch[] = [];
