@@ -672,18 +672,30 @@ describe("secureFetch behavior", () => {
     expect(seenHeaders).toEqual(["configured"]);
   });
 
-  it("keeps the allow-list policy when the caller mutates its entries", async () => {
+  it("revokes access when an allow-list entry is removed", async () => {
     const transport = mockFetch(() => new Response("ok"));
     globalThis.fetch = transport;
-    const methods: NonNullable<AllowedUrl["methods"]> = ["GET"];
-    const scoped: AllowedUrl = {
-      url: "https://example.com/data",
-      methods,
-    };
+    const allowedUrlPrefixes: AllowedUrlEntry[] = ["https://example.com"];
+    const secureFetch = createSecureFetch({
+      allowedUrlPrefixes,
+      denyPrivateRanges: false,
+    });
+
+    expect((await secureFetch("https://example.com/data")).status).toBe(200);
+    allowedUrlPrefixes.pop();
+    await expect(secureFetch("https://example.com/data")).rejects.toThrow(
+      "Network access denied",
+    );
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies methods added after construction, including to ambiguous paths", async () => {
+    const transport = mockFetch(() => new Response("ok"));
+    globalThis.fetch = transport;
+    const scoped: AllowedUrl = { url: "https://example.com/data" };
     const allowedUrlPrefixes: AllowedUrlEntry[] = [
       "https://example.com",
       scoped,
-      "https://other.example.com",
     ];
     const secureFetch = createSecureFetch({
       allowedUrlPrefixes,
@@ -691,42 +703,65 @@ describe("secureFetch behavior", () => {
       denyPrivateRanges: false,
     });
 
-    methods.push("POST");
-    scoped.methods = ["GET", "POST"];
+    expect(
+      (await secureFetch("https://example.com/data", { method: "POST" }))
+        .status,
+    ).toBe(200);
+    expect(
+      (await secureFetch("https://example.com/%64ata", { method: "POST" }))
+        .status,
+    ).toBe(200);
+    scoped.methods = ["GET"];
     await expect(
       secureFetch("https://example.com/data", { method: "POST" }),
     ).rejects.toThrow("HTTP method 'POST' not allowed. Allowed methods: GET");
     await expect(
       secureFetch("https://example.com/%64ata", { method: "POST" }),
     ).rejects.toThrow("HTTP method 'POST' not allowed. Allowed methods: ");
-    scoped.url = "https://example.com/changed";
+    expect((await secureFetch("https://example.com/data")).status).toBe(200);
+    scoped.methods.push("POST");
+    expect(
+      (await secureFetch("https://example.com/data", { method: "POST" }))
+        .status,
+    ).toBe(200);
+    scoped.url = "https://example.com/other";
+    expect(
+      (await secureFetch("https://example.com/data", { method: "POST" }))
+        .status,
+    ).toBe(200);
+    scoped.methods = [];
     await expect(
-      secureFetch("https://example.com/data", { method: "POST" }),
-    ).rejects.toThrow("HTTP method 'POST' not allowed. Allowed methods: GET");
-    allowedUrlPrefixes[1] = "https://new.example.com";
+      secureFetch("https://example.com/other", { method: "POST" }),
+    ).rejects.toThrow("HTTP method 'POST' not allowed. Allowed methods: ");
+    allowedUrlPrefixes.pop();
+    expect(
+      (await secureFetch("https://example.com/%64ata", { method: "POST" }))
+        .status,
+    ).toBe(200);
     allowedUrlPrefixes.push({
-      url: "https://other.example.com/data",
+      url: "https://example.com/data",
       methods: ["GET"],
     });
-
     await expect(
       secureFetch("https://example.com/%64ata", { method: "POST" }),
     ).rejects.toThrow("HTTP method 'POST' not allowed. Allowed methods: ");
+    allowedUrlPrefixes.pop();
+    allowedUrlPrefixes.push({ url: "https://example.com", methods: ["GET"] });
     await expect(
-      secureFetch("https://example.com/data", { method: "POST" }),
-    ).rejects.toThrow("HTTP method 'POST' not allowed. Allowed methods: GET");
-    expect(
-      (
-        await secureFetch("https://other.example.com/%64ata", {
-          method: "POST",
-        })
-      ).status,
-    ).toBe(200);
-    expect((await secureFetch("https://example.com/other")).status).toBe(200);
-    await expect(secureFetch("https://new.example.com/")).rejects.toThrow(
-      "Network access denied",
-    );
-    expect(transport).toHaveBeenCalledTimes(2);
+      secureFetch("https://example.com/%64ata", { method: "POST" }),
+    ).resolves.toMatchObject({ status: 200 });
+    allowedUrlPrefixes.push("https://example.com/other");
+    await expect(
+      secureFetch("https://example.com/%64ata", { method: "POST" }),
+    ).rejects.toThrow("HTTP method 'POST' not allowed. Allowed methods: ");
+    allowedUrlPrefixes.pop();
+    allowedUrlPrefixes.pop();
+    allowedUrlPrefixes.push(scoped);
+    delete scoped.methods;
+    await expect(
+      secureFetch("https://example.com/%64ata", { method: "POST" }),
+    ).resolves.toMatchObject({ status: 200 });
+    expect(transport).toHaveBeenCalledTimes(8);
   });
 
   it.each([

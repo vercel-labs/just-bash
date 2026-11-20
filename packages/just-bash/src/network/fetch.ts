@@ -103,18 +103,7 @@ export type SecureFetch = (
  * Creates a secure fetch function that enforces the allow-list.
  */
 export function createSecureFetch(config: NetworkConfig): SecureFetch {
-  // Keep URL and method enforcement consistent with the construction-time caches.
-  const entries: AllowedUrlEntry[] = (config.allowedUrlPrefixes ?? []).map(
-    (entry) =>
-      entry !== null && typeof entry === "object"
-        ? {
-            url: entry.url,
-            methods: Array.isArray(entry.methods)
-              ? [...entry.methods]
-              : entry.methods,
-          }
-        : entry,
-  );
+  const entries: AllowedUrlEntry[] = config.allowedUrlPrefixes ?? [];
 
   // guarded-fetch resolves and pins internally with no seam for these, so
   // accepting them would silently downgrade an embedder's own policy.
@@ -141,40 +130,35 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     if (errors.length > 0) {
       throw new Error(`Invalid network allow-list:\n${errors.join("\n")}`);
     }
-  }
-
-  const pathScopedOrigins = new Set<string>();
-  const methodOrigins = new Set<string>();
-  for (const entry of entries) {
-    const prefix = normalizeAllowListEntry(
-      typeof entry === "string" ? entry : entry.url,
-    );
-    if (!prefix) continue;
-    if (prefix.pathPrefix !== "/" && prefix.pathPrefix !== "")
-      pathScopedOrigins.add(prefix.origin);
-    if (typeof entry !== "string" && entry.methods !== undefined)
-      methodOrigins.add(prefix.origin);
-  }
-  const ambiguousPathDenyOrigins = new Set(
-    [...pathScopedOrigins].filter((origin) => methodOrigins.has(origin)),
-  );
-
-  if (
-    !config.dangerouslyAllowFullInternetAccess &&
-    ambiguousPathDenyOrigins.size > 0
-  ) {
-    const errors: string[] = [];
+    const pathScopedOrigins = new Set<string>();
+    const methodOrigins = new Set<string>();
     for (const entry of entries) {
-      const url = typeof entry === "string" ? entry : entry.url;
-      const prefix = normalizeAllowListEntry(url);
-      if (
-        prefix &&
-        ambiguousPathDenyOrigins.has(prefix.origin) &&
-        AMBIGUOUS_METHOD_PATH.test(prefix.pathPrefix)
-      ) {
-        errors.push(
-          `Allow-list entry contains an ambiguous path on an origin with per-URL methods: "${url}"`,
-        );
+      const prefix = normalizeAllowListEntry(
+        typeof entry === "string" ? entry : entry.url,
+      );
+      if (!prefix) continue;
+      if (prefix.pathPrefix !== "/" && prefix.pathPrefix !== "")
+        pathScopedOrigins.add(prefix.origin);
+      if (typeof entry !== "string" && entry.methods !== undefined)
+        methodOrigins.add(prefix.origin);
+    }
+    const ambiguousPathDenyOrigins = new Set(
+      [...pathScopedOrigins].filter((origin) => methodOrigins.has(origin)),
+    );
+
+    if (ambiguousPathDenyOrigins.size > 0) {
+      for (const entry of entries) {
+        const url = typeof entry === "string" ? entry : entry.url;
+        const prefix = normalizeAllowListEntry(url);
+        if (
+          prefix &&
+          ambiguousPathDenyOrigins.has(prefix.origin) &&
+          AMBIGUOUS_METHOD_PATH.test(prefix.pathPrefix)
+        ) {
+          errors.push(
+            `Allow-list entry contains an ambiguous path on an origin with per-URL methods: "${url}"`,
+          );
+        }
       }
     }
     if (errors.length > 0) {
@@ -184,7 +168,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
 
   // Collect entries that carry transforms for firewall header injection.
   const transformEntries: AllowedUrl[] = [];
-  for (const entry of config.allowedUrlPrefixes ?? []) {
+  for (const entry of entries) {
     if (
       typeof entry === "object" &&
       entry.transform &&
@@ -377,14 +361,25 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
 
   function checkAmbiguousPathMethod(url: string, method: string): void {
     const parsedUrl = parseUrl(url);
-    if (
-      parsedUrl &&
-      // WHATWG URL parsing normalizes raw backslashes for HTTP(S) URLs.
-      AMBIGUOUS_METHOD_PATH.test(parsedUrl.pathname) &&
-      ambiguousPathDenyOrigins.has(parsedUrl.origin)
-    ) {
-      // An empty list denies every method.
-      checkMethodAllowed(method, []);
+    // WHATWG URL parsing normalizes raw backslashes for HTTP(S) URLs.
+    if (!parsedUrl || !AMBIGUOUS_METHOD_PATH.test(parsedUrl.pathname)) return;
+
+    let originHasMethods = false;
+    let originHasPath = false;
+    for (const entry of entries) {
+      const prefix = normalizeAllowListEntry(
+        typeof entry === "string" ? entry : entry.url,
+      );
+      if (prefix?.origin !== parsedUrl.origin) continue;
+      if (typeof entry !== "string" && entry.methods !== undefined)
+        originHasMethods = true;
+      if (prefix.pathPrefix !== "/" && prefix.pathPrefix !== "")
+        originHasPath = true;
+      if (originHasMethods && originHasPath) {
+        // An empty list denies every method.
+        checkMethodAllowed(method, []);
+        return;
+      }
     }
   }
 
@@ -395,7 +390,12 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
    * selected entry never inherits methods from another matching entry.
    */
   function getEffectiveMethods(url: string): HttpMethod[] {
-    if (methodOrigins.size === 0) return allowedMethods as HttpMethod[];
+    if (
+      !entries.some(
+        (entry) => typeof entry !== "string" && entry.methods !== undefined,
+      )
+    )
+      return allowedMethods as HttpMethod[];
     const entry = findMatchingEntry(url, entries);
     if (entry && typeof entry === "object" && entry.methods) {
       return entry.methods;

@@ -109,6 +109,7 @@ describe("firewall header transforms", () => {
     };
     const routes: AllowedUrlEntry[] = [
       entry,
+      "https://api.example.com",
       "https://other.example.com",
       getterEntry,
     ];
