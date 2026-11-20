@@ -12,9 +12,11 @@
 
 import type { HereDocNode, RedirectionNode, WordNode } from "../ast/types.js";
 import {
+  decodeBytesToUtf8,
   encodeUtf8ToBytes,
   latin1FromBytes,
   readBytesFrom,
+  unsafeBytesFromLatin1,
   utf8ByteLength,
 } from "../encoding.js";
 import type { ExecResult } from "../types.js";
@@ -1325,7 +1327,12 @@ export async function applyRedirections(
             stdout += content;
             break;
           case "live-stderr":
-            stderr += content;
+            // ExecResult.stderr has no shape field, so consumers read it as
+            // text. Decode byte-shaped stdout once when it lands there.
+            stderr +=
+              isStdout && stdoutIsBytes
+                ? decodeBytesToUtf8(unsafeBytesFromLatin1(content))
+                : content;
             break;
           case "file":
             await deliverToFile(
