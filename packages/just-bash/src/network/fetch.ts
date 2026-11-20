@@ -107,7 +107,8 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     (entry) =>
       entry !== null && typeof entry === "object"
         ? {
-            ...entry,
+            url: entry.url,
+            transform: entry.transform,
             methods: Array.isArray(entry.methods)
               ? [...entry.methods]
               : entry.methods,
@@ -142,14 +143,21 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     }
   }
 
-  const encodedPathDenyOrigins = new Set<string>();
+  const pathScopedOrigins = new Set<string>();
+  const methodOrigins = new Set<string>();
   for (const entry of entries) {
-    if (typeof entry === "string" || entry.methods === undefined) continue;
-    const prefix = normalizeAllowListEntry(entry.url);
-    if (prefix && prefix.pathPrefix !== "/" && prefix.pathPrefix !== "") {
-      encodedPathDenyOrigins.add(prefix.origin);
-    }
+    const prefix = normalizeAllowListEntry(
+      typeof entry === "string" ? entry : entry.url,
+    );
+    if (!prefix) continue;
+    if (prefix.pathPrefix !== "/" && prefix.pathPrefix !== "")
+      pathScopedOrigins.add(prefix.origin);
+    if (typeof entry !== "string" && entry.methods !== undefined)
+      methodOrigins.add(prefix.origin);
   }
+  const ambiguousPathDenyOrigins = new Set(
+    [...pathScopedOrigins].filter((origin) => methodOrigins.has(origin)),
+  );
 
   // Collect entries that carry transforms for firewall header injection.
   const transformEntries: AllowedUrl[] = [];
@@ -344,11 +352,13 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     }
   }
 
-  function checkEncodedPathMethod(url: string, method: string): void {
+  function checkAmbiguousPathMethod(url: string, method: string): void {
     const parsedUrl = parseUrl(url);
     if (
-      parsedUrl?.pathname.includes("%") &&
-      encodedPathDenyOrigins.has(parsedUrl.origin)
+      parsedUrl &&
+      // WHATWG URL parsing normalizes raw backslashes for HTTP(S) URLs.
+      /[%;\\]/.test(parsedUrl.pathname) &&
+      ambiguousPathDenyOrigins.has(parsedUrl.origin)
     ) {
       // An empty list denies every method.
       checkMethodAllowed(method, []);
@@ -473,7 +483,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
 
     try {
       // Keep preflight inside finally so rejected requests clean up.
-      checkEncodedPathMethod(url, method);
+      checkAmbiguousPathMethod(url, method);
       checkPathAllowed(url);
       checkPrivateLiteral(url);
       checkMethodAllowed(method, getEffectiveMethods(url));
@@ -613,7 +623,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
             currentBody = undefined;
           }
 
-          checkEncodedPathMethod(redirectUrl, currentMethod);
+          checkAmbiguousPathMethod(redirectUrl, currentMethod);
 
           // Re-check path-prefix allow-list and private literal for the hop.
           try {

@@ -395,7 +395,6 @@ Set `methods` on an allow-list entry to override the global `allowedMethods` for
 const env = new Bash({
   network: {
     allowedUrlPrefixes: [
-      "https://api.example.com",
       { url: "https://api.example.com/read", methods: ["GET"] },
       { url: "https://api.example.com/write", methods: ["GET", "POST"] },
     ],
@@ -406,7 +405,9 @@ const env = new Bash({
 
 The longest matching path prefix wins, with the first entry taking precedence when prefixes have the same length. The selected entry's `methods` replaces the global list, so it can restrict methods or allow additional ones. If the selected entry has no `methods`, the global list applies, not another matching entry's methods. An empty `methods` array denies every method. Each redirect target is checked against its own method policy after any method rewrite.
 
-When allow-list enforcement is enabled, all methods are denied for a pathname containing `%` if its origin has any path-scoped entry with `methods`.
+When allow-list enforcement is enabled, all methods are denied for a parsed pathname containing `%`, `;`, or `\` if its origin has both a path-scoped entry and an entry with `methods`. URL parsing converts raw backslashes to slashes in HTTP and HTTPS URLs before this check.
+
+Path-prefix matching is case-sensitive and literal: `/data/` does not match `/data`. When a narrow `methods` entry shares an origin with a broader entry, its restriction is only as strong as the upstream's path normalization; for example, an upstream might treat `/DATA` or `/data` as aliases. Prefer listing only the allowed prefixes, each with its own methods, without a broader entry for that origin. See [Istio's security guidance](https://istio.io/latest/docs/ops/best-practices/security/#use-allow-with-positive-matching-and-deny-with-negative-match-patterns) for the same positive-allow pattern.
 
 #### Using curl
 
