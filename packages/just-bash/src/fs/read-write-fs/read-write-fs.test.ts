@@ -212,6 +212,30 @@ describe("ReadWriteFs", () => {
       const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       await expect(rwfs.stat("/nonexistent")).rejects.toThrow("ENOENT");
     });
+
+    it("should throw ENOTDIR (not 'outside sandbox') when a file is traversed as a directory (fixes #745)", async () => {
+      fs.writeFileSync(path.join(tempDir, "notes.txt"), "hello\n");
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+      await expect(rwfs.stat("/notes.txt/child")).rejects.toThrow("ENOTDIR");
+      await expect(rwfs.stat("/notes.txt/child")).rejects.not.toThrow(
+        "outside sandbox",
+      );
+    });
+
+    it("should throw ELOOP (not 'outside sandbox') for a symlink loop (fixes #745)", async () => {
+      try {
+        fs.symlinkSync("loop-b", path.join(tempDir, "loop-a"));
+        fs.symlinkSync("loop-a", path.join(tempDir, "loop-b"));
+      } catch {
+        // Skip on systems that don't support symlinks
+        return;
+      }
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+      await expect(rwfs.stat("/loop-a")).rejects.toThrow("ELOOP");
+      await expect(rwfs.stat("/loop-a")).rejects.not.toThrow("outside sandbox");
+    });
   });
 
   describe("lstat", () => {

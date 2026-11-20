@@ -36,6 +36,7 @@ import { resolvePath as resolveVPath } from "../path-utils.js";
 import {
   isPathWithinRoot,
   normalizePath,
+  RealpathError,
   resolveCanonicalPath,
   resolveCanonicalPathNoSymlinks,
   sanitizeFsError,
@@ -118,12 +119,34 @@ export class ReadWriteFs implements IFileSystem {
    * return the canonical (symlink-resolved) path for use in subsequent I/O.
    * This closes the TOCTOU gap where the original path could be swapped
    * between validation and use.
-   * Throws EACCES if the path escapes the root.
+   * Throws EACCES if the path escapes the root. When realpath itself fails
+   * (ENOTDIR, EACCES, ELOOP, ...), the path is inside the root, so the real
+   * errno is reported instead of claiming the path escapes the sandbox.
    */
   private resolveAndValidate(realPath: string, virtualPath: string): string {
-    const canonical = this.allowSymlinks
-      ? resolveCanonicalPath(realPath, this.canonicalRoot)
-      : resolveCanonicalPathNoSymlinks(realPath, this.root, this.canonicalRoot);
+    let canonical: string | null;
+    try {
+      canonical = this.allowSymlinks
+        ? resolveCanonicalPath(realPath, this.canonicalRoot)
+        : resolveCanonicalPathNoSymlinks(
+            realPath,
+            this.root,
+            this.canonicalRoot,
+          );
+    } catch (e) {
+      if (e instanceof RealpathError) {
+        // The path is inside the root; report why the lookup failed
+        // instead of claiming it escapes the sandbox. Carry the errno
+        // code so callers that route through sanitizeError keep it
+        // (an uncoded error would be downgraded to EIO there).
+        const error = new Error(
+          `${e.code}: ${e.description}, realpath '${virtualPath}'`,
+        ) as NodeJS.ErrnoException;
+        error.code = e.code;
+        throw error;
+      }
+      throw e;
+    }
     if (canonical === null) {
       throw new Error(
         `EACCES: permission denied, '${virtualPath}' resolves outside sandbox`,
