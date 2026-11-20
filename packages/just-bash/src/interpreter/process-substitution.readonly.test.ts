@@ -21,11 +21,12 @@ function readOnlyBash(): Bash {
 }
 
 describe("process substitution - read-only filesystem", () => {
-  it("still refuses ordinary writes", async () => {
+  it("still refuses ordinary writes, failing only that command", async () => {
     const env = readOnlyBash();
-    await expect(env.exec("echo nope > out.txt")).rejects.toThrow(
-      "EROFS: read-only file system, write '/home/user/project/out.txt'",
-    );
+    const result = await env.exec("echo nope > out.txt; echo rc=$?");
+    expect(result.stdout).toBe("rc=1\n");
+    expect(result.stderr).toBe("bash: out.txt: Read-only file system\n");
+    expect(result.exitCode).toBe(0);
   });
 
   it("reads from <(cmd)", async () => {
@@ -115,23 +116,22 @@ describe("process substitution - read-only filesystem", () => {
 describe("process substitution - read-only /dev/fd is not scratch space", () => {
   it("refuses a write to an unallocated descriptor", async () => {
     const env = readOnlyBash();
-    await expect(
-      env.exec("cat <(true); echo data > /dev/fd/99"),
-    ).rejects.toThrow("EROFS: read-only file system, write '/dev/fd/99'");
+    const result = await env.exec("cat <(true); echo data > /dev/fd/99");
+    expect(result.stderr).toBe("bash: /dev/fd/99: Read-only file system\n");
+    expect(result.exitCode).toBe(1);
   });
 
   it("refuses an append to an unallocated descriptor", async () => {
     const env = readOnlyBash();
-    await expect(
-      env.exec("cat <(true); echo data >> /dev/fd/99"),
-    ).rejects.toThrow("EROFS: read-only file system, append '/dev/fd/99'");
+    const result = await env.exec("cat <(true); echo data >> /dev/fd/99");
+    expect(result.stderr).toBe("bash: /dev/fd/99: Read-only file system\n");
+    expect(result.exitCode).toBe(1);
   });
 
   it("refuses a write even with a descriptor still live", async () => {
     const env = readOnlyBash();
-    await expect(
-      env.exec("cat <(true) <(echo data > /dev/fd/99)"),
-    ).rejects.toThrow("EROFS: read-only file system, write '/dev/fd/99'");
+    const result = await env.exec("cat <(true) <(echo data > /dev/fd/99)");
+    expect(result.stderr).toContain("/dev/fd/99: Read-only file system\n");
   });
 
   it("refuses creating a directory under /dev/fd", async () => {
@@ -146,14 +146,13 @@ describe("process substitution - read-only /dev/fd is not scratch space", () => 
   });
 
   it("behaves the same whether or not a substitution ran first", async () => {
-    const before = readOnlyBash();
-    await expect(before.exec("echo data > /dev/fd/99")).rejects.toThrow(
-      "EROFS: read-only file system, write '/dev/fd/99'",
+    const before = await readOnlyBash().exec("echo data > /dev/fd/99");
+    const after = await readOnlyBash().exec(
+      "cat <(true); echo data > /dev/fd/99",
     );
-    const after = readOnlyBash();
-    await expect(
-      after.exec("cat <(true); echo data > /dev/fd/99"),
-    ).rejects.toThrow("EROFS: read-only file system, write '/dev/fd/99'");
+    expect(before.stderr).toBe("bash: /dev/fd/99: Read-only file system\n");
+    expect(after.stderr).toBe(before.stderr);
+    expect(after.exitCode).toBe(before.exitCode);
   });
 
   it("leaves a writable filesystem's /dev/fd alone", async () => {

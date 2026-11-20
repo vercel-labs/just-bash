@@ -10,6 +10,7 @@ import {
 } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { describeFsError } from "../../interpreter/helpers/errors.js";
 import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import { unknownOption } from "../help.js";
 
@@ -196,7 +197,7 @@ export async function processHeadTailFiles(
       filesProcessed++;
     } catch (error) {
       rethrowFatalExecutionError(error);
-      stderr.append(`${cmdName}: ${file}: No such file or directory\n`);
+      stderr.append(`${cmdName}: ${file}: ${describeFsError(error)}\n`);
       exitCode = 1;
     }
   }

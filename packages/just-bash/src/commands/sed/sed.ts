@@ -1,6 +1,7 @@
 import { decodeBytesToUtf8 } from "../../encoding.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { describeFsError } from "../../interpreter/helpers/errors.js";
 import type { ExecutionLimits } from "../../limits.js";
 import {
   assertDefenseContext,
@@ -533,7 +534,7 @@ export const sedCommand: RuntimeCommand = {
           }
           return {
             stdout: "",
-            stderr: `sed: ${file}: No such file or directory\n`,
+            stderr: `sed: ${file}: ${describeFsError(e)}\n`,
             exitCode: 1,
           };
         }
@@ -613,7 +614,7 @@ export const sedCommand: RuntimeCommand = {
           }
           return {
             stdout: "",
-            stderr: `sed: ${file}: No such file or directory\n`,
+            stderr: `sed: ${file}: ${describeFsError(e)}\n`,
             exitCode: 1,
           };
         }

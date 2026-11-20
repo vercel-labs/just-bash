@@ -1,4 +1,5 @@
 import { latin1FromBytes } from "../../encoding.js";
+import { describeFsError } from "../../interpreter/helpers/errors.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -56,8 +57,8 @@ export const teeCommand: RuntimeCommand = {
         } else {
           await ctx.fs.writeFile(filePath, content, "binary");
         }
-      } catch (_error) {
-        stderr += `tee: ${file}: No such file or directory\n`;
+      } catch (error) {
+        stderr += `tee: ${file}: ${describeFsError(error)}\n`;
         exitCode = 1;
       }
     }
