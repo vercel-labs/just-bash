@@ -357,8 +357,8 @@ export const sedCommand: RuntimeCommand = {
       return showHelp(sedHelp);
     }
 
-    const scripts: string[] = [];
-    const scriptFiles: string[] = [];
+    // -e scripts and -f files, kept in command-line order
+    const scriptArgs: { file: boolean; value: string }[] = [];
     let silent = false;
     let inPlace = false;
     let extendedRegex = false;
@@ -377,11 +377,11 @@ export const sedCommand: RuntimeCommand = {
         extendedRegex = true;
       } else if (arg === "-e") {
         if (i + 1 < args.length) {
-          scripts.push(args[++i]);
+          scriptArgs.push({ file: false, value: args[++i] });
         }
       } else if (arg === "-f") {
         if (i + 1 < args.length) {
-          scriptFiles.push(args[++i]);
+          scriptArgs.push({ file: true, value: args[++i] });
         }
       } else if (arg.startsWith("--")) {
         return unknownOption("sed", arg);
@@ -406,39 +406,39 @@ export const sedCommand: RuntimeCommand = {
         if (arg.includes("E") || arg.includes("r")) extendedRegex = true;
         if (arg.includes("e") && !arg.includes("n") && !arg.includes("i")) {
           if (i + 1 < args.length) {
-            scripts.push(args[++i]);
+            scriptArgs.push({ file: false, value: args[++i] });
           }
         }
         if (arg.includes("f") && !arg.includes("e")) {
           if (i + 1 < args.length) {
-            scriptFiles.push(args[++i]);
+            scriptArgs.push({ file: true, value: args[++i] });
           }
         }
-      } else if (
-        !arg.startsWith("-") &&
-        scripts.length === 0 &&
-        scriptFiles.length === 0
-      ) {
-        scripts.push(arg);
+      } else if (!arg.startsWith("-") && scriptArgs.length === 0) {
+        scriptArgs.push({ file: false, value: arg });
       } else if (!arg.startsWith("-")) {
         files.push(arg);
       }
     }
 
-    // Read scripts from -f files
-    for (const scriptFile of scriptFiles) {
+    // Load -e scripts and -f files in order, so #n only counts on the first
+    // line of the combined script
+    const scripts: string[] = [];
+    for (const { file, value: scriptFile } of scriptArgs) {
+      if (!file) {
+        scripts.push(scriptFile);
+        continue;
+      }
       const scriptPath = ctx.fs.resolvePath(ctx.cwd, scriptFile);
       try {
         const scriptContent = await withDefenseContext("script file read", () =>
           ctx.fs.readFile(scriptPath),
         );
-        // Split by newlines and add each line as a separate script
-        for (const line of scriptContent.split("\n")) {
-          const trimmed = line.trim();
-          if (trimmed && !trimmed.startsWith("#")) {
-            scripts.push(trimmed);
-          }
-        }
+        // Pass the file to the parser whole, as an -e script is, so commands
+        // can span lines (backslash continuations in s/// and a/i/c text)
+        // and the parser handles comments and blank lines. Keep the final
+        // newline: "1a\" + newline appends an empty line.
+        scripts.push(scriptContent);
       } catch (e) {
         if (e instanceof SecurityViolationError) {
           throw e;
