@@ -1181,7 +1181,8 @@ describe.each([
     it("memory-layer self-referencing symlink throws", async () => {
       await ctx.fsImpl.symlink("/mem-self", "/mem-self");
       // ReadWriteFs creates a real self-referencing symlink → realpathSync
-      // returns ELOOP → resolveCanonicalPath returns null → EACCES.
+      // returns ELOOP → resolveCanonicalPath throws RealpathError and the
+      // lookup failure surfaces as ELOOP (the loop is inside the sandbox).
       // OverlayFs resolves in memory → seen set detects loop → ELOOP.
       // Either error code is safe — the key invariant is no hang.
       await expect(ctx.fsImpl.readFile("/mem-self")).rejects.toThrow();

@@ -109,8 +109,11 @@ function toRealpathError(e: unknown): RealpathError | null {
  * validation and use.
  *
  * Throws RealpathError when realpath(3) fails with an errno other than
- * ENOENT (e.g. ENOTDIR, EACCES, ELOOP): the path is inside the root, so
- * callers must report the real failure instead of treating it as an escape.
+ * ENOENT (e.g. ENOTDIR, EACCES, ELOOP). The failure may have happened
+ * past a symlink that points outside the root, so callers must check the
+ * failing lookup stayed inside the sandbox and complied with the symlink
+ * policy (see isRealpathFailureInsideSandbox) before surfacing the errno;
+ * otherwise they must treat it as an escape.
  */
 export function resolveCanonicalPath(
   realPath: string,
@@ -163,6 +166,133 @@ export function resolveCanonicalPath(
     if (failure) throw failure;
     return null;
   }
+}
+
+/**
+ * Maximum symlink traversals realpath(3) follows before reporting ELOOP
+ * (Linux MAXSYMLINKS). The containment walk below fails closed past this
+ * depth: a lookup needing more traversals cannot have its errno verified
+ * as inside the sandbox.
+ */
+const MAX_SYMLINK_TRAVERSALS = 40;
+
+/**
+ * Check whether a failed realpath(3) lookup stayed inside the sandbox root
+ * and complied with the symlink policy, so its errno may be surfaced to
+ * the caller instead of the generic sandbox rejection.
+ *
+ * realpath(3) resolves symlinks as it walks, so a failure past a symlink
+ * that points outside the root (ENOTDIR past an escape link, ELOOP in a
+ * loop outside the root) would otherwise leak information about paths
+ * outside the sandbox. This walks the lookup component by component with
+ * lstatSync (which does not follow symlinks), starting from the canonical
+ * root:
+ *
+ * - a symlink component violates the policy outright when symlinks are
+ *   disallowed;
+ * - otherwise the symlink's target chain must itself stay inside the root
+ *   (checked recursively; a visited set makes a loop among in-root
+ *   symlinks terminate as "inside");
+ * - any other lstat failure concerns a path already verified to be inside
+ *   the root, so the errno is safe to surface.
+ *
+ * Fail-closed: anything unverifiable (a readlink failure, traversal depth
+ * past the kernel limit, a path that is not under the root at all)
+ * returns false.
+ *
+ * `pathRelativeToRoot` is the failing lookup relative to the sandbox root
+ * (so the walk starts at `canonicalRoot` and never depends on the lexical
+ * root, which may itself contain symlinks, e.g. /tmp on macOS).
+ */
+export function isRealpathFailureInsideSandbox(
+  pathRelativeToRoot: string,
+  canonicalRoot: string,
+  allowSymlinks: boolean,
+): boolean {
+  return isLookupInsideSandbox(
+    nodePath.join(canonicalRoot, pathRelativeToRoot),
+    canonicalRoot,
+    allowSymlinks,
+    new Set<string>(),
+    0,
+  );
+}
+
+function isLookupInsideSandbox(
+  realPath: string,
+  canonicalRoot: string,
+  allowSymlinks: boolean,
+  seen: Set<string>,
+  depth: number,
+): boolean {
+  if (depth > MAX_SYMLINK_TRAVERSALS) return false;
+  const relative = nodePath.relative(canonicalRoot, realPath);
+  if (
+    relative === "" ||
+    relative === ".." ||
+    relative.startsWith(`..${nodePath.sep}`) ||
+    nodePath.isAbsolute(relative)
+  ) {
+    return false;
+  }
+  if (seen.has(realPath)) {
+    // A cycle among paths already verified to be inside the root: the
+    // failing lookup loops within the sandbox, so its errno is safe.
+    return true;
+  }
+  seen.add(realPath);
+  let current = canonicalRoot;
+  for (const part of relative.split(nodePath.sep)) {
+    if (part === "" || part === ".") continue;
+    current = nodePath.join(current, part);
+    let stat: fs.Stats;
+    try {
+      stat = fs.lstatSync(current);
+    } catch {
+      // The failing component is missing (ENOENT) or cannot be inspected
+      // here (ENOTDIR/ELOOP/EACCES on an in-root path): every component
+      // walked so far was checked, so the failure concerns a path inside
+      // the root.
+      return true;
+    }
+    if (!stat.isSymbolicLink()) continue;
+    // A symlink component violates the policy when symlinks are
+    // disallowed. Otherwise its target chain must itself stay inside
+    // the root — a loop or failure inside an outside target must not
+    // surface.
+    if (!allowSymlinks) return false;
+    let target: string;
+    try {
+      target = fs.readlinkSync(current);
+    } catch {
+      return false;
+    }
+    const resolvedTarget = nodePath.isAbsolute(target)
+      ? target
+      : nodePath.resolve(nodePath.dirname(current), target);
+    if (
+      !isLookupInsideSandbox(
+        resolvedTarget,
+        canonicalRoot,
+        allowSymlinks,
+        seen,
+        depth + 1,
+      )
+    ) {
+      return false;
+    }
+    // Continue the walk from the resolved target so later components are
+    // checked against the path realpath(3) actually traversed. When the
+    // target does not resolve (dangling, or a loop/file failure inside
+    // it), keep walking lexically: the recursive check above already
+    // verified the target chain stays inside the root.
+    try {
+      current = fs.realpathSync(resolvedTarget);
+    } catch {
+      current = resolvedTarget;
+    }
+  }
+  return true;
 }
 
 /**
