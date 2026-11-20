@@ -1,4 +1,5 @@
 import { latin1FromBytes } from "../../encoding.js";
+import { isPermissionDenied } from "../../fs/permission-utils.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -56,8 +57,10 @@ export const teeCommand: RuntimeCommand = {
         } else {
           await ctx.fs.writeFile(filePath, content, "binary");
         }
-      } catch (_error) {
-        stderr += `tee: ${file}: No such file or directory\n`;
+      } catch (error) {
+        stderr += isPermissionDenied(error)
+          ? `tee: ${file}: Permission denied\n`
+          : `tee: ${file}: No such file or directory\n`;
         exitCode = 1;
       }
     }

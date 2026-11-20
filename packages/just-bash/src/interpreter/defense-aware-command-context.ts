@@ -1,3 +1,8 @@
+import {
+  lstatEntry,
+  realpathOnMount,
+  registerEntryPathOperations,
+} from "../fs/entry-path.js";
 import { assertDefenseContext } from "../security/defense-context.js";
 import type { RuntimeCommandContext } from "../types.js";
 
@@ -197,6 +202,21 @@ function wrapFileSystem(
       "fs.createExclusive",
     );
   }
+
+  registerEntryPathOperations(wrappedFs, {
+    lstat: wrapFunction(
+      (path) => lstatEntry(fs, path),
+      requireDefenseContext,
+      component,
+      "fs.lstatEntry",
+    ),
+    realpath: wrapFunction(
+      (path) => realpathOnMount(fs, path),
+      requireDefenseContext,
+      component,
+      "fs.realpathOnMount",
+    ),
+  });
 
   return wrappedFs;
 }

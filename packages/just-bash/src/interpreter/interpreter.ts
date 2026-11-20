@@ -422,9 +422,15 @@ export class Interpreter {
     scriptPath: string,
     args: string[],
     stdin = "",
+    invokedPath?: string,
   ): Promise<ExecResult> {
-    return executeUserScriptHelper(this.ctx, scriptPath, args, stdin, (ast) =>
-      this.executeScript(ast),
+    return executeUserScriptHelper(
+      this.ctx,
+      scriptPath,
+      args,
+      stdin,
+      (ast) => this.executeScript(ast),
+      invokedPath,
     );
   }
 
@@ -1106,7 +1112,8 @@ export class Interpreter {
       runCommand: (name, a, qa, s, sf, udp, ssf, sr, sp, sd) =>
         this.runCommand(name, a, qa, s, sf, udp, ssf, sr, sp, sd),
       buildExportedEnv: () => this.buildExportedEnv(),
-      executeUserScript: (path, a, s) => this.executeUserScript(path, a, s),
+      executeUserScript: (path, a, s, invokedPath) =>
+        this.executeUserScript(path, a, s, invokedPath),
     };
 
     // Try builtin dispatch first

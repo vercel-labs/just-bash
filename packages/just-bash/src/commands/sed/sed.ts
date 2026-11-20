@@ -1,6 +1,14 @@
 import { decodeBytesToUtf8 } from "../../encoding.js";
+import {
+  createExclusiveOn,
+  ExclusiveCreateUnsupportedError,
+} from "../../fs/create-exclusive.js";
+import { realpathOnMount } from "../../fs/entry-path.js";
+import { dirname, joinPath } from "../../fs/path-utils.js";
+import { isPermissionDenied } from "../../fs/permission-utils.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { getErrorCode } from "../../interpreter/helpers/errors.js";
 import type { ExecutionLimits } from "../../limits.js";
 import {
   assertDefenseContext,
@@ -14,6 +22,7 @@ import type {
   RuntimeCommandContext,
 } from "../../types.js";
 import { hasHelpFlag, showHelp, unknownOption } from "../help.js";
+import { randomChars } from "../mktemp/mktemp.js";
 import {
   createInitialState,
   type ExecuteContext,
@@ -443,10 +452,13 @@ export const sedCommand: RuntimeCommand = {
         if (e instanceof SecurityViolationError) {
           throw e;
         }
+        const reason = isPermissionDenied(e)
+          ? "Permission denied"
+          : "No such file or directory";
         return {
           stdout: "",
-          stderr: `sed: couldn't open file ${scriptFile}: No such file or directory\n`,
-          exitCode: 1,
+          stderr: `sed: couldn't open file ${scriptFile}: ${reason}\n`,
+          exitCode: isPermissionDenied(e) ? 4 : 1,
         };
       }
     }
@@ -477,6 +489,7 @@ export const sedCommand: RuntimeCommand = {
 
     // Enable silent mode from -n flag or #n comment
     const effectiveSilent = !!(silent || silentMode);
+    let operandErrors = "";
 
     // Handle in-place editing - check this first because -i requires files
     if (inPlace) {
@@ -494,11 +507,13 @@ export const sedCommand: RuntimeCommand = {
           continue;
         }
         const filePath = ctx.fs.resolvePath(ctx.cwd, file);
+        let readingInput = true;
         try {
           const fileContent = await withDefenseContext(
             "in-place input read",
             () => ctx.fs.readFile(filePath),
           );
+          readingInput = false;
           const result = await withDefenseContext("in-place processing", () =>
             processContent(fileContent, commands, effectiveSilent, {
               limits: ctx.limits,
@@ -516,9 +531,67 @@ export const sedCommand: RuntimeCommand = {
               exitCode: result.exitCode ?? 1,
             };
           }
-          await withDefenseContext("in-place output write", () =>
-            ctx.fs.writeFile(filePath, result.output),
+          const stat = await withDefenseContext("in-place target stat", () =>
+            ctx.fs.stat(filePath),
           );
+          const mode = stat.mode & 0o7777;
+          const parent = await withDefenseContext(
+            "in-place target directory",
+            () => realpathOnMount(ctx.fs, dirname(filePath)),
+          );
+          const destination = joinPath(
+            parent,
+            filePath.slice(filePath.lastIndexOf("/") + 1),
+          );
+          if (destination !== filePath) {
+            const target = await withDefenseContext(
+              "in-place destination stat",
+              () => ctx.fs.lstat(destination),
+            );
+            if (target.isDirectory) {
+              throw new Error("EISDIR: in-place destination is a directory");
+            }
+          }
+          const tempPath = await withDefenseContext(
+            "in-place temp create",
+            async () => {
+              for (let attempt = 0; attempt < 10; attempt++) {
+                const path = joinPath(parent, `sed${randomChars(10)}`);
+                try {
+                  await withDefenseContext("exclusive temp create", () =>
+                    createExclusiveOn(ctx.fs, path, { mode: mode | 0o200 }),
+                  );
+                  return path;
+                } catch (error) {
+                  if (getErrorCode(error) !== "EEXIST") throw error;
+                }
+              }
+              throw new Error(
+                "EEXIST: could not create an in-place temporary file",
+              );
+            },
+          );
+
+          try {
+            await withDefenseContext("in-place temp write", () =>
+              ctx.fs.writeFile(tempPath, result.output),
+            );
+            await withDefenseContext("in-place temp chmod", () =>
+              ctx.fs.chmod(tempPath, mode),
+            );
+            await withDefenseContext("in-place target replace", () =>
+              ctx.fs.mv(tempPath, destination),
+            );
+          } catch (error) {
+            try {
+              await withDefenseContext("in-place temp cleanup", () =>
+                ctx.fs.rm(tempPath, { force: true }),
+              );
+            } catch {
+              // Keep the original write or rename failure.
+            }
+            throw error;
+          }
         } catch (e) {
           if (e instanceof SecurityViolationError) {
             throw e;
@@ -531,14 +604,26 @@ export const sedCommand: RuntimeCommand = {
               exitCode: ExecutionLimitError.EXIT_CODE,
             };
           }
+          if (readingInput && isPermissionDenied(e)) {
+            operandErrors += `sed: can't read ${file}: Permission denied\n`;
+            continue;
+          }
+          const reason =
+            e instanceof ExclusiveCreateUnsupportedError
+              ? "filesystem does not support exclusive creation"
+              : "No such file or directory";
           return {
             stdout: "",
-            stderr: `sed: ${file}: No such file or directory\n`,
+            stderr: `${operandErrors}sed: ${file}: ${reason}\n`,
             exitCode: 1,
           };
         }
       }
-      return { stdout: "", stderr: "", exitCode: 0 };
+      return {
+        stdout: "",
+        stderr: operandErrors,
+        exitCode: operandErrors ? 2 : 0,
+      };
     }
 
     let content = "";
@@ -611,6 +696,10 @@ export const sedCommand: RuntimeCommand = {
               exitCode: ExecutionLimitError.EXIT_CODE,
             };
           }
+          if (isPermissionDenied(e)) {
+            operandErrors += `sed: can't read ${file}: Permission denied\n`;
+            continue;
+          }
           return {
             stdout: "",
             stderr: `sed: ${file}: No such file or directory\n`,
@@ -643,8 +732,10 @@ export const sedCommand: RuntimeCommand = {
       );
       return {
         stdout: result.output,
-        stderr: result.errorMessage ? `${result.errorMessage}\n` : "",
-        exitCode: result.exitCode ?? 0,
+        stderr:
+          operandErrors +
+          (result.errorMessage ? `${result.errorMessage}\n` : ""),
+        exitCode: result.exitCode ?? (operandErrors ? 2 : 0),
       };
     } catch (e) {
       if (e instanceof SecurityViolationError) {

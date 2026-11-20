@@ -33,6 +33,36 @@ describe("cp", () => {
     expect(content).toBe("new content");
   });
 
+  it("reports an unreadable source with the GNU permission diagnostic", async () => {
+    const env = new Bash({
+      files: {
+        "/src.txt": { content: "secret", mode: 0o000 },
+      },
+    });
+    const result = await env.exec("cp /src.txt /dst.txt");
+    expect(result).toMatchObject({
+      stdout: "",
+      stderr: "cp: cannot open '/src.txt' for reading: Permission denied\n",
+      exitCode: 1,
+    });
+  });
+
+  it("reports an unwritable destination with the GNU permission diagnostic", async () => {
+    const env = new Bash({
+      files: {
+        "/src.txt": "replacement",
+        "/dst.txt": { content: "original", mode: 0o444 },
+      },
+    });
+    const result = await env.exec("cp /src.txt /dst.txt");
+    expect(result).toMatchObject({
+      stdout: "",
+      stderr: "cp: cannot create regular file '/dst.txt': Permission denied\n",
+      exitCode: 1,
+    });
+    expect(await env.readFile("/dst.txt")).toBe("original");
+  });
+
   it("should copy to directory", async () => {
     const env = new Bash({
       files: {

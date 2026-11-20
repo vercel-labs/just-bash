@@ -9,6 +9,7 @@ import {
   readBytesFrom,
 } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
+import { isPermissionDenied } from "../../fs/permission-utils.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import { unknownOption } from "../help.js";
@@ -196,7 +197,10 @@ export async function processHeadTailFiles(
       filesProcessed++;
     } catch (error) {
       rethrowFatalExecutionError(error);
-      stderr.append(`${cmdName}: ${file}: No such file or directory\n`);
+      const reason = isPermissionDenied(error)
+        ? "Permission denied"
+        : "No such file or directory";
+      stderr.append(`${cmdName}: ${file}: ${reason}\n`);
       exitCode = 1;
     }
   }

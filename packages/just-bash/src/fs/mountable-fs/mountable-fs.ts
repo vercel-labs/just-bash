@@ -1,5 +1,13 @@
 import { type ByteString, readBytesFrom } from "../../encoding.js";
-import { ExclusiveCreateUnsupportedError } from "../create-exclusive.js";
+import {
+  ExclusiveCreateUnsupportedError,
+  replaceFileFromTemp,
+} from "../create-exclusive.js";
+import {
+  lstatEntry,
+  realpathOnMount,
+  registerEntryPathOperations,
+} from "../entry-path.js";
 import { InMemoryFs } from "../in-memory-fs/in-memory-fs.js";
 import type {
   BufferEncoding,
@@ -14,6 +22,12 @@ import type {
   WriteFileOptions,
 } from "../interface.js";
 import {
+  type FileWriteHandle,
+  type FileWriteOpenOptions,
+  getFileWriteHandle,
+  registerFileWriteOpener,
+} from "../open-file-write.js";
+import {
   DEFAULT_DIR_MODE,
   dirname,
   isSameOrDescendantPath,
@@ -22,6 +36,7 @@ import {
   resolvePath,
   validatePath,
 } from "../path-utils.js";
+import { isPermissionDenied } from "../permission-utils.js";
 
 /**
  * Configuration for a mount point
@@ -76,6 +91,13 @@ export class MountableFs implements IFileSystem {
         this.mount(mountPoint, filesystem);
       }
     }
+    registerFileWriteOpener(this, (path, options) =>
+      this.openFileWrite(path, options),
+    );
+    registerEntryPathOperations(this, {
+      lstat: (path) => this.lstatInternal(path, lstatEntry),
+      realpath: (path) => this.realpathInternal(path, true),
+    });
   }
 
   /**
@@ -255,6 +277,14 @@ export class MountableFs implements IFileSystem {
     return fs.writeFile(relativePath, content, options);
   }
 
+  private async openFileWrite(
+    path: string,
+    options: FileWriteOpenOptions,
+  ): Promise<FileWriteHandle | undefined> {
+    const { fs, relativePath } = this.routePath(path);
+    return getFileWriteHandle(fs, relativePath, options);
+  }
+
   async appendFile(
     path: string,
     content: FileContent,
@@ -331,6 +361,13 @@ export class MountableFs implements IFileSystem {
   }
 
   async lstat(path: string): Promise<FsStat> {
+    return this.lstatInternal(path, (fs, entry) => fs.lstat(entry));
+  }
+
+  private async lstatInternal(
+    path: string,
+    stat: (fs: IFileSystem, path: string) => Promise<FsStat>,
+  ): Promise<FsStat> {
     const normalized = normalizePath(path);
 
     // Check if this is exactly a mount point
@@ -338,7 +375,7 @@ export class MountableFs implements IFileSystem {
     if (filesystem) {
       // Return stats from the root of the mounted filesystem
       try {
-        return await filesystem.lstat("/");
+        return await stat(filesystem, "/");
       } catch {
         // Fallback to synthetic directory stats
         return {
@@ -356,7 +393,7 @@ export class MountableFs implements IFileSystem {
     const childMounts = this.getChildMountPoints(normalized);
     if (childMounts.length > 0) {
       try {
-        return await this.baseFs.lstat(normalized);
+        return await stat(this.baseFs, normalized);
       } catch {
         return {
           isFile: false,
@@ -371,7 +408,7 @@ export class MountableFs implements IFileSystem {
 
     // Route to the appropriate filesystem
     const { fs, relativePath } = this.routePath(path);
-    return fs.lstat(relativePath);
+    return stat(fs, relativePath);
   }
 
   async mkdir(path: string, options?: MkdirOptions): Promise<void> {
@@ -561,7 +598,7 @@ export class MountableFs implements IFileSystem {
     }
 
     // Cross-mount move: copy then delete
-    await this.cp(src, dest, { recursive: true });
+    await this.crossMountCopy(src, dest, { recursive: true }, true);
     await this.rm(src, { recursive: true });
   }
 
@@ -645,6 +682,13 @@ export class MountableFs implements IFileSystem {
    * This is equivalent to POSIX realpath().
    */
   async realpath(path: string): Promise<string> {
+    return this.realpathInternal(path, false);
+  }
+
+  private async realpathInternal(
+    path: string,
+    stayOnMount: boolean,
+  ): Promise<string> {
     const normalized = normalizePath(path);
 
     // Check if this is exactly a mount point
@@ -657,21 +701,27 @@ export class MountableFs implements IFileSystem {
     const { fs, relativePath } = this.routePath(path);
 
     // Get realpath from the underlying filesystem
-    const resolvedRelative = await fs.realpath(relativePath);
+    const resolvedRelative = await (stayOnMount
+      ? realpathOnMount(fs, relativePath)
+      : fs.realpath(relativePath));
 
     // Find the mount point for this path
+    let resolved = resolvedRelative;
     for (const mp of this.mounts.keys()) {
       if (normalized === mp || normalized.startsWith(`${mp}/`)) {
         // Path is within this mount - reconstruct full path
-        if (resolvedRelative === "/") {
-          return mp;
-        }
-        return `${mp}${resolvedRelative}`;
+        resolved = resolvedRelative === "/" ? mp : `${mp}${resolvedRelative}`;
+        break;
       }
     }
 
-    // Path is in the base filesystem
-    return resolvedRelative;
+    if (stayOnMount) {
+      const route = this.routePath(resolved);
+      if (route.fs !== fs || route.relativePath !== resolvedRelative) {
+        throw new Error(`EXDEV: realpath changes mount, '${path}'`);
+      }
+    }
+    return resolved;
   }
 
   /**
@@ -681,13 +731,33 @@ export class MountableFs implements IFileSystem {
     src: string,
     dest: string,
     options?: CpOptions,
+    preserveSourceMode = false,
   ): Promise<void> {
     const srcStat = await this.lstat(src);
 
     if (srcStat.isFile) {
       const content = await this.readFileBuffer(src);
-      await this.writeFile(dest, content);
-      await this.chmod(dest, srcStat.mode);
+      const destinationExists = await this.exists(dest);
+      try {
+        await this.writeFile(dest, content);
+      } catch (error) {
+        if (
+          !preserveSourceMode ||
+          !isPermissionDenied(error) ||
+          !(await this.lstat(dest)).isFile
+        ) {
+          throw error;
+        }
+        const destination = await this.realpathInternal(dest, true);
+        await replaceFileFromTemp(this, destination, async (tempPath) => {
+          await this.writeFile(tempPath, content);
+          await this.chmod(tempPath, srcStat.mode);
+        });
+        return;
+      }
+      if (preserveSourceMode || !destinationExists) {
+        await this.chmod(dest, srcStat.mode);
+      }
     } else if (srcStat.isDirectory) {
       if (!options?.recursive) {
         throw new Error(`cp: ${src} is a directory (not copied)`);
@@ -697,7 +767,12 @@ export class MountableFs implements IFileSystem {
       for (const child of children) {
         const srcChild = joinPath(src, child);
         const destChild = joinPath(dest, child);
-        await this.crossMountCopy(srcChild, destChild, options);
+        await this.crossMountCopy(
+          srcChild,
+          destChild,
+          options,
+          preserveSourceMode,
+        );
       }
     } else if (srcStat.isSymbolicLink) {
       const target = await this.readlink(src);

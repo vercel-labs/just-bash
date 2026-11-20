@@ -1,4 +1,5 @@
 import type { CreateExclusiveOptions, IFileSystem } from "./interface.js";
+import { dirname, joinPath } from "./path-utils.js";
 
 /**
  * Thrown when the filesystem cannot create an entry atomically, either
@@ -47,4 +48,21 @@ export async function createExclusiveOn(
     );
   }
   await fs.createExclusive(path, options);
+}
+
+/** Stage a replacement in the destination directory before overwriting it. */
+export async function replaceFileFromTemp(
+  fs: IFileSystem,
+  path: string,
+  stage: (tempPath: string) => Promise<void>,
+): Promise<void> {
+  const tempDir = joinPath(dirname(path), `.replace-${crypto.randomUUID()}`);
+  await createExclusiveOn(fs, tempDir, { directory: true, mode: 0o700 });
+  try {
+    const tempPath = joinPath(tempDir, "data");
+    await stage(tempPath);
+    await fs.mv(tempPath, path);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
 }

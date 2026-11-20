@@ -22,6 +22,7 @@ import {
   sanitizeUnknownError,
   wrapWasmCallback,
 } from "../../security/wasm-callback.js";
+import { Size } from "../worker-bridge/protocol.js";
 import { SyncBackend } from "../worker-bridge/sync-backend.js";
 
 export interface WorkerInput {
@@ -200,6 +201,7 @@ interface EmscriptenStream {
   hostContent?: Uint8Array;
   hostModified?: boolean;
   hostPath?: string;
+  hostAppendOnly?: boolean;
 }
 
 interface EmscriptenMount {
@@ -268,6 +270,7 @@ interface EmscriptenStat {
 }
 
 interface EmscriptenFS {
+  mayOpen: (node: EmscriptenNode, flags: number) => number;
   isDir: (mode: number) => boolean;
   isFile: (mode: number) => boolean;
   isLink: (mode: number) => boolean;
@@ -460,9 +463,11 @@ function createHOSTFS(
             throw new FS.ErrnoError(ERRNO_CODES.EFBIG);
           }
           tryFSOperation(() => {
-            const content = backend.readFile(path);
             const newContent = new Uint8Array(attr.size as number);
-            newContent.set(content.subarray(0, attr.size as number));
+            if (newContent.length > 0) {
+              const content = backend.readFile(path);
+              newContent.set(content.subarray(0, newContent.length));
+            }
             backend.writeFile(path, newContent);
           });
         }
@@ -530,42 +535,37 @@ function createHOSTFS(
         const flags = stream.flags;
 
         const O_WRONLY = 1;
-        const O_RDWR = 2;
-        const O_CREAT = 64;
-        const O_TRUNC = 512;
         const O_APPEND = 1024;
 
         const accessMode = flags & 3;
-        const isWrite = accessMode === O_WRONLY || accessMode === O_RDWR;
-        const isCreate = (flags & O_CREAT) !== 0;
-        const isTruncate = (flags & O_TRUNC) !== 0;
         const isAppend = (flags & O_APPEND) !== 0;
 
         if (FS.isDir(stream.node.mode)) {
           return;
         }
 
-        let content: Uint8Array;
-        try {
-          if (isTruncate && isWrite) {
-            content = new Uint8Array(0);
-          } else {
-            content = backend.readFile(path);
+        if (accessMode === O_WRONLY) {
+          const size = tryFSOperation(() => backend.stat(path).size);
+          if (size > maxFileSize) {
+            throw new FS.ErrnoError(ERRNO_CODES.EFBIG);
           }
-        } catch (_e) {
-          if (isCreate && isWrite) {
-            content = new Uint8Array(0);
-          } else {
-            throw new FS.ErrnoError(ERRNO_CODES.ENOENT);
+          stream.hostPath = path;
+          if (isAppend) {
+            // Append through the backend without reading or replacing its body.
+            stream.hostAppendOnly = true;
+            stream.position = size;
+          } else if (size === 0) {
+            stream.hostContent = new Uint8Array(0);
           }
+          return;
         }
 
+        const content = tryFSOperation(() => backend.readFile(path));
         if (content.length > maxFileSize) {
           throw new FS.ErrnoError(ERRNO_CODES.EFBIG);
         }
 
         stream.hostContent = content;
-        stream.hostModified = isTruncate && isWrite;
         stream.hostPath = path;
 
         if (isAppend) {
@@ -582,6 +582,7 @@ function createHOSTFS(
         delete stream.hostContent;
         delete stream.hostModified;
         delete stream.hostPath;
+        delete stream.hostAppendOnly;
       },
 
       read(
@@ -609,19 +610,56 @@ function createHOSTFS(
         length: number,
         position: number,
       ) {
+        // Emscripten seeks to EOF before append writes, including pwrite.
+        const writePosition = stream.hostAppendOnly
+          ? stream.position
+          : position;
         if (
-          !Number.isSafeInteger(position) ||
+          !Number.isSafeInteger(writePosition) ||
           !Number.isSafeInteger(length) ||
           !Number.isSafeInteger(offset) ||
-          position < 0 ||
+          writePosition < 0 ||
           length < 0 ||
           offset < 0 ||
           length > buffer.length - offset ||
-          position > maxFileSize - length
+          writePosition > maxFileSize - length
         ) {
-          throw new FS.ErrnoError(ERRNO_CODES.EFBIG);
+          // CPython retries EFBIG while flushing; EIO returns the failure.
+          throw new FS.ErrnoError(
+            stream.hostAppendOnly ? ERRNO_CODES.EIO : ERRNO_CODES.EFBIG,
+          );
         }
-        let content = stream.hostContent || new Uint8Array(0);
+        const hostPath = stream.hostPath;
+        if (stream.hostAppendOnly && hostPath) {
+          for (
+            let start = offset;
+            start < offset + length;
+            start += Size.DATA_BUFFER
+          ) {
+            const data = buffer.subarray(
+              start,
+              Math.min(start + Size.DATA_BUFFER, offset + length),
+            );
+            try {
+              tryFSOperation(() => backend.appendFile(hostPath, data));
+            } catch (error) {
+              if (start === offset) throw error;
+              return start - offset;
+            }
+          }
+          return length;
+        }
+        let content = stream.hostContent;
+        if (!content) {
+          content = new Uint8Array(0);
+          if (hostPath) {
+            const size = tryFSOperation(() => backend.stat(hostPath).size);
+            if (position !== 0 || length < size) {
+              content = tryFSOperation(() => backend.readFile(hostPath));
+            }
+          }
+          stream.hostContent = content;
+        }
         const newSize = Math.max(content.length, position + length);
 
         if (newSize > content.length) {
@@ -650,8 +688,12 @@ function createHOSTFS(
           position += stream.position;
         } else if (whence === SEEK_END) {
           if (FS.isFile(stream.node.mode)) {
-            const content = stream.hostContent;
-            position += content ? content.length : 0;
+            const hostPath = stream.hostPath;
+            position +=
+              stream.hostContent?.length ??
+              (hostPath
+                ? tryFSOperation(() => backend.stat(hostPath).size)
+                : 0);
           }
         }
 
@@ -666,6 +708,23 @@ function createHOSTFS(
         return position;
       },
     },
+  };
+
+  const mayOpen = FS.mayOpen;
+  FS.mayOpen = (node, flags) => {
+    const error = mayOpen(node, flags);
+    if (error || node.node_ops !== HOSTFS.node_ops || !FS.isFile(node.mode)) {
+      return error;
+    }
+    // Emscripten applies O_TRUNC before calling stream_ops.open.
+    const mode = tryFSOperation(() => backend.stat(realPath(node)).mode);
+    const accessMode = flags & 3;
+    const needsRead = accessMode !== 1;
+    const needsWrite = accessMode !== 0 || (flags & 512) !== 0;
+    return (needsRead && (mode & 0o400) === 0) ||
+      (needsWrite && (mode & 0o200) === 0)
+      ? ERRNO_CODES.EACCES
+      : 0;
   };
 
   return HOSTFS;

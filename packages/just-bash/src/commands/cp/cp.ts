@@ -1,4 +1,9 @@
+import { lstatEntry, realpathOnMount } from "../../fs/entry-path.js";
 import { isSameOrDescendantPath } from "../../fs/path-utils.js";
+import {
+  isPermissionDenied,
+  ReadPermissionError,
+} from "../../fs/permission-utils.js";
 import {
   compareCanonicalContainment,
   compareFileIdentity,
@@ -101,15 +106,20 @@ export const cpCommand: RuntimeCommand = {
     }
 
     for (const src of sources) {
+      let srcPath = "";
+      let targetPath = destPath;
+      let targetArgument = dest;
       try {
-        const srcPath = ctx.fs.resolvePath(ctx.cwd, src);
+        srcPath = ctx.fs.resolvePath(ctx.cwd, src);
         const srcStat = await ctx.fs.stat(srcPath);
 
-        let targetPath = destPath;
         if (destIsDir) {
           const basename = src.split("/").pop() || src;
           targetPath =
             destPath === "/" ? `/${basename}` : `${destPath}/${basename}`;
+          targetArgument = dest.endsWith("/")
+            ? `${dest}${basename}`
+            : `${dest}/${basename}`;
         }
 
         if (srcStat.isDirectory && !recursive) {
@@ -178,7 +188,11 @@ export const cpCommand: RuntimeCommand = {
           );
         }
 
-        await ctx.fs.cp(srcPath, targetPath, { recursive });
+        const copySource =
+          !recursive && (await lstatEntry(ctx.fs, srcPath)).isSymbolicLink
+            ? await realpathOnMount(ctx.fs, srcPath)
+            : srcPath;
+        await ctx.fs.cp(copySource, targetPath, { recursive });
 
         // Note: preserve flag is accepted but timestamps are not actually preserved
         // in the virtual filesystem (the fs.cp doesn't support preserving metadata)
@@ -195,6 +209,29 @@ export const cpCommand: RuntimeCommand = {
           error instanceof ExecutionAbortedError
         ) {
           throw error;
+        }
+        if (isPermissionDenied(error)) {
+          if (
+            error instanceof ReadPermissionError &&
+            error.path.startsWith(`${srcPath}/`)
+          ) {
+            const child = `${src.replace(/\/$/, "")}${error.path.slice(srcPath.length)}`;
+            stderr += `cp: cannot open '${child}' for reading: Permission denied\n`;
+            exitCode = 1;
+            continue;
+          }
+          let sourceIsUnreadable = false;
+          try {
+            const stat = await ctx.fs.stat(srcPath);
+            sourceIsUnreadable = stat.isFile && (stat.mode & 0o400) === 0;
+          } catch {
+            // Use the destination diagnostic when source metadata is unavailable.
+          }
+          stderr += sourceIsUnreadable
+            ? `cp: cannot open '${src}' for reading: Permission denied\n`
+            : `cp: cannot create regular file '${targetArgument}': Permission denied\n`;
+          exitCode = 1;
+          continue;
         }
         const message = getErrorMessage(error);
         if (message.includes("ENOENT") || message.includes("no such file")) {

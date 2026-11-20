@@ -426,6 +426,7 @@ export type ExecuteUserScriptFn = (
   scriptPath: string,
   args: string[],
   stdin?: string,
+  invokedPath?: string,
 ) => Promise<ExecResult>;
 
 /**
@@ -842,7 +843,12 @@ export async function executeExternalCommand(
       }
       ctx.state.hashTable.set(commandName, resolved.path);
     }
-    return await executeUserScript(resolved.path, args, stdin);
+    return await executeUserScript(
+      resolved.path,
+      args,
+      stdin,
+      commandName.includes("/") ? commandName : undefined,
+    );
   }
   const { cmd, path: cmdPath } = resolved;
   // Add to hash table for PATH caching (only for non-path commands)

@@ -5,6 +5,7 @@ import {
 } from "../../encoding.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
 import { fromBuffer, getEncoding, toBuffer } from "../encoding.js";
+import { registerEntryPathOperations } from "../entry-path.js";
 import type {
   BufferEncoding,
   CpOptions,
@@ -27,6 +28,12 @@ import type {
   WriteFileOptions,
 } from "../interface.js";
 import {
+  type FileWriteHandle,
+  fileWriteHandle,
+  isOpenFileWrite,
+  registerFileWriteOpener,
+} from "../open-file-write.js";
+import {
   DEFAULT_DIR_MODE,
   DEFAULT_FILE_MODE,
   dirname,
@@ -39,6 +46,7 @@ import {
   SYMLINK_MODE,
   validatePath,
 } from "../path-utils.js";
+import { ReadPermissionError } from "../permission-utils.js";
 
 // Re-export for backwards compatibility
 export type {
@@ -232,6 +240,13 @@ export class InMemoryFs implements IFileSystem {
         }
       }
     }
+    registerFileWriteOpener(this, (path) => this.openFileWrite(path));
+    registerEntryPathOperations(this, {
+      lstat: (path) =>
+        this.lstat === InMemoryFs.prototype.lstat
+          ? this.lstatInternal(path, false)
+          : this.lstat(path),
+    });
   }
 
   private ensureParentDirs(path: string): void {
@@ -319,6 +334,7 @@ export class InMemoryFs implements IFileSystem {
     };
     this.assertCanAllocate(path, buffer.byteLength);
     this.setEntry(path, materialized);
+    this.entryIdentities.set(materialized, this.identityFor(entry));
     return materialized;
   }
 
@@ -351,6 +367,9 @@ export class InMemoryFs implements IFileSystem {
         `EISDIR: illegal operation on a directory, read '${path}'`,
       );
     }
+    if ((entry.mode & 0o400) === 0) {
+      throw new Error(`EACCES: permission denied, open '${path}'`);
+    }
 
     // Materialize lazy files on first read
     if ("lazy" in entry) {
@@ -373,7 +392,37 @@ export class InMemoryFs implements IFileSystem {
     content: FileContent,
     options?: WriteFileOptions | BufferEncoding,
   ): Promise<void> {
-    this.writeFileSync(path, content, options);
+    validatePath(path, "write");
+    const resolvedPath = this.resolvePathWithSymlinks(path);
+    const entry = this.data.get(resolvedPath);
+    const identity =
+      entry?.type === "file" ? this.identityFor(entry) : undefined;
+    const opened = isOpenFileWrite(options, identity, path);
+    if (!opened && entry?.type === "file" && (entry.mode & 0o200) === 0) {
+      throw new Error(`EACCES: permission denied, open '${path}'`);
+    }
+    this.writeFileSync(
+      path,
+      content,
+      options,
+      entry?.type === "file" ? { mode: entry.mode } : undefined,
+    );
+    const replacement = this.data.get(resolvedPath);
+    if (identity && replacement && resolvedPath === normalizePath(path)) {
+      this.entryIdentities.set(replacement, identity);
+    }
+  }
+
+  private async openFileWrite(
+    path: string,
+  ): Promise<FileWriteHandle | undefined> {
+    const resolved = this.resolvePathWithSymlinks(path);
+    const entry = this.data.get(resolved);
+    if (entry?.type !== "file") return undefined;
+    if ((entry.mode & 0o200) === 0) {
+      throw new Error(`EACCES: permission denied, open '${path}'`);
+    }
+    return fileWriteHandle(this, resolved, this.identityFor(entry));
   }
 
   async appendFile(
@@ -383,6 +432,20 @@ export class InMemoryFs implements IFileSystem {
   ): Promise<void> {
     validatePath(path, "append");
     const normalized = normalizePath(path);
+    const resolvedPath = this.resolvePathWithSymlinks(path);
+    const resolvedEntry = this.data.get(resolvedPath);
+    const identity =
+      resolvedEntry?.type === "file"
+        ? this.identityFor(resolvedEntry)
+        : undefined;
+    const opened = isOpenFileWrite(options, identity, path);
+    if (
+      !opened &&
+      resolvedEntry?.type === "file" &&
+      (resolvedEntry.mode & 0o200) === 0
+    ) {
+      throw new Error(`EACCES: permission denied, open '${path}'`);
+    }
     const existing = this.data.get(normalized);
 
     if (existing && existing.type === "directory") {
@@ -420,14 +483,23 @@ export class InMemoryFs implements IFileSystem {
       combined.set(existingBuffer);
       combined.set(newBuffer, existingBuffer.length);
 
-      this.setEntry(normalized, {
+      const appended: FileEntry = {
         type: "file",
         content: combined,
         mode: materialized.mode,
         mtime: new Date(),
-      });
+      };
+      this.setEntry(normalized, appended);
+      this.entryIdentities.set(appended, this.identityFor(materialized));
     } else {
-      this.writeFileSync(path, content, options);
+      this.writeFileSync(
+        path,
+        content,
+        options,
+        resolvedEntry?.type === "file"
+          ? { mode: resolvedEntry.mode }
+          : undefined,
+      );
     }
   }
 
@@ -455,7 +527,11 @@ export class InMemoryFs implements IFileSystem {
     }
 
     // Materialize lazy files to get accurate size
-    if (entry.type === "file" && "lazy" in entry) {
+    if (
+      entry.type === "file" &&
+      "lazy" in entry &&
+      (entry.mode & 0o400) !== 0
+    ) {
       entry = await this.materializeLazy(resolvedPath, entry);
     }
 
@@ -482,6 +558,13 @@ export class InMemoryFs implements IFileSystem {
   }
 
   async lstat(path: string): Promise<FsStat> {
+    return this.lstatInternal(path, true);
+  }
+
+  private async lstatInternal(
+    path: string,
+    loadContent: boolean,
+  ): Promise<FsStat> {
     validatePath(path, "lstat");
     // Resolve intermediate symlinks but NOT the final component
     const resolvedPath = this.resolveIntermediateSymlinks(path);
@@ -504,7 +587,12 @@ export class InMemoryFs implements IFileSystem {
     }
 
     // Materialize lazy files to get accurate size
-    if (entry.type === "file" && "lazy" in entry) {
+    if (
+      entry.type === "file" &&
+      "lazy" in entry &&
+      loadContent &&
+      (entry.mode & 0o400) !== 0
+    ) {
       entry = await this.materializeLazy(resolvedPath, entry);
     }
 
@@ -818,8 +906,19 @@ export class InMemoryFs implements IFileSystem {
       throw new Error(`ENOENT: no such file or directory, cp '${src}'`);
     }
 
+    if (srcEntry.type === "file" && (srcEntry.mode & 0o400) === 0) {
+      throw new ReadPermissionError(src);
+    }
+
+    const resolvedDest = this.resolvePathWithSymlinks(destNorm);
+    const destEntry = this.data.get(resolvedDest);
+    if (destEntry?.type === "file" && (destEntry.mode & 0o200) === 0) {
+      throw new Error(`EACCES: permission denied, open '${dest}'`);
+    }
+
     if (srcEntry.type === "file") {
       this.ensureParentDirs(destNorm);
+      const mode = destEntry?.type === "file" ? destEntry.mode : srcEntry.mode;
       // Deep copy: create a new Uint8Array to avoid sharing the buffer reference
       if ("content" in srcEntry) {
         const sourceBytes =
@@ -831,10 +930,10 @@ export class InMemoryFs implements IFileSystem {
           srcEntry.content instanceof Uint8Array
             ? new Uint8Array(srcEntry.content)
             : srcEntry.content;
-        this.setEntry(destNorm, { ...srcEntry, content: contentCopy });
+        this.setEntry(destNorm, { ...srcEntry, content: contentCopy, mode });
       } else {
         // Lazy file - copy the lazy reference (will be materialized on read)
-        this.setEntry(destNorm, { ...srcEntry });
+        this.setEntry(destNorm, { ...srcEntry, mode });
       }
     } else if (srcEntry.type === "symlink") {
       // Copy the symlink itself (not its target)

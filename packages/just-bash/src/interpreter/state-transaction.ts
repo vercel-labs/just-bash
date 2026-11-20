@@ -1,3 +1,4 @@
+import { releaseFileWrite, retainFileWrite } from "../fs/open-file-write.js";
 import { cloneArrays } from "./helpers/array.js";
 import type { CompletionSpec, InterpreterState, ShellArray } from "./types.js";
 
@@ -98,6 +99,7 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
     fileDescriptors: state.fileDescriptors,
     inputFds: state.inputFds,
     deviceFds: state.deviceFds,
+    fdWrites: state.fdWrites,
     fdAliases: state.fdAliases,
     closedStandardFds: state.closedStandardFds,
     nextFd: state.nextFd,
@@ -154,6 +156,8 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
   // Travels with the descriptor table it classifies.
   state.inputFds = state.inputFds ? new Set(state.inputFds) : undefined;
   state.deviceFds = state.deviceFds ? new Set(state.deviceFds) : undefined;
+  state.fdWrites = state.fdWrites ? new Map(state.fdWrites) : undefined;
+  for (const write of state.fdWrites?.values() ?? []) retainFileWrite(write);
   state.fdAliases = cloneFdAliases(state.fdAliases);
   state.closedStandardFds = state.closedStandardFds
     ? new Set(state.closedStandardFds)
@@ -212,6 +216,7 @@ export function beginIsolatedShellState(state: InterpreterState): () => void {
   return () => {
     if (restored) return;
     restored = true;
+    for (const write of state.fdWrites?.values() ?? []) releaseFileWrite(write);
     Object.assign(state, saved);
   };
 }

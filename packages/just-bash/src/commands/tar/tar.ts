@@ -6,6 +6,13 @@
  */
 
 import { latin1FromBytes } from "../../encoding.js";
+import {
+  createExclusiveOn,
+  replaceFileFromTemp,
+} from "../../fs/create-exclusive.js";
+import { lstatEntry, realpathOnMount } from "../../fs/entry-path.js";
+import { dirname, joinPath } from "../../fs/path-utils.js";
+import { getErrorCode } from "../../interpreter/helpers/errors.js";
 import { createUserRegex } from "../../regex/index.js";
 import type {
   ExecResult,
@@ -887,14 +894,49 @@ async function extractTarArchive(
         }
 
         if (isAborted(ctx)) return abortedResult();
-        await ctx.fs.writeFile(targetPath, entry.content);
-
-        // Set permissions if preserving
-        if (options.preserve && entry.mode) {
-          try {
-            await ctx.fs.chmod(targetPath, entry.mode);
-          } catch {
-            // Ignore permission errors
+        const existing = await lstatEntry(ctx.fs, targetPath).catch((error) => {
+          if (getErrorCode(error) !== "ENOENT") throw error;
+          return undefined;
+        });
+        if (existing?.isFile) {
+          const parent = await ctx.fs.realpath(dirname(targetPath));
+          const extractedPath = joinPath(
+            parent,
+            targetPath.slice(targetPath.lastIndexOf("/") + 1),
+          );
+          if (
+            extractedPath !== targetPath &&
+            (await realpathOnMount(ctx.fs, targetPath)) !== extractedPath
+          ) {
+            throw new Error(
+              `EACCES: could not resolve replacement '${targetPath}'`,
+            );
+          }
+          await replaceFileFromTemp(ctx.fs, extractedPath, async (tempPath) => {
+            await createExclusiveOn(ctx.fs, tempPath, {
+              mode: entry.mode & 0o777,
+            });
+            const creationMode = (await ctx.fs.stat(tempPath)).mode & 0o777;
+            if (!(creationMode & 0o200)) {
+              await ctx.fs.chmod(tempPath, creationMode | 0o200);
+            }
+            await ctx.fs.writeFile(tempPath, entry.content);
+            if (options.preserve || !(creationMode & 0o200)) {
+              await ctx.fs.chmod(
+                tempPath,
+                options.preserve ? entry.mode : creationMode,
+              );
+            }
+            ctx.signal?.throwIfAborted();
+          });
+        } else {
+          await ctx.fs.writeFile(targetPath, entry.content);
+          if (options.preserve && entry.mode) {
+            try {
+              await ctx.fs.chmod(targetPath, entry.mode);
+            } catch {
+              // Ignore permission errors
+            }
           }
         }
 

@@ -93,7 +93,7 @@ const Offset = {
 } as const;
 
 /** Buffer sizes */
-const Size = {
+export const Size = {
   CONTROL_REGION: 32,
   PATH_BUFFER: 4096,
   // 8MB limit for FS read/write, HTTP responses, and tool invocation results.
