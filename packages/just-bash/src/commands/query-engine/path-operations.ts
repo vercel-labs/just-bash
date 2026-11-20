@@ -23,9 +23,10 @@ export function setPath(
 ): QueryValue {
   if (path.length === 0) return newVal;
 
-  const [head, ...rest] = path;
+  let [head, ...rest] = path;
 
   if (typeof head === "number") {
+    if (head < 0 && Array.isArray(value)) head += value.length;
     // jq: Cannot index object with number
     if (value && typeof value === "object" && !Array.isArray(value)) {
       throw new Error("Cannot index object with number");
