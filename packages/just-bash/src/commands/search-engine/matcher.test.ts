@@ -26,7 +26,11 @@ describe("preFilterMatches — substring fast-path", () => {
   it("skips lines where no needle is present (case-sensitive)", () => {
     const content = "hello world\nfoo bar\nhello foo\n";
     const { regex } = buildRegex("foo", { mode: "basic" });
-    const preFilter: PreFilter = { needles: ["foo"], ignoreCase: false };
+    const preFilter: PreFilter = {
+      groups: [["foo"]],
+      exact: ["foo"],
+      ignoreCase: false,
+    };
     const result = searchContent(content, regex, { preFilter });
     expect(result.output).toBe("foo bar\nhello foo\n");
     expect(result.matchCount).toBe(2);
@@ -35,7 +39,11 @@ describe("preFilterMatches — substring fast-path", () => {
   it("lowercases both needle and line when ignoreCase=true", () => {
     const content = "FOO\nfoo\nbar\n";
     const { regex } = buildRegex("foo", { mode: "basic", ignoreCase: true });
-    const preFilter: PreFilter = { needles: ["foo"], ignoreCase: true };
+    const preFilter: PreFilter = {
+      groups: [["foo"]],
+      exact: ["foo"],
+      ignoreCase: true,
+    };
     const result = searchContent(content, regex, { preFilter });
     expect(result.output).toBe("FOO\nfoo\n");
     expect(result.matchCount).toBe(2);
@@ -45,7 +53,8 @@ describe("preFilterMatches — substring fast-path", () => {
     const content = "alpha\nbeta\ngamma\ndelta\n";
     const { regex } = buildRegex("alpha\\|delta", { mode: "basic" });
     const preFilter: PreFilter = {
-      needles: ["alpha", "delta"],
+      groups: [["alpha"], ["delta"]],
+      exact: ["alpha", "delta"],
       ignoreCase: false,
     };
     const result = searchContent(content, regex, { preFilter });
@@ -59,13 +68,60 @@ describe("preFilterMatches — substring fast-path", () => {
     // is still correct because a line without the needle provably can't match.
     const content = "foo\nbar\nbaz\n";
     const { regex } = buildRegex("foo", { mode: "basic" });
-    const preFilter: PreFilter = { needles: ["foo"], ignoreCase: false };
+    const preFilter: PreFilter = {
+      groups: [["foo"]],
+      exact: ["foo"],
+      ignoreCase: false,
+    };
     const result = searchContent(content, regex, {
       preFilter,
       invertMatch: true,
     });
     expect(result.output).toBe("bar\nbaz\n");
     expect(result.matchCount).toBe(2);
+  });
+
+  it("skips a line that lacks one needle of a group", () => {
+    const content = "product\nupdate\nupdate product\n";
+    const { regex, preFilter } = buildRegex("product.*update|update.*product", {
+      mode: "extended",
+    });
+    expect(preFilter).toEqual({
+      groups: [["product", "update"]],
+      exact: [],
+      ignoreCase: false,
+    });
+    expect(searchContent(content, regex, { preFilter }).output).toBe(
+      "update product\n",
+    );
+  });
+
+  it("reports a zero count for a file without the required literals", () => {
+    const { regex, preFilter } = buildRegex("needle", { mode: "basic" });
+    const result = searchContent("hay\nstack\n", regex, {
+      preFilter,
+      countOnly: true,
+      filename: "f.txt",
+    });
+    expect(result).toEqual({
+      output: "f.txt:0\n",
+      matched: false,
+      matchCount: 0,
+    });
+  });
+
+  it("still prints a file without the required literals under passthru", () => {
+    const { regex, preFilter } = buildRegex("needle", { mode: "basic" });
+    const result = searchContent("hay\nstack\n", regex, {
+      preFilter,
+      passthru: true,
+      showLineNumbers: true,
+    });
+    expect(result).toEqual({
+      output: "1-hay\n2-stack\n",
+      matched: false,
+      matchCount: 0,
+    });
   });
 
   it("does not apply the fast-path skip when preFilter is absent", () => {

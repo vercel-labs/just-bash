@@ -15,6 +15,7 @@ export {
 export {
   buildRegex,
   convertReplacement,
+  type PreFilter,
   type RegexMode,
   type RegexOptions,
   type RegexResult,

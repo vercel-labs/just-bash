@@ -7,23 +7,11 @@ import {
   ExecutionLimitError,
 } from "../../interpreter/errors.js";
 import type { UserRegex } from "../../regex/index.js";
-import type { PreFilter } from "./regex.js";
-
-/**
- * Substring fast-path check: returns true if at least one needle is present
- * in the line, meaning the regex *might* match. False means provably no match.
- *
- * For case-insensitive filters, the line is lowercased once per call. Both the
- * needles and the line are compared in lowercase.
- */
-function preFilterMatches(preFilter: PreFilter, line: string): boolean {
-  const haystack = preFilter.ignoreCase ? line.toLowerCase() : line;
-  const needles = preFilter.needles;
-  for (let i = 0; i < needles.length; i++) {
-    if (haystack.indexOf(needles[i]) !== -1) return true;
-  }
-  return false;
-}
+import {
+  type PreFilter,
+  preFilterMatches,
+  preFilterVerdict,
+} from "./required-literals.js";
 
 /**
  * Apply a replacement pattern using capture groups from a regex match
@@ -85,8 +73,8 @@ export interface SearchOptions {
   /** If \K was used, this is the capture group index containing the "real" match */
   kResetGroup?: number;
   /**
-   * Optional substring fast-path: skip RE2 entirely for lines where no needle
-   * is present. Pre-computed by buildRegex from the source pattern.
+   * Optional substring fast-path: skip RE2 entirely for a file or line that
+   * lacks the pattern's required literals. Pre-computed by buildRegex.
    */
   preFilter?: PreFilter | null;
   /** Maximum synchronous matching/formatting work units. */
@@ -171,6 +159,21 @@ export function searchContent(
     });
   }
 
+  // A file without the required literals has no matching line, so neither the
+  // line split nor RE2 runs. Inverting or passthru must still print its lines.
+  if (
+    preFilter &&
+    !invertMatch &&
+    !passthru &&
+    !preFilterMatches(preFilter, content)
+  ) {
+    if (countOnly || countMatches) {
+      const countStr = filename ? `${filename}:0` : "0";
+      return { output: `${countStr}\n`, matched: false, matchCount: 0 };
+    }
+    return { output: "", matched: false, matchCount: 0 };
+  }
+
   let work = 0;
   const chargeWork = (amount = 1): void => {
     if (signal?.aborted) throw new ExecutionAbortedError();
@@ -190,6 +193,19 @@ export function searchContent(
       );
     }
     lines.push(value);
+  };
+  // These outputs need a match's position; for the rest, a line its literals
+  // settle needs no RE2.
+  const needsPosition =
+    onlyMatching || vimgrep || showColumn || showByteOffset || replace !== null;
+  /** Whether a line matches: its literals settle most lines, RE2 the rest. */
+  const lineMatches = (line: string): boolean => {
+    if (preFilter) {
+      const verdict = preFilterVerdict(preFilter, line);
+      if (verdict !== "unknown") return verdict === "match";
+    }
+    regex.lastIndex = 0;
+    return regex.test(line);
   };
 
   let prospectiveLineCount = 1;
@@ -225,14 +241,10 @@ export function searchContent(
       if (maxCount > 0 && matchingLineCount >= maxCount) break;
       const countBeforeLine = matchCount;
       const line = lines[i];
-      // Pre-filter: skip lines that can't contain any required literal.
-      // For invertMatch=true (-vc), a no-match line still counts, so we
-      // can't skip it — only short-circuit when not inverting.
-      if (preFilter && !invertMatch && !preFilterMatches(preFilter, line)) {
-        continue;
-      }
-      regex.lastIndex = 0;
       if (shouldCountMatches) {
+        // A line without the required literals has no match to count.
+        if (preFilter && !preFilterMatches(preFilter, line)) continue;
+        regex.lastIndex = 0;
         // Count individual matches on the line
         for (
           let match = regex.exec(line);
@@ -243,11 +255,9 @@ export function searchContent(
           matchCount++;
           if (match[0].length === 0) regex.lastIndex++;
         }
-      } else {
+      } else if (lineMatches(line) !== invertMatch) {
         // Count lines (with matches, or without matches if inverted)
-        if (regex.test(line) !== invertMatch) {
-          matchCount++;
-        }
+        matchCount++;
       }
       if (matchCount > countBeforeLine) matchingLineCount++;
     }
@@ -270,18 +280,19 @@ export function searchContent(
       if (maxCount > 0 && matchCount >= maxCount) break;
 
       const line = lines[i];
-      // Substring pre-filter: when no extracted needle is present, the
-      // regex provably cannot match. String.indexOf is ~50x faster than
-      // RE2.find() for short inputs, so we skip the regex for the bulk
-      // of unmatching lines.
+      // Substring pre-filter: when no required literal is present, the regex
+      // provably cannot match, and String.indexOf is far faster than RE2.
       let firstMatch: RegExpExecArray | null = null;
-      if (preFilter && !preFilterMatches(preFilter, line)) {
-        // firstMatch stays null → matches stays false
+      let matches: boolean;
+      if (!needsPosition) {
+        matches = lineMatches(line);
+      } else if (preFilter && !preFilterMatches(preFilter, line)) {
+        matches = false;
       } else {
         regex.lastIndex = 0;
         firstMatch = regex.exec(line);
+        matches = firstMatch !== null;
       }
-      const matches = firstMatch !== null;
 
       if (matches !== invertMatch) {
         hasMatch = true;
@@ -383,14 +394,7 @@ export function searchContent(
     for (let i = 0; i < lastIdx; i++) {
       chargeWork();
       const line = lines[i];
-      let matches: boolean;
-      if (preFilter && !preFilterMatches(preFilter, line)) {
-        matches = false;
-      } else {
-        regex.lastIndex = 0;
-        matches = regex.test(line);
-      }
-      const isMatch = matches !== invertMatch;
+      const isMatch = lineMatches(line) !== invertMatch;
 
       if (isMatch) {
         hasMatch = true;
@@ -424,14 +428,7 @@ export function searchContent(
     // Check if we've reached maxCount
     if (maxCount > 0 && matchCount >= maxCount) break;
     const line = lines[i];
-    let matches: boolean;
-    if (preFilter && !preFilterMatches(preFilter, line)) {
-      matches = false;
-    } else {
-      regex.lastIndex = 0;
-      matches = regex.test(line);
-    }
-    if (matches !== invertMatch) {
+    if (lineMatches(line) !== invertMatch) {
       if (
         maxMatches !== undefined &&
         matchingLineNumbers.length >= maxMatches
@@ -470,11 +467,10 @@ export function searchContent(
       chargeWork();
       lastPrintedLine = i;
       const line = lines[i];
-      regex.lastIndex = 0;
       const isMatch =
         (matchBeyondMaxCount ||
           i <= matchingLineNumbers[matchingLineNumbers.length - 1]) &&
-        regex.test(line) !== invertMatch;
+        lineMatches(line) !== invertMatch;
 
       if (isMatch && onlyMatching) {
         regex.lastIndex = 0;
