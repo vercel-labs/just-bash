@@ -83,10 +83,13 @@ function tzShownAsUtc(d: Date, tz: string): Date | null {
  */
 function parseBareISOInTimezone(s: string, tz: string): Date | null {
   const m = s.match(
-    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?$/,
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d+))?)?)?$/,
   );
   if (!m) return null;
-  const [, yr, mo, dy, hr = "00", mn = "00", sc = "00"] = m;
+  const [, yr, mo, dy, hr = "00", mn = "00", sc = "00", frac = ""] = m;
+  // Fractional seconds (2026-03-03T12:00:00.5) are resolved on the whole
+  // second and added back at the end; tzShownAsUtc only has second precision.
+  const ms = Number(frac.slice(0, 3).padEnd(3, "0"));
   const requested = new Date(`${yr}-${mo}-${dy}T${hr}:${mn}:${sc}Z`);
   if (Number.isNaN(requested.getTime())) return null;
   try {
@@ -95,10 +98,10 @@ function parseBareISOInTimezone(s: string, tz: string): Date | null {
       const shown = tzShownAsUtc(candidate, tz);
       if (shown === null) return null;
       const drift = shown.getTime() - requested.getTime();
-      if (drift === 0) return candidate;
+      if (drift === 0) break;
       candidate = new Date(candidate.getTime() - drift);
     }
-    return candidate;
+    return new Date(candidate.getTime() + ms);
   } catch {
     return null;
   }
@@ -172,8 +175,9 @@ export const dateCommand: RuntimeCommand = {
     //                          time parts).
     // parseTz keeps its raw value (undefined when unset) so timezone-naive -d
     // strings without $TZ fall through to JS `new Date(s)` — do NOT propagate
-    // the UTC display default into parsing.
-    let parseTz = ctx.env.get("TZ");
+    // the UTC display default into parsing. `-u` is different: like GNU
+    // date, it makes the input be read as UTC too, not only the output.
+    let parseTz = utc ? "UTC" : ctx.env.get("TZ");
     if (parseTz && !isValidTimezone(parseTz)) parseTz = undefined;
     const displayTz = utc ? "UTC" : (parseTz ?? "UTC");
 
