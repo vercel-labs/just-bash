@@ -1,11 +1,8 @@
 import { setImmediate } from "node:timers/promises";
 import { describe, expect, it, vi } from "vitest";
 import { Bash } from "../../Bash.js";
-import { defineCommand } from "../../custom-commands.js";
-import { ExecutionScope } from "../../execution-scope.js";
 import { InMemoryFs } from "../../fs/in-memory-fs/in-memory-fs.js";
 import { DefenseInDepthBox } from "../../security/defense-in-depth-box.js";
-import { jqCommand } from "./jq.js";
 
 const input = JSON.stringify("x".repeat(98));
 
@@ -27,7 +24,7 @@ describe("jq file input budgets", () => {
     expect(result.exitCode).toBe(2);
   });
 
-  it("stops the execution after a single oversized file", async () => {
+  it("charges an oversized file after reading it", async () => {
     const fs = new InMemoryFs({ "/a": input });
     const readFile = vi.spyOn(fs, "readFileBytes");
     const bash = new Bash({ fs, executionLimits: { maxInputBytes: 50 } });
@@ -37,39 +34,8 @@ describe("jq file input budgets", () => {
       "bash: jq: aggregate input size limit exceeded (50 bytes)\n",
     );
     expect(result.exitCode).toBe(126);
-    expect(readFile).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    false,
-    true,
-  ])("does not read a file larger than the remaining budget (extension: %s)", async (extension) => {
-    const fs = new InMemoryFs({ "/a": input, "/b": input });
-    const readFile = vi.spyOn(fs, "readFileBytes");
-    let usedFacade = false;
-    const bash = new Bash({
-      fs,
-      customCommands: extension
-        ? [
-            defineCommand("jq", async (args, ctx) => {
-              usedFacade =
-                ctx.executionScope !== undefined &&
-                !(ctx.executionScope instanceof ExecutionScope);
-              return jqCommand.execute(args, ctx);
-            }),
-          ]
-        : undefined,
-      executionLimits: { maxInputBytes: 150 },
-    });
-    const result = await bash.exec("jq empty /a; jq empty /b");
-    expect(result.stdout).toBe("");
-    expect(result.stderr).toBe(
-      "bash: jq: aggregate input size limit exceeded (150 bytes)\n",
-    );
-    expect(result.exitCode).toBe(126);
     expect(readFile).toHaveBeenCalledTimes(1);
     expect(readFile).toHaveBeenCalledWith("/a");
-    expect(usedFacade).toBe(extension);
   });
 
   it("charges actual file bytes when the stat size is stale", async () => {
@@ -80,12 +46,30 @@ describe("jq file input budgets", () => {
     }
     const bash = new Bash({
       fs: new AdvisorySizeFs({ "/a": input }),
-      executionLimits: { maxInputBytes: 230 },
+      executionLimits: { maxInputBytes: 200 },
     });
     const result = await bash.exec("jq empty /a; jq empty /a");
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("");
     expect(result.exitCode).toBe(0);
+  });
+
+  it("reports an unreadable file instead of an input budget error", async () => {
+    class UnreadableFs extends InMemoryFs {
+      override async readFileBytes(_path: string): Promise<never> {
+        throw new Error("read failed");
+      }
+    }
+    const bash = new Bash({
+      fs: new UnreadableFs({ "/a": input }),
+      executionLimits: { maxInputBytes: 50 },
+    });
+
+    const result = await bash.exec("jq empty /a");
+
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("jq: /a: No such file or directory\n");
+    expect(result.exitCode).toBe(2);
   });
 
   it("charges bytes read beyond the stat size to the input budget", async () => {

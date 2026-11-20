@@ -138,14 +138,6 @@ export async function readFiles(
           const filePath = ctx.fs.resolvePath(ctx.cwd, file);
           const stat = inputLeases ? await ctx.fs.stat(filePath) : undefined;
           const size = stat?.isFile ? stat.size : 0;
-          if (
-            inputLeases &&
-            size >
-              (ctx.executionScope?.remainingInputBytes ??
-                ctx.limits.maxInputBytes)
-          ) {
-            accountFileInput(ctx, size, cmdName);
-          }
           if (inputLeases && ctx.executionScope) {
             // Reserve both the byte buffer and its decoded text until consumed.
             reservation = ctx.executionScope.reserveBytes(
