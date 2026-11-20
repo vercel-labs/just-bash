@@ -1,3 +1,7 @@
+import { BoundedStringBuilder } from "../../bounded-builder.js";
+import { utf8ByteLength } from "../../encoding.js";
+import { ExecutionOutputAccumulator } from "../../execution-output.js";
+import type { ExecutionScope } from "../../execution-scope.js";
 import { traverseFileTree } from "../../fs/traversal.js";
 import {
   ExecutionAbortedError,
@@ -9,7 +13,9 @@ import type {
   RuntimeCommandContext,
 } from "../../types.js";
 import { parseArgs } from "../../utils/args.js";
+import { describeFileSystemError } from "../fs-error.js";
 import { hasHelpFlag, showHelp } from "../help.js";
+import { quotePath } from "./quote-path.js";
 
 const duHelp = {
   name: "du",
@@ -70,9 +76,88 @@ export const duCommand: RuntimeCommand = {
       targets.push(".");
     }
 
+    const startedAt = Date.now();
     let stdout = "";
     let stderr = "";
     let grandTotal = 0;
+    let exitCode = 0;
+    const scope = ctx.executionScope as ExecutionScope | undefined;
+    const output = scope
+      ? new ExecutionOutputAccumulator(scope, "du")
+      : undefined;
+    let fallbackOutputBytes = 0;
+    const append = (stream: "stdout" | "stderr", value: string): void => {
+      if (output) output.append(stream, value);
+      else {
+        const bytes = utf8ByteLength(value);
+        if (bytes > ctx.limits.maxOutputSize - fallbackOutputBytes) {
+          throw new ExecutionLimitError(
+            `du: output size limit exceeded (${ctx.limits.maxOutputSize} bytes)`,
+            "output_size",
+          );
+        }
+        fallbackOutputBytes += bytes;
+        if (stream === "stdout") stdout += value;
+        else stderr += value;
+      }
+      if (stream === "stderr" && value) exitCode = 1;
+    };
+
+    const reportError = (
+      action: string,
+      path: string,
+      reason: string,
+    ): void => {
+      const suffix = `: ${reason}\n`;
+      const remaining =
+        ctx.limits.maxOutputSize -
+        (scope?.outputBytesUsed ?? fallbackOutputBytes);
+      const memoryLimit = scope?.remainingLiveBytes ?? ctx.limits.maxLiveBytes;
+      const limitError = () => {
+        if (
+          memoryLimit < remaining &&
+          memoryLimit <= ctx.limits.maxStringLength
+        ) {
+          return new ExecutionLimitError(
+            `du: diagnostic live byte limit exceeded (${memoryLimit} bytes)`,
+            "string_length",
+          );
+        }
+        if (ctx.limits.maxStringLength < remaining) {
+          return new ExecutionLimitError(
+            `du: diagnostic string length limit exceeded (${ctx.limits.maxStringLength})`,
+            "string_length",
+          );
+        }
+        return new ExecutionLimitError(
+          scope
+            ? `du: total output size exceeded (>${ctx.limits.maxOutputSize} bytes), increase executionLimits.maxOutputSize`
+            : `du: output size limit exceeded (${ctx.limits.maxOutputSize} bytes)`,
+          "output_size",
+        );
+      };
+      try {
+        const diagnostic = new BoundedStringBuilder(
+          Math.min(remaining, ctx.limits.maxStringLength, memoryLimit),
+          "du",
+          limitError,
+          utf8ByteLength(suffix),
+        );
+        diagnostic.append(`du: cannot ${action} `);
+        quotePath(path, diagnostic, () => {
+          if (
+            ctx.signal?.aborted ||
+            Date.now() - startedAt > ctx.limits.maxExecutionTimeMs
+          )
+            throw new ExecutionAbortedError();
+          scope?.consumeWork(1, "du diagnostic");
+        });
+        append("stderr", diagnostic.build() + suffix);
+      } catch (error) {
+        output?.prependTo(error);
+        throw error;
+      }
+    };
 
     for (const target of targets) {
       const fullPath = ctx.fs.resolvePath(ctx.cwd, target);
@@ -80,34 +165,33 @@ export const duCommand: RuntimeCommand = {
       try {
         // Check if path exists first
         await ctx.fs.stat(fullPath);
-        const result = await calculateSize(ctx, fullPath, target, options, 0);
-        stdout += result.output;
-        grandTotal += result.totalSize;
-        stderr += result.stderr;
       } catch (error) {
-        if (
-          error instanceof ExecutionLimitError ||
-          error instanceof ExecutionAbortedError
-        ) {
-          throw error;
-        }
-        stderr += `du: cannot access '${target}': No such file or directory\n`;
+        const reason = describeFileSystemError(error);
+        if (reason === null) throw error;
+        reportError("access", target, reason);
+        continue;
       }
+      grandTotal += await calculateSize(
+        ctx,
+        fullPath,
+        target,
+        options,
+        0,
+        append,
+        reportError,
+      );
     }
 
     if (options.grandTotal && targets.length > 0) {
-      stdout += `${formatSize(grandTotal, options.humanReadable)}\ttotal\n`;
+      append(
+        "stdout",
+        `${formatSize(grandTotal, options.humanReadable)}\ttotal\n`,
+      );
     }
 
-    return { stdout, stderr, exitCode: stderr ? 1 : 0 };
+    return output?.build(exitCode) ?? { stdout, stderr, exitCode };
   },
 };
-
-interface SizeResult {
-  output: string;
-  totalSize: number;
-  stderr: string;
-}
 
 async function calculateSize(
   ctx: RuntimeCommandContext,
@@ -115,8 +199,16 @@ async function calculateSize(
   displayPath: string,
   options: DuOptions,
   depth: number,
-): Promise<SizeResult> {
-  const result: SizeResult = { output: "", totalSize: 0, stderr: "" };
+  append: (stream: "stdout" | "stderr", value: string) => void,
+  reportError: (action: string, path: string, reason: string) => void,
+): Promise<number> {
+  let totalSize = 0;
+  const shownPath = (path: string): string => {
+    const relative = path.slice(fullPath === "/" ? 1 : fullPath.length + 1);
+    const root = displayPath === "//" ? "//" : displayPath.replace(/\/+$/, "/");
+    if (!relative) return root;
+    return `${root.endsWith("/") ? root : `${root}/`}${relative}`;
+  };
   const directorySizes = new Map<string, number>();
 
   await traverseFileTree(
@@ -129,14 +221,15 @@ async function calculateSize(
       site: "du",
       symlinks: "never",
       includeLeave: true,
+      onError(error, path, operation) {
+        const reason = describeFileSystemError(error);
+        if (reason === null) throw error;
+        const action = operation === "readdir" ? "read directory" : "access";
+        reportError(action, shownPath(path), reason);
+      },
     },
     (entry) => {
-      const relative = entry.path.slice(fullPath.length).replace(/^\//, "");
-      const shown = relative
-        ? displayPath === "."
-          ? relative
-          : `${displayPath}/${relative}`
-        : displayPath;
+      const shown = shownPath(entry.path);
       const parent =
         entry.path === "/"
           ? "/"
@@ -152,9 +245,12 @@ async function calculateSize(
           (directorySizes.get(parent) ?? 0) + entry.stat.size,
         );
         if ((options.allFiles || entry.depth === depth) && !options.summarize) {
-          result.output += `${formatSize(entry.stat.size, options.humanReadable)}\t${shown}\n`;
+          append(
+            "stdout",
+            `${formatSize(entry.stat.size, options.humanReadable)}\t${shown}\n`,
+          );
         }
-        if (entry.depth === depth) result.totalSize = entry.stat.size;
+        if (entry.depth === depth) totalSize = entry.stat.size;
         return;
       }
 
@@ -162,7 +258,7 @@ async function calculateSize(
       if (entry.depth > depth) {
         directorySizes.set(parent, (directorySizes.get(parent) ?? 0) + size);
       } else {
-        result.totalSize = size;
+        totalSize = size;
       }
       const relativeDepth = entry.depth - depth;
       if (
@@ -170,12 +266,15 @@ async function calculateSize(
         (!options.summarize &&
           (options.maxDepth === null || relativeDepth <= options.maxDepth))
       ) {
-        result.output += `${formatSize(size, options.humanReadable)}\t${shown}\n`;
+        append(
+          "stdout",
+          `${formatSize(size, options.humanReadable)}\t${shown}\n`,
+        );
       }
     },
   );
 
-  return result;
+  return totalSize;
 }
 
 function formatSize(bytes: number, humanReadable: boolean): string {

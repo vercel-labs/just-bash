@@ -317,6 +317,12 @@ export interface TraverseFileTreeOptions extends TraversalBudgetOptions {
   readonly root: string;
   readonly symlinks?: SymlinkTraversalPolicy;
   readonly includeLeave?: boolean;
+  /** Handle a failed stat/read; throw to stop traversal (the default). */
+  readonly onError?: (
+    error: unknown,
+    path: string,
+    operation: "stat" | "readdir",
+  ) => void;
   readonly budget?: FileTraversalBudget;
 }
 
@@ -366,12 +372,20 @@ export async function traverseFileTree(
     }
 
     budget.visit(item.depth);
-    const lstat = await options.fs.lstat(item.path);
+    let lstat: FsStat;
+    let stat: FsStat;
+    try {
+      lstat = await options.fs.lstat(item.path);
+      stat =
+        lstat.isSymbolicLink && options.symlinks === "follow"
+          ? await options.fs.stat(item.path)
+          : lstat;
+    } catch (error) {
+      if (!options.onError) throw error;
+      options.onError(error, item.path, "stat");
+      continue;
+    }
     const isSymlink = lstat.isSymbolicLink;
-    const stat =
-      isSymlink && options.symlinks === "follow"
-        ? await options.fs.stat(item.path)
-        : lstat;
 
     await visitor({
       path: item.path,
@@ -410,7 +424,15 @@ export async function traverseFileTree(
       isSymlink,
       identity,
     });
-    const names = await options.fs.readdir(item.path);
+    let names: string[];
+    try {
+      names = await options.fs.readdir(item.path);
+    } catch (error) {
+      if (!options.onError) throw error;
+      options.onError(error, item.path, "readdir");
+      budget.checkpoint();
+      continue;
+    }
     budget.checkpoint();
     names.sort((a, b) => a.localeCompare(b));
     for (let index = names.length - 1; index >= 0; index--) {
