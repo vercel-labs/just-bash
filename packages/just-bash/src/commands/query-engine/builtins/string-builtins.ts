@@ -4,6 +4,7 @@
  * Handles string manipulation functions like join, split, test, match, gsub, etc.
  */
 
+import { rethrowFatalExecutionError } from "../../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../../interpreter/errors.js";
 import { createUserRegex } from "../../../regex/index.js";
 import { utf8ByteLength } from "../../printf/escapes.js";
@@ -134,7 +135,7 @@ export function evalStringBuiltin(
         assertResultCount(ctx, split.length);
         return split;
       } catch (error) {
-        if (error instanceof ExecutionLimitError) throw error;
+        rethrowFatalExecutionError(error);
         return [];
       }
     }
@@ -166,7 +167,7 @@ export function evalStringBuiltin(
         }
         return results;
       } catch (error) {
-        if (error instanceof ExecutionLimitError) throw error;
+        rethrowFatalExecutionError(error);
         return [];
       }
     }
@@ -179,7 +180,8 @@ export function evalStringBuiltin(
         const flags =
           args.length > 1 ? String(evaluate(value, args[1], ctx)[0]) : "";
         return [createUserRegex(pattern, flags).test(value)];
-      } catch {
+      } catch (error) {
+        rethrowFatalExecutionError(error);
         return [false];
       }
     }
@@ -213,7 +215,8 @@ export function evalStringBuiltin(
             }),
           },
         ];
-      } catch {
+      } catch (error) {
+        rethrowFatalExecutionError(error);
         return [null];
       }
     }
@@ -229,7 +232,8 @@ export function evalStringBuiltin(
         const m = re.match(value);
         if (!m || !m.groups) return [Object.create(null)];
         return [m.groups];
-      } catch {
+      } catch (error) {
+        rethrowFatalExecutionError(error);
         return [null];
       }
     }
@@ -244,7 +248,8 @@ export function evalStringBuiltin(
         const flags =
           args.length > 2 ? String(evaluate(value, args[2], ctx)[0]) : "";
         return [createUserRegex(pattern, flags).replace(value, replacement)];
-      } catch {
+      } catch (error) {
+        rethrowFatalExecutionError(error);
         return [value];
       }
     }
@@ -262,7 +267,8 @@ export function evalStringBuiltin(
         return [
           createUserRegex(pattern, effectiveFlags).replace(value, replacement),
         ];
-      } catch {
+      } catch (error) {
+        rethrowFatalExecutionError(error);
         return [value];
       }
     }

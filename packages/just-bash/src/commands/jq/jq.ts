@@ -5,13 +5,13 @@
  */
 
 import { decodeBytesToUtf8 } from "../../encoding.js";
+import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { sanitizeErrorMessage } from "../../fs/sanitize-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import {
   assertDefenseContext,
   awaitWithDefenseContext,
 } from "../../security/defense-context.js";
-import { SecurityViolationError } from "../../security/defense-in-depth-box.js";
 import type {
   ExecResult,
   RuntimeCommand,
@@ -326,7 +326,8 @@ export const jqCommand: RuntimeCommand = {
         let parsed: unknown[];
         try {
           parsed = parseJsonStream(json.trim(), jsonLimits);
-        } catch {
+        } catch (error) {
+          rethrowFatalExecutionError(error);
           return jqArgError("invalid JSON text passed to --argjson");
         }
         if (parsed.length !== 1) {
@@ -393,7 +394,8 @@ export const jqCommand: RuntimeCommand = {
         let parsed: unknown[];
         try {
           parsed = parseJsonStream(a.trim(), jsonLimits);
-        } catch {
+        } catch (error) {
+          rethrowFatalExecutionError(error);
           return jqArgError("invalid JSON text passed to --jsonargs");
         }
         if (parsed.length !== 1) {
@@ -430,7 +432,8 @@ export const jqCommand: RuntimeCommand = {
               name,
               trimmed ? parseJsonStream(trimmed, jsonLimits) : [],
             );
-          } catch {
+          } catch (error) {
+            rethrowFatalExecutionError(error);
             return jqArgError("invalid JSON text passed to --slurpfile");
           }
         }
@@ -622,9 +625,6 @@ export const jqCommand: RuntimeCommand = {
         exitCode,
       };
     } catch (e) {
-      if (e instanceof SecurityViolationError) {
-        throw e;
-      }
       if (e instanceof ExecutionLimitError) {
         throw new ExecutionLimitError(
           e.message,
@@ -633,6 +633,7 @@ export const jqCommand: RuntimeCommand = {
           `jq: ${sanitizeErrorMessage(e.message)}\n`,
         );
       }
+      rethrowFatalExecutionError(e);
       const msg = sanitizeErrorMessage((e as Error).message);
       if (msg.includes("Unknown function")) {
         return {

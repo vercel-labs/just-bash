@@ -14,33 +14,60 @@ describe("execution limits caught by a command", () => {
       "awk '{ print }' /in",
       { maxAwkIterations: 2 },
       "awk: record limit exceeded (2)\n",
+      "one\ntwo\n",
     ],
     [
       "sed",
       "sed ':a;N;$!ba;s/\\n/ /g' /in",
       { maxSedIterations: 2 },
       "sed: sed: command execution exceeded maximum iterations (2)\n",
+      "",
     ],
     [
       "jq",
       "jq -n '[range(5)]'",
       { maxQueryElements: 2 },
       "jq: query result element limit exceeded (2)\n",
+      "",
     ],
     [
       "yq",
       "yq -n '[1, 2, 3, 4, 5]'",
       { maxQueryElements: 2 },
       "yq: query result element limit exceeded (2)\n",
+      "",
     ],
-  ])("%s ends the script from inside a pipeline", async (_name, command, limits, stderr) => {
+  ])("%s ends the script from inside a pipeline", async (_name, command, limits, stderr, stdout) => {
     const bash = new Bash({
       files: { "/in": records },
       executionLimits: limits,
     });
     const result = await bash.exec(`${command} | wc -l; echo after`);
-    expect(result.stdout).not.toContain("after");
+    expect(result.stdout).toBe(stdout);
     expect(result.stderr).toBe(stderr);
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+  });
+
+  it("preserves accounted earlier output and AWK's partial output", async () => {
+    const bash = new Bash({
+      files: { "/in": records },
+      executionLimits: { maxAwkIterations: 2 },
+    });
+    const result = await bash.exec(
+      "printf 'before\\n'; awk '{ print }' /in | wc -l; echo after",
+    );
+    expect(result.stdout).toBe("before\none\ntwo\n");
+    expect(result.stderr).toBe("awk: record limit exceeded (2)\n");
+    expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+  });
+
+  it("preserves a shell loop's partial output in a pipeline", async () => {
+    const bash = new Bash({ executionLimits: { maxLoopIterations: 2 } });
+    const result = await bash.exec(
+      'for i in one two three; do echo "$i"; done | wc -l; echo after',
+    );
+    expect(result.stdout).toBe("one\ntwo\n");
+    expect(result.stderr).toContain("too many iterations (2)");
     expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
   });
 
