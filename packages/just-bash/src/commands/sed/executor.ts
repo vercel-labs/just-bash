@@ -540,34 +540,37 @@ function executeCommand(
       try {
         const regex = createUserRegex(pattern, flags);
 
-        // Check if pattern matches FIRST - for t/T command tracking
-        // t should branch if substitution matched, even if replacement is same as original
+        // Check if the pattern matches first. If not, nothing is replaced.
         const hasMatch = regex.test(state.patternSpace);
         // Reset lastIndex after test() for global regex
         regex.lastIndex = 0;
 
         if (hasMatch) {
-          // Mark substitution as successful BEFORE replacement (for t/T commands)
-          state.substitutionMade = true;
+          // As in GNU sed, t, T and the p flag see a substitution only when a
+          // match is replaced, also when the replacement is the same text. The
+          // g branch and the branch without a number always replace a match.
+          let replaced = true;
 
-          // Handle Nth occurrence
-          if (
-            subCmd.nthOccurrence &&
-            subCmd.nthOccurrence > 0 &&
-            !subCmd.global
-          ) {
+          // Handle Nth occurrence, with or without g. Count the matches as
+          // globalReplace finds them for g: an empty match right after a match
+          // does not count. With fewer matches, nothing is replaced.
+          if (subCmd.nthOccurrence && subCmd.nthOccurrence > 0) {
+            replaced = false;
             let count = 0;
             const nth = subCmd.nthOccurrence;
             const nthRegex = createUserRegex(
               pattern,
               `g${subCmd.ignoreCase ? "i" : ""}`,
             );
-            state.patternSpace = nthRegex.replace(
+            state.patternSpace = globalReplace(
               state.patternSpace,
-              (match, ...args) => {
+              nthRegex,
+              subCmd.replacement,
+              (match, groups) => {
                 count++;
-                if (count === nth) {
-                  const groups = args.slice(0, -2) as string[];
+                // With g, replace the Nth match and every later match.
+                if (subCmd.global ? count >= nth : count === nth) {
+                  replaced = true;
                   return processReplacement(subCmd.replacement, match, groups);
                 }
                 return match;
@@ -595,9 +598,12 @@ function executeCommand(
             );
           }
 
-          if (subCmd.printOnMatch) {
-            // p flag - immediately print pattern space after substitution
-            state.lineNumberOutput.push(state.patternSpace);
+          if (replaced) {
+            state.substitutionMade = true;
+            if (subCmd.printOnMatch) {
+              // p flag - immediately print pattern space after substitution
+              state.lineNumberOutput.push(state.patternSpace);
+            }
           }
         }
       } catch {
@@ -1087,6 +1093,9 @@ export function executeCommands(
           }
           // Branch without label means jump to end
           break;
+        } else {
+          // T resets the flag when it does not branch, as GNU sed does
+          state.substitutionMade = false;
         }
       }
       i++;

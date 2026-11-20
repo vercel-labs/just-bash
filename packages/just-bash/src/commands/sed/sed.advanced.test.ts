@@ -116,6 +116,20 @@ describe("sed advanced commands", () => {
       // Second line: no match on first s, so second s executes
       expect(result.stdout).toBe("HELLO\nWORLD\n");
     });
+
+    it("T clears the substitution flag when it does not branch", async () => {
+      const env = new Bash({
+        files: { "/test.txt": "aaa\n" },
+      });
+      // The first T does not branch and clears the flag, so the second T
+      // branches. Expected output recorded from GNU sed 4.9.
+      const result = await env.exec(
+        "sed 's/a/b/;Tx;s/z/c/;Ty;s/$/ -/;b;:x;s/$/ x/;b;:y;s/$/ y/' /test.txt",
+      );
+      expect(result.stdout).toBe("baa y\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("-f flag (script file)", () => {
