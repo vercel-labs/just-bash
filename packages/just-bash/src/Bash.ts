@@ -1098,12 +1098,16 @@ type QuoteScanState = "none" | "single" | "double";
  * Only single and double quotes matter: those are the contexts where leading
  * whitespace is significant. Backslash escapes and `#` comments are honored so
  * a quote inside a comment (e.g. `# don't`) doesn't desync the state.
+ *
+ * Also reports whether the line ends in a backslash-newline continuation: an
+ * unescaped trailing backslash outside single quotes and comments.
  */
 function scanLineQuoteState(
   line: string,
   start: QuoteScanState,
-): QuoteScanState {
+): { state: QuoteScanState; continued: boolean } {
   let state = start;
+  let continued = false;
   for (let i = 0; i < line.length; i++) {
     const ch = line[i];
     if (state === "single") {
@@ -1111,6 +1115,7 @@ function scanLineQuoteState(
       if (ch === "'") state = "none";
     } else if (state === "double") {
       if (ch === "\\") {
+        if (i === line.length - 1) continued = true;
         i++; // backslash escapes the next char inside double quotes
       } else if (ch === '"') {
         state = "none";
@@ -1120,12 +1125,13 @@ function scanLineQuoteState(
     } else if (ch === '"') {
       state = "double";
     } else if (ch === "\\") {
+      if (i === line.length - 1) continued = true;
       i++; // backslash escapes the next char (e.g. \" or \')
     } else if (ch === "#" && (i === 0 || /\s/.test(line[i - 1]))) {
       break; // start of a comment: the rest of the line is not shell-significant
     }
   }
-  return state;
+  return { state, continued };
 }
 
 /**
@@ -1145,7 +1151,9 @@ function scanLineQuoteState(
  * Leading whitespace is only stripped from lines that begin outside any quote.
  * A line that begins inside an unterminated single- or double-quoted string is
  * literal quoted content (e.g. the body of `python3 -c "..."`), so it is kept
- * verbatim.
+ * verbatim. The same goes for a line that continues the previous one through a
+ * trailing backslash: its indentation is what separates the words on either
+ * side of the removed backslash-newline.
  *
  * Heredocs are detected by looking for << or <<- operators and their delimiters.
  */
@@ -1159,6 +1167,8 @@ function normalizeScript(script: string): string {
   // Open single/double-quote state carried across lines. When a line begins
   // inside an open quote, its leading whitespace is literal and preserved.
   let quoteState: QuoteScanState = "none";
+  // Whether the previous line ended in a backslash-newline continuation.
+  let continued = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -1173,10 +1183,12 @@ function normalizeScript(script: string): string {
         // End of heredoc - this line can be normalized
         result.push(line.trimStart());
         pendingDelimiters.pop();
+        continued = false;
         continue;
       }
       // Inside heredoc - preserve the line exactly as-is
       result.push(line);
+      continued = false;
       continue;
     }
 
@@ -1184,9 +1196,12 @@ function normalizeScript(script: string): string {
     // quoted content (leading whitespace is significant), so preserve them
     // verbatim; otherwise strip leading indentation.
     const startState = quoteState;
-    const normalizedLine = startState === "none" ? line.trimStart() : line;
+    const normalizedLine =
+      startState === "none" && !continued ? line.trimStart() : line;
     result.push(normalizedLine);
-    quoteState = scanLineQuoteState(line, startState);
+    const scan = scanLineQuoteState(line, startState);
+    quoteState = scan.state;
+    continued = scan.continued;
 
     // Only detect heredoc operators on lines that begin outside any quote;
     // a `<<WORD` inside quoted content is not a heredoc.
