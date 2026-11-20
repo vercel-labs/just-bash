@@ -406,6 +406,13 @@ describe("secureFetch behavior", () => {
       allowed: "",
     },
     {
+      status: 307,
+      source: "/start",
+      target: "/data//item",
+      deniedMethod: "POST",
+      allowed: "",
+    },
+    {
       status: 303,
       source: "/start",
       target: "/%64ata",
@@ -527,6 +534,7 @@ describe("secureFetch behavior", () => {
       "/%6Fther",
       "/data/file%20name",
       "/data;v=1",
+      "/data//item",
     ]) {
       for (const method of ["GET", "POST"]) {
         await expect(
@@ -606,6 +614,9 @@ describe("secureFetch behavior", () => {
       200,
     );
     expect(
+      (await secureFetch("https://other.example.com/data//item")).status,
+    ).toBe(200);
+    expect(
       (await secureFetch("https://other.example.com/data;v=1")).status,
     ).toBe(200);
     expect(
@@ -618,7 +629,7 @@ describe("secureFetch behavior", () => {
     await expect(
       secureFetch("https://split.example.com/%72ead"),
     ).rejects.toThrow("HTTP method 'GET' not allowed. Allowed methods: ");
-    expect(transport).toHaveBeenCalledTimes(5);
+    expect(transport).toHaveBeenCalledTimes(6);
   });
 
   it("preserves inherited allow-list fields on class instances", async () => {

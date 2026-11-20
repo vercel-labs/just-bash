@@ -108,7 +108,10 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
       entry !== null && typeof entry === "object"
         ? {
             url: entry.url,
-            transform: entry.transform,
+            // Credentials can rotate after construction; URL and methods cannot.
+            get transform() {
+              return entry.transform;
+            },
             methods: Array.isArray(entry.methods)
               ? [...entry.methods]
               : entry.methods,
@@ -357,7 +360,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     if (
       parsedUrl &&
       // WHATWG URL parsing normalizes raw backslashes for HTTP(S) URLs.
-      /[%;\\]/.test(parsedUrl.pathname) &&
+      /[%;\\]|\/\//.test(parsedUrl.pathname) &&
       ambiguousPathDenyOrigins.has(parsedUrl.origin)
     ) {
       // An empty list denies every method.
@@ -372,6 +375,7 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
    * selected entry never inherits methods from another matching entry.
    */
   function getEffectiveMethods(url: string): HttpMethod[] {
+    if (methodOrigins.size === 0) return allowedMethods as HttpMethod[];
     const entry = findMatchingEntry(url, entries);
     if (entry && typeof entry === "object" && entry.methods) {
       return entry.methods;
