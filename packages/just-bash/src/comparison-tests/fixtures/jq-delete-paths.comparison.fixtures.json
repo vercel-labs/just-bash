@@ -1,0 +1,38 @@
+{
+  "00a62d40d6f77c10": {
+    "command": "jq -c 'del(..|nulls)' input.json",
+    "files": {
+      "input.json": "{\"a\":null,\"b\":[null,1,null],\"c\":{\"d\":null,\"e\":2}}"
+    },
+    "stdout": "{\"b\":[1],\"c\":{\"e\":2}}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "b6c364f864b8e4f1": {
+    "command": "jq -c 'del(.items[]|select(.>1))' input.json",
+    "files": {
+      "input.json": "{\"items\":[1,2,3,4]}"
+    },
+    "stdout": "{\"items\":[1]}\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cbadb47777221b80": {
+    "command": "jq -c 'del(.[0],.[-2],.[0])' input.json",
+    "files": {
+      "input.json": "[0,1,2,3]"
+    },
+    "stdout": "[1,3]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "db0574e0ea5fab35": {
+    "command": "jq -c 'del(.a,.b)' input.json",
+    "files": {
+      "input.json": "{\"a\":1,\"b\":2,\"c\":3}"
+    },
+    "stdout": "{\"c\":3}\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
