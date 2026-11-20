@@ -53,7 +53,7 @@ describe("rg searches stdin when no paths are given", () => {
       });
       const result = await env.exec(command);
       expect(result).toMatchObject({
-        stdout: "decoy.txt:1:target line\n",
+        stdout: "decoy.txt:target line\n",
         stderr: "",
         exitCode: 0,
       });
@@ -77,7 +77,7 @@ describe("rg searches stdin when no paths are given", () => {
       });
       const result = await env.exec(command);
       expect(result).toMatchObject({
-        stdout: exitCode === 0 ? "decoy.txt:1:target line\n" : "",
+        stdout: exitCode === 0 ? "decoy.txt:target line\n" : "",
         stderr: "",
         exitCode,
       });
@@ -91,7 +91,7 @@ describe("rg searches stdin when no paths are given", () => {
     // Generalizing inherited descriptor ownership is outside this patch.
     const result = await env.exec("(exec < /empty.txt; rg target)");
     expect(result).toMatchObject({
-      stdout: "decoy.txt:1:target line\n",
+      stdout: "decoy.txt:target line\n",
       stderr: "",
       exitCode: 0,
     });
@@ -147,7 +147,7 @@ describe("rg searches stdin when no paths are given", () => {
     const result = await env.exec("{ rg target 2<<EOF\nEOF\n} < /outer.txt");
 
     expect(result).toMatchObject({
-      stdout: "1:outer target\n",
+      stdout: "outer target\n",
       stderr: "",
       exitCode: 0,
     });
@@ -163,7 +163,7 @@ describe("rg searches stdin when no paths are given", () => {
     const result = await env.exec("{ rg target 2< /empty.txt; } < /outer.txt");
 
     expect(result).toMatchObject({
-      stdout: "1:outer target\n",
+      stdout: "outer target\n",
       stderr: "",
       exitCode: 0,
     });
@@ -179,7 +179,7 @@ describe("rg searches stdin when no paths are given", () => {
     const result = await env.exec("{ rg target 2< /fd2.txt; } < /outer.txt");
 
     expect(result).toMatchObject({
-      stdout: "1:outer target\n",
+      stdout: "outer target\n",
       stderr: "",
       exitCode: 0,
     });
@@ -190,7 +190,7 @@ describe("rg searches stdin when no paths are given", () => {
     const result = await env.exec("{ rg target <&0; } < /outer.txt");
 
     expect(result).toMatchObject({
-      stdout: "1:outer target\n",
+      stdout: "outer target\n",
       stderr: "",
       exitCode: 0,
     });
@@ -212,7 +212,7 @@ describe("rg searches stdin when no paths are given", () => {
     const result = await env.exec("bash -c 'rg target'");
 
     expect(result).toMatchObject({
-      stdout: "decoy.txt:1:target line\n",
+      stdout: "decoy.txt:target line\n",
       stderr: "",
       exitCode: 0,
     });

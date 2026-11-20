@@ -11,7 +11,7 @@ describe("rg pattern options", () => {
     });
     const result = await bash.exec("rg -w hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:hello world\n");
+    expect(result.stdout).toBe("file.txt:hello world\n");
     expect(result.stderr).toBe("");
   });
 
@@ -24,7 +24,7 @@ describe("rg pattern options", () => {
     });
     const result = await bash.exec("rg -x hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:hello\n");
+    expect(result.stdout).toBe("file.txt:hello\n");
     expect(result.stderr).toBe("");
   });
 
@@ -37,7 +37,7 @@ describe("rg pattern options", () => {
     });
     const result = await bash.exec("rg -F 'a.b'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:a.b\n");
+    expect(result.stdout).toBe("file.txt:a.b\n");
     expect(result.stderr).toBe("");
   });
 
@@ -50,7 +50,7 @@ describe("rg pattern options", () => {
     });
     const result = await bash.exec("rg -F '[bar]'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:foo[bar]\n");
+    expect(result.stdout).toBe("file.txt:foo[bar]\n");
     expect(result.stderr).toBe("");
   });
 
@@ -63,7 +63,7 @@ describe("rg pattern options", () => {
     });
     const result = await bash.exec("rg -v hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:2:world\n");
+    expect(result.stdout).toBe("file.txt:world\n");
     expect(result.stderr).toBe("");
   });
 
@@ -76,7 +76,7 @@ describe("rg pattern options", () => {
     });
     const result = await bash.exec("rg -v foo");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:2:bar\nfile.txt:4:baz\n");
+    expect(result.stdout).toBe("file.txt:bar\nfile.txt:baz\n");
     expect(result.stderr).toBe("");
   });
 });
@@ -91,7 +91,7 @@ describe("rg multiple patterns", () => {
     });
     const result = await bash.exec("rg -e foo -e bar");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:foo\nfile.txt:2:bar\n");
+    expect(result.stdout).toBe("file.txt:foo\nfile.txt:bar\n");
     expect(result.stderr).toBe("");
   });
 
@@ -106,7 +106,7 @@ describe("rg multiple patterns", () => {
     });
     const result = await bash.exec("rg -e foo -e bar");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:foo\nfile.txt:2:bar\n");
+    expect(result.stdout).toBe("file.txt:foo\nfile.txt:bar\n");
     expect(result.stderr).toBe("");
   });
 
@@ -119,7 +119,7 @@ describe("rg multiple patterns", () => {
     });
     const result = await bash.exec("rg -e Hello -e world");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:Hello\nfile.txt:4:world\n");
+    expect(result.stdout).toBe("file.txt:Hello\nfile.txt:world\n");
     expect(result.stderr).toBe("");
   });
 
@@ -132,7 +132,7 @@ describe("rg multiple patterns", () => {
     });
     const result = await bash.exec("rg --regexp=foo --regexp=bar");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:foo\nfile.txt:2:bar\n");
+    expect(result.stdout).toBe("file.txt:foo\nfile.txt:bar\n");
     expect(result.stderr).toBe("");
   });
 
@@ -145,7 +145,7 @@ describe("rg multiple patterns", () => {
     });
     const result = await bash.exec("rg -e foo -e bar");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:foo bar baz\n");
+    expect(result.stdout).toBe("file.txt:foo bar baz\n");
     expect(result.stderr).toBe("");
   });
 });
@@ -160,7 +160,7 @@ describe("rg regex patterns", () => {
     });
     const result = await bash.exec("rg '[0-9]+'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:foo123\nfile.txt:2:bar456\n");
+    expect(result.stdout).toBe("file.txt:foo123\nfile.txt:bar456\n");
     expect(result.stderr).toBe("");
   });
 
@@ -173,7 +173,7 @@ describe("rg regex patterns", () => {
     });
     const result = await bash.exec("rg '^hello'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:hello world\n");
+    expect(result.stdout).toBe("file.txt:hello world\n");
     expect(result.stderr).toBe("");
   });
 
@@ -186,7 +186,7 @@ describe("rg regex patterns", () => {
     });
     const result = await bash.exec("rg 'hello$'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:2:world hello\n");
+    expect(result.stdout).toBe("file.txt:world hello\n");
     expect(result.stderr).toBe("");
   });
 
@@ -199,7 +199,7 @@ describe("rg regex patterns", () => {
     });
     const result = await bash.exec("rg 'cat|dog'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:cat\nfile.txt:2:dog\n");
+    expect(result.stdout).toBe("file.txt:cat\nfile.txt:dog\n");
     expect(result.stderr).toBe("");
   });
 
@@ -212,7 +212,7 @@ describe("rg regex patterns", () => {
     });
     const result = await bash.exec("rg 'a{2,}'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:2:aa\nfile.txt:3:aaa\n");
+    expect(result.stdout).toBe("file.txt:aa\nfile.txt:aaa\n");
     expect(result.stderr).toBe("");
   });
 
@@ -225,7 +225,7 @@ describe("rg regex patterns", () => {
     });
     const result = await bash.exec("rg '[a-z][0-9]'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:a1\nfile.txt:2:b2\n");
+    expect(result.stdout).toBe("file.txt:a1\nfile.txt:b2\n");
     expect(result.stderr).toBe("");
   });
 });
@@ -240,9 +240,7 @@ describe("rg combined options", () => {
     });
     const result = await bash.exec("rg -wi hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe(
-      "file.txt:1:Hello world\nfile.txt:3:HELLO there\n",
-    );
+    expect(result.stdout).toBe("file.txt:Hello world\nfile.txt:HELLO there\n");
     expect(result.stderr).toBe("");
   });
 

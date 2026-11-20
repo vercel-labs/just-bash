@@ -26,7 +26,7 @@ describe("rg binary: basic detection", () => {
     const result = await bash.exec("rg hello");
     expect(result.exitCode).toBe(0);
     // Should only find match in text file, not binary
-    expect(result.stdout).toBe("text.txt:1:hello world\n");
+    expect(result.stdout).toBe("text.txt:hello world\n");
   });
 
   it("should skip binary files when searching single explicit file", async () => {
@@ -63,7 +63,7 @@ describe("rg binary: basic detection", () => {
     });
     const result = await bash.exec("rg pattern");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("late.txt:1:pattern\n");
+    expect(result.stdout).toBe("late.txt:pattern\n");
   });
 });
 
@@ -110,7 +110,7 @@ describe("rg binary: mixed content", () => {
     const result = await bash.exec("rg --sort path documentation");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      "readme.md:1:documentation\nscript.sh:1:echo documentation\n",
+      "readme.md:documentation\nscript.sh:echo documentation\n",
     );
   });
 
@@ -126,7 +126,7 @@ describe("rg binary: mixed content", () => {
     });
     const result = await bash.exec("rg test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("a.txt:1:test\nc.txt:1:test\n");
+    expect(result.stdout).toBe("a.txt:test\nc.txt:test\n");
   });
 });
 
@@ -193,7 +193,7 @@ describe("rg binary: common binary file types", () => {
     });
     const result = await bash.exec("rg data");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("text.txt:1:data\n");
+    expect(result.stdout).toBe("text.txt:data\n");
   });
 });
 
@@ -208,7 +208,7 @@ describe("rg binary: with other flags", () => {
     });
     const result = await bash.exec("rg -i hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("text.txt:1:HELLO world\n");
+    expect(result.stdout).toBe("text.txt:HELLO world\n");
   });
 
   it("should work with -v flag", async () => {
@@ -221,7 +221,7 @@ describe("rg binary: with other flags", () => {
     });
     const result = await bash.exec("rg -v remove");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("text.txt:1:keep\ntext.txt:3:keep\n");
+    expect(result.stdout).toBe("text.txt:keep\ntext.txt:keep\n");
   });
 
   it("should work with -w flag", async () => {
@@ -234,7 +234,7 @@ describe("rg binary: with other flags", () => {
     });
     const result = await bash.exec("rg -w foo");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("text.txt:1:foo bar\n");
+    expect(result.stdout).toBe("text.txt:foo bar\n");
   });
 
   it("should work with context flags", async () => {
@@ -248,7 +248,7 @@ describe("rg binary: with other flags", () => {
     const result = await bash.exec("rg -C1 match");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      "text.txt-1-before\ntext.txt:2:match\ntext.txt-3-after\n",
+      "text.txt-before\ntext.txt:match\ntext.txt-after\n",
     );
   });
 
@@ -262,7 +262,7 @@ describe("rg binary: with other flags", () => {
     });
     const result = await bash.exec("rg -m1 match");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("text.txt:1:match\n");
+    expect(result.stdout).toBe("text.txt:match\n");
   });
 });
 
@@ -279,7 +279,7 @@ describe("rg binary: subdirectories", () => {
     const result = await bash.exec("rg --sort path export");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      "lib/util.ts:1:export function foo() {}\nsrc/code.ts:1:export const x = 1;\n",
+      "lib/util.ts:export function foo() {}\nsrc/code.ts:export const x = 1;\n",
     );
   });
 });

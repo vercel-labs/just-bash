@@ -90,7 +90,7 @@ export function createDefaultOptions(): RgOptions {
     maxCount: Infinity,
     help: false,
     typeList: false,
-    lineNumber: true,
+    lineNumber: false,
     noFilename: false,
     withFilename: false,
     nullSeparator: false,

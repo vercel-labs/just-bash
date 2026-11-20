@@ -11,7 +11,7 @@ describe("rg basic search", () => {
     });
     const result = await bash.exec("rg hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:hello world\n");
+    expect(result.stdout).toBe("file.txt:hello world\n");
     expect(result.stderr).toBe("");
   });
 
@@ -25,7 +25,7 @@ describe("rg basic search", () => {
     });
     const result = await bash.exec("rg hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("a.txt:1:hello\nb.txt:1:hello\n");
+    expect(result.stdout).toBe("a.txt:hello\nb.txt:hello\n");
     expect(result.stderr).toBe("");
   });
 
@@ -39,7 +39,7 @@ describe("rg basic search", () => {
     });
     const result = await bash.exec("rg hello src");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("src/app.ts:1:const hello = 'world';\n");
+    expect(result.stdout).toBe("src/app.ts:const hello = 'world';\n");
     expect(result.stderr).toBe("");
   });
 
@@ -56,7 +56,7 @@ describe("rg basic search", () => {
     expect(result.stderr).toBe("");
   });
 
-  it("should show line numbers by default", async () => {
+  it("should omit line numbers by default", async () => {
     const bash = new Bash({
       cwd: "/home/user",
       files: {
@@ -65,7 +65,7 @@ describe("rg basic search", () => {
     });
     const result = await bash.exec("rg hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:2:hello\n");
+    expect(result.stdout).toBe("file.txt:hello\n");
     expect(result.stderr).toBe("");
   });
 
@@ -91,7 +91,7 @@ describe("rg basic search", () => {
     });
     const result = await bash.exec("rg hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("src/lib/util.ts:1:export const hello = 1;\n");
+    expect(result.stdout).toBe("src/lib/util.ts:export const hello = 1;\n");
     expect(result.stderr).toBe("");
   });
 });
@@ -106,9 +106,7 @@ describe("rg case sensitivity", () => {
     });
     const result = await bash.exec("rg hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe(
-      "file.txt:1:Hello World\nfile.txt:2:hello world\n",
-    );
+    expect(result.stdout).toBe("file.txt:Hello World\nfile.txt:hello world\n");
     expect(result.stderr).toBe("");
   });
 
@@ -121,7 +119,7 @@ describe("rg case sensitivity", () => {
     });
     const result = await bash.exec("rg Hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:Hello World\n");
+    expect(result.stdout).toBe("file.txt:Hello World\n");
     expect(result.stderr).toBe("");
   });
 
@@ -135,7 +133,7 @@ describe("rg case sensitivity", () => {
     const result = await bash.exec("rg -i HELLO");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      "file.txt:1:Hello World\nfile.txt:2:hello world\nfile.txt:3:HELLO WORLD\n",
+      "file.txt:Hello World\nfile.txt:hello world\nfile.txt:HELLO WORLD\n",
     );
     expect(result.stderr).toBe("");
   });
@@ -149,7 +147,7 @@ describe("rg case sensitivity", () => {
     });
     const result = await bash.exec("rg -s hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:2:hello world\n");
+    expect(result.stdout).toBe("file.txt:hello world\n");
     expect(result.stderr).toBe("");
   });
 
@@ -162,9 +160,7 @@ describe("rg case sensitivity", () => {
     });
     const result = await bash.exec("rg -i Hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe(
-      "file.txt:1:Hello World\nfile.txt:2:hello world\n",
-    );
+    expect(result.stdout).toBe("file.txt:Hello World\nfile.txt:hello world\n");
     expect(result.stderr).toBe("");
   });
 
@@ -177,7 +173,7 @@ describe("rg case sensitivity", () => {
     });
     const result = await bash.exec("rg 123");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:ABC123\nfile.txt:2:abc123\n");
+    expect(result.stdout).toBe("file.txt:ABC123\nfile.txt:abc123\n");
     expect(result.stderr).toBe("");
   });
 
@@ -190,7 +186,7 @@ describe("rg case sensitivity", () => {
     });
     const result = await bash.exec("rg -F '::'");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.txt:1:foo::bar\nfile.txt:2:FOO::BAR\n");
+    expect(result.stdout).toBe("file.txt:foo::bar\nfile.txt:FOO::BAR\n");
     expect(result.stderr).toBe("");
   });
 });
@@ -206,7 +202,7 @@ describe("rg binary files", () => {
     });
     const result = await bash.exec("rg hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("text.txt:1:hello\n");
+    expect(result.stdout).toBe("text.txt:hello\n");
     expect(result.stderr).toBe("");
   });
 });
@@ -225,7 +221,7 @@ describe("rg max depth", () => {
     // --max-depth 2 includes depth 0 and 1
     const result = await bash.exec("rg --max-depth 2 hello");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("dir1/level1.txt:1:hello\nlevel0.txt:1:hello\n");
+    expect(result.stdout).toBe("dir1/level1.txt:hello\nlevel0.txt:hello\n");
     expect(result.stderr).toBe("");
   });
 });

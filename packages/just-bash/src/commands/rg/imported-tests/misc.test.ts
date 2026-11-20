@@ -45,7 +45,7 @@ describe("rg misc: dir", () => {
     const result = await bash.exec("rg Sherlock");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      "sherlock:1:For the Doctor Watsons of this world, as opposed to the Sherlock\nsherlock:3:be, to a very large extent, the result of luck. Sherlock Holmes\n",
+      "sherlock:For the Doctor Watsons of this world, as opposed to the Sherlock\nsherlock:be, to a very large extent, the result of luck. Sherlock Holmes\n",
     );
   });
 });
@@ -339,7 +339,7 @@ describe("rg misc: file_types", () => {
     });
     const result = await bash.exec("rg -t rust Sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.rs:1:Sherlock\n");
+    expect(result.stdout).toBe("file.rs:Sherlock\n");
   });
 });
 
@@ -355,7 +355,7 @@ describe("rg misc: file_types_all", () => {
     });
     const result = await bash.exec("rg -t all Sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.py:1:Sherlock\n");
+    expect(result.stdout).toBe("file.py:Sherlock\n");
   });
 });
 
@@ -371,7 +371,7 @@ describe("rg misc: file_types_negate", () => {
     });
     const result = await bash.exec("rg -T rust Sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.py:1:Sherlock\n");
+    expect(result.stdout).toBe("file.py:Sherlock\n");
   });
 });
 
@@ -388,7 +388,7 @@ describe("rg misc: file_types_negate_all", () => {
     const result = await bash.exec("rg -T all Sherlock");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      "sherlock:1:For the Doctor Watsons of this world, as opposed to the Sherlock\nsherlock:3:be, to a very large extent, the result of luck. Sherlock Holmes\n",
+      "sherlock:For the Doctor Watsons of this world, as opposed to the Sherlock\nsherlock:be, to a very large extent, the result of luck. Sherlock Holmes\n",
     );
   });
 });
@@ -425,7 +425,7 @@ describe("rg misc: file_type_add", () => {
       "rg --type-add 'custom:*.foo' -t custom test",
     );
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.foo:1:test\n");
+    expect(result.stdout).toBe("file.foo:test\n");
   });
 });
 
@@ -445,7 +445,7 @@ describe("rg misc: file_type_add_compose", () => {
       "rg --type-add 'web:include:js' -t web test",
     );
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.js:1:test\n");
+    expect(result.stdout).toBe("file.js:test\n");
   });
 });
 
@@ -494,7 +494,7 @@ describe("rg misc: glob", () => {
     });
     const result = await bash.exec("rg -g '*.rs' Sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.rs:1:Sherlock\n");
+    expect(result.stdout).toBe("file.rs:Sherlock\n");
   });
 });
 
@@ -510,7 +510,7 @@ describe("rg misc: glob_negate", () => {
     });
     const result = await bash.exec("rg -g '!*.rs' Sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file.py:1:Sherlock\n");
+    expect(result.stdout).toBe("file.py:Sherlock\n");
   });
 });
 
@@ -527,9 +527,7 @@ describe("rg misc: glob_case_insensitive", () => {
     const result = await bash.exec("rg --iglob '*.html' Sherlock");
     expect(result.exitCode).toBe(0);
     // Both files should match since iglob is case-insensitive
-    expect(result.stdout).toBe(
-      "file1.HTML:1:Sherlock\nfile2.html:1:Sherlock\n",
-    );
+    expect(result.stdout).toBe("file1.HTML:Sherlock\nfile2.html:Sherlock\n");
   });
 });
 
@@ -545,7 +543,7 @@ describe("rg misc: glob_case_sensitive", () => {
     });
     const result = await bash.exec("rg --glob '*.html' Sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("file2.html:1:Sherlock\n");
+    expect(result.stdout).toBe("file2.html:Sherlock\n");
   });
 });
 
@@ -564,9 +562,7 @@ describe("rg misc: glob_always_case_insensitive", () => {
     );
     expect(result.exitCode).toBe(0);
     // Both files should match
-    expect(result.stdout).toBe(
-      "file1.HTML:1:Sherlock\nfile2.html:1:Sherlock\n",
-    );
+    expect(result.stdout).toBe("file1.HTML:Sherlock\nfile2.html:Sherlock\n");
   });
 });
 
@@ -811,7 +807,7 @@ describe("rg misc: max_filesize", () => {
     // Only small file should match
     const result = await bash.exec("rg --max-filesize 50 Sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("small.txt:1:Sherlock\n");
+    expect(result.stdout).toBe("small.txt:Sherlock\n");
   });
 
   it("should accept K suffix for kilobytes", async () => {
@@ -823,7 +819,7 @@ describe("rg misc: max_filesize", () => {
     });
     const result = await bash.exec("rg --max-filesize 1K Sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("test.txt:1:Sherlock\n");
+    expect(result.stdout).toBe("test.txt:Sherlock\n");
   });
 
   it("should accept M suffix for megabytes", async () => {
@@ -835,7 +831,7 @@ describe("rg misc: max_filesize", () => {
     });
     const result = await bash.exec("rg --max-filesize 1M Sherlock");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe("test.txt:1:Sherlock\n");
+    expect(result.stdout).toBe("test.txt:Sherlock\n");
   });
 });
 
@@ -865,7 +861,7 @@ describe("rg misc: no_ignore_hidden", () => {
     const result = await bash.exec("rg --hidden Sherlock");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      ".sherlock:1:For the Doctor Watsons of this world, as opposed to the Sherlock\n.sherlock:3:be, to a very large extent, the result of luck. Sherlock Holmes\n",
+      ".sherlock:For the Doctor Watsons of this world, as opposed to the Sherlock\n.sherlock:be, to a very large extent, the result of luck. Sherlock Holmes\n",
     );
   });
 });
@@ -929,7 +925,7 @@ describe("rg misc: no_ignore", () => {
     const result = await bash.exec("rg --no-ignore Sherlock");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      "sherlock:1:For the Doctor Watsons of this world, as opposed to the Sherlock\nsherlock:3:be, to a very large extent, the result of luck. Sherlock Holmes\n",
+      "sherlock:For the Doctor Watsons of this world, as opposed to the Sherlock\nsherlock:be, to a very large extent, the result of luck. Sherlock Holmes\n",
     );
   });
 });
@@ -994,7 +990,7 @@ describe("rg misc: unrestricted1", () => {
     const result = await bash.exec("rg -u Sherlock");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      "sherlock:1:For the Doctor Watsons of this world, as opposed to the Sherlock\nsherlock:3:be, to a very large extent, the result of luck. Sherlock Holmes\n",
+      "sherlock:For the Doctor Watsons of this world, as opposed to the Sherlock\nsherlock:be, to a very large extent, the result of luck. Sherlock Holmes\n",
     );
   });
 });
@@ -1011,7 +1007,7 @@ describe("rg misc: unrestricted2", () => {
     const result = await bash.exec("rg -uu Sherlock");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe(
-      ".sherlock:1:For the Doctor Watsons of this world, as opposed to the Sherlock\n.sherlock:3:be, to a very large extent, the result of luck. Sherlock Holmes\n",
+      ".sherlock:For the Doctor Watsons of this world, as opposed to the Sherlock\n.sherlock:be, to a very large extent, the result of luck. Sherlock Holmes\n",
     );
   });
 });
@@ -1190,9 +1186,7 @@ describe("rg misc: sort_files", () => {
     });
     const result = await bash.exec("rg --sort path test");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe(
-      "a:1:test\nb:1:test\ndir/c:1:test\ndir/d:1:test\n",
-    );
+    expect(result.stdout).toBe("a:test\nb:test\ndir/c:test\ndir/d:test\n");
   });
 });
 
