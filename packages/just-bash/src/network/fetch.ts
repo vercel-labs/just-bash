@@ -130,29 +130,21 @@ export function createSecureFetch(config: NetworkConfig): SecureFetch {
     if (errors.length > 0) {
       throw new Error(`Invalid network allow-list:\n${errors.join("\n")}`);
     }
-    const pathScopedOrigins = new Set<string>();
     const methodOrigins = new Set<string>();
     for (const entry of entries) {
-      const prefix = normalizeAllowListEntry(
-        typeof entry === "string" ? entry : entry.url,
-      );
-      if (!prefix) continue;
-      if (prefix.pathPrefix !== "/" && prefix.pathPrefix !== "")
-        pathScopedOrigins.add(prefix.origin);
-      if (typeof entry !== "string" && entry.methods !== undefined)
-        methodOrigins.add(prefix.origin);
+      if (typeof entry === "string" || entry.methods === undefined) continue;
+      const prefix = normalizeAllowListEntry(entry.url);
+      if (prefix) methodOrigins.add(prefix.origin);
     }
-    const ambiguousPathDenyOrigins = new Set(
-      [...pathScopedOrigins].filter((origin) => methodOrigins.has(origin)),
-    );
 
-    if (ambiguousPathDenyOrigins.size > 0) {
+    // An ambiguous prefix is itself path-scoped, so only `methods` must be checked.
+    if (methodOrigins.size > 0) {
       for (const entry of entries) {
         const url = typeof entry === "string" ? entry : entry.url;
         const prefix = normalizeAllowListEntry(url);
         if (
           prefix &&
-          ambiguousPathDenyOrigins.has(prefix.origin) &&
+          methodOrigins.has(prefix.origin) &&
           AMBIGUOUS_METHOD_PATH.test(prefix.pathPrefix)
         ) {
           errors.push(
