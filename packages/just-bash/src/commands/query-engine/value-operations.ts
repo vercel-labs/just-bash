@@ -24,10 +24,40 @@ export function isTruthy(v: QueryValue): boolean {
 }
 
 /**
- * Deep equality check for query values.
+ * JSON text for a value with every object's keys sorted, so values jq treats
+ * as equal (objects that differ only in key order) get the same text. Use it
+ * wherever values are compared or deduplicated by their JSON.
+ */
+export function canonicalJson(value: QueryValue | undefined): string {
+  // No value at all, such as a key filter that emitted nothing, gets a key
+  // that no JSON text equals, as JSON.stringify's undefined did.
+  if (value === undefined) return "";
+  if (Array.isArray(value)) {
+    // As in JSON.stringify, a hole or an undefined element is null.
+    const items: string[] = [];
+    for (let i = 0; i < value.length; i++) {
+      items.push(value[i] === undefined ? "null" : canonicalJson(value[i]));
+    }
+    return `[${items.join(",")}]`;
+  }
+  const record = asQueryRecord(value);
+  // A value with toJSON (a TOML or YAML date) serializes as JSON.stringify
+  // would. Parsed JSON can't hold a function, so its objects take the path below.
+  if (!record || typeof record.toJSON === "function") {
+    return JSON.stringify(value) ?? "null";
+  }
+  const members = Object.keys(record)
+    .filter((key) => record[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`);
+  return `{${members.join(",")}}`;
+}
+
+/**
+ * Deep equality check for query values. Object key order does not matter.
  */
 export function deepEqual(a: QueryValue, b: QueryValue): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  return canonicalJson(a) === canonicalJson(b);
 }
 
 /**

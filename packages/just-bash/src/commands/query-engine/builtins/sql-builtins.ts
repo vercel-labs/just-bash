@@ -12,7 +12,7 @@ import {
   safeHasOwn,
   safeSet,
 } from "../safe-object.js";
-import type { QueryValue } from "../value-operations.js";
+import { canonicalJson, type QueryValue } from "../value-operations.js";
 
 type EvalFn = (
   value: QueryValue,
@@ -50,9 +50,9 @@ export function evalSqlBuiltin(
       // IN(stream1; stream2) - check if any value from stream1 is in stream2
       const stream1Vals = evaluate(value, args[0], ctx);
       const stream2Vals = evaluate(value, args[1], ctx);
-      const stream2Set = new Set(stream2Vals.map((v) => JSON.stringify(v)));
+      const stream2Set = new Set(stream2Vals.map(canonicalJson));
       for (const v of stream1Vals) {
-        if (stream2Set.has(JSON.stringify(v))) return [true];
+        if (stream2Set.has(canonicalJson(v))) return [true];
       }
       return [false];
     }

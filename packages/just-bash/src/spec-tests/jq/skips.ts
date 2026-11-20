@@ -275,10 +275,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "@sh format with string interpolation not supported",
   ],
   [
-    'man.test:. == {"b": {"d": (4 + 1e-20), "c": 3}, "a":1}',
-    "floating point comparison with epsilon",
-  ],
-  [
     "man.test:.[] as {$a, $b, c: {$d, $e}} ?// {$a, $b, c: [{$d, $e}]} | {$a, $b, $d, $e}",
     "?// alternative with complex destructuring patterns",
   ],

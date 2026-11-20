@@ -36,6 +36,7 @@ import {
   safeSet,
 } from "./safe-object.js";
 import {
+  canonicalJson,
   compare,
   compareJq,
   containsDeep,
@@ -1661,8 +1662,8 @@ function evalBinaryOp(
         case "-":
           if (typeof l === "number" && typeof r === "number") return l - r;
           if (Array.isArray(l) && Array.isArray(r)) {
-            const rSet = new Set(r.map((x) => JSON.stringify(x)));
-            return l.filter((x) => !rSet.has(JSON.stringify(x)));
+            const rSet = new Set(r.map(canonicalJson));
+            return l.filter((x) => !rSet.has(canonicalJson(x)));
           }
           if (typeof l === "string" && typeof r === "string") {
             // jq: strings cannot be subtracted - format truncates long strings
