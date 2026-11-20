@@ -533,6 +533,18 @@ const BOOL_FLAGS = new Map<string, BoolFlagHandler>([
     },
   ],
   [
+    "--no-messages",
+    (o) => {
+      o.messages = false;
+    },
+  ],
+  [
+    "--messages",
+    (o) => {
+      o.messages = true;
+    },
+  ],
+  [
     "--passthru",
     (o) => {
       o.passthru = true;
