@@ -80,4 +80,18 @@ describe("jq permissive control chars in JSON strings", () => {
     expect(result.stdout).toBe("x\ny\nz\n");
     expect(result.exitCode).toBe(0);
   });
+  it("preserves mixed strict and permissive JSON values in one stream", async () => {
+    const env = new Bash({
+      files: {
+        "/stream.json":
+          '{"body":"escaped\\nline","nested":{"unicode":"café 😀"}}\n{"body":"literal\nline"}\n',
+      },
+    });
+    const result = await env.exec("jq -r '.body' /stream.json");
+    expect(result).toMatchObject({
+      stdout: "escaped\nline\nliteral\nline\n",
+      stderr: "",
+      exitCode: 0,
+    });
+  });
 });

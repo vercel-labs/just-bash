@@ -89,7 +89,13 @@ function parseJsonSlice(
   startPos: number,
   endPos: number,
 ): unknown {
-  return JSON.parse(sanitizeJsonControlChars(input.slice(startPos, endPos)));
+  const slice = input.slice(startPos, endPos);
+  try {
+    return JSON.parse(slice);
+  } catch {
+    // jq accepts unescaped control characters in strings; only those need copying.
+    return JSON.parse(sanitizeJsonControlChars(slice));
+  }
 }
 
 /**
