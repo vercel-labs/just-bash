@@ -50,6 +50,7 @@ import {
 } from "./indirect-expansion.js";
 import { getVarNamesWithPrefix } from "./pattern-removal.js";
 import {
+  handleAtDefaultOrAlternative,
   handlePositionalPatternRemoval,
   handlePositionalPatternReplacement,
   handlePositionalSlicing,
@@ -496,6 +497,18 @@ async function handlePositionalExpansionCases(
     );
     if (positionalPatRemResult !== null) {
       return positionalPatRemResult;
+    }
+  }
+
+  // ${var-"$@"}, ${var+"$@"} and their colon forms
+  {
+    const atAlternativeResult = await handleAtDefaultOrAlternative(
+      ctx,
+      wordParts,
+      deps.expandPart,
+    );
+    if (atAlternativeResult !== null) {
+      return atAlternativeResult;
     }
   }
 
