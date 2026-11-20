@@ -1,7 +1,44 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
 
+const input = JSON.stringify("x".repeat(98));
+
 describe("jq named-argument flags", () => {
+  it.each([
+    ["--rawfile", "--rawfile"],
+    ["--slurpfile", "--slurpfile"],
+    ["--rawfile", "--slurpfile"],
+    ["--slurpfile", "--rawfile"],
+  ])("reserves a copy for each stdin %s and %s binding", async (first, second) => {
+    const bash = new Bash({
+      executionLimits: { maxLiveBytes: 200, maxInputBytes: 100 },
+    });
+    const one = await bash.exec(`jq -n ${first} a - empty`, { stdin: input });
+    expect(one.stdout).toBe("");
+    expect(one.stderr).toBe("");
+    expect(one.exitCode).toBe(0);
+
+    const two = await bash.exec(`jq -n ${first} a - ${second} b - empty`, {
+      stdin: input,
+    });
+    expect(two.stdout).toBe("");
+    expect(two.stderr).toBe("bash: jq: live byte limit exceeded (200 bytes)\n");
+    expect(two.exitCode).toBe(126);
+  });
+
+  it("releases a stdin binding reservation before the next command", async () => {
+    const bash = new Bash({
+      executionLimits: { maxLiveBytes: 200, maxInputBytes: 100 },
+    });
+    const result = await bash.exec(
+      "jq -n --rawfile a - empty; jq -n --rawfile b - empty",
+      { stdin: input },
+    );
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
+
   describe("--arg", () => {
     it("binds $NAME to the string VALUE", async () => {
       const env = new Bash();
@@ -98,6 +135,36 @@ describe("jq named-argument flags", () => {
       const result = await env.exec("jq -n --slurpfile s nope.json '$s'");
       expect(result.stdout).toBe("");
       expect(result.exitCode).toBe(2);
+    });
+
+    it.each([
+      [
+        "delpaths",
+        '[["a"],["b","c"]]',
+        "delpaths($a[0]) | $b",
+        '[[["a"],["b","c"]]]\n',
+      ],
+      [
+        "fromstream",
+        '{"a":1}',
+        'fromstream(([[], $a[0]], [["b"], 2])) | $b',
+        '[{"a":1}]\n',
+      ],
+      [
+        "tostream",
+        '{"a":1}',
+        "[$a,$b] | tostream",
+        '[[0,0,"a"],1]\n[[1,0,"a"],1]\n[[]]\n',
+      ],
+    ])("keeps other bindings independent of %s", async (_name, stdin, filter, expected) => {
+      const env = new Bash();
+      const result = await env.exec(
+        `jq -cn --slurpfile a - --slurpfile b - '${filter}'`,
+        { stdin },
+      );
+      expect(result.stdout).toBe(expected);
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
     });
   });
 
