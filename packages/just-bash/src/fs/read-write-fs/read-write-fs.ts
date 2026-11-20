@@ -35,6 +35,7 @@ import type {
 import { resolvePath as resolveVPath } from "../path-utils.js";
 import {
   isPathWithinRoot,
+  isRealpathFailureInsideSandbox,
   normalizePath,
   RealpathError,
   resolveCanonicalPath,
@@ -120,8 +121,12 @@ export class ReadWriteFs implements IFileSystem {
    * This closes the TOCTOU gap where the original path could be swapped
    * between validation and use.
    * Throws EACCES if the path escapes the root. When realpath itself fails
-   * (ENOTDIR, EACCES, ELOOP, ...), the path is inside the root, so the real
-   * errno is reported instead of claiming the path escapes the sandbox.
+   * (ENOTDIR, EACCES, ELOOP, ...), the real errno is reported instead of
+   * claiming the path escapes the sandbox — but only when the failing
+   * lookup stayed inside the root and complied with the symlink policy
+   * (realpath resolves symlinks as it walks, so a failure past an escape
+   * link would otherwise leak information about paths outside the
+   * sandbox). Otherwise the generic EACCES rejection is thrown.
    */
   private resolveAndValidate(realPath: string, virtualPath: string): string {
     let canonical: string | null;
@@ -135,10 +140,27 @@ export class ReadWriteFs implements IFileSystem {
           );
     } catch (e) {
       if (e instanceof RealpathError) {
+        // Surface the lookup errno only when the failing lookup stayed
+        // inside the sandbox and complied with the symlink policy; a
+        // failure past an escape link (or past any symlink at all when
+        // symlinks are disallowed) falls back to the generic sandbox
+        // rejection so no information about outside paths leaks.
+        if (
+          !isRealpathFailureInsideSandbox(
+            nodePath.relative(this.root, realPath),
+            this.canonicalRoot,
+            this.allowSymlinks,
+          )
+        ) {
+          throw new Error(
+            `EACCES: permission denied, '${virtualPath}' resolves outside sandbox`,
+          );
+        }
         // The path is inside the root; report why the lookup failed
         // instead of claiming it escapes the sandbox. Carry the errno
-        // code so callers that route through sanitizeError keep it
-        // (an uncoded error would be downgraded to EIO there).
+        // code so callers that route through sanitizeError keep it (an
+        // uncoded error is replaced there with a generic message — EIO
+        // unless its message matches a passthrough pattern).
         const error = new Error(
           `${e.code}: ${e.description}, realpath '${virtualPath}'`,
         ) as NodeJS.ErrnoException;
@@ -1011,6 +1033,15 @@ export class ReadWriteFs implements IFileSystem {
       if (err.code === "EISDIR") {
         throw new Error(`EISDIR: is a directory, cp '${src}'`);
       }
+      if (err.code !== undefined && err.path === undefined) {
+        // Our own coded error (e.g. a RealpathError surfaced by
+        // resolveAndValidate for a destination child): it already names
+        // the failing virtual path and carries .code, so keep both
+        // instead of re-attributing the failure to the source path.
+        // Node errors always carry .path (a real path) and still go
+        // through sanitizeError below.
+        throw e;
+      }
       this.sanitizeError(e, src, "cp");
     }
   }
@@ -1811,11 +1842,17 @@ export class ReadWriteFs implements IFileSystem {
     // Validate the path respects the symlink policy before resolving.
     // Without this, realpath() would follow symlinks that other methods
     // (readFile, stat, etc.) correctly reject via resolveAndValidate().
-    // Convert EACCES to ENOENT because realpath semantically "doesn't find"
-    // the canonical path rather than "denies access".
+    // A real lookup failure (ENOTDIR, ELOOP, ...) keeps its errno:
+    // resolveAndValidate already verified it stayed inside the sandbox.
+    // Only a genuine sandbox rejection maps to ENOENT, because realpath
+    // semantically "doesn't find" the canonical path rather than "denies
+    // access".
     try {
       this.resolveAndValidate(realPath, path);
-    } catch {
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code) {
+        throw e;
+      }
       throw new Error(`ENOENT: no such file or directory, realpath '${path}'`);
     }
 

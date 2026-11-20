@@ -236,6 +236,115 @@ describe("ReadWriteFs", () => {
       await expect(rwfs.stat("/loop-a")).rejects.toThrow("ELOOP");
       await expect(rwfs.stat("/loop-a")).rejects.not.toThrow("outside sandbox");
     });
+
+    it("should not surface ENOTDIR for a failure past a symlink that escapes the root (review #767)", async () => {
+      const outsideDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "rwfs-outside-"),
+      );
+      try {
+        fs.writeFileSync(path.join(outsideDir, "shadow"), "secret");
+        try {
+          fs.symlinkSync(outsideDir, path.join(tempDir, "escape-link"));
+        } catch {
+          // Skip on systems that don't support symlinks
+          return;
+        }
+        const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+        await expect(rwfs.stat("/escape-link/shadow/child")).rejects.toThrow(
+          "outside sandbox",
+        );
+        await expect(
+          rwfs.stat("/escape-link/shadow/child"),
+        ).rejects.not.toThrow("ENOTDIR");
+      } finally {
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it("should fall back to the generic rejection for a symlink loop when symlinks are disallowed (review #767)", async () => {
+      try {
+        fs.symlinkSync("loop-b", path.join(tempDir, "loop-a"));
+        fs.symlinkSync("loop-a", path.join(tempDir, "loop-b"));
+      } catch {
+        // Skip on systems that don't support symlinks
+        return;
+      }
+      const rwfs = new ReadWriteFs({ root: tempDir });
+
+      await expect(rwfs.stat("/loop-a")).rejects.toThrow("outside sandbox");
+      await expect(rwfs.stat("/loop-a")).rejects.not.toThrow("ELOOP");
+    });
+
+    it("should not surface ELOOP for a loop outside the root (review #767)", async () => {
+      const outsideDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "rwfs-outside-"),
+      );
+      try {
+        try {
+          fs.symlinkSync("loop", path.join(outsideDir, "loop"));
+          fs.symlinkSync(outsideDir, path.join(tempDir, "chain"));
+        } catch {
+          // Skip on systems that don't support symlinks
+          return;
+        }
+        const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+        await expect(rwfs.stat("/chain/loop")).rejects.toThrow(
+          "outside sandbox",
+        );
+        await expect(rwfs.stat("/chain/loop")).rejects.not.toThrow("ELOOP");
+      } finally {
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("realpath", () => {
+    it("should keep ENOTDIR for a file traversed as a directory (review #767)", async () => {
+      fs.writeFileSync(path.join(tempDir, "notes.txt"), "hello\n");
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+      await expect(rwfs.realpath("/notes.txt/child")).rejects.toThrow(
+        "ENOTDIR",
+      );
+    });
+
+    it("should keep ELOOP for a symlink loop (review #767)", async () => {
+      try {
+        fs.symlinkSync("loop-b", path.join(tempDir, "loop-a"));
+        fs.symlinkSync("loop-a", path.join(tempDir, "loop-b"));
+      } catch {
+        // Skip on systems that don't support symlinks
+        return;
+      }
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+      await expect(rwfs.realpath("/loop-a")).rejects.toThrow("ELOOP");
+    });
+
+    it("should still map genuine sandbox rejections to ENOENT (review #767)", async () => {
+      const outsideDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "rwfs-outside-"),
+      );
+      try {
+        fs.writeFileSync(path.join(outsideDir, "shadow"), "secret");
+        try {
+          fs.symlinkSync(outsideDir, path.join(tempDir, "escape-link"));
+        } catch {
+          // Skip on systems that don't support symlinks
+          return;
+        }
+        const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+        await expect(
+          rwfs.realpath("/escape-link/shadow/child"),
+        ).rejects.toThrow("ENOENT");
+        await expect(rwfs.realpath("/nonexistent")).rejects.toThrow("ENOENT");
+      } finally {
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe("lstat", () => {
@@ -375,6 +484,30 @@ describe("ReadWriteFs", () => {
     it("should throw ENOENT for non-existent source", async () => {
       const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
       await expect(rwfs.cp("/nonexistent", "/dest")).rejects.toThrow("ENOENT");
+    });
+
+    it("should keep the failing destination path and .code when a recursive copy hits a symlink loop (review #767)", async () => {
+      fs.mkdirSync(path.join(tempDir, "src"));
+      fs.writeFileSync(path.join(tempDir, "src", "file"), "data");
+      fs.mkdirSync(path.join(tempDir, "dst"));
+      try {
+        fs.symlinkSync("file", path.join(tempDir, "dst", "file"));
+      } catch {
+        // Skip on systems that don't support symlinks
+        return;
+      }
+      const rwfs = new ReadWriteFs({ root: tempDir, allowSymlinks: true });
+
+      let caught: unknown;
+      try {
+        await rwfs.cp("/src", "/dst", { recursive: true });
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      expect((caught as Error).message).toContain("ELOOP");
+      expect((caught as Error).message).toContain("/dst/file");
+      expect((caught as NodeJS.ErrnoException).code).toBe("ELOOP");
     });
   });
 
