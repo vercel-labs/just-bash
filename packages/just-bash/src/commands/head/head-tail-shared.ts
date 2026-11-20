@@ -10,6 +10,7 @@ import {
 } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
+import { getErrorCode } from "../../interpreter/helpers/errors.js";
 import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import { unknownOption } from "../help.js";
 
@@ -196,7 +197,7 @@ export async function processHeadTailFiles(
       filesProcessed++;
     } catch (error) {
       rethrowFatalExecutionError(error);
-      stderr.append(`${cmdName}: ${file}: No such file or directory\n`);
+      stderr.append(`${cmdName}: ${file}: ${describeReadError(error)}\n`);
       exitCode = 1;
     }
   }
@@ -207,6 +208,29 @@ export async function processHeadTailFiles(
     exitCode,
     stdoutEncoding: "binary",
   };
+}
+
+// Use only errno-derived phrases: host filesystem messages can contain
+// absolute paths or transport details that must not reach the guest.
+function describeReadError(error: unknown): string {
+  switch (getErrorCode(error)) {
+    case "ENOENT":
+      return "No such file or directory";
+    case "EACCES":
+      return "Permission denied";
+    case "EPERM":
+      return "Operation not permitted";
+    case "EISDIR":
+      return "Is a directory";
+    case "ENOTDIR":
+      return "Not a directory";
+    case "ELOOP":
+      return "Too many levels of symbolic links";
+    case "ENAMETOOLONG":
+      return "File name too long";
+    default:
+      return "Input/output error";
+  }
 }
 
 /**
