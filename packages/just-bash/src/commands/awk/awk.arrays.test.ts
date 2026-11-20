@@ -358,5 +358,61 @@ describe("awk associative arrays", () => {
       expect(result.stdout).toBe("[0]\n");
       expect(result.exitCode).toBe(0);
     });
+
+    it("should read ENVIRON as a source array (fixes #737)", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `export ZZASORT=hello; echo "" | awk 'BEGIN { n = asort(ENVIRON, e); found = 0; for (i = 1; i <= n; i++) if (e[i] == "hello") found = 1; print (n > 0), found }'`,
+      );
+      expect(result.stdout).toBe("1 1\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should read ARGV as a source array (fixes #737)", async () => {
+      const env = new Bash({
+        files: { "/tmp/f1": "", "/tmp/f2": "" },
+      });
+      const result = await env.exec(
+        `awk 'BEGIN { n = asort(ARGV, a); print n, a[1], a[2], a[3] }' /tmp/f2 /tmp/f1`,
+      );
+      expect(result.stdout).toBe("3 /tmp/f1 /tmp/f2 awk\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should write into ARGV as a destination array (fixes #737)", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { x[1] = "b"; x[2] = "a"; n = asort(x, ARGV); print n, ARGV[1], ARGV[2] }'`,
+      );
+      expect(result.stdout).toBe("2 a b\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should order mixed values by type: numbers first, then strings (fixes #737)", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { x[1] = "1a"; x[2] = 2; x[3] = 10; n = asort(x); print n, x[1], x[2], x[3] }'`,
+      );
+      expect(result.stdout).toBe("3 2 10 1a\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should break numeric ties by string value for @val_num_asc (fixes #737)", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { x[1] = "1.0"; x[2] = "01"; x[3] = "1"; n = asort(x, y, "@val_num_asc"); print n, y[1], y[2], y[3] }'`,
+      );
+      expect(result.stdout).toBe("3 01 1 1.0\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should evaluate the how argument before reading the source (fixes #737)", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function pick() { delete a[3]; return "@val_num_asc" } BEGIN { a[1] = 3; a[2] = 1; a[3] = 2; n = asort(a, b, pick()); print n, b[1], b[2] }'`,
+      );
+      expect(result.stdout).toBe("2 1 3\n");
+      expect(result.exitCode).toBe(0);
+    });
   });
 });
