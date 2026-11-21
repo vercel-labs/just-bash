@@ -33,6 +33,7 @@ import {
 } from "./type-coercion.js";
 import type { AwkValue } from "./types.js";
 import {
+  deleteArray,
   getArrayElement,
   getVariable,
   hasArrayElement,
@@ -40,6 +41,10 @@ import {
   isStrnumVar,
   markStrnumArrayKey,
   markStrnumVar,
+  nextLocalArrayName,
+  nextLocalScalarName,
+  popArrayFrame,
+  pushArrayFrame,
   resolveArrayName,
   setArrayElement,
   setVariable,
@@ -420,18 +425,10 @@ async function callUserFunction(
     savedStrnumParams.set(param, isStrnumVar(ctx, param));
   }
 
-  // Track array aliases we create (to clean up later)
-  const createdAliases: string[] = [];
-  // Aliases this call shadows: an outer call may already have an alias
-  // under the same parameter name (e.g. a `how` function called from
-  // asort with the same array parameter). Save it so returning restores
-  // the outer binding instead of dropping it.
-  const shadowedAliases = new Map<string, string>();
-
   // Resolve array arguments through the caller's aliases BEFORE
   // installing this call's bindings: a nested call reusing the same
   // parameter name (e.g. g(a) inside f(a)) must keep pointing at the
-  // caller's array instead of installing a self-alias (a -> a) that
+  // caller's array instead of installing a self-binding (a -> a) that
   // shadows it for the duration of the call. Resolving up front also
   // keeps swapped arguments (f(y, x) for f(x, y)) pointing at the
   // right arrays.
@@ -468,32 +465,42 @@ async function callUserFunction(
     }
   }
 
-  // Every parameter shadows the caller's bindings under its name —
-  // including omitted parameters and ones receiving a scalar — so a
-  // same-named outer array alias must be saved and cleared before
-  // this call's bindings are installed. Otherwise the supposedly
-  // local parameter keeps sorting (or writing) the caller's array:
-  // g() inside f(a) would sort the caller's array, and g(1) would
-  // sort it instead of rejecting a scalar. Saved aliases are
-  // restored after the call, below.
-  for (const param of func.params) {
-    const previous = ctx.arrayAliases.get(param);
-    if (previous !== undefined) {
-      shadowedAliases.set(param, previous);
-      ctx.arrayAliases.delete(param);
-    }
-  }
+  // Track array aliases we create (to clean up later)
+  // This call gets its own array-binding frame (one binding per
+  // parameter), installed after the arguments were resolved in the
+  // caller's frame above: a binding always names the final store,
+  // never another parameter, so two parameters can never alias each
+  // other through a cycle, and a callee never sees a caller's
+  // bindings. Omitted parameters get a fresh empty local array;
+  // parameters that received a scalar get a scalar-only binding, so
+  // array built-ins reject them instead of reaching an outer array
+  // of the same name. The frame is popped (and the local stores it
+  // created are dropped) in the finally block below, so a throw in
+  // the body cannot leak bindings into the caller either.
+  const frame = pushArrayFrame(ctx);
+  // Synthetic local stores this call creates, to drop on return.
+  // A store passed on to a nested call is shared by name, not
+  // recreated, so it is deleted only by the frame that created it.
+  const createdLocalStores: string[] = [];
 
   // Set up parameters
   for (let i = 0; i < func.params.length; i++) {
     const param = func.params[i];
     if (i < args.length) {
       const arg = args[i];
-      // If argument is a simple variable, set up an array alias
-      // This allows arrays to be passed by reference
+      // If argument is a simple variable, bind the parameter to the
+      // array it resolved to in the caller's frame. This allows
+      // arrays to be passed by reference; a nested call reusing the
+      // same parameter name resolves the argument the same way, so
+      // it keeps pointing at the caller's array.
       if (arg.type === "variable") {
-        ctx.arrayAliases.set(param, resolvedArgNames.get(i) ?? arg.name);
-        createdAliases.push(param);
+        frame.set(param, resolvedArgNames.get(i) ?? arg.name);
+      } else {
+        // A scalar argument: the parameter is a local scalar, not an
+        // array. Bind it to a synthetic scalar-only name so array
+        // operations on it are rejected instead of resolving to an
+        // outer array of the same name.
+        frame.set(param, nextLocalScalarName(ctx));
       }
       const value = await withDefenseContext(
         ctx,
@@ -512,11 +519,17 @@ async function callUserFunction(
     } else {
       // An omitted parameter is untyped: it is neither a scalar nor an
       // array yet, so it must not be stored as "" (which the asort
-      // validation would read as an initialized scalar). Reads still
-      // yield "" through getVariable's fallback, and a later
-      // assignment gives the parameter a type. The slot is deleted
-      // rather than left alone so an outer variable of the same name
-      // does not leak into the call.
+      // validation would read as an initialized scalar). It gets a
+      // fresh empty local array under a synthetic name, so array
+      // operations on it cannot touch an outer array of the same
+      // name. Reads still yield "" through getVariable's fallback,
+      // and a later assignment gives the parameter a type. The
+      // scalar slot is deleted rather than left alone so an outer
+      // variable of the same name does not leak into the call.
+      const localName = nextLocalArrayName(ctx);
+      frame.set(param, localName);
+      ctx.arrays[localName] = Object.create(null);
+      createdLocalStores.push(localName);
       delete ctx.vars[param];
       markStrnumVar(ctx, param, false);
     }
@@ -526,40 +539,37 @@ async function callUserFunction(
   ctx.hasReturn = false;
   ctx.returnValue = undefined;
 
-  const blockExecutor = executeBlockFn;
-  if (blockExecutor) {
-    await withDefenseContext(ctx, "user function body execution", () =>
-      blockExecutor(ctx, func.body.statements),
-    );
-  }
-
-  const result = ctx.returnValue ?? "";
-
-  // Restore only parameter variables
-  for (const param of func.params) {
-    if (savedParams[param] !== undefined) {
-      ctx.vars[param] = savedParams[param];
-    } else {
-      delete ctx.vars[param];
+  let result: AwkValue;
+  try {
+    const blockExecutor = executeBlockFn;
+    if (blockExecutor) {
+      await withDefenseContext(ctx, "user function body execution", () =>
+        blockExecutor(ctx, func.body.statements),
+      );
     }
-    markStrnumVar(ctx, param, savedStrnumParams.get(param) ?? false);
-  }
 
-  // Clean up the call's bindings: restore every outer alias this
-  // call shadowed under a parameter name (including parameters that
-  // took no array argument), and drop the aliases the call created.
-  for (const [param, shadowed] of shadowedAliases) {
-    ctx.arrayAliases.set(param, shadowed);
-  }
-  for (const alias of createdAliases) {
-    if (!shadowedAliases.has(alias)) {
-      ctx.arrayAliases.delete(alias);
+    result = ctx.returnValue ?? "";
+  } finally {
+    // Restore only parameter variables
+    for (const param of func.params) {
+      if (savedParams[param] !== undefined) {
+        ctx.vars[param] = savedParams[param];
+      } else {
+        delete ctx.vars[param];
+      }
+      markStrnumVar(ctx, param, savedStrnumParams.get(param) ?? false);
     }
-  }
 
-  ctx.hasReturn = false;
-  ctx.returnValue = undefined;
-  ctx.currentRecursionDepth--;
+    // Drop this call's frame and the local stores it created.
+    popArrayFrame(ctx);
+    for (const store of createdLocalStores) {
+      deleteArray(ctx, store);
+    }
+
+    ctx.hasReturn = false;
+    ctx.returnValue = undefined;
+    ctx.currentRecursionDepth--;
+  }
 
   return result;
 }
