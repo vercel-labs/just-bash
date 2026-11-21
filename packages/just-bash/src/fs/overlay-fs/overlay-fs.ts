@@ -611,7 +611,13 @@ export class OverlayFs implements IFileSystem {
     let existingBuffer: Uint8Array;
     try {
       existingBuffer = await this.readFileBuffer(normalized);
-    } catch {
+    } catch (e) {
+      // Only a missing file means "append to nothing". Any other read
+      // failure (oversize file, directory, symlink loop, I/O error) must
+      // surface instead of silently discarding the existing content.
+      if (!(e instanceof Error && e.message.startsWith("ENOENT"))) {
+        throw e;
+      }
       existingBuffer = new Uint8Array(0);
     }
 
