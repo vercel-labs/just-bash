@@ -90,6 +90,16 @@ export interface AwkRuntimeContext {
    */
   specialStoreSizes: Map<string, number>;
   /**
+   * Mutation counter for ARGV (and ARGC, which bounds it): bumped on
+   * every insert/delete/replacement of an ARGV element and on every
+   * ARGC assignment. The input loop caches the sorted list of present
+   * ARGV indices and refreshes it only when this changes, so reading
+   * N files costs one key scan instead of N — while a program that
+   * adds or drops entries mid-file still has its changes picked up.
+   * A hand-built context starts at 0, like a fresh runtime context.
+   */
+  argvVersion: number;
+  /**
    * Scalar variable names whose current value is an AWK numeric
    * string (strnum): a numeric-looking string that came from input
    * fields or split(), as opposed to a string literal. Only the
@@ -224,6 +234,7 @@ export function createRuntimeContext(
     arrayElementCount: 0,
     arrayElementBaselines: new Map(),
     specialStoreSizes: new Map(),
+    argvVersion: 0,
     strnumVars: new Set(),
     strnumArrayKeys: new Map(),
     recordsProcessed: 0,
