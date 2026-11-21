@@ -430,7 +430,7 @@ export class InMemoryFs implements IFileSystem {
         mtime: new Date(),
       });
     } else {
-      this.writeFileSync(resolvedath, content, options);
+      this.writeFileSync(resolvedPath, content, options);
     }
   }
 
