@@ -84,7 +84,10 @@ export interface AwkRuntimeContext {
   fs?: AwkFileSystem;
   cwd?: string;
 
-  // Track which files have been opened with > (for overwrite-then-append behavior)
+  // Track which files have been opened with > (for overwrite-then-append
+  // behavior). Keyed by the redirection name as written, not the resolved
+  // path: awk identifies redirections by their original string, so
+  // `close("./f")` must not close a stream opened as `"f"`.
   openedFiles: Set<string>;
 
   // Random function override for testing
