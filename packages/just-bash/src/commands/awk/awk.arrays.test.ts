@@ -621,6 +621,132 @@ describe("awk associative arrays", () => {
       expect(result.exitCode).toBe(0);
     });
 
+        it("should keep same-named swapped array arguments pointing at the right arrays", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function f(a,b){asort(a); asort(b); print a[1], a[2], b[1], b[2]} BEGIN{a[1]=3; a[2]=1; b[1]=4; b[2]=2; f(b,a)}'`,
+      );
+      // The parameters have the same names as the caller arrays, so
+      // the bindings form a cycle (a -> b, b -> a) in a flat alias
+      // map and asort sorts each array in place instead of the array
+      // actually passed. gawk prints the swapped result.
+      expect(result.stdout).toBe("2 4 1 3\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should keep same-named swapped array arguments pointing at the right arrays for split", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function f(a,b){split("z:y",a,":"); print a[1], a[2], b[1], b[2]} BEGIN{a[1]=3; a[2]=1; b[1]=4; b[2]=2; f(b,a)}'`,
+      );
+      expect(result.stdout).toBe("z y 3 1\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should keep same-named swapped array arguments pointing at the right arrays for for-in", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function f(a,b){n=0; for(k in a) n++; print n, b[1], b[2]} BEGIN{a[1]=1; a[2]=2; b[1]=9; f(b,a)}'`,
+      );
+      expect(result.stdout).toBe("1 1 2\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should give an omitted array parameter its own local array", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function f(a){print asort(a); a[1]=99; print a[1]} BEGIN{a[1]=3; a[2]=1; f(); print a[1], a[2]}'`,
+      );
+      // gawk: the omitted parameter is a fresh empty local array, so
+      // asort returns 0, the write lands in the local array, and the
+      // outer array is untouched.
+      expect(result.stdout).toBe("0\n99\n3 1\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should give an omitted array parameter its own local array for split", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function f(a){split("z:y",a,":"); print a[1], a[2]} BEGIN{a[1]=3; a[2]=1; f(); print a[1], a[2]}'`,
+      );
+      expect(result.stdout).toBe("z y\n3 1\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should not let a callee see a caller's array parameter as a global", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function g(){print a[1]} function f(a){a[1]=99; g()} BEGIN{a[1]=5; b[1]=9; f(b); print a[1], b[1]}'`,
+      );
+      // g has no parameter named a, so its a[1] is the global array
+      // (5), not f's parameter bound to b (99).
+      expect(result.stdout).toBe("5\n5 99\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should reject a how function that assigns a scalar to an uninitialized source", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function h(){s=5; return ""} BEGIN{d[1]="keep"; n=asort(s,d,h()); print n, d[1]}'`,
+      );
+      // gawk rejects this; head validated before evaluating how, then
+      // read the source as an empty array and cleared d.
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "awk: asort: first argument is not an array\n",
+      );
+      expect(result.exitCode).toBe(2);
+    });
+
+    it("should reject a how function that assigns a scalar to the destination", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function h(){d=5; return ""} BEGIN{s[1]=3; s[2]=1; n=asort(s,d,h()); print n}'`,
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "awk: asort: second argument is not an array\n",
+      );
+      expect(result.exitCode).toBe(2);
+    });
+
+    it("should reject asort of a scalar function parameter", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function f(a){print asort(a)} BEGIN{a[1]=3; f(1)}'`,
+      );
+      // gawk rejects this; head sorted the outer array of the same
+      // name instead, because the scalar parameter had no binding.
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "awk: asort: first argument is not an array\n",
+      );
+      expect(result.exitCode).toBe(2);
+    });
+
+    it("should sort the right array when a parameter shadows an argument (fixes #737)", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function f(x,a){asort(x)} BEGIN{a[1]=2;a[2]=1;b[1]=4;b[2]=3; f(a,b); print a[1],a[2],b[1],b[2]}'`,
+      );
+      // f(a, b) binds x to a and a to b; asort(x) must sort a, not b
+      // (review 6007463856).
+      expect(result.stdout).toBe("1 2 4 3\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should keep input order for numeric ties in the default mode (fixes #737)", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN{split("1.0 01 1",a); asort(a); print a[1],a[2],a[3]}'`,
+      );
+      // gawk's default sort is stable: strnums keep their input
+      // order. Only the @val_num_* modes break ties by string value
+      // (review 6007650999).
+      expect(result.stdout).toBe("1.0 01 1\n");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should sort numbers by their CONVFMT form in @val_str_asc", async () => {
       const env = new Bash();
       const result = await env.exec(
@@ -905,9 +1031,43 @@ describe("awk associative arrays", () => {
       const result = await env.exec(
         `echo "" | awk 'BEGIN { ARGC=1e400 } END { print "done" }'`,
       );
-      // gawk itself spins forever here; the input scan stops at the
-      // entries that actually exist instead of following ARGC.
+      // gawk converts a non-finite ARGC to no files (it reads stdin
+      // instead); a huge finite ARGC makes gawk itself spin, but the
+      // input scan here stops at the entries that actually exist
+      // instead of following ARGC.
       expect(result.stdout).toBe("done\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+        it("should read stdin when ARGC is negative Infinity", async () => {
+      const env = new Bash({ files: { "/f": "file-line\n" } });
+      const result = await env.exec(
+        `printf 'stdin-line\\n' | awk 'BEGIN{ARGC=-1e400; ARGV[1]="/f"} {print FILENAME, $0}'`,
+      );
+      // gawk converts a non-finite ARGC to no files and reads stdin
+      // (review 6007290268).
+      expect(result.stdout).toBe("- stdin-line\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should read stdin when ARGC is positive Infinity", async () => {
+      const env = new Bash({ files: { "/f": "file-line\n" } });
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN{ARGC=1e400; ARGV[1]="/f"} {print FILENAME, $0}'`,
+      );
+      // As above: a non-finite ARGC admits no files (review 6007290268).
+      expect(result.stdout).toBe("- \n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should read a file once when ARGV has a noncanonical duplicate key", async () => {
+      const env = new Bash({ files: { "/one": "one-line\n" } });
+      const result = await env.exec(
+        `awk 'BEGIN{ARGC=2; ARGV["01"]="/one"; ARGV[1]="/one"} {print $0}'`,
+      );
+      // "01" and "1" name the same index; without dedup the file is
+      // read twice. gawk reads it once (review 6008016191).
+      expect(result.stdout).toBe("one-line\n");
       expect(result.exitCode).toBe(0);
     });
 
