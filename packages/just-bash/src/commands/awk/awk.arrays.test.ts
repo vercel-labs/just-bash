@@ -408,34 +408,57 @@ describe("awk associative arrays", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it("should order mixed values like the interpreter's < rules (fixes #737)", async () => {
+    it("should sort numbers before non-numeric strings in the default order (fixes #737)", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "" | awk 'BEGIN { x[1] = "1a"; x[2] = 2; x[3] = 10; n = asort(x); print n, x[1], x[2], x[3] }'`,
       );
-      // "1a" vs 2 is not both numeric-looking, so it falls back to string
-      // comparison ("1a" < "2"); 2 vs 10 compare numerically.
-      expect(result.stdout).toBe("3 1a 2 10\n");
+      // The old `<`-based comparison cycled for these values ("1a" < "2"
+      // as strings, 2 < 10 numerically, but "1a" > "10" as strings), so
+      // the order depended on the input permutation and the tested output
+      // had its last element less than its first. gawk's default puts
+      // numeric-looking values first, numerically, then the rest as strings.
+      expect(result.stdout).toBe("3 2 10 1a\n");
       expect(result.exitCode).toBe(0);
     });
 
-    it("should compare a numeric-looking string as a string against punctuation", async () => {
+    it("should give the same default order for every permutation of mixed values", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { a[1]="1a"; a[2]=2; a[3]=10; asort(a); print a[1], a[2], a[3]; b[1]=10; b[2]="1a"; b[3]=2; asort(b); print b[1], b[2], b[3]; c[1]=2; c[2]=10; c[3]="1a"; asort(c); print c[1], c[2], c[3] }'`,
+      );
+      expect(result.stdout).toBe("2 10 1a\n2 10 1a\n2 10 1a\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should sort a numeric-looking string before punctuation in the default order", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "" | awk 'BEGIN { x[1] = "10"; x[2] = "!"; n = asort(x); print n, x[1], x[2] }'`,
       );
-      expect(result.stdout).toBe("2 ! 10\n");
+      // Numeric-looking values sort before non-numeric strings, so "10"
+      // comes first even though "!" < "10" as plain strings.
+      expect(result.stdout).toBe("2 10 !\n");
       expect(result.exitCode).toBe(0);
     });
 
-    it("should reject an explicitly supplied empty how argument", async () => {
+    it("should accept an explicitly supplied empty how argument as the default", async () => {
       const env = new Bash();
       const result = await env.exec(
-        `echo "" | awk 'BEGIN { x[1] = 2; x[2] = 1; n = asort(x, y, ""); print n }'`,
+        `echo "" | awk 'BEGIN { x[1] = 2; x[2] = 1; n = asort(x, y, ""); print n, y[1], y[2] }'`,
       );
-      expect(result.stdout).toBe("");
-      expect(result.stderr).toBe('awk: asort: unsupported how argument ""\n');
-      expect(result.exitCode).toBe(2);
+      // gawk accepts "" as the default ordering; head used to reject it.
+      expect(result.stdout).toBe("2 1 2\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should sort in place when source and destination are the same array", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { x[1] = 3; x[2] = 1; n = asort(x, x); print n, x[1], x[2] }'`,
+      );
+      expect(result.stdout).toBe("2 1 3\n");
+      expect(result.exitCode).toBe(0);
     });
 
     it("should keep the source alias when a how function uses the same parameter name", async () => {
