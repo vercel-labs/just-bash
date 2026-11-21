@@ -15,6 +15,7 @@ import {
   readCsvInput,
   safeSetRow,
   toSafeRow,
+  toTypedRow,
 } from "./csv.js";
 import {
   getMoonbladeLimits,
@@ -117,9 +118,16 @@ export async function cmdMap(
       _row_index: rowIndex,
     });
 
+    // Rows are text; expressions see re-typed cells (numbers/booleans).
+    // Convert the row once and reuse it for every spec instead of
+    // rescanning it per expression; count the scan work.
+    const typedRow = toTypedRow(rowWithIndex, (units) =>
+      resultBudget.consumeWork(units),
+    );
+
     for (const spec of specs) {
       resultBudget.consumeWork();
-      const results = evaluate(rowWithIndex, spec.ast, evalOptions);
+      const results = evaluate(typedRow, spec.ast, evalOptions);
       const value = results.length > 0 ? results[0] : null;
 
       // If filtering and value is null/undefined, skip row
@@ -232,13 +240,20 @@ export async function cmdTransform(
   for (const row of data) {
     const newRow: CsvRow = toSafeRow(row);
 
+    // Rows are text; expressions see re-typed cells (numbers/booleans).
+    // Convert the row once; each target column reuses it and only swaps
+    // in its own "_" cell instead of rescanning the whole row.
+    const typedRow = toTypedRow(row, (units) =>
+      resultBudget.consumeWork(units),
+    );
+
     for (let i = 0; i < targetCols.length; i++) {
       resultBudget.consumeWork();
       const col = targetCols[i];
       // For implicit expressions like "upper", wrap in function call
       // The _ variable represents the current column value
-      const rowWithUnderscore = Object.assign(nullPrototypeCopy(row), {
-        _: row[col],
+      const rowWithUnderscore = Object.assign(nullPrototypeCopy(typedRow), {
+        _: typedRow[col],
       });
       const results = evaluate(rowWithUnderscore, ast, evalOptions);
       const value = results.length > 0 ? results[0] : null;

@@ -36,6 +36,19 @@ describe("xan to json", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toBe("xan to: usage: xan to <format> [FILE]\n");
   });
+
+  it("infers numbers and booleans but keeps look-alikes as strings (fixes #739)", async () => {
+    const bash = new Bash({
+      files: {
+        "/data.csv": "zip,ts,age,active\n01067,2026-03-03T10:00:00Z,30,true\n",
+      },
+    });
+    const result = await bash.exec("xan to json /data.csv");
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual([
+      { zip: "01067", ts: "2026-03-03T10:00:00Z", age: 30, active: true },
+    ]);
+  });
 });
 
 describe("xan from json", () => {

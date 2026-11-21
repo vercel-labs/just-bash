@@ -19,6 +19,7 @@ import {
   formatCsv,
   readCsvInput,
   safeSetRow,
+  toTypedData,
 } from "./csv.js";
 
 function getAggregationLimits(
@@ -165,11 +166,13 @@ export async function cmdGroupby(
       safeSetRow(row, k, groupData[0][k]);
     }
     // Compute aggregates
+    // Convert each row of the group once and share it across specs.
+    const typedGroup = toTypedData(groupData, aggregationLimits.consumeWork);
     for (const spec of specs) {
       safeSetRow(
         row,
         spec.alias,
-        computeAgg(groupData, spec, evalOptions, aggregationLimits),
+        computeAgg(typedGroup, spec, evalOptions, aggregationLimits),
       );
     }
     results.push(row);

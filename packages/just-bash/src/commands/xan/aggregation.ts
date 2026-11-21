@@ -5,7 +5,14 @@
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { utf8ByteLength } from "../printf/escapes.js";
 import { type EvaluateOptions, evaluate } from "../query-engine/index.js";
-import { type CsvData, type CsvRow, createSafeRow, safeSetRow } from "./csv.js";
+import {
+  type CsvData,
+  type CsvRow,
+  createSafeRow,
+  safeSetRow,
+    toTypedData,
+  toTypedRow,
+} from "./csv.js";
 import { parseMoonblade } from "./moonblade-parser.js";
 import { moonbladeToJq } from "./moonblade-to-jq.js";
 
@@ -139,7 +146,8 @@ function evalExpr(
   ast: ReturnType<typeof moonbladeToJq>,
   evalOptions: EvaluateOptions,
 ): unknown {
-  const results = evaluate(row, ast, evalOptions);
+  // Rows are text; expressions see re-typed cells (numbers/booleans).
+  const results = evaluate(toTypedRow(row), ast, evalOptions);
   return results.length > 0 ? results[0] : null;
 }
 
@@ -358,9 +366,17 @@ export function buildAggRow(
   evalOptions: EvaluateOptions = {},
   limits: AggregationLimits = {},
 ): CsvRow {
+  // Convert each row once and share the typed rows across specs instead
+  // of rescanning the dataset for every aggregation; count the scan.
+  // Simple-column reads then see the same re-typed cells as expressions.
+  const typedData = toTypedData(data, limits.consumeWork);
   const row: CsvRow = createSafeRow();
   for (const spec of specs) {
-    safeSetRow(row, spec.alias, computeAgg(data, spec, evalOptions, limits));
+    safeSetRow(
+      row,
+      spec.alias,
+      computeAgg(typedData, spec, evalOptions, limits),
+  );
   }
   return row;
 }

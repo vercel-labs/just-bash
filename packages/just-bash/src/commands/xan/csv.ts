@@ -113,6 +113,71 @@ export function toSafeRow(plainRow: Record<string, unknown>): CsvRow {
   return safe;
 }
 
+/**
+ * Infer a query value from a CSV cell string. CSV cells are text, so this
+ * is the only place that re-types them — for expression evaluation and
+ * JSON output, where numbers and booleans are expected. Values that
+ * merely look numeric stay strings: leading-zero codes ("01067") and
+ * ISO timestamps ("2026-03-03T10:00:00Z") pass through exactly as written,
+ * and so do integers outside the safe range ("9007199254740993"), which
+ * Number() would silently round to a different value.
+ */
+export function inferTypedCellValue(
+  value: string | number | boolean | null,
+): string | number | boolean | null {
+  if (typeof value !== "string") return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  if (/^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?$/.test(value)) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return value;
+    if (Number.isInteger(num) && !Number.isSafeInteger(num)) return value;
+    return num;
+  }
+  return value;
+}
+
+/**
+ * Copy a row with each cell re-typed for expression evaluation.
+  *
+   * Convert each row once, lazily at the point it is evaluated, and count
+    * the scan work against the caller's limits via `charge` (one unit per
+     * cell scanned) so a wide row cannot do unbounded uncounted work.
+      * Callers that evaluate several expressions per row must hoist this
+       * call out of the per-expression loop and reuse the result. As a
+        * backstop, conversions are memoized by source row: a row evaluated
+         * again (e.g. one aggregation spec per pass over the same rows) is
+          * re-typed from the cache, never rescanned or recharged. Rows are
+           * never mutated after parsing, and evaluation never mutates its
+            * input, so the cached copy stays valid for the row's lifetime.
+             */
+const typedRowCache = new WeakMap<CsvRow, CsvRow>();
+
+export function toTypedRow(
+  row: CsvRow,
+  charge?: (units: number) => void,
+): CsvRow {
+  const cached = typedRowCache.get(row);
+  if (cached) return cached;
+  const typed = createSafeRow();
+  const keys = Object.keys(row);
+  for (const key of keys) {
+    safeSetRow(typed, key, inferTypedCellValue(row[key]));
+  }
+  charge?.(keys.length);
+  typedRowCache.set(row, typed);
+  return typed;
+}
+
+/** Convert each row of a dataset once, charging the scan work as it goes. */
+export function toTypedData(
+  data: CsvData,
+  charge?: (units: number) => void,
+): CsvData {
+  return data.map((row) => toTypedRow(row, charge));
+}
+  
+
 /** Parse CSV input string to array of row objects */
 export function parseCsv(
   input: string,
@@ -146,7 +211,11 @@ export function parseCsv(
   let limitError: ExecutionLimitError | undefined;
   Papa.parse<Record<string, unknown>>(normalizedInput, {
     header: true,
-    dynamicTyping: true,
+    // Cells are text: real xan passes cell bytes through unchanged, so
+    // never let the parser re-type them. dynamicTyping used to turn
+    // "01067" into 1067 and ISO timestamps into Date objects (which
+    // toSafeRow then dropped entirely, emptying the cell).
+    dynamicTyping: false,
     skipEmptyLines: true,
     step: (result, parser) => {
       const fields = Object.keys(result.data);
@@ -172,7 +241,13 @@ export function parseCsv(
         return;
       }
       cellCount += fields.length;
-      safeData.push(toSafeRow(result.data));
+      const row = toSafeRow(result.data);
+      // Papa returns null for empty cells only when dynamicTyping is on;
+      // with text cells, restore that: an empty cell is null, never "".
+      for (const key of Object.keys(row)) {
+        if (row[key] === "") row[key] = null;
+      }
+      safeData.push(row);
     },
   });
   if (limitError) throw limitError;

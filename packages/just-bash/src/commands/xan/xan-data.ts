@@ -21,6 +21,7 @@ import {
   parseCsvRows,
   readCsvInput,
   safeSetRow,
+  toTypedData,
 } from "./csv.js";
 
 /**
@@ -535,7 +536,10 @@ async function cmdToJson(
     );
   }
   const maxBytes = ctx.limits.maxOutputSize - 1;
-  const output = formatJsonValue(data as QueryValue, maxBytes);
+  // Re-type cells for JSON output only; CSV stays text. Each row is
+    // converted once, and the scan work is counted against the limits.
+  const typedData = toTypedData(data, (units) => budget.consumeWork(units));
+  const output = formatJsonValue(typedData as QueryValue, maxBytes);
   // xan emits text; the pipeline handles encoding.
   return {
     stdout: `${output}\n`,

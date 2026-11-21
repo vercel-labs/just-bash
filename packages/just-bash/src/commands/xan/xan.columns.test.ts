@@ -69,6 +69,19 @@ describe("xan select", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("a,b\n1,2\n");
   });
+
+  it("passes cell bytes through unchanged (fixes #739)", async () => {
+    const bash = new Bash({
+      files: {
+        "/data.csv": 'zip,ts,city\n01067,2026-03-03T10:00:00Z,"Berlin, DE"\n',
+      },
+    });
+    const result = await bash.exec("xan select zip,ts,city /data.csv");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe(
+      'zip,ts,city\n01067,2026-03-03T10:00:00Z,"Berlin, DE"\n',
+    );
+  });
 });
 
 describe("xan drop", () => {
