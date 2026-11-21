@@ -111,6 +111,9 @@ export function setVariable(
       // files (gawk reads ARGV[1..ARGC-1]); it used to land in
       // ctx.vars and never reach the field getVariable reads.
       ctx.ARGC = Math.floor(toNumber(value));
+      // The bound changed, so the input loop's cached index list is
+      // stale even though no ARGV entry moved.
+      bumpArgvVersion(ctx);
       return;
   }
 
@@ -325,6 +328,9 @@ export function chargedSizeOfArray(
     specialStoreSize(ctx, store) - prepopulatedSize(ctx, store),
   );
 }
+export function isBuiltinScalarName(name: string): boolean {
+  return BUILTIN_SCALARS.has(name);
+}
 
 /**
  * True when the named variable is an initialized scalar: it holds a
@@ -348,6 +354,9 @@ const BUILTIN_SCALARS = new Set([
   "RLENGTH",
   "SUBSEP",
   "ARGC",
+  // Uninitialized but still a scalar: asort(IGNORECASE) is rejected
+  // in gawk, not treated as an empty array.
+  "IGNORECASE",
 ]);
 
 export function isScalarVariable(
@@ -359,6 +368,17 @@ export function isScalarVariable(
   if (ctx.arrays[resolved] !== undefined) return false;
   if (BUILTIN_SCALARS.has(resolved)) return true;
   return ctx.vars[resolved] !== undefined;
+}
+/**
+ * Record that ARGV (or its ARGC bound) may have changed, so the input
+ * loop refreshes its cached list of present indices. Callers bump
+ * only when the index set or the bound could have changed: inserting
+ * or deleting a key, replacing the whole store, or assigning ARGC.
+ * Replacing an existing entry in place does not bump — the loop reads
+ * each entry fresh when its turn comes.
+ */
+export function bumpArgvVersion(ctx: AwkRuntimeContext): void {
+  ctx.argvVersion = (ctx.argvVersion ?? 0) + 1;
 }
 
 /**
@@ -398,6 +418,8 @@ export function replaceArrayValues(
       store[String(i + 1)] = values[i];
     }
     setSpecialStoreSize(ctx, store, values.length);
+    // The whole store was replaced: its index set may have changed.
+    bumpArgvVersion(ctx);
     // The incoming values carry no provenance here; callers that know
     // it (asort) set the destination's strnum keys again afterwards.
     clearStrnumArray(ctx, resolvedName);
@@ -463,6 +485,10 @@ export function setArrayElement(
         ctx.arrayElementCount++;
       }
       setSpecialStoreSize(ctx, store, size + 1);
+      // A new key appeared: the input loop's cached index list is
+      // stale. Replacing an existing key does not bump — the loop
+      // reads each entry fresh when its turn comes.
+      bumpArgvVersion(ctx);
     }
     store[key] = value;
     // The new value carries no provenance at this layer; the
@@ -528,6 +554,7 @@ export function deleteArrayElement(
       }
       delete store[key];
       setSpecialStoreSize(ctx, store, size - 1);
+      bumpArgvVersion(ctx);
       markStrnumArrayKey(ctx, resolvedArray, key, false);
     }
     return;
@@ -559,6 +586,7 @@ export function deleteArray(ctx: AwkRuntimeContext, array: string): void {
       delete store[key];
     }
     setSpecialStoreSize(ctx, store, 0);
+    bumpArgvVersion(ctx);
     clearStrnumArray(ctx, resolvedArray);
     return;
   }
