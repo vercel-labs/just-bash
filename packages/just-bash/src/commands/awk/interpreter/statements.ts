@@ -15,7 +15,12 @@ import { formatPrintf } from "../builtins.js";
 import type { AwkRuntimeContext } from "./context.js";
 import { evalExpr, setBlockExecutor } from "./expressions.js";
 import { isTruthy, toAwkString, toNumber } from "./type-coercion.js";
-import { deleteArray, deleteArrayElement } from "./variables.js";
+import {
+  deleteArray,
+  deleteArrayElement,
+  getArrayStore,
+  resolveArrayName,
+} from "./variables.js";
 
 // Register the block executor with expressions module (for user function calls)
 setBlockExecutor(executeBlock);
@@ -505,11 +510,21 @@ async function executeForIn(
   stmt: { variable: string; array: string; body: AwkStmt },
 ): Promise<void> {
   assertAwkDefenseContext(ctx, "for-in execution");
-  const array = ctx.arrays[stmt.array];
+  // Resolve aliases and the ARGV/ENVIRON stores, like element access
+  // does: reading ctx.arrays directly misses the dedicated stores and
+  // any array passed in as a function parameter.
+  const array = getArrayStore(
+    ctx,
+    stmt.array,
+    resolveArrayName(ctx, stmt.array),
+  );
   if (!array) return;
 
   for (const key of Object.keys(array)) {
     ctx.vars[stmt.variable] = key;
+    // A for-in key is a plain string, never a numeric string: the
+    // loop variable loses any strnum provenance it had.
+    ctx.strnumVars?.delete(stmt.variable);
 
     ctx.loopContinue = false;
     await withDefenseContext(ctx, "for-in body execution", () =>

@@ -27,6 +27,7 @@ import {
   AwkInterpreter,
   createRuntimeContext,
 } from "./interpreter/index.js";
+import { isBuiltinScalarName, setVariable } from "./interpreter/variables.js";
 import { AwkParser } from "./parser2.js";
 
 const awkHelp = {
@@ -170,10 +171,17 @@ export const awkCommand2: RuntimeCommand = {
         : undefined,
       coverage: ctx.coverage,
       requireDefenseContext: ctx.requireDefenseContext,
+      executionScope: ctx.executionScope,
     });
     runtimeCtx.FS = fieldSepStr;
-    // Use Object.assign with null-prototype to preserve safety
-    runtimeCtx.vars = Object.assign(Object.create(null), vars);
+    // Plain -v variables land in vars here (null-prototype for
+    // safety); built-in -v assignments are routed through their
+    // setters in the loop after the ARGC/ARGV setup below, so they
+    // reach the dedicated slots reads use.
+    runtimeCtx.vars = Object.create(null);
+    for (const [name, value] of Object.entries(vars)) {
+      if (!isBuiltinScalarName(name)) runtimeCtx.vars[name] = value;
+    }
 
     // Set up ARGC/ARGV
     // ARGV[0] is "awk", ARGV[1..n] are the input files
@@ -187,6 +195,36 @@ export const awkCommand2: RuntimeCommand = {
 
     // Set up ENVIRON from shell environment (null-prototype prevents prototype pollution)
     runtimeCtx.ENVIRON = mapToRecord(ctx.env);
+
+    // The prepopulated ARGV/ENVIRON contents do not consume the
+    // element allowance: only elements the program adds beyond them
+    // count toward maxArrayElements, so an ordinary program still gets
+    // its full allowance even with a small limit. Their initial sizes
+    // are recorded so the setters can tell added elements from
+    // prepopulated ones.
+    runtimeCtx.arrayElementBaselines = new Map([
+      ["ARGV", Object.keys(runtimeCtx.ARGV).length],
+      ["ENVIRON", Object.keys(runtimeCtx.ENVIRON).length],
+    ]);
+    // Live sizes of the prepopulated stores, tracked incrementally
+    // from here on (see variables.ts).
+    runtimeCtx.specialStoreSizes = new Map([
+      ["ARGV", Object.keys(runtimeCtx.ARGV).length],
+      ["ENVIRON", Object.keys(runtimeCtx.ENVIRON).length],
+    ]);
+
+    // Route -v assignments for built-in variables through their
+    // setters, so they reach the dedicated slots reads use instead of
+    // sitting unread in vars: -v CONVFMT=%.0f used to leave
+    // ctx.CONVFMT at "%.6g". This runs after the ARGC/ARGV setup.
+    // FS, FNR, and ARGC are excluded: -v FS stays driven by -F
+    // (routing it here would let it override -F regardless of
+    // argument order), gawk ignores -v FNR outright, and -v ARGC is
+    // overwritten by the argument count in gawk (argv wins).
+    for (const [name, value] of Object.entries(vars)) {
+      if (name === "FS" || name === "FNR" || name === "ARGC") continue;
+      if (isBuiltinScalarName(name)) setVariable(runtimeCtx, name, value);
+    }
 
     // Create interpreter
     const interp = new AwkInterpreter(runtimeCtx);
@@ -282,46 +320,127 @@ export const awkCommand2: RuntimeCommand = {
         }
       };
 
-      if (files.length > 0) {
-        for (const file of files) {
-          let content: string;
-          try {
-            const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-            const stat = await withDefenseContext("input file stat", () =>
-              ctx.fs.stat(filePath),
-            );
-            if (stat.size > maxInputBytes - aggregateInputBytes) {
-              throw new ExecutionLimitError(
-                `aggregate input size limit exceeded (${maxInputBytes} bytes)`,
-                "string_length",
-              );
-            }
-            content = await withDefenseContext("input file read", () =>
-              ctx.fs.readFile(filePath),
-            );
-          } catch (e) {
-            if (
-              e instanceof SecurityViolationError ||
-              e instanceof ExecutionLimitError
-            ) {
-              throw e;
-            }
-            return {
-              stdout: "",
-              stderr: `awk: ${file}: No such file or directory\n`,
-              exitCode: 1,
-            };
-          }
-          await withDefenseContext("input processing", () =>
-            processInput(file, content),
-          );
-          if (runtimeCtx.shouldExit) break;
-        }
-      } else {
+      let readAnyInput = false;
+      let stdinConsumed = false;
+      const readStdin = (): string => {
+        if (stdinConsumed) return "";
+        stdinConsumed = true;
         // awk parses fields with regex / FS — decode bytes to UTF-8 so
         // non-ASCII data isn't split mid-codepoint.
+        return decodeBytesToUtf8(ctx.stdin);
+      };
+      const processFile = async (file: string): Promise<ExecResult | null> => {
+        let content: string;
+        try {
+          const filePath = ctx.fs.resolvePath(ctx.cwd, file);
+          const stat = await withDefenseContext("input file stat", () =>
+            ctx.fs.stat(filePath),
+          );
+          if (stat.size > maxInputBytes - aggregateInputBytes) {
+            throw new ExecutionLimitError(
+              `aggregate input size limit exceeded (${maxInputBytes} bytes)`,
+              "string_length",
+            );
+          }
+          content = await withDefenseContext("input file read", () =>
+            ctx.fs.readFile(filePath),
+          );
+        } catch (e) {
+          if (
+            e instanceof SecurityViolationError ||
+            e instanceof ExecutionLimitError
+          ) {
+            throw e;
+          }
+          return {
+            stdout: "",
+            stderr: `awk: ${file}: No such file or directory\n`,
+            exitCode: 1,
+          };
+        }
+        await withDefenseContext("input processing", () =>
+          processInput(file, content),
+        );
+        readAnyInput = true;
+        return null;
+      };
+
+      // A BEGIN block may reorder, delete, or replace ARGV entries
+      // (e.g. asort(a, ARGV)), so the files to read come from the
+      // current ARGV, not the argument list captured before BEGIN —
+      // as in gawk. The loop walks the present ARGV indices, in
+      // order, from a cached sorted list: a sparse ARGV (one entry
+      // at index 999,999,999,999) never visits the missing indices
+      // below it, and reading N unchanged files costs one key scan
+      // instead of N. The list is refreshed only when ARGV (or its
+      // ARGC bound) changed while a file was being processed, tracked
+      // by runtimeCtx.argvVersion. Indices are never revisited: an
+      // entry added behind the current position is not re-read, as
+      // in gawk. Each entry is read fresh when its turn comes, so a
+      // replacement or deletion made while processing an earlier file
+      // takes effect; a lowered ARGC takes effect immediately.
+      let pendingIndices: number[] = [];
+      let pendingVersion = -1;
+      let nextPending = 0;
+      let lastIndex = 0;
+      const refreshPendingIndices = (): void => {
+        const argc = runtimeCtx.ARGC;
+        const indices: number[] = [];
+        for (const key of Object.keys(runtimeCtx.ARGV)) {
+          const n = Number(key);
+          if (
+            Number.isInteger(n) &&
+            n > lastIndex &&
+            n >= 1 &&
+            (!Number.isFinite(argc) || n < argc)
+          ) {
+            indices.push(n);
+          }
+        }
+        indices.sort((a, b) => a - b);
+        pendingIndices = indices;
+        nextPending = 0;
+        pendingVersion = runtimeCtx.argvVersion ?? 0;
+      };
+      for (;;) {
+        if ((runtimeCtx.argvVersion ?? 0) !== pendingVersion) {
+          refreshPendingIndices();
+        }
+        if (nextPending >= pendingIndices.length) break;
+        const index = pendingIndices[nextPending++];
+        lastIndex = index;
+        // A lowered ARGC takes effect immediately, even if entries
+        // past it are still present. The list is ascending, so once
+        // an index reaches ARGC every later one does too.
+        if (Number.isFinite(runtimeCtx.ARGC) && index >= runtimeCtx.ARGC) {
+          break;
+        }
+        const entry = runtimeCtx.ARGV[String(index)];
+        if (entry === undefined || entry === "") continue;
+        // "-" means stdin (FILENAME "-"), as in gawk. A numeric entry
+        // is skipped: gawk reads stdin instead when it is the only
+        // input, which the fallback below provides. A numeric-looking
+        // *string* is still a filename ("1" fails to open, as in
+        // gawk), so only JS numbers are skipped here.
+        if (typeof entry === "number") continue;
+        if (entry === "-") {
+          await withDefenseContext("stdin processing", () =>
+            processInput("-", readStdin()),
+          );
+          readAnyInput = true;
+          if (runtimeCtx.shouldExit) break;
+          continue;
+        }
+        const missing = await processFile(entry);
+        if (missing) return missing;
+        if (runtimeCtx.shouldExit) break;
+      }
+
+      if (!readAnyInput) {
+        // No files (or only numeric/empty entries): read stdin, with
+        // FILENAME "-" as in gawk.
         await withDefenseContext("stdin processing", () =>
-          processInput("", decodeBytesToUtf8(ctx.stdin)),
+          processInput("-", readStdin()),
         );
       }
 
