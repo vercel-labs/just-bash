@@ -166,54 +166,273 @@ export const awkCommand2: RuntimeCommand = {
       }
     }
 
-    async function flushAppendedFile(filePath: string): Promise<void> {
-      const entry = pendingAppend.get(filePath);
+    /**
+     * Create a pending entry for a stream, pruning empty placeholders
+     * first when the map is over the stream-count cap. Empty entries hold
+     * no data, so dropping them loses nothing: the next append to that
+     * stream recreates its entry via its first-append write-through.
+     */
+    function createPendingEntry(
+      streamName: string,
+      filePath: string,
+    ): PendingAppendEntry {
+      if (pendingAppend.size >= AWK_APPEND_PENDING_MAX_FILES) {
+        for (const [name, other] of pendingAppend) {
+          if (other.bytes === 0) {
+            pendingAppend.delete(name);
+            releaseEntryLeases(other);
+          }
+        }
+      }
+      const entry: PendingAppendEntry = {
+        filePath,
+        chunks: [],
+        bytes: 0,
+        leases: [],
+      };
+      pendingAppend.set(streamName, entry);
+      return entry;
+    }
+
+    async function flushAppendedFile(streamName: string): Promise<void> {
+      const entry = pendingAppend.get(streamName);
       if (!entry) return;
       const text = entry.chunks.join("");
       if (text.length === 0) {
         // Nothing buffered (only the first-write entry, which holds no
         // data): drop it without touching the filesystem.
-        pendingAppend.delete(filePath);
+        pendingAppend.delete(streamName);
         releaseEntryLeases(entry);
         return;
       }
       // Remove the entry before the write so the bytes are not
       // double-counted, but restore it if the write fails: the data must
       // survive for a later flush attempt instead of being silently lost.
-      pendingAppend.delete(filePath);
+      pendingAppend.delete(streamName);
       pendingTotalBytes -= entry.bytes;
       try {
         await withDefenseContext("appendFile flush", () =>
-          ctx.fs.appendFile(filePath, text),
+          ctx.fs.appendFile(entry.filePath, text),
         );
       } catch (e) {
-        pendingAppend.set(filePath, entry);
+        pendingAppend.set(streamName, entry);
         pendingTotalBytes += entry.bytes;
         throw e;
       }
       releaseEntryLeases(entry);
     }
 
-    async function flushAppendedOutput(filePath?: string): Promise<void> {
-      if (filePath !== undefined) {
+    async function flushAppendedOutput(streamName?: string): Promise<void> {
+      if (streamName !== undefined) {
         await withDefenseContext("appended output flush", () =>
-          flushAppendedFile(filePath),
+          flushAppendedFile(streamName),
         );
         return;
       }
-      // Flush every file even if one fails, so a failure on one file does
-      // not leave later files unflushed; report the first failure after.
+      // Flush every stream even if one fails, so a failure on one stream
+      // does not leave later streams unflushed; report the first failure
+      // after.
       let firstError: unknown;
-      for (const path of [...pendingAppend.keys()]) {
+      for (const name of [...pendingAppend.keys()]) {
         try {
           await withDefenseContext("appended output flush", () =>
-            flushAppendedFile(path),
+            flushAppendedFile(name),
           );
         } catch (e) {
           firstError ??= e;
         }
       }
       if (firstError !== undefined) throw firstError;
+    }
+
+    /**
+     * Flush every pending stream except those writing to the given
+     * resolved path. Used before a `>` truncate: other files' output must
+     * land before the truncate, but output buffered for this same file
+     * must land after it, matching GNU awk (its stream buffer survives
+     * the truncate of a different stream name for the same file).
+     */
+    async function flushAppendedOutputExcept(filePath: string): Promise<void> {
+      let firstError: unknown;
+      for (const [name, entry] of [...pendingAppend.entries()]) {
+        if (entry.filePath === filePath) continue;
+        try {
+          await withDefenseContext("appended output flush", () =>
+            flushAppendedFile(name),
+          );
+        } catch (e) {
+          firstError ??= e;
+        }
+      }
+      if (firstError !== undefined) throw firstError;
+    }
+
+    /**
+     * Flush every pending stream writing to the given resolved path.
+     * Used before a direct (unbuffered) write to that path, so output
+     * printed earlier through another stream name for the same file lands
+     * before the direct chunk instead of after it.
+     */
+    async function flushAppendedOutputForPath(filePath: string): Promise<void> {
+      let firstError: unknown;
+      for (const [name, entry] of [...pendingAppend.entries()]) {
+        if (entry.filePath !== filePath) continue;
+        try {
+          await withDefenseContext("appended output flush", () =>
+            flushAppendedFile(name),
+          );
+        } catch (e) {
+          firstError ??= e;
+        }
+      }
+      if (firstError !== undefined) throw firstError;
+    }
+
+    /**
+     * Write content straight to the filesystem in bounded pieces, without
+     * buffering it or charging it against the live-bytes budget. Split on
+     * UTF-8 byte boundaries with a streaming decoder so a multi-byte
+     * character straddling a chunk boundary is never split.
+     */
+    async function writeDirectChunks(
+      filePath: string,
+      content: string,
+    ): Promise<void> {
+      const bytes = new TextEncoder().encode(content);
+      const decoder = new TextDecoder("utf-8");
+      for (
+        let offset = 0;
+        offset < bytes.length;
+        offset += AWK_APPEND_FLUSH_BYTES
+      ) {
+        const slice = bytes.subarray(offset, offset + AWK_APPEND_FLUSH_BYTES);
+        const isLast = offset + AWK_APPEND_FLUSH_BYTES >= bytes.length;
+        const text = isLast
+          ? decoder.decode(slice)
+          : decoder.decode(slice, { stream: true });
+        // A chunk ending mid-character decodes to "" here; its bytes are
+        // held by the decoder and land with the next chunk.
+        if (text.length === 0) continue;
+        await withDefenseContext("appendFile direct chunk", () =>
+          ctx.fs.appendFile(filePath, text),
+        );
+      }
+    }
+
+    /**
+     * Complete a print interrupted by the execution deadline: buffer its
+     * chunk without a live-bytes lease and flush everything now, while
+     * the context may still be usable, then let the abort propagate. The
+     * print was already evaluated when the deadline fired; dropping it
+     * would lose output the program produced before the deadline. The
+     * flush is best-effort — if the context is already revoked it fails
+     * and the abort is the outcome that matters.
+     */
+    async function completeAbortedPrint(
+      entry: PendingAppendEntry,
+      streamName: string,
+      content: string,
+      chunkBytes: number,
+    ): Promise<void> {
+      if (!pendingAppend.has(streamName)) {
+        pendingAppend.set(streamName, entry);
+      }
+      entry.chunks.push(content);
+      entry.bytes += chunkBytes;
+      pendingTotalBytes += chunkBytes;
+      try {
+        await withDefenseContext("appended output abort flush", () =>
+          flushAppendedOutput(),
+        );
+      } catch {
+        // Best effort: the abort is the outcome that matters.
+      }
+    }
+
+    /**
+     * Buffer one chunk for an existing stream entry (shared by the `>`
+     * first-write and later appends). A chunk larger than the per-file cap
+     * is written through directly in bounded pieces, and a chunk the
+     * live-bytes budget cannot hold is written through instead of failing
+     * the program — buffering is an optimization, not a requirement.
+     */
+    async function bufferAppend(
+      entry: PendingAppendEntry,
+      streamName: string,
+      content: string,
+      chunkBytes: number,
+    ): Promise<void> {
+      if (chunkBytes > AWK_APPEND_FLUSH_BYTES) {
+        await withDefenseContext("appended output size flush", () =>
+          flushAppendedFile(streamName),
+        );
+        await withDefenseContext("appended output direct flush", () =>
+          flushAppendedOutputForPath(entry.filePath),
+        );
+        await writeDirectChunks(entry.filePath, content);
+        return;
+      }
+      // Aggregate cap: flush everything before buffering more, so total
+      // pending output across all streams stays bounded.
+      if (pendingTotalBytes + chunkBytes > AWK_APPEND_PENDING_MAX_BYTES) {
+        await withDefenseContext("appended output aggregate flush", () =>
+          flushAppendedOutput(),
+        );
+        entry =
+          pendingAppend.get(streamName) ??
+          createPendingEntry(streamName, entry.filePath);
+      }
+      // A chunk the live-bytes budget cannot hold must not fail the
+      // program: check the deadline first (a tight loop must still be
+      // interrupted), flush this stream, and write the chunk through.
+      const remaining = ctx.executionScope?.remainingLiveBytes;
+      if (remaining !== undefined && chunkBytes > remaining) {
+        try {
+          ctx.executionScope?.throwIfAborted("awk buffered output");
+        } catch (e) {
+          if (e instanceof ExecutionAbortedError) {
+            await completeAbortedPrint(entry, streamName, content, chunkBytes);
+          }
+          throw e;
+        }
+        await withDefenseContext("appended output size flush", () =>
+          flushAppendedFile(streamName),
+        );
+        await withDefenseContext("appended output direct flush", () =>
+          flushAppendedOutputForPath(entry.filePath),
+        );
+        await writeDirectChunks(entry.filePath, content);
+        return;
+      }
+      // Charge the buffered bytes against the shared live-bytes budget
+      // while they are held; the lease is released when the entry is
+      // flushed. Without a scope (direct command invocation) the
+      // aggregate cap above is the only bound. The reserve also enforces
+      // the execution deadline synchronously, so it can abort mid-print:
+      // complete the print first (see completeAbortedPrint) instead of
+      // losing output the program already produced.
+      let lease: ResourceLease | undefined;
+      try {
+        lease = ctx.executionScope?.reserveBytes(
+          "awk buffered output",
+          chunkBytes,
+          "awk",
+        );
+      } catch (e) {
+        if (e instanceof ExecutionAbortedError) {
+          await completeAbortedPrint(entry, streamName, content, chunkBytes);
+        }
+        throw e;
+      }
+      if (lease) entry.leases.push(lease);
+      entry.chunks.push(content);
+      entry.bytes += chunkBytes;
+      pendingTotalBytes += chunkBytes;
+      if (entry.bytes >= AWK_APPEND_FLUSH_BYTES) {
+        await withDefenseContext("appended output size flush", () =>
+          flushAppendedFile(streamName),
+        );
+      }
     }
 
     // True once the exit flush has run (via finish() or the finally below),
@@ -224,26 +443,37 @@ export const awkCommand2: RuntimeCommand = {
      * Flush buffered output on an exit path and, when the run itself
      * succeeded, turn a flush failure into a failed result instead of
      * returning success with incomplete output files. When the run already
-     * failed, its error is preserved and the flush failure stays silent.
+     * failed, its exit status is preserved, but the flush failure is
+     * reported as a diagnostic instead of staying silent.
      */
     async function finish(result: ExecResult): Promise<ExecResult> {
       if (flushCompleted) return result;
       flushCompleted = true;
       try {
-        await withDefenseContext("appended output exit flush", () =>
+                await withDefenseContext("appended output exit flush", () =>
           flushAppendedOutput(),
         );
       } catch (e) {
         releasePendingLeases();
         rethrowFatalExecutionError(e);
+        const msg = e instanceof Error ? e.message : String(e);
+        const diagnostic = `awk: failed to flush buffered output: ${msg}\n`;
         if (result.exitCode === 0) {
-          const msg = e instanceof Error ? e.message : String(e);
           return {
             stdout: result.stdout,
-            stderr: `awk: failed to flush buffered output: ${msg}\n`,
+            stderr: diagnostic,
             exitCode: 1,
           };
         }
+        const stderr =
+          result.stderr === "" || result.stderr.endsWith("\n")
+            ? result.stderr + diagnostic
+            : `${result.stderr}\n${diagnostic}`;
+        return {
+          stdout: result.stdout,
+          stderr,
+          exitCode: result.exitCode,
+        };
       }
       return result;
     }
@@ -252,61 +482,73 @@ export const awkCommand2: RuntimeCommand = {
     const awkFs: AwkFileSystem = {
       readFile: ctx.fs.readFile.bind(ctx.fs),
       writeFile: ctx.fs.writeFile.bind(ctx.fs),
-      appendFile: async (path: string, content: string) => {
-        let entry = pendingAppend.get(path);
+      appendFile: async (
+        path: string,
+        content: string,
+        options?: { streamName?: string; truncate?: boolean },
+      ) => {
+        const streamName = options?.streamName ?? path;
+        const chunkBytes = utf8ByteLength(content);
+        if (options?.truncate) {
+          // `>` first-write: truncate the file now, so an unwritable path
+          // (directory, sandbox denial) still errors on the first print,
+          // exactly as before — but buffer the content instead of writing
+          // it through, so earlier prints to this stream survive the
+          // truncate and land after it, matching GNU awk. Flush other
+          // files first so their output lands before the truncate;
+          // entries for this same file must NOT be flushed here, their
+          // data lands after the truncate.
+          const stale = pendingAppend.get(streamName);
+          if (stale) {
+            // Defensive: truncate is only requested on a first `>` write,
+            // when no entry exists. Flush a stale one rather than
+            // dropping it.
+            await withDefenseContext("appended output size flush", () =>
+              flushAppendedFile(streamName),
+            );
+          }
+          await withDefenseContext("appended output truncate flush", () =>
+            flushAppendedOutputExcept(path),
+          );
+          await withDefenseContext("appendFile truncate", () =>
+            ctx.fs.writeFile(path, ""),
+          );
+          const entry = createPendingEntry(streamName, path);
+          // An empty append changes nothing; storing it would let empty
+          // writes grow the chunk list forever without ever hitting a
+          // byte-based flush.
+          if (chunkBytes === 0) return;
+          await bufferAppend(entry, streamName, content, chunkBytes);
+          return;
+        }
+        let entry = pendingAppend.get(streamName);
         if (!entry) {
-          // First append to this file: write through immediately, so an
-          // unwritable path (directory, sandbox denial) still errors on
-          // the first print, exactly as before, instead of only at flush
-          // time. Later appends buffer until the size cap or a flush point.
-          entry = { chunks: [], bytes: 0, leases: [] };
-          pendingAppend.set(path, entry);
+          // First append to this stream: flush everything first, so no
+          // pending output can be lost if the deadline fires while this
+          // write-through awaits real I/O (a revoked context cannot flush
+          // afterwards), and so same-file aliases land in print order.
+          // Then write through immediately, so an unwritable path still
+          // errors on the first print instead of only at flush time.
+          // Later appends buffer until the size cap or a flush point.
+          await withDefenseContext("appended output flush", () =>
+            flushAppendedOutput(),
+          );
+          entry = createPendingEntry(streamName, path);
           try {
             await withDefenseContext("appendFile create", () =>
               ctx.fs.appendFile(path, content),
             );
           } catch (e) {
-            pendingAppend.delete(path);
+            pendingAppend.delete(streamName);
             throw e;
           }
           return;
         }
-        const chunkBytes = utf8ByteLength(content);
         // An empty append changes nothing; storing it would let empty
         // writes grow the chunk list forever without ever hitting a
         // byte-based flush.
         if (chunkBytes === 0) return;
-        // Aggregate cap: flush everything before buffering more, so total
-        // pending output across all files stays bounded.
-        if (pendingTotalBytes + chunkBytes > AWK_APPEND_PENDING_MAX_BYTES) {
-          await withDefenseContext("appended output aggregate flush", () =>
-            flushAppendedOutput(),
-          );
-          entry = pendingAppend.get(path) ?? {
-            chunks: [],
-            bytes: 0,
-            leases: [],
-          };
-          if (!pendingAppend.has(path)) pendingAppend.set(path, entry);
-        }
-        // Charge the buffered bytes against the shared live-bytes budget
-        // while they are held; the lease is released when the entry is
-        // flushed. Without a scope (direct command invocation) the
-        // aggregate cap above is the only bound.
-        const lease = ctx.executionScope?.reserveBytes(
-          "awk buffered output",
-          chunkBytes,
-          "awk",
-        );
-        if (lease) entry.leases.push(lease);
-        entry.chunks.push(content);
-        entry.bytes += chunkBytes;
-        pendingTotalBytes += chunkBytes;
-        if (entry.bytes >= AWK_APPEND_FLUSH_BYTES) {
-          await withDefenseContext("appended output size flush", () =>
-            flushAppendedFile(path),
-          );
-        }
+        await bufferAppend(entry, streamName, content, chunkBytes);
       },
       flushOutput: flushAppendedOutput,
       resolvePath: ctx.fs.resolvePath.bind(ctx.fs),
