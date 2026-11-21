@@ -964,5 +964,26 @@ describe("OverlayFs", () => {
       await overlay.appendFile("/new.txt", "hello");
       expect(await overlay.readFile("/new.txt")).toBe("hello");
     });
+
+    it("should surface a symlink loop instead of creating a file over it", async () => {
+      // A host-backed self-referential symlink: resolving it fails with
+      // ELOOP, which must surface — not become ENOENT and be treated as
+      // an empty target, which would create a regular file over the link.
+      fs.symlinkSync("loop", path.join(tempDir, "loop"));
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
+
+      await expect(overlay.appendFile("/loop", "new\n")).rejects.toThrow(
+        "ELOOP",
+      );
+      // The link itself must survive the failed append.
+      expect(fs.lstatSync(path.join(tempDir, "loop")).isSymbolicLink()).toBe(
+        true,
+      );
+      await expect(overlay.readFile("/loop")).rejects.toThrow("ELOOP");
+    });
   });
 });
