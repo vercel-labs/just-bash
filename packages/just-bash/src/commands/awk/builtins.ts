@@ -501,9 +501,10 @@ function formatAwkNumber(ctx: AwkRuntimeContext, value: number): string {
  * through their dedicated storage, the same place element access uses. The
  * default comparison is a total order matching gawk's: numeric values —
  * JS numbers and numeric strings (strnums) from input fields or split()
- * — sort first, numerically (ties broken by string value, as gawk
- * does), and plain string values follow in string order, so literal
- * "10" sorts before "9". This deliberately differs from the
+ * — sort first, numerically (a numeric tie keeps input order, as
+ * gawk's stable default sort does; only the @val_num_* modes break
+ * ties by string value), and plain string values follow in string
+ * order, so literal "10" sorts before "9". This deliberately differs from the
  * interpreter's `<` rules for mixed types: `<` compares two
  * numeric-looking strings numerically ("10" < "9" is false there) and
  * can cycle for mixed values, so `<`-consistency cannot give a
@@ -570,6 +571,18 @@ async function awkAsort(
     throw new Error(`asort: unsupported how argument "${how}"`);
   }
   const descending = how.endsWith("_desc");
+
+  // A `how` function runs arbitrary code: it may assign a scalar to a
+  // previously uninitialized source (or dest) after the checks above
+  // passed. Re-check before snapshotting, or the source reads as an
+  // empty array and the destination is silently wiped. gawk rejects
+  // the call instead ("asort: first argument is not an array").
+  if (isScalarVariable(ctx, sourceRaw)) {
+    throw new Error("asort: first argument is not an array");
+  }
+  if (args.length >= 2 && isScalarVariable(ctx, destRaw)) {
+    throw new Error("asort: second argument is not an array");
+  }
 
   // Snapshot the source only after the other arguments have been
   // evaluated: gawk passes arrays by reference, so a `how` expression
@@ -713,12 +726,17 @@ async function awkAsort(
       result = a.isNum ? -1 : 1;
     } else if (a.isNum) {
       result = compareNumbers(a.num, b.num);
-      // gawk breaks numeric ties with the string values so the ordering
-      // does not depend on the underlying sort implementation.
+      // A numeric tie in the default mode keeps input order: gawk's
+      // default sort is stable, so strnums from split("1.0 01 1")
+      // stay "1.0 01 1". Only the @val_num_* modes break ties by
+      // string value (see the numericOnly branch above). The string
+      // forms are still formatted here so a hostile CONVFMT is
+      // charged before it runs (see the work-budget test) — the
+      // formatted values are not compared. Returning 0 relies on
+      // Array.sort being stable.
       if (result === 0) {
         const aStr = entryStr(a);
         const bStr = entryStr(b);
-        result = compareAwkStrings(aStr, bStr, ignoreCase);
         stringCompared = true;
         comparedLength = Math.min(aStr.length, bStr.length);
       }
