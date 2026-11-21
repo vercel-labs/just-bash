@@ -392,13 +392,20 @@ export const awkCommand2: RuntimeCommand = {
             Number.isInteger(n) &&
             n > lastIndex &&
             n >= 1 &&
-            (!Number.isFinite(argc) || n < argc)
+            // Only a finite ARGC admits files: gawk converts a
+            // non-finite ARGC (+inf/-inf) to no files and reads
+            // stdin instead, so +inf must not read ARGV entries
+            // and -inf must not either.
+            Number.isFinite(argc) &&
+            n < argc
           ) {
             indices.push(n);
           }
         }
         indices.sort((a, b) => a - b);
-        pendingIndices = indices;
+        // Noncanonical keys ("01", "1") name the same index: without
+        // dedup the file would be read twice. gawk reads it once.
+        pendingIndices = [...new Set(indices)];
         nextPending = 0;
         pendingVersion = runtimeCtx.argvVersion ?? 0;
       };
