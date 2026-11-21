@@ -38,8 +38,17 @@ export interface AwkRuntimeContext {
   // User variables and arrays
   vars: Record<string, AwkValue>;
   arrays: Record<string, Record<string, AwkValue>>;
-  // Array aliases for function parameter passing (parameter name → original name)
-  arrayAliases: Map<string, string>;
+  // Per-call-frame array bindings (parameter name → resolved store
+  // name), one frame per user-function call. A frame's bindings are
+  // installed after the caller's frame has resolved the arguments,
+  // so a binding always names the final store (or a synthetic
+  // per-frame local store), never another parameter: two parameters
+  // can never alias each other through a cycle, and array names
+  // resolve in the innermost frame only, so a callee never sees a
+  // caller's parameter bindings.
+  arrayAliasFrames: Array<Map<string, string>>;
+  /** Monotonic sequence for synthetic per-frame local store names. */
+  nextLocalArrayId: number;
 
   // ARGC/ARGV for command line arguments
   ARGC: number;
@@ -216,7 +225,8 @@ export function createRuntimeContext(
     // when user-controlled keys like "__proto__" or "constructor" are used
     vars: Object.create(null) as Record<string, AwkValue>,
     arrays: Object.create(null) as Record<string, Record<string, AwkValue>>,
-    arrayAliases: new Map(),
+    arrayAliasFrames: [],
+    nextLocalArrayId: 0,
 
     ARGC: 0,
     ARGV: Object.create(null) as Record<string, string>,
