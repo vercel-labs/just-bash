@@ -1014,8 +1014,12 @@ export function formatPrintf(
  * `getline < file` re-reads from the start. Buffered output for the file
  * is flushed first, so the truncate does not discard unflushed output.
  * The open state is tracked by the name as written, not the resolved
- * path: `close("./f")` must not close a stream opened as `"f"`.
- * Returns 0 on success. `close()` with no argument is a no-op returning 0.
+ * path: `close("./f")` must not close a stream opened as `"f"`, and
+ * returns -1 for a name that was never opened. Closing a command pipe
+ * returns the command's exit status (0 when unknown). Returns 0 on
+ * success. `close()` with no argument is a no-op returning 0. A flush
+ * failure returns -1 and leaves the stream open; fatal errors
+ * (execution limit, abort, security violation) are rethrown instead.
  */
 async function awkClose(
   args: AwkExpr[],
@@ -1024,23 +1028,34 @@ async function awkClose(
 ): Promise<AwkValue> {
   if (args.length === 0) return 0;
   const name = toAwkString(await evaluator.evalExpr(args[0]));
-  if (ctx.fs && ctx.cwd) {
-    const filePath = ctx.fs.resolvePath(ctx.cwd, name);
-    await ctx.fs.flushOutput?.(filePath);
-    ctx.openedFiles.delete(name);
-    ctx.getlineFileStreams.delete(name);
+  const commandStream = ctx.getlineCommandStreams.get(name);
+  const isOutput = ctx.openedFiles.has(name);
+  const isInput = ctx.getlineFileStreams.has(name);
+  if (!isOutput && !isInput && !commandStream) return -1;
+  if (isOutput) {
+    try {
+      await ctx.fs?.flushOutput?.(name);
+    } catch (e) {
+      rethrowFatalExecutionError(e);
+      return -1;
+    }
   }
-  // Also close a command pipe opened by `"cmd" | getline`.
+  ctx.openedFiles.delete(name);
+  ctx.getlineFileStreams.delete(name);
   ctx.getlineCommandStreams.delete(name);
+  if (commandStream) return commandStream.exitCode ?? 0;
   return 0;
 }
 
 /**
  * fflush([filename]): flush buffered output for one file, or for all files
  * when called with no argument — or with an empty filename, which means
- * flush-all in awk. Returns 0 on success, -1 on failure. Fatal errors
- * (execution limit, abort, security violation) are rethrown instead of
- * becoming -1, so a program cannot keep running after a safeguard fired.
+ * flush-all in awk. A named fflush only succeeds for a file opened for
+ * output under exactly that name: an unopened alias, an input-only file,
+ * or a command pipe returns -1. Returns 0 on success, -1 on failure.
+ * Fatal errors (execution limit, abort, security violation) are rethrown
+ * instead of becoming -1, so a program cannot keep running after a
+ * safeguard fired.
  */
 async function awkFflush(
   args: AwkExpr[],
@@ -1058,8 +1073,8 @@ async function awkFflush(
     if (name === undefined || name === "") {
       await ctx.fs.flushOutput?.();
     } else {
-      const filePath = ctx.cwd ? ctx.fs.resolvePath(ctx.cwd, name) : name;
-      await ctx.fs.flushOutput?.(filePath);
+      if (!ctx.openedFiles.has(name)) return -1;
+      await ctx.fs.flushOutput?.(name);
     }
   } catch (e) {
     rethrowFatalExecutionError(e);
@@ -1104,7 +1119,9 @@ export const awkBuiltins: Map<string, AwkBuiltinFn> = new Map([
     ),
   ],
   // close() ends the open state for a file or command pipe (see awkClose);
-  // fflush() flushes buffered output (see awkFflush). Both return 0.
+  // fflush() flushes buffered output (see awkFflush). close() returns -1
+  // for a name never opened (or the command exit status for a pipe);
+  // fflush() returns -1 for a file never opened for output, or on failure.
   ["close", awkClose],
   ["fflush", awkFflush],
 
