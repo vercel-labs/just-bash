@@ -5,6 +5,7 @@
  */
 
 import { decodeBytesToUtf8, unsafeBytesFromLatin1 } from "../../../encoding.js";
+import { rethrowFatalExecutionError } from "../../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../../interpreter/errors.js";
 import { createUserRegex } from "../../../regex/index.js";
 import {
@@ -734,7 +735,12 @@ async function evalGetlineFromCommand(
       if (lines.length > 0 && lines[lines.length - 1] === "") {
         lines.pop();
       }
-      stream = { lines, index: -1 };
+      stream = {
+        lines,
+        index: -1,
+        // Remember the pipe's exit status: close("cmd") returns it.
+        exitCode: result.exitCode,
+      };
       ctx.getlineCommandStreams.set(cmd, stream);
     } catch (e) {
       if (e instanceof SecurityViolationError) {
@@ -829,11 +835,20 @@ async function evalGetlineFromFile(
     // since it was opened (e.g. `print >> f` after the first getline).
     // Flush, then re-read: newly appended lines become visible, matching
     // awk's incremental reads from an open file descriptor. Only extend
-    // the cached lines; already-read lines never move. A failed refresh
-    // just means no new lines are visible (EOF); a flush failure is not
-    // lost — it surfaces at the next flush point or at exit.
+    // the cached lines; already-read lines never move.
+    //
+    // Flush and read failures are handled separately: a failed flush
+    // means the re-read would see stale content, so it reports an error
+    // (-1) instead of an ordinary EOF — and a fatal flush failure is
+    // rethrown. A failed re-read just means no new lines are visible
+    // (EOF).
     try {
       await ctx.fs?.flushOutput?.();
+    } catch (e) {
+      rethrowFatalExecutionError(e);
+      return -1; // Flush failed: the re-read would see stale content
+    }
+    try {
       const content = await withDefenseContext(ctx, "getline file reread", () =>
         fs.readFile(filePath),
       );
@@ -841,8 +856,11 @@ async function evalGetlineFromFile(
       if (lines.length > 0 && lines[lines.length - 1] === "") {
         lines.pop();
       }
-      if (lines.length > stream.lines.length) {
-        stream.lines.push(...lines.slice(stream.lines.length));
+      // Append one line at a time: spreading all new records into push()
+      // exceeds the JavaScript argument limit for a large enough append,
+      // which the surrounding catch would then misreport as EOF.
+      for (let i = stream.lines.length; i < lines.length; i++) {
+        stream.lines.push(lines[i]);
       }
     } catch (e) {
       if (e instanceof SecurityViolationError) {
