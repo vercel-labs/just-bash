@@ -313,10 +313,10 @@ describe("awk built-in variables", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it("should be empty for stdin", async () => {
+    it("should be - for stdin, as in gawk", async () => {
       const env = new Bash();
       const result = await env.exec(`echo "test" | awk '{print FILENAME}'`);
-      expect(result.stdout).toBe("\n");
+      expect(result.stdout).toBe("-\n");
       expect(result.exitCode).toBe(0);
     });
   });
