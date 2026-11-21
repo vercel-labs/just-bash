@@ -229,7 +229,9 @@ describe("awk associative arrays", () => {
       // ENVIRON holds a dozen default entries, but they are
       // prepopulated, not program-created, so they do not consume the
       // maxArrayElements allowance: a five-part split fits a limit of
-      // five. At base the same program failed before splitting.
+      // five. This also passes at base, where the count started at
+      // zero — it is a regression guard, not the discriminator for
+      // the fix (see the exempt-slots test below).
       const bash = new Bash({ executionLimits: { maxArrayElements: 5 } });
       const result = await bash.exec(
         `echo "" | awk 'BEGIN { n = split("a,b,c,d,e", arr, ","); print "n=" n, arr[1], arr[5] }'`,
@@ -730,9 +732,9 @@ describe("awk associative arrays", () => {
 
     it("should charge the sort to the shared work budget", async () => {
       // 10,000 values against a 10,002 budget: the conversion charge
-      // costs 10,000 units and fits, so the sort itself trips the
-      // limit at the 3rd comparison charge (one unit per 1024
-      // comparisons).
+      // costs 10,000 units and fits, leaving 2 units — so the first
+      // comparison flush (1,024 comparisons at one unit each)
+      // exceeds what is left and trips the limit.
       const bash = new Bash({ executionLimits: { maxWorkUnits: 10002 } });
       const result = await bash.exec(
         `echo "" | awk 'BEGIN { for (i = 10000; i >= 1; i--) x[i] = i; n = asort(x); print "n=" n }'`,
@@ -837,8 +839,11 @@ describe("awk associative arrays", () => {
     });
 
     it("should leave a small maxArrayElements allowance usable for ordinary programs", async () => {
-      // ENVIRON's dozen prepopulated entries used to fill a limit of
-      // five before the program ran, so even BEGIN{a[1]=1} failed.
+      // ENVIRON's dozen prepopulated entries do not consume the
+      // allowance, so even BEGIN{a[1]=1} works under a limit of five.
+      // This also passes at base, where the count started at zero —
+      // it is a regression guard, not the discriminator for the fix
+      // (see the exempt-slots test above).
       const bash = new Bash({ executionLimits: { maxArrayElements: 5 } });
       const result = await bash.exec(
         `echo "" | awk 'BEGIN { a[1]=1; print "ok" }'`,
@@ -954,6 +959,273 @@ describe("awk associative arrays", () => {
       );
       expect(result.stdout).toBe("5000 1\n");
       expect(result.exitCode).toBe(0);
+    });
+
+    it("should read a sparse high ARGV index without visiting the missing ones", async () => {
+      // One entry at index 999,999 with ARGC=1e6: the old loop
+      // visited every missing index below it (a trillion lookups for
+      // the reviewer's ARGC=1e12 repro, which hangs gawk too). The
+      // input loop now iterates the present indices only; the 1e12
+      // repro finishes in milliseconds, verified by timing.
+      const env = new Bash({
+        files: { "/high": "high-line\n" },
+      });
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN{ARGC=1000000; ARGV[999999]="/high"} {print $0}'`,
+      );
+      expect(result.stdout).toBe("high-line\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should read stdin with FILENAME - after all ARGV entries are deleted", async () => {
+      const env = new Bash({ files: { "/one": "one-line\n" } });
+      const result = await env.exec(
+        `printf 'stdin\\n' | awk 'BEGIN{delete ARGV[1]} {print FILENAME,$0}' /one`,
+      );
+      expect(result.stdout).toBe("- stdin\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should read a file added mid-file when ARGC is raised too", async () => {
+      // Adding ARGV[2] alone is not enough: it sits past ARGC, so
+      // gawk does not read it either. Raising ARGC makes the new
+      // entry visible to the loop.
+      const env = new Bash({
+        files: { "/one": "one-line\n", "/two": "two-line\n" },
+      });
+      const result = await env.exec(
+        `awk 'FNR==1 {ARGV[2]="/two"; ARGC=3} {print FILENAME, $0}' /one`,
+      );
+      expect(result.stdout).toBe("/one one-line\n/two two-line\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should apply -v CONVFMT to the slot reads use", async () => {
+      // -v assignments used to land in vars while CONVFMT reads went
+      // to ctx.CONVFMT, so -v CONVFMT was silently ignored.
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk -v CONVFMT=%.0f 'BEGIN{print CONVFMT}'`,
+      );
+      expect(result.stdout).toBe("%.0f\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should sort with the -v CONVFMT value", async () => {
+      // With CONVFMT=%.0f both 1.4 and "1.2" format to "1", so the
+      // tie keeps input order: 1.4 first, as in gawk.
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk -v CONVFMT=%.0f 'BEGIN{a[1]=1.4; a[2]="1.2"; asort(a,b,"@val_str_asc"); print b[1], b[2]}'`,
+      );
+      expect(result.stdout).toBe("1.4 1.2\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should apply -v OFMT to the slot reads use", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk -v OFMT=%.0f 'BEGIN{print OFMT}'`,
+      );
+      expect(result.stdout).toBe("%.0f\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should apply -v NR and ignore -v FNR, as in gawk", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk -v NR=5 -v FNR=2 'BEGIN{print NR, FNR}'`,
+      );
+      expect(result.stdout).toBe("5 0\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should apply -v NF, padding $0 as in gawk", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk -v NF=3 'BEGIN{print "[" $0 "]", NF, "[" $1 "]"}'`,
+      );
+      expect(result.stdout).toBe("[  ] 3 []\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should ignore -v ARGC: the argument count wins, as in gawk", async () => {
+      const env = new Bash({ files: { "/f": "file-line\n" } });
+      const result = await env.exec(
+        `echo "" | awk -v ARGC=1 'BEGIN{print ARGC} {print $0}' /f`,
+      );
+      expect(result.stdout).toBe("2\nfile-line\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should sort 1e21 by its full decimal form in @val_str_asc", async () => {
+      // gawk prints the same order as "1000000000000000000000 11":
+      // the number's string key is its full decimal form, not
+      // "1e+21". The equality check asserts the order without
+      // depending on print's %g display, which still differs.
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN{a[1]=1e21; a[2]="11"; asort(a,b,"@val_str_asc"); print (b[1]==1e21)}'`,
+      );
+      expect(result.stdout).toBe("1\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should sort a large integer by its exact double value in @val_str_asc", async () => {
+      // 1234567890123456800000 is the double 1234567890123456774144,
+      // whose key starts "12", so the string "11" sorts first.
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN{a[1]=1234567890123456800000; a[2]="11"; asort(a,b,"@val_str_asc"); print (b[1]=="11")}'`,
+      );
+      expect(result.stdout).toBe("1\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should pad uppercase E exponents in CONVFMT keys", async () => {
+      // CONVFMT="%.1E" formats 0.0001 as "1.0E-04", which sorts
+      // before the literal "1.0E-1", as in gawk.
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN{CONVFMT="%.1E"; a[1]=0.0001; a[2]="1.0E-1"; asort(a,b,"@val_str_asc"); print b[1], b[2]}'`,
+      );
+      expect(result.stdout).toBe("0.0001 1.0E-1\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should reject asort of the uninitialized IGNORECASE scalar", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN{print asort(IGNORECASE)}'`,
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "awk: asort: first argument is not an array\n",
+      );
+      expect(result.exitCode).toBe(2);
+    });
+
+    it("should keep a strnum when sub makes no replacement", async () => {
+      // "9" as a strnum sorts in the numeric group before the string
+      // "10"; as a plain string it would sort after it lexically.
+      const env = new Bash();
+      const result = await env.exec(
+        `printf '9\\n' | awk '{x=$1; sub(/z/, "q", x); a[1]=x; a[2]="10"; asort(a); print a[1], a[2]}'`,
+      );
+      expect(result.stdout).toBe("9 10\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should keep a strnum when gsub makes no replacement", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `printf '9\\n' | awk '{x=$1; gsub(/z/, "q", x); a[1]=x; a[2]="10"; asort(a); print a[1], a[2]}'`,
+      );
+      expect(result.stdout).toBe("9 10\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should drop the strnum when sub replaces", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `printf '9\\n' | awk '{x=$1; sub(/9/, "8", x); a[1]=x; a[2]="10"; asort(a); print a[1], a[2]}'`,
+      );
+      expect(result.stdout).toBe("10 8\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should not mark a literal string argument as a strnum", async () => {
+      // A literal "10" passed to a function is a plain string, so it
+      // sorts after "!" lexically; only values with provenance (a
+      // field, a strnum variable, a strnum element) count as strnums.
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function f(v){a[1]=v;a[2]="!";asort(a);print a[1],a[2]} BEGIN{f("10")}'`,
+      );
+      expect(result.stdout).toBe("! 10\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should keep strnum provenance through an array-element copy", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN{split("10 9",x); a[1]=x[1]; a[2]=x[2]; asort(a); print a[1], a[2]}'`,
+      );
+      expect(result.stdout).toBe("9 10\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should not let an omitted parameter sort the caller's array", async () => {
+      // g() inside f(a) has a local, empty a: asort prints 0 and the
+      // caller's array stays unsorted.
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function g(a){print asort(a)} function f(a){g();print a[1],a[2]} BEGIN{x[1]=2;x[2]=1;f(x)}'`,
+      );
+      expect(result.stdout).toBe("0\n2 1\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should reject a scalar argument where an array is expected", async () => {
+      // g(1) inside f(a) must not sort the caller's array through the
+      // shadowed parameter name; it is a fatal error, as in gawk.
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function g(a){print asort(a)} function f(a){g(1);print a[1],a[2]} BEGIN{x[1]=2;x[2]=1;f(x)}'`,
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "awk: asort: first argument is not an array\n",
+      );
+      expect(result.exitCode).toBe(2);
+    });
+
+    it("should order É before z with IGNORECASE, as in gawk", async () => {
+      // gawk folds each byte with tolower() on the signed char, so
+      // bytes >= 0x80 sort before ASCII instead of after it.
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN{IGNORECASE=1;a[1]="É";a[2]="z";asort(a);print a[1],a[2]}'`,
+      );
+      expect(result.stdout).toBe("É z\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should order non-ASCII before ASCII with IGNORECASE", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN{IGNORECASE=1; a[1]="Ä"; a[2]="É"; a[3]="z"; a[4]="e"; asort(a); print a[1],a[2],a[3],a[4]}'`,
+      );
+      expect(result.stdout).toBe("Ä É e z\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should keep FILENAME a plain string even when it looks numeric", async () => {
+      // gawk does not treat FILENAME as a strnum: a file named "10"
+      // sorts lexically before "9".
+      const env = new Bash();
+      const result = await env.exec(
+        `echo x > 10; awk '{a[1]=FILENAME; a[2]="9"; asort(a); print a[1],a[2]}' 10`,
+      );
+      expect(result.stdout).toBe("10 9\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should trip the work budget early on a hostile CONVFMT", async () => {
+      // A 1 MiB CONVFMT over 1,024 equal values: the old code
+      // formatted every key before the first work/abort check. The
+      // string keys are now formatted lazily and charged before they
+      // run, so a 3,000-unit budget trips after a couple of values
+      // instead of after ~1 GiB of keys.
+      const bash = new Bash({ executionLimits: { maxWorkUnits: 3000 } });
+      const result = await bash.exec(
+        `echo "" | awk 'BEGIN{s="x"; for(i=1;i<=20;i++) s=s s; CONVFMT=s; for(i=1;i<=1024;i++) a[i]=0.1; n=asort(a); print n}'`,
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "bash: asort comparison: work work limit exceeded (3000)\n",
+      );
+      expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     });
   });
 });

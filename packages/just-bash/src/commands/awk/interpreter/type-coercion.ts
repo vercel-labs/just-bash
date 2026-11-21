@@ -17,6 +17,16 @@ import type { AwkValue } from "./types.js";
 export function isTruthy(val: AwkValue): boolean {
   if (typeof val === "number") {
     return val !== 0;
+  }
+  // Empty string is always falsy
+  if (val === "") {
+    return false;
+  }
+  // Only the exact string "0" is falsy (canonical representation of zero)
+  // Other numeric-looking strings like "00", "0.0" are truthy as strings
+  if (val === "0") {
+    return false;
+  }
   // All other non-empty strings are truthy
   return true;
 }
@@ -50,7 +60,7 @@ export function toAwkString(val: AwkValue): string {
 }
 
 /**
-  * Check if a value looks like a number for comparison purposes: a JS
+ * Check if a value looks like a number for comparison purposes: a JS
  * number, or a string that is exactly a decimal number after
  * trimming. JavaScript's Number() accepts spellings AWK does not
  * treat as numeric ("Infinity", "0x10", "", " "), so those compare
@@ -61,6 +71,16 @@ export function looksLikeNumber(val: AwkValue): boolean {
   return isAwkNumericString(val);
 }
 
+// The longest valid AWK numeric prefix of a string: an optional sign,
+// digits with an optional fraction (or a leading-dot fraction), and an
+// optional exponent. Unlike parseFloat/Number, this rejects the
+// spellings AWK does not treat as numeric at all ("Infinity", "0x10").
+const AWK_NUMBER_PREFIX = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
+const AWK_NUMERIC_STRING = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+/**
+ * True when a string is an AWK numeric string (strnum): after trimming
+ * surrounding whitespace it is exactly a decimal number. "Infinity"
  * and "0x10" are not numeric strings in AWK, even though JavaScript's
  * Number() accepts them.
  */

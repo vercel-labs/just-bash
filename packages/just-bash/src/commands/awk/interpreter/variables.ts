@@ -328,6 +328,7 @@ export function chargedSizeOfArray(
     specialStoreSize(ctx, store) - prepopulatedSize(ctx, store),
   );
 }
+
 export function isBuiltinScalarName(name: string): boolean {
   return BUILTIN_SCALARS.has(name);
 }
@@ -369,6 +370,7 @@ export function isScalarVariable(
   if (BUILTIN_SCALARS.has(resolved)) return true;
   return ctx.vars[resolved] !== undefined;
 }
+
 /**
  * Record that ARGV (or its ARGC bound) may have changed, so the input
  * loop refreshes its cached list of present indices. Callers bump

@@ -134,7 +134,7 @@ describe("awk operators", () => {
       expect(result.exitCode).toBe(0);
     });
 
-        it("should compare non-numeric strings as strings, not numbers", async () => {
+    it("should compare non-numeric strings as strings, not numbers", async () => {
       // "", "0x10" and "Infinity" are not numeric strings in AWK, so
       // they compare lexically: "" < "0", "0x10" < "2" — and "0x10"
       // > "0", which a parseFloat-based comparison gets wrong (it

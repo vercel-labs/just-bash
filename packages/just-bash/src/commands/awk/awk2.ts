@@ -398,9 +398,9 @@ export const awkCommand2: RuntimeCommand = {
           }
         }
         indices.sort((a, b) => a - b);
-          pendingIndices = indices;
-          nextPending = 0;
-          pendingVersion = runtimeCtx.argvVersion ?? 0;
+        pendingIndices = indices;
+        nextPending = 0;
+        pendingVersion = runtimeCtx.argvVersion ?? 0;
       };
       for (;;) {
         if ((runtimeCtx.argvVersion ?? 0) !== pendingVersion) {
