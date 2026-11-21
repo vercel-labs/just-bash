@@ -36,6 +36,7 @@ import {
   getArrayElement,
   getVariable,
   hasArrayElement,
+  isStrnumArrayKey,
   isStrnumVar,
   markStrnumArrayKey,
   markStrnumVar,
@@ -379,6 +380,18 @@ async function evalFunctionCall(
   return "";
 }
 
+/**
+ * The key string of a literal array key ("1", 2), or null when the
+ * key is not a literal. A literal key can be resolved without
+ * evaluating anything, so provenance lookups through it never run
+ * user code twice.
+ */
+function literalKeyString(key: AwkExpr): string | null {
+  if (key.type === "string") return key.value;
+  if (key.type === "number") return String(key.value);
+  return null;
+}
+
 async function callUserFunction(
   ctx: AwkRuntimeContext,
   func: AwkFunctionDef,
@@ -430,6 +443,47 @@ async function callUserFunction(
     }
   }
 
+  // Snapshot each argument's numeric-string provenance BEFORE any
+  // binding is installed, for the same reason as the names above: a
+  // later parameter can shadow the variable an argument was read
+  // from, so the flag must be captured up front. Only the shapes
+  // that carry provenance count — a variable holding a strnum, or an
+  // array element with a literal key holding a strnum. A literal or
+  // any other expression is a plain string even when it looks
+  // numeric: f("10") must not sort "10" numerically. Field
+  // arguments are decided in the loop below, from the value just
+  // evaluated (a field is a strnum exactly when it looks numeric).
+  const argIsStrnum = new Map<number, boolean>();
+  for (let i = 0; i < func.params.length && i < args.length; i++) {
+    const arg = args[i];
+    if (arg.type === "variable") {
+      argIsStrnum.set(i, isStrnumVar(ctx, arg.name));
+    } else if (arg.type === "array_access") {
+      const key = literalKeyString(arg.key);
+      argIsStrnum.set(
+        i,
+        key !== null &&
+          isStrnumArrayKey(ctx, resolveArrayName(ctx, arg.array), key),
+      );
+    }
+  }
+
+  // Every parameter shadows the caller's bindings under its name —
+  // including omitted parameters and ones receiving a scalar — so a
+  // same-named outer array alias must be saved and cleared before
+  // this call's bindings are installed. Otherwise the supposedly
+  // local parameter keeps sorting (or writing) the caller's array:
+  // g() inside f(a) would sort the caller's array, and g(1) would
+  // sort it instead of rejecting a scalar. Saved aliases are
+  // restored after the call, below.
+  for (const param of func.params) {
+    const previous = ctx.arrayAliases.get(param);
+    if (previous !== undefined) {
+      shadowedAliases.set(param, previous);
+      ctx.arrayAliases.delete(param);
+    }
+  }
+
   // Set up parameters
   for (let i = 0; i < func.params.length; i++) {
     const param = func.params[i];
@@ -438,8 +492,6 @@ async function callUserFunction(
       // If argument is a simple variable, set up an array alias
       // This allows arrays to be passed by reference
       if (arg.type === "variable") {
-        const previous = ctx.arrayAliases.get(param);
-        if (previous !== undefined) shadowedAliases.set(param, previous);
         ctx.arrayAliases.set(param, resolvedArgNames.get(i) ?? arg.name);
         createdAliases.push(param);
       }
@@ -451,14 +503,12 @@ async function callUserFunction(
       ctx.vars[param] = value;
       // The parameter shadows any outer variable of the same name, so
       // its numeric-string provenance comes only from the argument
-      // just passed: a numeric-looking string argument is a strnum,
-      // anything else — including an array argument, whose scalar slot
-      // holds "" — is not.
-      markStrnumVar(
-        ctx,
-        param,
-        typeof value === "string" && isAwkNumericString(value),
-      );
+      // just passed (snapshot above), never from the value's spelling.
+      let paramIsStrnum = argIsStrnum.get(i) ?? false;
+      if (arg.type === "field") {
+        paramIsStrnum = typeof value === "string" && isAwkNumericString(value);
+      }
+      markStrnumVar(ctx, param, paramIsStrnum);
     } else {
       // An omitted parameter is untyped: it is neither a scalar nor an
       // array yet, so it must not be stored as "" (which the asort
@@ -495,13 +545,14 @@ async function callUserFunction(
     markStrnumVar(ctx, param, savedStrnumParams.get(param) ?? false);
   }
 
-  // Clean up array aliases we created, restoring any outer alias this
-  // call shadowed under the same parameter name.
+  // Clean up the call's bindings: restore every outer alias this
+  // call shadowed under a parameter name (including parameters that
+  // took no array argument), and drop the aliases the call created.
+  for (const [param, shadowed] of shadowedAliases) {
+    ctx.arrayAliases.set(param, shadowed);
+  }
   for (const alias of createdAliases) {
-    const shadowed = shadowedAliases.get(alias);
-    if (shadowed !== undefined) {
-      ctx.arrayAliases.set(alias, shadowed);
-    } else {
+    if (!shadowedAliases.has(alias)) {
       ctx.arrayAliases.delete(alias);
     }
   }
@@ -531,17 +582,29 @@ async function evalAssignment(
   const op = expr.operator;
 
   // Numeric-string (strnum) provenance: a value copied straight from
-  // an input field ($n) or from a variable that itself holds a strnum
-  // stays a strnum; any other right-hand side (literal, arithmetic,
-  // concatenation, function call, array element) is a plain string.
-  // Only a plain "=" assignment carries provenance; compound
-  // assignments produce numbers.
+  // an input field ($n), from a variable that itself holds a strnum,
+  // or from an array element with a literal key holding a strnum stays
+  // a strnum; any other right-hand side (literal, arithmetic,
+  // concatenation, function call, ternary, array element with a
+  // computed key) is a plain string. Only a plain "=" assignment
+  // carries provenance; compound assignments produce numbers.
+  const rhsArrayAccess = expr.value.type === "array_access" ? expr.value : null;
+  const rhsArrayKey = rhsArrayAccess
+    ? literalKeyString(rhsArrayAccess.key)
+    : null;
   const rhsIsStrnum =
     op === "=" &&
     ((expr.value.type === "field" &&
       typeof value === "string" &&
       isAwkNumericString(value)) ||
-      (expr.value.type === "variable" && isStrnumVar(ctx, expr.value.name)));
+      (expr.value.type === "variable" && isStrnumVar(ctx, expr.value.name)) ||
+      (rhsArrayAccess !== null &&
+        rhsArrayKey !== null &&
+        isStrnumArrayKey(
+          ctx,
+          resolveArrayName(ctx, rhsArrayAccess.array),
+          rhsArrayKey,
+        )));
 
   let finalValue: AwkValue;
 
