@@ -383,6 +383,34 @@ export class OverlayFs implements IFileSystem {
     return nodePath.join(canonicalParent, nodePath.basename(realPath));
   }
 
+  /**
+   * Build the error for a host path resolveRealPath_() could not resolve.
+   * It returns null both for a genuinely absent entry and for a rejected
+   * resolution (a symlink loop, or a target outside the root), and those
+   * must not be conflated: callers such as appendFile treat ENOENT as
+   * "empty target" and would create a file over a symlink loop. Re-probe
+   * with realpathSync to tell them apart — the path was already validated
+   * by validatePath() and resolveCanonicalPath just probed this exact
+   * path, so this only re-reads what was just read. A loop surfaces as
+   * ELOOP; anything else (absent entry, escaping target, other errors)
+   * stays ENOENT.
+   */
+  private unresolvablePathError(path: string, normalized: string): Error {
+    const realPath = this.toRealPath(normalized);
+    if (realPath) {
+      try {
+        fs.realpathSync(realPath);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === "ELOOP") {
+          return new Error(
+            `ELOOP: too many levels of symbolic links, open '${path}'`,
+          );
+        }
+      }
+    }
+    return new Error(`ENOENT: no such file or directory, open '${path}'`);
+  }
+
   private sanitizeError(
     e: unknown,
     virtualPath: string,
@@ -513,7 +541,7 @@ export class OverlayFs implements IFileSystem {
     // close the TOCTOU gap between validation and use.
     const canonical = this.resolveRealPath_(this.toRealPath(normalized));
     if (!canonical) {
-      throw new Error(`ENOENT: no such file or directory, open '${path}'`);
+      throw this.unresolvablePathError(path, normalized);
     }
 
     try {
@@ -611,7 +639,13 @@ export class OverlayFs implements IFileSystem {
     let existingBuffer: Uint8Array;
     try {
       existingBuffer = await this.readFileBuffer(normalized);
-    } catch {
+    } catch (e) {
+      // Only a missing file means "append to nothing". Any other read
+      // failure (oversize file, directory, symlink loop, I/O error) must
+      // surface instead of silently discarding the existing content.
+      if (!(e instanceof Error && e.message.startsWith("ENOENT"))) {
+        throw e;
+      }
       existingBuffer = new Uint8Array(0);
     }
 

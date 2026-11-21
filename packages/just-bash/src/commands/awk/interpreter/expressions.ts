@@ -5,6 +5,7 @@
  */
 
 import { decodeBytesToUtf8, unsafeBytesFromLatin1 } from "../../../encoding.js";
+import { rethrowFatalExecutionError } from "../../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../../interpreter/errors.js";
 import { createUserRegex } from "../../../regex/index.js";
 import {
@@ -720,6 +721,9 @@ async function evalGetlineFromCommand(
   if (!stream) {
     // First time running this command
     try {
+      // Flush point (issue #769): the command may read a file awk has
+      // written to, so buffered output must reach the filesystem first.
+      await ctx.fs?.flushOutput?.();
       const result = await withDefenseContext(ctx, "getline command exec", () =>
         execFn(cmd),
       );
@@ -731,7 +735,12 @@ async function evalGetlineFromCommand(
       if (lines.length > 0 && lines[lines.length - 1] === "") {
         lines.pop();
       }
-      stream = { lines, index: -1 };
+      stream = {
+        lines,
+        index: -1,
+        // Remember the pipe's exit status: close("cmd") returns it.
+        exitCode: result.exitCode,
+      };
       ctx.getlineCommandStreams.set(cmd, stream);
     } catch (e) {
       if (e instanceof SecurityViolationError) {
@@ -788,10 +797,19 @@ async function evalGetlineFromFile(
 
   const filePath = fs.resolvePath(ctx.cwd, filename);
 
-  let stream = ctx.getlineFileStreams.get(filePath);
+  // Streams are keyed by the name as written: awk identifies redirections
+  // by their original string, so `getline < "f"` and `getline < "./f"`
+  // are separate streams with separate positions.
+  let stream = ctx.getlineFileStreams.get(filename);
   if (!stream) {
     // First time reading this file
     try {
+      // Flush point (issue #769): buffered output must reach the
+      // filesystem before it is read back. Flush everything, not just
+      // this name: the name may be a symlink alias of a file awk wrote
+      // to under a different name, and flushing only the resolved name
+      // would miss that pending output.
+      await ctx.fs?.flushOutput?.();
       const content = await withDefenseContext(ctx, "getline file read", () =>
         fs.readFile(filePath),
       );
@@ -801,7 +819,7 @@ async function evalGetlineFromFile(
         lines.pop();
       }
       stream = { lines, index: -1 };
-      ctx.getlineFileStreams.set(filePath, stream);
+      ctx.getlineFileStreams.set(filename, stream);
     } catch (e) {
       if (e instanceof SecurityViolationError) {
         throw e;
@@ -813,7 +831,46 @@ async function evalGetlineFromFile(
   // Get next line
   const nextIndex = stream.index + 1;
   if (nextIndex >= stream.lines.length) {
-    return 0; // EOF
+    // The stream is exhausted, but awk may have appended to the file
+    // since it was opened (e.g. `print >> f` after the first getline).
+    // Flush, then re-read: newly appended lines become visible, matching
+    // awk's incremental reads from an open file descriptor. Only extend
+    // the cached lines; already-read lines never move.
+    //
+    // Flush and read failures are handled separately: a failed flush
+    // means the re-read would see stale content, so it reports an error
+    // (-1) instead of an ordinary EOF — and a fatal flush failure is
+    // rethrown. A failed re-read just means no new lines are visible
+    // (EOF).
+    try {
+      await ctx.fs?.flushOutput?.();
+    } catch (e) {
+      rethrowFatalExecutionError(e);
+      return -1; // Flush failed: the re-read would see stale content
+    }
+    try {
+      const content = await withDefenseContext(ctx, "getline file reread", () =>
+        fs.readFile(filePath),
+      );
+      const lines = content.split("\n");
+      if (lines.length > 0 && lines[lines.length - 1] === "") {
+        lines.pop();
+      }
+      // Append one line at a time: spreading all new records into push()
+      // exceeds the JavaScript argument limit for a large enough append,
+      // which the surrounding catch would then misreport as EOF.
+      for (let i = stream.lines.length; i < lines.length; i++) {
+        stream.lines.push(lines[i]);
+      }
+    } catch (e) {
+      if (e instanceof SecurityViolationError) {
+        throw e;
+      }
+      return 0; // EOF: no new lines could be read
+    }
+    if (nextIndex >= stream.lines.length) {
+      return 0; // EOF
+    }
   }
 
   const line = stream.lines[nextIndex];

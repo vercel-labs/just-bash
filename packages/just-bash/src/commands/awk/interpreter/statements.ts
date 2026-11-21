@@ -301,27 +301,36 @@ async function writeToFile(
   const filePath = fs.resolvePath(ctx.cwd, filename);
 
   if (redirect === ">") {
-    // Overwrite mode: first write clears file, subsequent writes append
-    if (!ctx.openedFiles.has(filePath)) {
-      // First write - overwrite (write empty first, then append)
+    // Overwrite mode: first write clears file, subsequent writes append.
+    // The open state is keyed by the redirection name as written, so
+    // `print > "./f"` is a different stream from `print > "f"` (awk
+    // identifies redirections by their original string). The adapter
+    // truncates on the first write but still buffers its content, so
+    // earlier prints to this stream survive the truncate (GNU awk keeps
+    // them in the stream buffer) and land after it at flush time.
+    if (!ctx.openedFiles.has(filename)) {
+      // First write - truncate, then buffer the content
       await withDefenseContext(ctx, "redirection overwrite write", () =>
-        fs.writeFile(filePath, text),
+        fs.appendFile(filePath, text, {
+          streamName: filename,
+          truncate: true,
+        }),
       );
-      ctx.openedFiles.add(filePath);
+      ctx.openedFiles.add(filename);
     } else {
       // Subsequent write - append
       await withDefenseContext(ctx, "redirection append write", () =>
-        fs.appendFile(filePath, text),
+        fs.appendFile(filePath, text, { streamName: filename }),
       );
     }
   } else {
     // Append mode: always append
-    if (!ctx.openedFiles.has(filePath)) {
+    if (!ctx.openedFiles.has(filename)) {
       // First time seeing this file in append mode
-      ctx.openedFiles.add(filePath);
+      ctx.openedFiles.add(filename);
     }
     await withDefenseContext(ctx, "redirection append mode write", () =>
-      fs.appendFile(filePath, text),
+        fs.appendFile(filePath, text, { streamName: filename }),
     );
   }
 }

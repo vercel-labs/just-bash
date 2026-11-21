@@ -932,4 +932,58 @@ describe("OverlayFs", () => {
       expect(namesFromWithTypes).toEqual(namesFromReaddir);
     });
   });
+
+  describe("appendFile read failures", () => {
+    it("should surface a read error instead of silently dropping content", async () => {
+      // Host-backed file larger than maxFileReadSize: appending must fail
+      // with EFBIG rather than replace the content with only the new text.
+      fs.writeFileSync(path.join(tempDir, "big.txt"), "x".repeat(200));
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+        maxFileReadSize: 100,
+      });
+
+      await expect(overlay.appendFile("/big.txt", "-new")).rejects.toThrow(
+        "EFBIG",
+      );
+      expect(fs.readFileSync(path.join(tempDir, "big.txt"), "utf8")).toBe(
+        "x".repeat(200),
+      );
+    });
+
+    it("should still treat a missing file as empty on append", async () => {
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+        maxFileReadSize: 100,
+      });
+
+      await overlay.appendFile("/new.txt", "hello");
+      expect(await overlay.readFile("/new.txt")).toBe("hello");
+    });
+
+    it("should surface a symlink loop instead of creating a file over it", async () => {
+      // A host-backed self-referential symlink: resolving it fails with
+      // ELOOP, which must surface — not become ENOENT and be treated as
+      // an empty target, which would create a regular file over the link.
+      fs.symlinkSync("loop", path.join(tempDir, "loop"));
+      const overlay = new OverlayFs({
+        root: tempDir,
+        mountPoint: "/",
+        allowSymlinks: true,
+      });
+
+      await expect(overlay.appendFile("/loop", "new\n")).rejects.toThrow(
+        "ELOOP",
+      );
+      // The link itself must survive the failed append.
+      expect(fs.lstatSync(path.join(tempDir, "loop")).isSymbolicLink()).toBe(
+        true,
+      );
+      await expect(overlay.readFile("/loop")).rejects.toThrow("ELOOP");
+    });
+  });
 });

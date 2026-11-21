@@ -382,8 +382,11 @@ export class InMemoryFs implements IFileSystem {
     options?: WriteFileOptions | BufferEncoding,
   ): Promise<void> {
     validatePath(path, "append");
-    const normalized = normalizePath(path);
-    const existing = this.data.get(normalized);
+    // Follow symlinks (including intermediate components), like readFile
+    // does: appending through a symlink must append to its target, not
+    // replace the link with a file holding only the new content.
+    const resolvedPath = this.resolvePathWithSymlinks(normalizePath(path));
+    const existing = this.data.get(resolvedPath);
 
     if (existing && existing.type === "directory") {
       throw new Error(
@@ -398,7 +401,7 @@ export class InMemoryFs implements IFileSystem {
       // Materialize lazy files before appending
       let materialized = existing;
       if ("lazy" in materialized) {
-        materialized = await this.materializeLazy(normalized, materialized);
+        materialized = await this.materializeLazy(resolvedPath, materialized);
       }
 
       // Get existing content as buffer
@@ -410,7 +413,7 @@ export class InMemoryFs implements IFileSystem {
             );
 
       this.assertCanAllocate(
-        normalized,
+        resolvedPath,
         existingBuffer.byteLength + newByteLength,
       );
       const newBuffer = toBuffer(content, encoding);
@@ -420,14 +423,14 @@ export class InMemoryFs implements IFileSystem {
       combined.set(existingBuffer);
       combined.set(newBuffer, existingBuffer.length);
 
-      this.setEntry(normalized, {
+      this.setEntry(resolvedPath, {
         type: "file",
         content: combined,
         mode: materialized.mode,
         mtime: new Date(),
       });
     } else {
-      this.writeFileSync(path, content, options);
+      this.writeFileSync(resolvedPath, content, options);
     }
   }
 

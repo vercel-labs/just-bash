@@ -53,7 +53,10 @@ export interface AwkRuntimeContext {
   lines?: string[];
   lineIndex?: number;
   /** Internal getline streams, isolated from the AWK variable namespace. */
-  getlineCommandStreams: Map<string, { lines: string[]; index: number }>;
+  getlineCommandStreams: Map<
+    string,
+    { lines: string[]; index: number; exitCode?: number }
+  >;
   getlineFileStreams: Map<string, { lines: string[]; index: number }>;
   fieldSep: RegexLike;
 
@@ -84,7 +87,10 @@ export interface AwkRuntimeContext {
   fs?: AwkFileSystem;
   cwd?: string;
 
-  // Track which files have been opened with > (for overwrite-then-append behavior)
+  // Track which files have been opened with > (for overwrite-then-append
+  // behavior). Keyed by the redirection name as written, not the resolved
+  // path: awk identifies redirections by their original string, so
+  // `close("./f")` must not close a stream opened as `"f"`.
   openedFiles: Set<string>;
 
   // Random function override for testing

@@ -214,21 +214,20 @@ describe("InMemoryFs Security - Symlink Handling", () => {
       expect(viaDirect).toBe("original");
     });
 
-    it("should overwrite symlink with file on appendFile", async () => {
+    it("should follow a symlink on appendFile", async () => {
       const fs = new InMemoryFs({
         "/target.txt": "hello",
       });
       await fs.symlink("/target.txt", "/link");
 
-      // appendFile replaces the symlink with a new file entry
+      // appendFile follows the symlink and appends to its target,
+      // like readFile does — it must not discard the existing content.
       await fs.appendFile("/link", " world");
 
-      // /link is now a regular file with only the appended content
       const content = await fs.readFile("/link");
-      expect(content).toBe(" world");
-      // /target.txt unchanged
+      expect(content).toBe("hello world");
       const original = await fs.readFile("/target.txt");
-      expect(original).toBe("hello");
+      expect(original).toBe("hello world");
     });
   });
 
