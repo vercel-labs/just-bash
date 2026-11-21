@@ -39,9 +39,11 @@ describe("awk operators", () => {
     });
 
     it("should parse numbers the way AWK does, not parseFloat", async () => {
-      // "Infinity" and "0x10" have no numeric prefix in AWK, so they
-      // contribute 0 to arithmetic; sorting and math used to disagree
-      // on them (asort read 0, arithmetic read Infinity).
+      // "Infinity" has no numeric prefix in AWK, so it contributes 0
+      // to arithmetic; "0x10" contributes 0 because its leading
+      // numeric prefix is just "0" (AWK has no hex literals).
+      // Sorting and math used to disagree on them (asort read 0,
+      // arithmetic read Infinity).
       const env = new Bash();
       const result = await env.exec(
         `echo "" | awk 'BEGIN { print ("Infinity" + 0), ("0x10" + 0), ("1a" + 0) }'`,
