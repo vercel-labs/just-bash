@@ -8,7 +8,10 @@ import { decodeBytesToUtf8 } from "../../encoding.js";
 import type { ResourceLease } from "../../execution-scope.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { mapToRecord } from "../../helpers/env.js";
-import { ExecutionLimitError } from "../../interpreter/errors.js";
+import {
+  ExecutionAbortedError,
+  ExecutionLimitError,
+} from "../../interpreter/errors.js";
 import { ConstantRegex, createUserRegex } from "../../regex/index.js";
 import {
   assertDefenseContext,
@@ -129,24 +132,46 @@ export const awkCommand2: RuntimeCommand = {
     // which is quadratic in the file size. The filesystem's own appendFile
     // is a true in-place append on ReadWriteFs (O_APPEND) and OverlayFs
     // (appendChunks), but InMemoryFs still copies the whole buffer per
-    // append, so appends are buffered per file and flushed through the
+        // append, so appends are buffered per stream and flushed through the
     // filesystem's appendFile at a size cap, before any read of a file awk
     // may have written to, and at exit (see flush points below).
     //
-    // The buffer is bounded two ways: each file flushes at
-    // AWK_APPEND_FLUSH_BYTES, and total pending output across ALL files
-    // is capped at AWK_APPEND_PENDING_MAX_BYTES (flushing everything once
-    // the cap would be exceeded), so a loop over many distinct files
-    // cannot buffer unbounded memory. Buffered bytes are also charged
-    // against the shared live-bytes budget (maxLiveBytes) while held, and
-    // released on flush, so the buffer counts toward the memory limits.
+    // The buffer is bounded three ways: each stream flushes at
+    // AWK_APPEND_FLUSH_BYTES, total pending output across ALL streams is
+    // capped at AWK_APPEND_PENDING_MAX_BYTES (flushing everything once
+    // the cap would be exceeded), and the number of retained streams is
+    // capped at AWK_APPEND_PENDING_MAX_FILES (empty placeholders are
+    // pruned). Buffered bytes are also charged against the shared
+    // live-bytes budget (maxLiveBytes) while held, and released on flush,
+    // so the buffer counts toward the memory limits. A single chunk larger
+    // than the per-file cap, or one the live-bytes budget cannot hold, is
+    // written through directly in bounded pieces instead of being buffered
+    // whole or failing the program.
+    //
+    // Streams are keyed by the AWK stream name as written, not the
+    // resolved path: `print > "f"` and `print > "./f"` are separate
+    // streams (GNU awk identifies redirections by their original string),
+    // so closing or flushing one must not touch the other. Each entry
+    // remembers the resolved path it writes to.
+    //
+    // Cancellation safety: the command context is revoked as soon as an
+    // abort or deadline wins, so a flush issued after revocation cannot
+    // run. Pending output is therefore flushed BEFORE every adapter
+    // await that can suspend (first-append write-through, truncate,
+    // getline, input-file reads) — a flush already issued still lands on
+    // disk even if the continuation after it throws. The finally block
+    // below is only a best-effort second chance.
     const AWK_APPEND_FLUSH_BYTES = 64 * 1024;
     const AWK_APPEND_PENDING_MAX_BYTES = 64 * 1024;
+    const AWK_APPEND_PENDING_MAX_FILES = 1024;
     let pendingTotalBytes = 0;
-    const pendingAppend = new Map<
-      string,
-      { chunks: string[]; bytes: number; leases: ResourceLease[] }
-    >();
+    interface PendingAppendEntry {
+      filePath: string;
+      chunks: string[];
+      bytes: number;
+      leases: ResourceLease[];
+    }
+    const pendingAppend = new Map<string, PendingAppendEntry>();
 
     function releaseEntryLeases(entry: { leases: ResourceLease[] }): void {
       for (const lease of entry.leases) lease.release();
