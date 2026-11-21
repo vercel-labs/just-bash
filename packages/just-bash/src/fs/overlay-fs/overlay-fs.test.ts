@@ -932,7 +932,6 @@ describe("OverlayFs", () => {
       expect(namesFromWithTypes).toEqual(namesFromReaddir);
     });
   });
-});
 
   describe("appendFile read failures", () => {
     it("should surface a read error instead of silently dropping content", async () => {
@@ -966,3 +965,4 @@ describe("OverlayFs", () => {
       expect(await overlay.readFile("/new.txt")).toBe("hello");
     });
   });
+});
