@@ -189,11 +189,16 @@ export const awkCommand2: RuntimeCommand = {
     // Set up ENVIRON from shell environment (null-prototype prevents prototype pollution)
     runtimeCtx.ENVIRON = mapToRecord(ctx.env);
 
-    // ARGV and ENVIRON count toward the element limit like any other
-    // array, so the count starts at their sizes.
-    runtimeCtx.arrayElementCount =
-      Object.keys(runtimeCtx.ARGV).length +
-      Object.keys(runtimeCtx.ENVIRON).length;
+    // The prepopulated ARGV/ENVIRON contents do not consume the
+    // element allowance: only elements the program adds beyond them
+    // count toward maxArrayElements, so an ordinary program still gets
+    // its full allowance even with a small limit. Their initial sizes
+    // are recorded so the setters can tell added elements from
+    // prepopulated ones.
+    runtimeCtx.arrayElementBaselines = new Map([
+      ["ARGV", Object.keys(runtimeCtx.ARGV).length],
+      ["ENVIRON", Object.keys(runtimeCtx.ENVIRON).length],
+    ]);
 
     // Create interpreter
     const interp = new AwkInterpreter(runtimeCtx);
@@ -289,8 +294,19 @@ export const awkCommand2: RuntimeCommand = {
         }
       };
 
-      if (files.length > 0) {
-        for (const file of files) {
+      // A BEGIN block may reorder, delete, or replace ARGV entries
+      // (e.g. asort(a, ARGV)), so the files to read come from the
+      // current ARGV, not the argument list captured before BEGIN —
+      // as in gawk. ARGV[0] is the program name; entries past ARGC
+      // and empty entries are skipped.
+      const inputFiles: string[] = [];
+      for (let i = 1; i < runtimeCtx.ARGC; i++) {
+        const entry = runtimeCtx.ARGV[String(i)];
+        if (entry !== undefined && entry !== "") inputFiles.push(entry);
+      }
+
+      if (inputFiles.length > 0) {
+        for (const file of inputFiles) {
           let content: string;
           try {
             const filePath = ctx.fs.resolvePath(ctx.cwd, file);

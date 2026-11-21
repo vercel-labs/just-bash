@@ -16,10 +16,12 @@ import {
   rebuildLine,
   splitFields,
 } from "./interpreter/fields.js";
-import { looksLikeNumber } from "./interpreter/type-coercion.js";
 import type { AwkValue } from "./interpreter/types.js";
 import {
+  chargedSizeOfArray,
   getArrayStore,
+  initialSizeOfArray,
+  isScalarVariable,
   replaceArrayValues,
   resolveArrayName,
 } from "./interpreter/variables.js";
@@ -241,14 +243,21 @@ async function awkSplit(
     sep = createUserRegex("\\s+");
   }
 
-  const previousCount = Object.keys(ctx.arrays[arrayName] ?? {}).length;
+  // Resolve aliases and the ARGV/ENVIRON stores, like element access
+  // does: splitting into a function parameter, ARGV, or ENVIRON must
+  // write the real array, not a shadow under the name as written.
+  const resolvedArrayName = resolveArrayName(ctx, arrayName);
+  const store = getArrayStore(ctx, arrayName, resolvedArrayName);
+  // Only the charged part of the array being replaced frees room: the
+  // prepopulated ARGV/ENVIRON contents are exempt from the allowance.
+  const previousCharged = chargedSizeOfArray(ctx, arrayName, resolvedArrayName);
   // Validate the initial count before splitting anything: the running
-  // total must at least cover the array being replaced. A stale or
-  // under-counted total would otherwise overstate the room available
-  // and let the split exceed the element limit.
+  // total must at least cover the charged part of the array being
+  // replaced. A stale or under-counted total would otherwise overstate
+  // the room available and let the split exceed the element limit.
   if (
     !Number.isFinite(ctx.arrayElementCount) ||
-    ctx.arrayElementCount < previousCount
+    ctx.arrayElementCount < previousCharged
   ) {
     throw new ExecutionLimitError(
       `array element limit exceeded (${ctx.maxArrayElements})`,
@@ -263,8 +272,8 @@ async function awkSplit(
   // would do unbounded work on the input before the length check
   // below could reject it, so the bound must hold before splitting.
   const available = Math.max(
-  0,
-    ctx.maxArrayElements - ctx.arrayElementCount + previousCount,
+    0,
+    ctx.maxArrayElements - ctx.arrayElementCount + previousCharged,
   );
   const parts =
     typeof sep === "string"
@@ -277,12 +286,28 @@ async function awkSplit(
     );
   }
 
-  // Use null-prototype to prevent prototype pollution with user-controlled keys
-  ctx.arrays[arrayName] = Object.create(null);
-  for (let i = 0; i < parts.length; i++) {
-    ctx.arrays[arrayName][String(i + 1)] = parts[i];
+  // Replace the resolved store in place (a new null-prototype record
+  // for a program array that does not exist yet), then adjust the
+  // count by the charged-size change: the new parts count only past
+  // the prepopulated size, like any other write into ARGV/ENVIRON.
+  const target: Record<string, AwkValue> = store ?? Object.create(null);
+  if (store === undefined) {
+    ctx.arrays[resolvedArrayName] = target;
   }
-  ctx.arrayElementCount += parts.length - previousCount;
+  for (const key of Object.keys(target)) {
+    delete target[key];
+  }
+  for (let i = 0; i < parts.length; i++) {
+    target[String(i + 1)] = parts[i];
+  }
+  const newCharged = Math.max(
+    0,
+    parts.length - initialSizeOfArray(ctx, arrayName, resolvedArrayName),
+  );
+  ctx.arrayElementCount = Math.max(
+    0,
+    ctx.arrayElementCount - previousCharged + newCharged,
+  );
 
   return parts.length;
 }
@@ -296,29 +321,50 @@ async function awkSplit(
  * destination is replaced, so the sort cannot clobber its own input.
  * Returns the number of elements. ARGV and ENVIRON are read and written
  * through their dedicated storage, the same place element access uses. The
- * default comparison is a total order matching gawk's: values that look
- * numeric sort first, numerically (ties broken by string value, as gawk
- * does), and all other values follow in string order. This deliberately
- * differs from the interpreter's `<` rules for mixed types: comparing
- * pairwise with `<` can cycle (e.g. "1a" < "2" as strings, 2 < 10
- * numerically, but "1a" > "10" as strings), so `<`-consistency cannot give
- * a deterministic sort order. An empty how string means the default
- * ordering, as in gawk. The optional how argument also accepts the gawk
- * "@val_num_asc", "@val_num_desc", "@val_str_asc" and "@val_str_desc"
- * modes; the numeric modes break ties between numerically equal values
- * with a string comparison, as gawk does.
+ * default comparison is a total order matching gawk's: numeric values
+ * (numbers) sort first, numerically (ties broken by string value, as gawk
+ * does), and string values follow in string order — including strings
+ * that look numeric, so "10" sorts before "9", as in gawk. This
+ * deliberately differs from the interpreter's `<` rules for mixed types:
+ * comparing pairwise with `<` can cycle (e.g. "1a" < "2" as strings,
+ * 2 < 10 numerically, but "1a" > "10" as strings), so `<`-consistency
+ * cannot give a deterministic sort order. An empty how string means the
+ * default ordering, as in gawk. The optional how argument also accepts
+ * the gawk "@val_num_asc", "@val_num_desc", "@val_str_asc" and
+ * "@val_str_desc" modes; the numeric modes break ties between numerically
+ * equal values with a string comparison, as gawk does.
  */
 async function awkAsort(
   args: AwkExpr[],
   ctx: AwkRuntimeContext,
   evaluator: AwkEvaluator,
 ): Promise<number> {
-  if (args.length === 0 || args[0].type !== "variable") return 0;
+  // Validate arity and operand types before touching either array:
+  // gawk rejects these calls, and a scalar source used to be treated as
+  // an empty array, silently wiping the destination. Uninitialized
+  // names are not scalars, so asort of a never-assigned array still
+  // returns 0, as before.
+  if (args.length === 0 || args.length > 3) {
+    throw new Error(
+      `asort: wrong number of arguments (expected 1 to 3, got ${args.length})`,
+    );
+  }
+  if (args[0].type !== "variable") {
+    throw new Error("asort: first argument is not an array");
+  }
+  if (isScalarVariable(ctx, args[0].name)) {
+    throw new Error("asort: first argument is not an array");
+  }
   const sourceRaw = args[0].name;
 
   let destRaw = sourceRaw;
   if (args.length >= 2) {
-    if (args[1].type !== "variable") return 0;
+    if (args[1].type !== "variable") {
+      throw new Error("asort: second argument is not an array");
+    }
+    if (isScalarVariable(ctx, args[1].name)) {
+      throw new Error("asort: second argument is not an array");
+    }
     destRaw = args[1].name;
   }
 
@@ -348,23 +394,31 @@ async function awkAsort(
   const sourceStore = getArrayStore(ctx, sourceRaw, resolvedSource);
   const values: AwkValue[] = sourceStore ? Object.values(sourceStore) : [];
 
+  // Charge the sort to the shared work budget before converting
+  // anything: the conversion scans every value (parseFloat and the
+  // numeric check walk long strings), so a small budget or an abort
+  // must be able to reject the sort before that work happens. Without
+  // an execution scope (interpreter used directly) only the
+  // array-element limit bounds the sort.
+  const scope = ctx.executionScope;
+  scope?.consumeWork(values.length, "asort value conversion");
+  scope?.throwIfAborted("asort value conversion");
+
   // Convert each value once up front: the comparator runs O(n log n)
   // times, so converting inside it would redo the string/number
-  // conversion on every comparison.
+  // conversion on every comparison. Numeric-ness is the value's type,
+  // not its spelling: gawk sorts pure strings such as "10" lexically
+  // ("10" before "9"), so only JS numbers count as numeric here.
   const entries = values.map((value) => ({
     value,
     str: toAwkString(value),
     num: toNumber(value),
-    isNum: looksLikeNumber(value),
+    isNum: typeof value === "number",
   }));
 
-  // Charge the sort to the shared work budget and let an abort interrupt
-  // it: a large array needs O(n log n) comparisons, so the comparator
+  // A large array needs O(n log n) comparisons, so the comparator
   // charges one unit and polls the abort signal every 1024 comparisons
-  // instead of on each one. Without an execution scope (interpreter used
-  // directly) only the array-element limit bounds the sort.
-  const scope = ctx.executionScope;
-  scope?.consumeWork(values.length, "asort value conversion");
+  // instead of on each one.
   let comparisons = 0;
   const chargeSortWork = (): void => {
     comparisons++;
@@ -391,11 +445,13 @@ async function awkAsort(
     } else if (stringOnly) {
       result = compareStrings(a.str, b.str);
     } else if (a.isNum !== b.isNum) {
-      // Total order (gawk's default): numeric-looking values sort before
-      // all other values. The old `<`-based fallback cycled for mixed
-      // values such as "1a", 2, 10 ("1a" < "2" as strings, 2 < 10
-      // numerically, but "1a" > "10" as strings), so the sort order
-      // depended on the input permutation.
+      // Total order (gawk's default): numeric values sort before
+      // string values, so "10" (a string) sorts after 2 but before "9"
+      // and after "!" — matching gawk and the interpreter's `<` for
+      // pure strings. The old looks-like-a-number rule cycled for
+      // mixed values such as "1a", 2, 10 ("1a" < "2" as strings,
+      // 2 < 10 numerically, but "1a" > "10" as strings), so the sort
+      // order depended on the input permutation.
       result = a.isNum ? -1 : 1;
     } else if (a.isNum) {
       result = compareNumbers(a.num, b.num);

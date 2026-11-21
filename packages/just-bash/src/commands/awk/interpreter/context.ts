@@ -63,7 +63,19 @@ export interface AwkRuntimeContext {
   maxRecursionDepth: number;
   maxOutputSize: number;
   maxArrayElements: number;
+  /**
+   * Elements the program has added beyond the prepopulated ARGV/ENVIRON
+   * contents; this is what maxArrayElements limits. The prepopulated
+   * entries themselves are exempt, so an ordinary program still gets
+   * its full allowance even with a small limit.
+   */
   arrayElementCount: number;
+  /**
+   * Initial element counts of the prepopulated arrays, by resolved name
+   * ("ARGV"/"ENVIRON"). The setters use them to tell program-added
+   * elements (which consume the allowance) from prepopulated ones.
+   */
+  arrayElementBaselines: Map<string, number>;
   recordsProcessed: number;
   currentRecursionDepth: number;
 
@@ -182,6 +194,7 @@ export function createRuntimeContext(
     maxOutputSize,
     maxArrayElements,
     arrayElementCount: 0,
+    arrayElementBaselines: new Map(),
     recordsProcessed: 0,
     currentRecursionDepth: 0,
 

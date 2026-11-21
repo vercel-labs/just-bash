@@ -101,6 +101,12 @@ export function setVariable(
     case "SUBSEP":
       ctx.SUBSEP = toAwkString(value);
       return;
+    case "ARGC":
+      // Assigning ARGC in BEGIN is the standard way to drop input
+      // files (gawk reads ARGV[1..ARGC-1]); it used to land in
+      // ctx.vars and never reach the field getVariable reads.
+      ctx.ARGC = Math.floor(toNumber(value));
+      return;
   }
 
   ctx.vars[name] = value;
@@ -143,12 +149,95 @@ export function getArrayStore(
 }
 
 /**
+ * Initial (prepopulated) element count of the store, or 0 for a
+ * program-created array. Derived from the store's identity, not the
+ * name, so an alias of ARGV/ENVIRON reports the same baseline.
+ */
+function prepopulatedSize(
+  ctx: AwkRuntimeContext,
+  store: Record<string, AwkValue>,
+): number {
+  if (store === ctx.ARGV) return ctx.arrayElementBaselines.get("ARGV") ?? 0;
+  if (store === ctx.ENVIRON)
+    return ctx.arrayElementBaselines.get("ENVIRON") ?? 0;
+  return 0;
+}
+
+/**
+ * Initial (prepopulated) element count of the array, or 0 for a
+ * program-created array.
+ */
+export function initialSizeOfArray(
+  ctx: AwkRuntimeContext,
+  rawName: string,
+  resolvedName: string,
+): number {
+  const store = getArrayStore(ctx, rawName, resolvedName);
+  if (!store) return 0;
+  return prepopulatedSize(ctx, store);
+}
+
+/**
+ * How many of an array's elements consume the maxArrayElements
+ * allowance: its size beyond the prepopulated contents. A regular
+ * array's whole size counts; ARGV/ENVIRON count only past their
+ * initial sizes, so replacing their prepopulated entries does not
+ * consume the allowance. (Residual bound: each prepopulated store can
+ * hold up to its initial size in program-added values without charge,
+ * so the total user-held elements stay within maxArrayElements plus
+ * the prepopulated sizes.)
+ */
+export function chargedSizeOfArray(
+  ctx: AwkRuntimeContext,
+  rawName: string,
+  resolvedName: string,
+): number {
+  const store = getArrayStore(ctx, rawName, resolvedName);
+  if (!store) return 0;
+  return Math.max(0, Object.keys(store).length - prepopulatedSize(ctx, store));
+}
+
+/**
+ * True when the named variable is an initialized scalar: it holds a
+ * scalar value (or is a built-in scalar) and has no array under its
+ * alias-resolved name. Uninitialized names are not scalars — built-ins
+ * like asort treat them as empty arrays, as before. A name that is
+ * both a scalar and an array (possible only after a conflicting
+ * assignment) counts as an array here.
+ */
+const BUILTIN_SCALARS = new Set([
+  "FS",
+  "OFS",
+  "ORS",
+  "OFMT",
+  "NR",
+  "NF",
+  "FNR",
+  "FILENAME",
+  "RSTART",
+  "RLENGTH",
+  "SUBSEP",
+  "ARGC",
+]);
+
+export function isScalarVariable(
+  ctx: AwkRuntimeContext,
+  name: string,
+): boolean {
+  const resolved = resolveArrayName(ctx, name);
+  if (resolved === "ARGV" || resolved === "ENVIRON") return false;
+  if (ctx.arrays[resolved] !== undefined) return false;
+  if (BUILTIN_SCALARS.has(resolved)) return true;
+  return ctx.vars[resolved] !== undefined;
+}
+
+/**
  * Replace an array's contents with the given values, reindexed 1..n.
- * ARGV and ENVIRON are stored outside ctx.arrays; their elements count
- * toward arrayElementCount like any other array, so copying values into
- * them checks the element limit first and adjusts the count by the size
- * change. Regular arrays go through deleteArray and setArrayElement so
- * the element count stays exact.
+ * ARGV and ENVIRON are stored outside ctx.arrays; only the values
+ * beyond their prepopulated contents are charged to arrayElementCount
+ * (their initial sizes are exempt, so a small limit still leaves room
+ * for program arrays). Regular arrays go through deleteArray and
+ * setArrayElement so the element count stays exact.
  */
 export function replaceArrayValues(
   ctx: AwkRuntimeContext,
@@ -158,9 +247,13 @@ export function replaceArrayValues(
 ): void {
   const store = getArrayStore(ctx, rawName, resolvedName);
   if (store !== undefined && (store === ctx.ARGV || store === ctx.ENVIRON)) {
-    const oldSize = Object.keys(store).length;
+    const oldCharged = chargedSizeOfArray(ctx, rawName, resolvedName);
+    const newCharged = Math.max(
+      0,
+      values.length - prepopulatedSize(ctx, store),
+    );
     if (
-      ctx.arrayElementCount - oldSize + values.length >
+      ctx.arrayElementCount - oldCharged + newCharged >
       ctx.maxArrayElements
     ) {
       throw new ExecutionLimitError(
@@ -174,11 +267,11 @@ export function replaceArrayValues(
     for (let i = 0; i < values.length; i++) {
       store[String(i + 1)] = values[i];
     }
-    // Clamped at zero: a context built without counting ARGV/ENVIRON
-    // (e.g. hand-built in a test) can otherwise drive the count negative.
+    // Clamped at zero: a context built without baselines (e.g.
+    // hand-built in a test) can otherwise drive the count negative.
     ctx.arrayElementCount = Math.max(
       0,
-      ctx.arrayElementCount - oldSize + values.length,
+      ctx.arrayElementCount - oldCharged + newCharged,
     );
     return;
   }
@@ -219,13 +312,22 @@ export function setArrayElement(
   const store = getArrayStore(ctx, array, resolvedArray);
   if (store !== undefined && (store === ctx.ARGV || store === ctx.ENVIRON)) {
     if (!(key in store)) {
-      if (ctx.arrayElementCount >= ctx.maxArrayElements) {
-        throw new ExecutionLimitError(
-          `array element limit exceeded (${ctx.maxArrayElements})`,
-          "array_elements",
-        );
+      // Only elements beyond the prepopulated contents consume the
+      // allowance: the initial ARGV/ENVIRON entries are exempt, so a
+      // small maxArrayElements still leaves room for program arrays.
+      // (ARGV/ENVIRON are small — bounded by the command line and the
+      // environment — so counting their keys here stays cheap.)
+      const beyondPrepopulated =
+        Object.keys(store).length >= prepopulatedSize(ctx, store);
+      if (beyondPrepopulated) {
+        if (ctx.arrayElementCount >= ctx.maxArrayElements) {
+          throw new ExecutionLimitError(
+            `array element limit exceeded (${ctx.maxArrayElements})`,
+            "array_elements",
+          );
+        }
+        ctx.arrayElementCount++;
       }
-      ctx.arrayElementCount++;
     }
     store[key] = value;
     return;
@@ -275,7 +377,12 @@ export function deleteArrayElement(
   const store = getArrayStore(ctx, array, resolvedArray);
   if (store !== undefined && (store === ctx.ARGV || store === ctx.ENVIRON)) {
     if (key in store) {
-      ctx.arrayElementCount--;
+      // Only a charged element frees allowance when deleted: while the
+      // store still holds more than its prepopulated size, the deleted
+      // key counts as a program-added one.
+      if (Object.keys(store).length > prepopulatedSize(ctx, store)) {
+        ctx.arrayElementCount = Math.max(0, ctx.arrayElementCount - 1);
+      }
       delete store[key];
     }
     return;
@@ -296,7 +403,12 @@ export function deleteArray(ctx: AwkRuntimeContext, array: string): void {
   const resolvedArray = resolveArrayName(ctx, array);
   const store = getArrayStore(ctx, array, resolvedArray);
   if (store !== undefined && (store === ctx.ARGV || store === ctx.ENVIRON)) {
-    ctx.arrayElementCount -= Object.keys(store).length;
+    // Only the charged part (beyond the prepopulated contents) frees
+    // allowance; deleting prepopulated entries frees none.
+    ctx.arrayElementCount = Math.max(
+      0,
+      ctx.arrayElementCount - chargedSizeOfArray(ctx, array, resolvedArray),
+    );
     for (const key of Object.keys(store)) {
       delete store[key];
     }

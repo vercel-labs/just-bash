@@ -159,6 +159,33 @@ describe("awk associative arrays", () => {
       expect(result.stdout).toBe("done\n");
       expect(result.exitCode).toBe(0);
     });
+
+    it("should iterate over ENVIRON keys", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { ENVIRON["ZZ_TEST"]="value"; n=0; for (k in ENVIRON) if (k=="ZZ_TEST") n++; print n }'`,
+      );
+      expect(result.stdout).toBe("1\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should iterate over ARGV keys", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { ARGV["key"]=1; n=0; for (k in ARGV) if (k=="key") n++; print n }'`,
+      );
+      expect(result.stdout).toBe("1\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should iterate over an array passed as a function parameter", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function f(e){n=0; for (k in e) if (k=="ZZ_TEST") n++; print n} BEGIN{ENVIRON["ZZ_TEST"]="v"; f(ENVIRON)}'`,
+      );
+      expect(result.stdout).toBe("1\n");
+      expect(result.exitCode).toBe(0);
+    });
   });
 
   describe("split() function with arrays", () => {
@@ -198,10 +225,25 @@ describe("awk associative arrays", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it("should reject split when the initial count already exceeds the limit", async () => {
-      // ENVIRON alone already fills a maxArrayElements of 5, so the
-      // room for a split is negative: the split must fail on the limit
-      // without doing unbounded work on the input first.
+    it("should not count prepopulated ARGV/ENVIRON against the split room", async () => {
+      // ENVIRON holds a dozen default entries, but they are
+      // prepopulated, not program-created, so they do not consume the
+      // maxArrayElements allowance: a five-part split fits a limit of
+      // five. At base the same program failed before splitting.
+      const bash = new Bash({ executionLimits: { maxArrayElements: 5 } });
+      const result = await bash.exec(
+        `echo "" | awk 'BEGIN { n = split("a,b,c,d,e", arr, ","); print "n=" n, arr[1], arr[5] }'`,
+      );
+      expect(result.stdout).toBe("n=5 a e\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should still reject a split that exceeds the limit", async () => {
+      // Eight parts against a limit of five: the split must fail on
+      // the limit without doing unbounded work on the input first.
+      // (This guards the limit itself; it also passes at base, where
+      // the same error came from the prepopulated count instead.)
       const bash = new Bash({ executionLimits: { maxArrayElements: 5 } });
       const result = await bash.exec(
         `echo "" | awk 'BEGIN { n = split("a,b,c,d,e,f,g,h", arr, ","); print "n=" n }'`,
@@ -209,6 +251,24 @@ describe("awk associative arrays", () => {
       expect(result.stdout).toBe("");
       expect(result.stderr).toBe("awk: array element limit exceeded (5)\n");
       expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+    });
+
+    it("should split into a function-parameter array", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function f(a){split("c:a:b",a,":"); print asort(a), a[1], a[2], a[3]} BEGIN{f(x); print x[1], x[2], x[3]}'`,
+      );
+      expect(result.stdout).toBe("3 a b c\na b c\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should split into ENVIRON through its dedicated store", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { split("a:b", ENVIRON, ":"); print ENVIRON[1], ENVIRON[2] }'`,
+      );
+      expect(result.stdout).toBe("a b\n");
+      expect(result.exitCode).toBe(0);
     });
   });
 
@@ -357,7 +417,9 @@ describe("awk associative arrays", () => {
       const result = await env.exec(
         `echo "" | awk 'BEGIN { x[1] = "10"; x[2] = "9"; x[3] = "banana"; x[4] = "apple"; n = asort(x); print n, x[1], x[2], x[3], x[4] }'`,
       );
-      expect(result.stdout).toBe("4 9 10 apple banana\n");
+      // Numeric-looking strings are still strings for the default
+      // order, so "10" sorts before "9" lexically, as in gawk.
+      expect(result.stdout).toBe("4 10 9 apple banana\n");
       expect(result.exitCode).toBe(0);
     });
 
@@ -417,7 +479,7 @@ describe("awk associative arrays", () => {
       // as strings, 2 < 10 numerically, but "1a" > "10" as strings), so
       // the order depended on the input permutation and the tested output
       // had its last element less than its first. gawk's default puts
-      // numeric-looking values first, numerically, then the rest as strings.
+      // numeric values first, numerically, then the rest as strings.
       expect(result.stdout).toBe("3 2 10 1a\n");
       expect(result.exitCode).toBe(0);
     });
@@ -425,20 +487,22 @@ describe("awk associative arrays", () => {
     it("should give the same default order for every permutation of mixed values", async () => {
       const env = new Bash();
       const result = await env.exec(
-        `echo "" | awk 'BEGIN { a[1]="1a"; a[2]=2; a[3]=10; asort(a); print a[1], a[2], a[3]; b[1]=10; b[2]="1a"; b[3]=2; asort(b); print b[1], b[2], b[3]; c[1]=2; c[2]=10; c[3]="1a"; asort(c); print c[1], c[2], c[3] }'`,
+        `echo "" | awk 'BEGIN { a[1]="1a"; a[2]=2; a[3]=10; asort(a); print a[1], a[2], a[3]; b[1]="1a"; b[2]=10; b[3]=2; asort(b); print b[1], b[2], b[3]; c[1]=2; c[2]="1a"; c[3]=10; asort(c); print c[1], c[2], c[3]; d[1]=2; d[2]=10; d[3]="1a"; asort(d); print d[1], d[2], d[3]; e[1]=10; e[2]="1a"; e[3]=2; asort(e); print e[1], e[2], e[3]; f[1]=10; f[2]=2; f[3]="1a"; asort(f); print f[1], f[2], f[3] }'`,
       );
-      expect(result.stdout).toBe("2 10 1a\n2 10 1a\n2 10 1a\n");
+      expect(result.stdout).toBe(
+        "2 10 1a\n2 10 1a\n2 10 1a\n2 10 1a\n2 10 1a\n2 10 1a\n",
+      );
       expect(result.exitCode).toBe(0);
     });
 
-    it("should sort a numeric-looking string before punctuation in the default order", async () => {
+    it("should sort a numeric-looking string after punctuation in the default order", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "" | awk 'BEGIN { x[1] = "10"; x[2] = "!"; n = asort(x); print n, x[1], x[2] }'`,
       );
-      // Numeric-looking values sort before non-numeric strings, so "10"
-      // comes first even though "!" < "10" as plain strings.
-      expect(result.stdout).toBe("2 10 !\n");
+      // Both values are strings, so plain string order applies: "!"
+      // comes before "10", matching the interpreter's `<` and gawk.
+      expect(result.stdout).toBe("2 ! 10\n");
       expect(result.exitCode).toBe(0);
     });
 
@@ -491,13 +555,14 @@ describe("awk associative arrays", () => {
     });
 
     it("should count values copied into ARGV against maxArrayElements", async () => {
-            // ENVIRON holds 12 default entries, already more than the
-      // maxArrayElements of 5, so delete it first: without that, the
-      // limit would trip while building the source array, before asort
-      // ever copies anything into ARGV.
+      // ENVIRON's prepopulated entries no longer consume the
+      // allowance, so the source array builds fine under a limit of
+      // five; copying four values into ARGV (which holds one
+      // prepopulated entry) still charges three past it and trips the
+      // limit.
       const bash = new Bash({ executionLimits: { maxArrayElements: 5 } });
       const result = await bash.exec(
-        `echo "" | awk 'BEGIN { delete ENVIRON; r[1]=4; r[2]=3; r[3]=2; r[4]=1; print "built"; n = asort(r, ARGV); print "n=" n }'`,
+        `echo "" | awk 'BEGIN { r[1]=4; r[2]=3; r[3]=2; r[4]=1; print "built"; n = asort(r, ARGV); print "n=" n }'`,
       );
       expect(result.stdout).toBe("built\n");
       expect(result.stderr).toBe("awk: array element limit exceeded (5)\n");
@@ -505,7 +570,7 @@ describe("awk associative arrays", () => {
     });
 
     it("should charge the sort to the shared work budget", async () => {
-            // 10,000 values against a 10,002 budget: the conversion charge
+      // 10,000 values against a 10,002 budget: the conversion charge
       // costs 10,000 units and fits, so the sort itself trips the
       // limit at the 3rd comparison charge (one unit per 1024
       // comparisons).
@@ -558,6 +623,137 @@ describe("awk associative arrays", () => {
         `echo "" | awk 'function pick() { delete a[3]; return "@val_num_asc" } BEGIN { a[1] = 3; a[2] = 1; a[3] = 2; n = asort(a, b, pick()); print n, b[1], b[2] }'`,
       );
       expect(result.stdout).toBe("2 1 3\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should reject a scalar source instead of wiping the destination", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { x=123; d[1]="important"; n=asort(x,d); print n, (1 in d) }'`,
+      );
+      // gawk rejects a scalar source; head used to treat it as an
+      // empty array, return 0, and clear d.
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "awk: asort: first argument is not an array\n",
+      );
+      expect(result.exitCode).toBe(2);
+    });
+
+    it("should reject a scalar destination", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { a[1]=2; s="x"; n=asort(a,s); print n }'`,
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "awk: asort: second argument is not an array\n",
+      );
+      expect(result.exitCode).toBe(2);
+    });
+
+    it("should reject asort with no arguments", async () => {
+      const env = new Bash();
+      const result = await env.exec(`echo "" | awk 'BEGIN { print asort() }'`);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "awk: asort: wrong number of arguments (expected 1 to 3, got 0)\n",
+      );
+      expect(result.exitCode).toBe(2);
+    });
+
+    it("should reject asort with more than three arguments", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { x[1]=1; print asort(x, y, "@val_num_asc", "extra") }'`,
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "awk: asort: wrong number of arguments (expected 1 to 3, got 4)\n",
+      );
+      expect(result.exitCode).toBe(2);
+    });
+
+    it("should reject a non-variable first argument", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { print asort(42, y, "invalid") }'`,
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "awk: asort: first argument is not an array\n",
+      );
+      expect(result.exitCode).toBe(2);
+    });
+
+    it("should reject a non-variable destination", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { a[1]=1; print asort(a, "oops") }'`,
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(
+        "awk: asort: second argument is not an array\n",
+      );
+      expect(result.exitCode).toBe(2);
+    });
+
+    it("should leave a small maxArrayElements allowance usable for ordinary programs", async () => {
+      // ENVIRON's dozen prepopulated entries used to fill a limit of
+      // five before the program ran, so even BEGIN{a[1]=1} failed.
+      const bash = new Bash({ executionLimits: { maxArrayElements: 5 } });
+      const result = await bash.exec(
+        `echo "" | awk 'BEGIN { a[1]=1; print "ok" }'`,
+      );
+      expect(result.stdout).toBe("ok\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should still enforce maxArrayElements on program-created arrays", async () => {
+      const bash = new Bash({ executionLimits: { maxArrayElements: 5 } });
+      const result = await bash.exec(
+        `echo "" | awk 'BEGIN { a[1]=1; a[2]=2; a[3]=3; a[4]=4; a[5]=5; print "five"; a[6]=6; print "six" }'`,
+      );
+      expect(result.stdout).toBe("five\n");
+      expect(result.stderr).toBe("awk: array element limit exceeded (5)\n");
+      expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+    });
+
+    it("should read files from the current ARGV after asort into ARGV", async () => {
+      const env = new Bash({
+        files: {
+          "/one": "one-line\n",
+          "/two": "two-line\n",
+          "/three": "three-line\n",
+        },
+      });
+      const result = await env.exec(
+        `awk 'BEGIN { a[1]="/three"; a[2]="/two"; asort(a, ARGV) } { print FILENAME, $0 }' /one /two`,
+      );
+      expect(result.stdout).toBe("/three three-line\n/two two-line\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should skip a deleted ARGV entry when reading files", async () => {
+      const env = new Bash({
+        files: { "/one": "one-line\n", "/two": "two-line\n" },
+      });
+      const result = await env.exec(
+        `awk 'BEGIN { delete ARGV[1] } { print FILENAME, $0 }' /one /two`,
+      );
+      expect(result.stdout).toBe("/two two-line\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should honor a lowered ARGC when reading files", async () => {
+      const env = new Bash({
+        files: { "/one": "one-line\n", "/two": "two-line\n" },
+      });
+      const result = await env.exec(
+        `awk 'BEGIN { ARGC=2 } { print FILENAME, $0 }' /one /two`,
+      );
+      expect(result.stdout).toBe("/one one-line\n");
       expect(result.exitCode).toBe(0);
     });
   });
