@@ -1013,6 +1013,8 @@ export function formatPrintf(
  * later `print > file` truncates again (POSIX) and a later
  * `getline < file` re-reads from the start. Buffered output for the file
  * is flushed first, so the truncate does not discard unflushed output.
+ * The open state is tracked by the name as written, not the resolved
+ * path: `close("./f")` must not close a stream opened as `"f"`.
  * Returns 0 on success. `close()` with no argument is a no-op returning 0.
  */
 async function awkClose(
@@ -1025,8 +1027,8 @@ async function awkClose(
   if (ctx.fs && ctx.cwd) {
     const filePath = ctx.fs.resolvePath(ctx.cwd, name);
     await ctx.fs.flushOutput?.(filePath);
-    ctx.openedFiles.delete(filePath);
-    ctx.getlineFileStreams.delete(filePath);
+    ctx.openedFiles.delete(name);
+    ctx.getlineFileStreams.delete(name);
   }
   // Also close a command pipe opened by `"cmd" | getline`.
   ctx.getlineCommandStreams.delete(name);
@@ -1035,7 +1037,10 @@ async function awkClose(
 
 /**
  * fflush([filename]): flush buffered output for one file, or for all files
- * when called with no argument. Returns 0 on success, -1 on failure.
+ * when called with no argument — or with an empty filename, which means
+ * flush-all in awk. Returns 0 on success, -1 on failure. Fatal errors
+ * (execution limit, abort, security violation) are rethrown instead of
+ * becoming -1, so a program cannot keep running after a safeguard fired.
  */
 async function awkFflush(
   args: AwkExpr[],
@@ -1043,15 +1048,21 @@ async function awkFflush(
   evaluator: AwkEvaluator,
 ): Promise<AwkValue> {
   if (!ctx.fs) return 0;
+  // Evaluate the argument outside the try below: a fatal error raised
+  // while evaluating it must abort the program, not become a -1 return.
+  let name: string | undefined;
+  if (args.length > 0) {
+    name = toAwkString(await evaluator.evalExpr(args[0]));
+  }
   try {
-    if (args.length === 0) {
+    if (name === undefined || name === "") {
       await ctx.fs.flushOutput?.();
     } else {
-      const name = toAwkString(await evaluator.evalExpr(args[0]));
       const filePath = ctx.cwd ? ctx.fs.resolvePath(ctx.cwd, name) : name;
       await ctx.fs.flushOutput?.(filePath);
     }
-  } catch {
+  } catch (e) {
+    rethrowFatalExecutionError(e);
     return -1;
   }
   return 0;
