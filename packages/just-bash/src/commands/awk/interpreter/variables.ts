@@ -125,22 +125,75 @@ export function setVariable(
 }
 
 /**
- * Resolve array name through aliases (for function parameter passing).
+ * Prefixes for synthetic per-frame store names. A parameter that
+ * receives no array argument gets a private store under one of these
+ * names, so it can never resolve to an outer array of the same name:
+ * LOCAL_ARRAY_PREFIX for an omitted parameter (a fresh empty array),
+ * LOCAL_SCALAR_PREFIX for a parameter that received a scalar. The
+ * NUL byte cannot appear in an AWK identifier, so no user array can
+ * collide with either namespace; the sequence number keeps two live
+ * frames' locals apart.
+ */
+export const LOCAL_ARRAY_PREFIX = "\0local-array:";
+export const LOCAL_SCALAR_PREFIX = "\0local-scalar:";
+
+/**
+ * Resolve an array name through the innermost call frame's bindings.
+ * Bindings are installed pre-resolved (see callUserFunction), so this
+ * is a single lookup, never a chain: a frame's binding always names
+ * the final store, and a name with no binding in the current frame is
+ * a global array, not a caller's parameter. That is what keeps
+ * swapped same-named parameters (a -> b, b -> a) from forming a
+ * cycle that resolves to the wrong caller array.
  */
 export function resolveArrayName(
   ctx: AwkRuntimeContext,
   array: string,
 ): string {
-  // Follow alias chain to get the real array name
-  let resolved = array;
-  const seen = new Set<string>();
-  let alias = ctx.arrayAliases.get(resolved);
-  while (alias !== undefined && !seen.has(resolved)) {
-    seen.add(resolved);
-    resolved = alias;
-    alias = ctx.arrayAliases.get(resolved);
-  }
-  return resolved;
+  const frames = ctx.arrayAliasFrames ?? [];
+  const frame = frames[frames.length - 1];
+  return frame?.get(array) ?? array;
+}
+
+/**
+ * Push a fresh array-binding frame for a user-function call and
+ * return it. The caller installs one binding per parameter after the
+ * arguments were resolved in the caller's frame.
+ */
+export function pushArrayFrame(ctx: AwkRuntimeContext): Map<string, string> {
+  if (!ctx.arrayAliasFrames) ctx.arrayAliasFrames = [];
+  const frame = new Map<string, string>();
+  ctx.arrayAliasFrames.push(frame);
+  return frame;
+}
+
+/**
+ * Drop the innermost array-binding frame when its call returns.
+ */
+export function popArrayFrame(ctx: AwkRuntimeContext): void {
+  ctx.arrayAliasFrames?.pop();
+}
+
+/**
+ * A fresh synthetic store name for an omitted parameter's private
+ * empty local array. Unique among live frames, so a nested call
+ * reusing the parameter name gets a different store.
+ */
+export function nextLocalArrayName(ctx: AwkRuntimeContext): string {
+  const id = ctx.nextLocalArrayId ?? 0;
+  ctx.nextLocalArrayId = id + 1;
+  return `${LOCAL_ARRAY_PREFIX}${id}`;
+}
+
+/**
+ * A fresh synthetic store name for a parameter that received a
+ * scalar. No array is created under it: array built-ins reject the
+ * parameter through isScalarVariable instead.
+ */
+export function nextLocalScalarName(ctx: AwkRuntimeContext): string {
+  const id = ctx.nextLocalArrayId ?? 0;
+  ctx.nextLocalArrayId = id + 1;
+  return `${LOCAL_SCALAR_PREFIX}${id}`;
 }
 
 /**
@@ -365,6 +418,10 @@ export function isScalarVariable(
   name: string,
 ): boolean {
   const resolved = resolveArrayName(ctx, name);
+  // A parameter that received a scalar is bound to a synthetic
+  // scalar-only name: it is a scalar even when an outer array of
+  // the same name exists.
+  if (resolved.startsWith(LOCAL_SCALAR_PREFIX)) return true;
   if (resolved === "ARGV" || resolved === "ENVIRON") return false;
   if (ctx.arrays[resolved] !== undefined) return false;
   if (BUILTIN_SCALARS.has(resolved)) return true;
@@ -421,7 +478,9 @@ export function replaceArrayValues(
     }
     setSpecialStoreSize(ctx, store, values.length);
     // The whole store was replaced: its index set may have changed.
-    bumpArgvVersion(ctx);
+    // Only ARGV affects the input loop; an ENVIRON replacement must
+    // not invalidate the cached index list.
+    if (store === ctx.ARGV) bumpArgvVersion(ctx);
     // The incoming values carry no provenance here; callers that know
     // it (asort) set the destination's strnum keys again afterwards.
     clearStrnumArray(ctx, resolvedName);
@@ -433,9 +492,14 @@ export function replaceArrayValues(
     );
     return;
   }
-  deleteArray(ctx, resolvedName);
+  // deleteArray and setArrayElement resolve the name themselves, so
+  // they take the raw name: passing the already-resolved store name
+  // would resolve it a second time, and a resolved name can itself
+  // be a parameter name bound in the current frame (swapped
+  // parameters), which would land the values in the wrong array.
+  deleteArray(ctx, rawName);
   for (let i = 0; i < values.length; i++) {
-    setArrayElement(ctx, resolvedName, String(i + 1), values[i]);
+    setArrayElement(ctx, rawName, String(i + 1), values[i]);
   }
 }
 
@@ -489,8 +553,9 @@ export function setArrayElement(
       setSpecialStoreSize(ctx, store, size + 1);
       // A new key appeared: the input loop's cached index list is
       // stale. Replacing an existing key does not bump — the loop
-      // reads each entry fresh when its turn comes.
-      bumpArgvVersion(ctx);
+      // reads each entry fresh when its turn comes. Only ARGV
+      // affects the loop; an ENVIRON insert must not invalidate it.
+      if (store === ctx.ARGV) bumpArgvVersion(ctx);
     }
     store[key] = value;
     // The new value carries no provenance at this layer; the
@@ -556,7 +621,8 @@ export function deleteArrayElement(
       }
       delete store[key];
       setSpecialStoreSize(ctx, store, size - 1);
-      bumpArgvVersion(ctx);
+      // Only ARGV affects the input loop's cached index list.
+      if (store === ctx.ARGV) bumpArgvVersion(ctx);
       markStrnumArrayKey(ctx, resolvedArray, key, false);
     }
     return;
@@ -588,7 +654,8 @@ export function deleteArray(ctx: AwkRuntimeContext, array: string): void {
       delete store[key];
     }
     setSpecialStoreSize(ctx, store, 0);
-    bumpArgvVersion(ctx);
+    // Only ARGV affects the input loop's cached index list.
+    if (store === ctx.ARGV) bumpArgvVersion(ctx);
     clearStrnumArray(ctx, resolvedArray);
     return;
   }
