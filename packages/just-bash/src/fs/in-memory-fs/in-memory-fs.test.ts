@@ -460,3 +460,34 @@ describe("InMemoryFs lazy files", () => {
     expect(provider).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("InMemoryFs appendFile through symlinks", () => {
+  it("should append to the target instead of replacing the link", async () => {
+    const fs = new InMemoryFs({ "/real.txt": "old\n" });
+    await fs.symlink("/real.txt", "/alias");
+
+    await fs.appendFile("/alias", "new\n");
+
+    expect(await fs.readFile("/real.txt")).toBe("old\nnew\n");
+    expect(await fs.readFile("/alias")).toBe("old\nnew\n");
+  });
+
+  it("should append through a symlinked parent directory", async () => {
+    const fs = new InMemoryFs({ "/real/file.txt": "a\n" });
+    await fs.symlink("/real", "/link");
+
+    await fs.appendFile("/link/file.txt", "b\n");
+
+    expect(await fs.readFile("/real/file.txt")).toBe("a\nb\n");
+  });
+
+  it("should create the target when appending through a broken symlink", async () => {
+    const fs = new InMemoryFs();
+    await fs.symlink("/target.txt", "/alias");
+
+    await fs.appendFile("/alias", "created\n");
+
+    expect(await fs.readFile("/target.txt")).toBe("created\n");
+    expect(await fs.readFile("/alias")).toBe("created\n");
+  });
+});
