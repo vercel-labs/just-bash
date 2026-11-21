@@ -370,22 +370,22 @@ export const awkCommand2: RuntimeCommand = {
         await withDefenseContext("END execution after BEGIN exit", () =>
           interp.executeEnd(),
         );
-        return {
+        return finish({
           stdout: interp.getOutput(),
           stderr: "",
           exitCode: interp.getExitCode(),
-        };
+        });
       }
 
       // Only skip file reading if there are no main rules AND no END blocks
       // END blocks need NR to be populated from reading files
       if (!hasMainRules && !hasEndBlocks) {
         // Just run END blocks (none), no input processing needed
-        return {
+        return finish({
           stdout: interp.getOutput(),
           stderr: "",
           exitCode: interp.getExitCode(),
-        };
+        });
       }
 
       const maxInputBytes = Math.min(
@@ -475,11 +475,11 @@ export const awkCommand2: RuntimeCommand = {
             ) {
               throw e;
             }
-            return {
+            return finish({
               stdout: "",
               stderr: `awk: ${file}: No such file or directory\n`,
               exitCode: 1,
-            };
+            });
           }
           await withDefenseContext("input processing", () =>
             processInput(file, content),
@@ -498,11 +498,11 @@ export const awkCommand2: RuntimeCommand = {
       await withDefenseContext("END execution", () => interp.executeEnd());
 
       // awk emits text; the pipeline handles encoding.
-      return {
+      return finish({
         stdout: interp.getOutput(),
         stderr: "",
         exitCode: interp.getExitCode(),
-      };
+      });
     } catch (e) {
       if (e instanceof SecurityViolationError) {
         throw e;
@@ -511,21 +511,28 @@ export const awkCommand2: RuntimeCommand = {
       const msg = e instanceof Error ? e.message : String(e);
       const exitCode =
         e instanceof ExecutionLimitError ? ExecutionLimitError.EXIT_CODE : 2;
-      return {
+      return finish({
         stdout: interp.getOutput(),
         stderr: `awk: ${msg}\n`,
         exitCode,
-      };
+      });
     } finally {
       // Flush point (issue #769): buffered output must reach the filesystem
       // on every exit path, including `exit` in BEGIN and error aborts.
-      // Errors here are swallowed deliberately: throwing from finally would
-      // mask the run's own result or error, and a persistently failing
-      // filesystem already surfaces at the size-cap flush during execution.
-      try {
-        await flushAppendedOutput();
-      } catch {
-        // Ignore flush errors at exit.
+      // Normal paths already flushed in finish(); this only covers paths
+      // that bypass it, i.e. a fatal error rethrown from the catch above.
+      // There is no result left to attach a flush failure to there, so
+      // failures stay silent on this path.
+      if (!flushCompleted) {
+        flushCompleted = true;
+        try {
+          await withDefenseContext("appended output exit flush", () =>
+            flushAppendedOutput(),
+          );
+        } catch {
+          // Ignore flush errors at exit.
+        }
+        releasePendingLeases();
       }
     }
   },
