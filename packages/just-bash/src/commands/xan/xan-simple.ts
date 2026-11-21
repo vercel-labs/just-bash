@@ -380,14 +380,20 @@ export async function cmdFlatmap(
   const resultBudget = new DerivedCsvBudget(ctx, "xan flatmap");
 
   for (const row of data) {
+    // Rows are text; expressions see re-typed cells (numbers/booleans).
+    // Convert the row once and reuse it for every spec instead of
+    // rescanning it per expression; count the scan work.
+    const typedRow = toTypedRow(row, (units) =>
+      resultBudget.consumeWork(units),
+    );
+
     // Evaluate each spec
     const results: unknown[][] = [];
     let maxLen = 1;
 
     for (const spec of specs) {
       resultBudget.consumeWork();
-      // Rows are text; expressions see re-typed cells (numbers/booleans).
-      const evalResults = evaluate(toTypedRow(row), spec.ast, evalOptions);
+      const evalResults = evaluate(typedRow, spec.ast, evalOptions);
       // If result is array, expand it
       const expanded =
         evalResults.length > 0 && Array.isArray(evalResults[0])
