@@ -242,8 +242,30 @@ async function awkSplit(
   }
 
   const previousCount = Object.keys(ctx.arrays[arrayName] ?? {}).length;
-  const available =
-    ctx.maxArrayElements - ctx.arrayElementCount + previousCount;
+  // Validate the initial count before splitting anything: the running
+  // total must at least cover the array being replaced. A stale or
+  // under-counted total would otherwise overstate the room available
+  // and let the split exceed the element limit.
+  if (
+    !Number.isFinite(ctx.arrayElementCount) ||
+    ctx.arrayElementCount < previousCount
+  ) {
+    throw new ExecutionLimitError(
+      `array element limit exceeded (${ctx.maxArrayElements})`,
+      "array_elements",
+    );
+  }
+  // Clamp the room to zero or more. When the other arrays already fill
+  // (or exceed) the limit, `available` goes negative, and a negative
+  // limit means "unbounded" to both split implementations below:
+  // String.split converts it with ToUint32, and UserRegex.split falls
+  // back to maxResults for a negative limit. Either way the split
+  // would do unbounded work on the input before the length check
+  // below could reject it, so the bound must hold before splitting.
+  const available = Math.max(
+  0,
+    ctx.maxArrayElements - ctx.arrayElementCount + previousCount,
+  );
   const parts =
     typeof sep === "string"
       ? str.split(sep, available + 1)
