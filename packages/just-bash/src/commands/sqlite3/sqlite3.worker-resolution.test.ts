@@ -45,6 +45,17 @@ describe("sqlite3 findWorkerPath()", () => {
     expect(resolved).toBe(expected);
   });
 
+  it("resolves <currentDir>/chunks/sqlite3-worker.js — the CJS bundle layout", () => {
+    // dist/bundle/index.cjs runs with __dirname = dist/bundle.
+    const bundleDir = join(root, "dist/bundle");
+    mkdirSync(bundleDir, { recursive: true });
+    const expected = makeFile("dist/bundle/chunks/sqlite3-worker.js");
+
+    const resolved = _internals.findWorkerPath(bundleDir);
+
+    expect(resolved).toBe(expected);
+  });
+
   it("does NOT fall back to a stray <chunks>/worker.js when sqlite3-worker.js is missing", () => {
     // The only file present is the python3-style worker. Resolver must reject.
     const chunksDir = join(root, "dist/bundle/chunks");
