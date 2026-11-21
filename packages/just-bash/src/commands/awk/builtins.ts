@@ -290,19 +290,23 @@ async function awkSplit(
 /**
  * gawk asort(source [, dest [, how]]): sort an array's values and reindex
  * them 1..n. Without dest the source is sorted in place; with dest the
- * source is left unchanged and the sorted values land in dest. Returns the
- * number of elements. ARGV and ENVIRON are read and written through their
- * dedicated storage, the same place element access uses. The default
- * comparison follows the interpreter's `<` rules: values that both look
- * numeric compare numerically, otherwise they compare as strings. (This
- * differs from gawk's asort default, which puts numbers/strnums before
- * strings; the interpreter has no strnum attribute to express that
- * distinction, so `<`-consistency wins.) The optional how argument
- * accepts the gawk "@val_num_asc", "@val_num_desc", "@val_str_asc" and
- * "@val_str_desc" modes; the numeric modes break ties between numerically
- * equal values with a string comparison, as gawk does. An explicitly
- * supplied how must be one of those four modes — including the empty
- * string, which is an error rather than the default ordering.
+ * source is left unchanged and the sorted values land in dest. Passing the
+ * same array as source and dest (asort(x, x)) is explicitly supported and
+ * behaves like sorting in place: the values are snapshotted before the
+ * destination is replaced, so the sort cannot clobber its own input.
+ * Returns the number of elements. ARGV and ENVIRON are read and written
+ * through their dedicated storage, the same place element access uses. The
+ * default comparison is a total order matching gawk's: values that look
+ * numeric sort first, numerically (ties broken by string value, as gawk
+ * does), and all other values follow in string order. This deliberately
+ * differs from the interpreter's `<` rules for mixed types: comparing
+ * pairwise with `<` can cycle (e.g. "1a" < "2" as strings, 2 < 10
+ * numerically, but "1a" > "10" as strings), so `<`-consistency cannot give
+ * a deterministic sort order. An empty how string means the default
+ * ordering, as in gawk. The optional how argument also accepts the gawk
+ * "@val_num_asc", "@val_num_desc", "@val_str_asc" and "@val_str_desc"
+ * modes; the numeric modes break ties between numerically equal values
+ * with a string comparison, as gawk does.
  */
 async function awkAsort(
   args: AwkExpr[],
@@ -332,7 +336,8 @@ async function awkAsort(
   }
   const numericOnly = how === "@val_num_asc" || how === "@val_num_desc";
   const stringOnly = how === "@val_str_asc" || how === "@val_str_desc";
-  if (howSupplied && !numericOnly && !stringOnly) {
+  // An empty how string is the default ordering, as in gawk.
+  if (howSupplied && how !== "" && !numericOnly && !stringOnly) {
     throw new Error(`asort: unsupported how argument "${how}"`);
   }
   const descending = how.endsWith("_desc");
@@ -385,8 +390,18 @@ async function awkAsort(
       if (result === 0) result = compareStrings(a.str, b.str);
     } else if (stringOnly) {
       result = compareStrings(a.str, b.str);
-    } else if (a.isNum && b.isNum) {
+    } else if (a.isNum !== b.isNum) {
+      // Total order (gawk's default): numeric-looking values sort before
+      // all other values. The old `<`-based fallback cycled for mixed
+      // values such as "1a", 2, 10 ("1a" < "2" as strings, 2 < 10
+      // numerically, but "1a" > "10" as strings), so the sort order
+      // depended on the input permutation.
+      result = a.isNum ? -1 : 1;
+    } else if (a.isNum) {
       result = compareNumbers(a.num, b.num);
+      // gawk breaks numeric ties with the string values so the ordering
+      // does not depend on the underlying sort implementation.
+      if (result === 0) result = compareStrings(a.str, b.str);
     } else {
       // Same fallback as the interpreter's `<`: string comparison.
       result = compareStrings(a.str, b.str);
