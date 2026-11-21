@@ -10,6 +10,7 @@ import {
   type CsvRow,
   createSafeRow,
   safeSetRow,
+    toTypedData,
   toTypedRow,
 } from "./csv.js";
 import { parseMoonblade } from "./moonblade-parser.js";
@@ -365,9 +366,17 @@ export function buildAggRow(
   evalOptions: EvaluateOptions = {},
   limits: AggregationLimits = {},
 ): CsvRow {
+  // Convert each row once and share the typed rows across specs instead
+  // of rescanning the dataset for every aggregation; count the scan.
+  // Simple-column reads then see the same re-typed cells as expressions.
+  const typedData = toTypedData(data, limits.consumeWork);
   const row: CsvRow = createSafeRow();
   for (const spec of specs) {
-    safeSetRow(row, spec.alias, computeAgg(data, spec, evalOptions, limits));
+    safeSetRow(
+      row,
+      spec.alias,
+      computeAgg(typedData, spec, evalOptions, limits),
+  );
   }
   return row;
 }
