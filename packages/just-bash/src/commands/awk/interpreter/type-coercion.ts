@@ -34,8 +34,10 @@ export function isTruthy(val: AwkValue): boolean {
 /**
  * Convert an AWK value to a number, the way AWK does: a string
  * contributes its leading numeric prefix ("1a" -> 1, "  12 " -> 12)
- * and a string with no numeric prefix is 0 ("Infinity" -> 0,
- * "0x10" -> 0). An overflowed exponent keeps JavaScript's Infinity,
+ * and a string with no numeric prefix is 0 ("Infinity" -> 0).
+ * "0x10" is 0 too, but because its leading numeric prefix is just
+ * "0" — AWK has no hex literals — not because it lacks a prefix.
+ * An overflowed exponent keeps JavaScript's Infinity,
  * as gawk's +inf ("1e400" -> Infinity). This is the single numeric
  * parser for arithmetic, comparisons, and asort: the old split
  * (parseFloat-based toNumber vs prefix-based awkParseNumber) made
