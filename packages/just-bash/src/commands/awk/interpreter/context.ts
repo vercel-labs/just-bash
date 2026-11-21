@@ -22,6 +22,7 @@ export interface AwkRuntimeContext {
   OFS: string;
   ORS: string;
   OFMT: string;
+  CONVFMT: string;
   NR: number;
   NF: number;
   FNR: number;
@@ -64,18 +65,44 @@ export interface AwkRuntimeContext {
   maxOutputSize: number;
   maxArrayElements: number;
   /**
-   * Elements the program has added beyond the prepopulated ARGV/ENVIRON
-   * contents; this is what maxArrayElements limits. The prepopulated
-   * entries themselves are exempt, so an ordinary program still gets
-   * its full allowance even with a small limit.
+   * Elements the program holds beyond the prepopulated ARGV/ENVIRON
+   * contents; this is what maxArrayElements limits. The accounting is
+   * free-slot based, not per-entry: each of ARGV/ENVIRON may hold up
+   * to its initial size (see arrayElementBaselines) without charge,
+   * and the charge is max(0, current size - initial size). Deleting a
+   * prepopulated entry therefore frees no extra room beyond that
+   * count — the baseline does not identify which entries were
+   * prepopulated, only how many free slots the store has.
    */
   arrayElementCount: number;
   /**
    * Initial element counts of the prepopulated arrays, by resolved name
-   * ("ARGV"/"ENVIRON"). The setters use them to tell program-added
-   * elements (which consume the allowance) from prepopulated ones.
+   * ("ARGV"/"ENVIRON"). They are free-slot allowances, not a record of
+   * the original entries: the setters charge only the part of a store
+   * beyond its baseline count (see arrayElementCount).
    */
   arrayElementBaselines: Map<string, number>;
+  /**
+   * Live element counts of the prepopulated ARGV/ENVIRON stores, by
+   * resolved name. Updated incrementally on every insert/delete/
+   * replacement so growing either array stays constant-time per
+   * element instead of rescanning its keys.
+   */
+  specialStoreSizes: Map<string, number>;
+  /**
+   * Scalar variable names whose current value is an AWK numeric
+   * string (strnum): a numeric-looking string that came from input
+   * fields or split(), as opposed to a string literal. Only the
+   * assignment paths that can see the value's origin maintain this;
+   * any other scalar write clears the entry.
+   */
+  strnumVars: Set<string>;
+  /**
+   * Array element keys holding numeric strings (strnums), by resolved
+   * array name. Like strnumVars, maintained only by the paths that
+   * know a value's origin (field/variable assignment, split, asort).
+   */
+  strnumArrayKeys: Map<string, Set<string>>;
   recordsProcessed: number;
   currentRecursionDepth: number;
 
@@ -163,6 +190,7 @@ export function createRuntimeContext(
     OFS: " ",
     ORS: "\n",
     OFMT: "%.6g",
+    CONVFMT: "%.6g",
     NR: 0,
     NF: 0,
     FNR: 0,
@@ -195,6 +223,9 @@ export function createRuntimeContext(
     maxArrayElements,
     arrayElementCount: 0,
     arrayElementBaselines: new Map(),
+    specialStoreSizes: new Map(),
+    strnumVars: new Set(),
+    strnumArrayKeys: new Map(),
     recordsProcessed: 0,
     currentRecursionDepth: 0,
 

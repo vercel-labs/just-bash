@@ -61,6 +61,38 @@ export function looksLikeNumber(val: AwkValue): boolean {
   return !Number.isNaN(Number(s));
 }
 
+// The longest valid AWK numeric prefix of a string: an optional sign,
+// digits with an optional fraction (or a leading-dot fraction), and an
+// optional exponent. Unlike parseFloat/Number, this rejects the
+// spellings AWK does not treat as numeric at all ("Infinity", "0x10").
+const AWK_NUMBER_PREFIX = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/;
+const AWK_NUMERIC_STRING = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+/**
+ * True when a string is an AWK numeric string (strnum): after trimming
+ * surrounding whitespace it is exactly a decimal number. "Infinity"
+ * and "0x10" are not numeric strings in AWK, even though JavaScript's
+ * Number() accepts them.
+ */
+export function isAwkNumericString(val: AwkValue): boolean {
+  if (typeof val === "number") return true;
+  return AWK_NUMERIC_STRING.test(val.trim());
+}
+
+/**
+ * Convert a value to a number the way AWK does: a string contributes
+ * its leading numeric prefix ("1a" -> 1, "  12 " -> 12) and a string
+ * with no numeric prefix is 0 ("Infinity" -> 0, "0x10" -> 0). An
+ * overflowed exponent keeps JavaScript's Infinity, as gawk's +inf.
+ */
+export function awkParseNumber(val: AwkValue): number {
+  if (typeof val === "number") return val;
+  const s = val.trimStart();
+  if (!AWK_NUMBER_PREFIX.test(s)) return 0;
+  const n = parseFloat(s);
+  return Number.isNaN(n) ? 0 : n;
+}
+
 /**
  * Test if a string matches a regex pattern.
  */

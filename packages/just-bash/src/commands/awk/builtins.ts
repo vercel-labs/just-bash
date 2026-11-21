@@ -16,14 +16,23 @@ import {
   rebuildLine,
   splitFields,
 } from "./interpreter/fields.js";
+import {
+  awkParseNumber,
+  isAwkNumericString,
+  isTruthy,
+} from "./interpreter/type-coercion.js";
 import type { AwkValue } from "./interpreter/types.js";
 import {
   chargedSizeOfArray,
   getArrayStore,
+  getVariable,
   initialSizeOfArray,
   isScalarVariable,
+  isStrnumArrayKey,
   replaceArrayValues,
   resolveArrayName,
+  setSpecialStoreSize,
+  setStrnumArrayKeys,
 } from "./interpreter/variables.js";
 
 /**
@@ -170,6 +179,8 @@ function applyTargetValue(
     rebuildLine(ctx);
   } else {
     ctx.vars[targetName] = newValue;
+    // A sub/gsub result is a plain string, never a numeric string.
+    ctx.strnumVars?.delete(targetName);
   }
 }
 
@@ -271,9 +282,13 @@ async function awkSplit(
   // back to maxResults for a negative limit. Either way the split
   // would do unbounded work on the input before the length check
   // below could reject it, so the bound must hold before splitting.
+  // The baseline counts too: a split into ARGV/ENVIRON fits wholly in
+  // the store's exempt slots when its parts fit the prepopulated size,
+  // even when other arrays fill the allowance.
+  const baseline = initialSizeOfArray(ctx, arrayName, resolvedArrayName);
   const available = Math.max(
     0,
-    ctx.maxArrayElements - ctx.arrayElementCount + previousCharged,
+    ctx.maxArrayElements - ctx.arrayElementCount + previousCharged + baseline,
   );
   const parts =
     typeof sep === "string"
@@ -300,16 +315,78 @@ async function awkSplit(
   for (let i = 0; i < parts.length; i++) {
     target[String(i + 1)] = parts[i];
   }
-  const newCharged = Math.max(
-    0,
-    parts.length - initialSizeOfArray(ctx, arrayName, resolvedArrayName),
-  );
+  const newCharged = Math.max(0, parts.length - baseline);
   ctx.arrayElementCount = Math.max(
     0,
     ctx.arrayElementCount - previousCharged + newCharged,
   );
+  // The target store is rebuilt with the parts, so its live size and
+  // strnum keys are rebuilt too: split fields are numeric strings
+  // when they look numeric, as in gawk.
+  if (target === ctx.ARGV || target === ctx.ENVIRON) {
+    setSpecialStoreSize(ctx, target, parts.length);
+  }
+  const strnumKeys = new Set<string>();
+  for (let i = 0; i < parts.length; i++) {
+    if (isAwkNumericString(parts[i])) strnumKeys.add(String(i + 1));
+  }
+  setStrnumArrayKeys(ctx, resolvedArrayName, strnumKeys);
 
   return parts.length;
+}
+
+/**
+ * Compare two strings the way gawk does: by code point, which is the
+ * same order as UTF-8 bytes — not by UTF-16 code unit, so a
+ * supplementary character (emoji U+1F600) sorts after a BMP character
+ * with a lower code point (full-width Ａ U+FF21).
+ */
+function compareCodePoints(a: string, b: string): number {
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    const ca = a.codePointAt(i) ?? 0;
+    const cb = b.codePointAt(j) ?? 0;
+    if (ca !== cb) return ca < cb ? -1 : 1;
+    i += ca > 0xffff ? 2 : 1;
+    j += cb > 0xffff ? 2 : 1;
+  }
+  if (i < a.length) return 1;
+  if (j < b.length) return -1;
+  return 0;
+}
+
+/**
+ * AWK string comparison: code-point order, or with IGNORECASE set,
+ * case-folded first with ties broken by the case-sensitive order, as
+ * gawk does (b,A,a,B -> A a B b).
+ */
+function compareAwkStrings(a: string, b: string, ignoreCase: boolean): number {
+  if (!ignoreCase) return compareCodePoints(a, b);
+  const folded = compareCodePoints(a.toLowerCase(), b.toLowerCase());
+  return folded !== 0 ? folded : compareCodePoints(a, b);
+}
+
+function compareNumbers(a: number, b: number): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Format a JS number as gawk formats it for a string comparison
+ * (CONVFMT, default "%.6g"): integers keep their full decimal form
+ * ("1000000000", not "1e+09") and non-integers use CONVFMT, with the
+ * exponent padded to two digits as C's %g does ("9e-05", not "9e-5").
+ * A CONVFMT the formatter rejects falls back to String(value).
+ */
+function formatAwkNumber(ctx: AwkRuntimeContext, value: number): string {
+  if (Number.isInteger(value)) return String(value);
+  const format = ctx.CONVFMT || "%.6g";
+  try {
+    const str = formatPrintf(format, [value], awkStringLimit(ctx));
+    return str.replace(/e([+-]?)(\d)$/, "e$10$2");
+  } catch {
+    return String(value);
+  }
 }
 
 /**
@@ -321,18 +398,23 @@ async function awkSplit(
  * destination is replaced, so the sort cannot clobber its own input.
  * Returns the number of elements. ARGV and ENVIRON are read and written
  * through their dedicated storage, the same place element access uses. The
- * default comparison is a total order matching gawk's: numeric values
- * (numbers) sort first, numerically (ties broken by string value, as gawk
- * does), and string values follow in string order — including strings
- * that look numeric, so "10" sorts before "9", as in gawk. This
- * deliberately differs from the interpreter's `<` rules for mixed types:
- * comparing pairwise with `<` can cycle (e.g. "1a" < "2" as strings,
- * 2 < 10 numerically, but "1a" > "10" as strings), so `<`-consistency
- * cannot give a deterministic sort order. An empty how string means the
- * default ordering, as in gawk. The optional how argument also accepts
- * the gawk "@val_num_asc", "@val_num_desc", "@val_str_asc" and
- * "@val_str_desc" modes; the numeric modes break ties between numerically
- * equal values with a string comparison, as gawk does.
+ * default comparison is a total order matching gawk's: numeric values —
+ * JS numbers and numeric strings (strnums) from input fields or split()
+ * — sort first, numerically (ties broken by string value, as gawk
+ * does), and plain string values follow in string order, so literal
+ * "10" sorts before "9". This deliberately differs from the
+ * interpreter's `<` rules for mixed types: `<` compares two
+ * numeric-looking strings numerically ("10" < "9" is false there) and
+ * can cycle for mixed values, so `<`-consistency cannot give a
+ * deterministic sort order. An empty how string means the default
+ * ordering, as in gawk. The optional how argument also accepts the
+ * gawk "@val_num_asc", "@val_num_desc", "@val_str_asc" and
+ * "@val_str_desc" modes; the numeric modes parse values the way AWK
+ * does ("Infinity" is 0, not infinite) and break ties between
+ * numerically equal values with a string comparison, as gawk does.
+ * String comparisons use gawk's ordering: code points (not UTF-16
+ * code units), CONVFMT formatting for numbers, and IGNORECASE when
+ * it is set.
  */
 async function awkAsort(
   args: AwkExpr[],
@@ -393,78 +475,130 @@ async function awkAsort(
   // that modifies the source is visible to the sort.
   const sourceStore = getArrayStore(ctx, sourceRaw, resolvedSource);
   const values: AwkValue[] = sourceStore ? Object.values(sourceStore) : [];
-
-  // Charge the sort to the shared work budget before converting
-  // anything: the conversion scans every value (parseFloat and the
-  // numeric check walk long strings), so a small budget or an abort
-  // must be able to reject the sort before that work happens. Without
-  // an execution scope (interpreter used directly) only the
-  // array-element limit bounds the sort.
-  const scope = ctx.executionScope;
-  scope?.consumeWork(values.length, "asort value conversion");
-  scope?.throwIfAborted("asort value conversion");
+  // Numeric-string provenance of the source elements, aligned with
+  // `values` (Object.keys and Object.values share an order): input
+  // fields and split() parts are strnums, string literals are not.
+  const sourceIsStrnum = sourceStore
+    ? Object.keys(sourceStore).map((key) =>
+        isStrnumArrayKey(ctx, resolvedSource, key),
+      )
+    : [];
 
   // Convert each value once up front: the comparator runs O(n log n)
   // times, so converting inside it would redo the string/number
-  // conversion on every comparison. Numeric-ness is the value's type,
-  // not its spelling: gawk sorts pure strings such as "10" lexically
-  // ("10" before "9"), so only JS numbers count as numeric here.
-  const entries = values.map((value) => ({
-    value,
-    str: toAwkString(value),
-    num: toNumber(value),
-    isNum: typeof value === "number",
-  }));
+  // conversion on every comparison. The work is charged by the data
+  // actually scanned — one unit per value plus one per KiB of its
+  // string form — and the abort signal is polled every 1024 values,
+  // so a long conversion can be interrupted instead of running
+  // synchronously to completion. parseFloat runs only where a numeric
+  // value is actually needed: the numeric modes, and numeric strings
+  // in the default mode. The string-only mode and plain strings in
+  // the default mode never pay for a conversion.
+  const scope = ctx.executionScope;
+  const ignoreCase = isTruthy(getVariable(ctx, "IGNORECASE"));
+  const entries: {
+    value: AwkValue;
+    str: string;
+    num: number;
+    isNum: boolean;
+    isStrnum: boolean;
+  }[] = [];
+  let pendingConversionWork = 0;
+  const pollConversion = (): void => {
+    if (pendingConversionWork > 0) {
+      scope?.consumeWork(pendingConversionWork, "asort value conversion");
+      pendingConversionWork = 0;
+    }
+    scope?.throwIfAborted("asort value conversion");
+  };
+  for (let i = 0; i < values.length; i++) {
+    const value = values[i];
+    const isStrnum = sourceIsStrnum[i] ?? false;
+    const isNum = typeof value === "number" || isStrnum;
+    // Numbers compare by their CONVFMT form in string modes and in
+    // numeric tie-breaks; strings compare by their own spelling.
+    const str =
+      typeof value === "number"
+        ? formatAwkNumber(ctx, value)
+        : toAwkString(value);
+    const num =
+      typeof value === "number"
+        ? value
+        : numericOnly || isNum
+          ? awkParseNumber(str)
+          : 0;
+    entries.push({ value, str, num, isNum, isStrnum });
+    pendingConversionWork += 1 + (str.length >> 10);
+    if ((i + 1) % 1024 === 0) pollConversion();
+  }
+  pollConversion();
 
   // A large array needs O(n log n) comparisons, so the comparator
-  // charges one unit and polls the abort signal every 1024 comparisons
-  // instead of on each one.
+  // charges work and polls the abort signal every 1024 comparisons
+  // instead of on each one. A comparison costs one unit plus one per
+  // KiB of the shorter string actually scanned, so long common
+  // prefixes pay for the work they do; the remainder is flushed after
+  // the sort. Without an execution scope (interpreter used directly)
+  // only the array-element limit bounds the sort. The abort check
+  // runs between comparisons: native Array.sort cannot yield
+  // mid-comparison, so a single comparison over very long strings
+  // still runs to completion, but it is charged for its scan.
   let comparisons = 0;
-  const chargeSortWork = (): void => {
-    comparisons++;
-    if (comparisons % 1024 !== 0) return;
-    scope?.consumeWork(1, "asort comparison");
-    scope?.throwIfAborted("asort sort");
-  };
-
-  const compareStrings = (a: string, b: string): number =>
-    a < b ? -1 : a > b ? 1 : 0;
-  const compareNumbers = (a: number, b: number): number =>
-    a < b ? -1 : a > b ? 1 : 0;
+  let pendingComparisonWork = 0;
   const compare = (
-    a: { value: AwkValue; str: string; num: number; isNum: boolean },
-    b: { value: AwkValue; str: string; num: number; isNum: boolean },
+    a: { str: string; num: number; isNum: boolean },
+    b: { str: string; num: number; isNum: boolean },
   ): number => {
-    chargeSortWork();
     let result: number;
+    let stringCompared = false;
     if (numericOnly) {
       result = compareNumbers(a.num, b.num);
       // gawk breaks numeric ties with the string values so the ordering
       // does not depend on the underlying sort implementation.
-      if (result === 0) result = compareStrings(a.str, b.str);
+      if (result === 0) {
+        result = compareAwkStrings(a.str, b.str, ignoreCase);
+        stringCompared = true;
+      }
     } else if (stringOnly) {
-      result = compareStrings(a.str, b.str);
+      result = compareAwkStrings(a.str, b.str, ignoreCase);
+      stringCompared = true;
     } else if (a.isNum !== b.isNum) {
       // Total order (gawk's default): numeric values sort before
-      // string values, so "10" (a string) sorts after 2 but before "9"
-      // and after "!" — matching gawk and the interpreter's `<` for
-      // pure strings. The old looks-like-a-number rule cycled for
-      // mixed values such as "1a", 2, 10 ("1a" < "2" as strings,
-      // 2 < 10 numerically, but "1a" > "10" as strings), so the sort
-      // order depended on the input permutation.
+      // string values, so a strnum "10" sorts before the string "9"
+      // only when it came from input/split; a literal "10" is a
+      // string and sorts before "9" lexically. The old
+      // looks-like-a-number rule cycled for mixed values such as
+      // "1a", 2, 10 ("1a" < "2" as strings, 2 < 10 numerically, but
+      // "1a" > "10" as strings), so the sort order depended on the
+      // input permutation.
       result = a.isNum ? -1 : 1;
     } else if (a.isNum) {
       result = compareNumbers(a.num, b.num);
       // gawk breaks numeric ties with the string values so the ordering
       // does not depend on the underlying sort implementation.
-      if (result === 0) result = compareStrings(a.str, b.str);
+      if (result === 0) {
+        result = compareAwkStrings(a.str, b.str, ignoreCase);
+        stringCompared = true;
+      }
     } else {
-      // Same fallback as the interpreter's `<`: string comparison.
-      result = compareStrings(a.str, b.str);
+      result = compareAwkStrings(a.str, b.str, ignoreCase);
+      stringCompared = true;
+    }
+    comparisons++;
+    pendingComparisonWork +=
+      1 + (stringCompared ? Math.min(a.str.length, b.str.length) >> 10 : 0);
+    if (comparisons % 1024 === 0) {
+      scope?.consumeWork(pendingComparisonWork, "asort comparison");
+      pendingComparisonWork = 0;
+      scope?.throwIfAborted("asort sort");
     }
     return descending ? -result : result;
   };
   entries.sort(compare);
+  if (pendingComparisonWork > 0) {
+    scope?.consumeWork(pendingComparisonWork, "asort comparison");
+    pendingComparisonWork = 0;
+  }
 
   // The values are already copied above, so replacing the destination is
   // safe even when dest is the source.
@@ -474,6 +608,13 @@ async function awkAsort(
     entries.map((entry) => entry.value),
     resolvedDest,
   );
+  // The destination's numeric-string keys follow the sorted values: a
+  // strnum stays one wherever it lands.
+  const destStrnumKeys = new Set<string>();
+  entries.forEach((entry, index) => {
+    if (entry.isStrnum) destStrnumKeys.add(String(index + 1));
+  });
+  setStrnumArrayKeys(ctx, resolvedDest, destStrnumKeys);
   return values.length;
 }
 

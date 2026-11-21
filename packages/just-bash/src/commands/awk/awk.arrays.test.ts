@@ -253,6 +253,20 @@ describe("awk associative arrays", () => {
       expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     });
 
+    it("should let a split into ARGV fit wholly in its exempt slots", async () => {
+      // One part against a limit of five with five other elements
+      // already charged: the part fits ARGV's single prepopulated
+      // slot, so the split must succeed. At base the prospective
+      // bound omitted the baseline and rejected it.
+      const bash = new Bash({ executionLimits: { maxArrayElements: 5 } });
+      const result = await bash.exec(
+        `echo "" | awk 'BEGIN { a[1]=1; a[2]=2; a[3]=3; a[4]=4; a[5]=5; n = split("x", ARGV, ","); print "n=" n, ARGV[1] }'`,
+      );
+      expect(result.stdout).toBe("n=1 x\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should split into a function-parameter array", async () => {
       const env = new Bash();
       const result = await env.exec(
@@ -423,6 +437,47 @@ describe("awk associative arrays", () => {
       expect(result.exitCode).toBe(0);
     });
 
+    it("should sort input field values numerically in the default order", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `printf '10\\n9\\n' | awk '{a[NR]=$1} END{asort(a); print a[1],a[2]}'`,
+      );
+      // Fields are numeric strings (strnums) in gawk, so "10" and "9"
+      // sort numerically here — unlike string literals, which sort
+      // lexically ("10" before "9").
+      expect(result.stdout).toBe("9 10\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should sort split values numerically in the default order", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN{split("10 9",a); asort(a); print a[1],a[2]}'`,
+      );
+      expect(result.stdout).toBe("9 10\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should keep numeric-string provenance through a scalar variable", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `printf '10\\n9\\n' | awk '{x=$1; a[NR]=x} END{asort(a); print a[1],a[2]}'`,
+      );
+      expect(result.stdout).toBe("9 10\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should not treat concatenated field values as numeric strings", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `printf '10\\n9\\n' | awk '{a[NR]=$1 ""} END{asort(a); print a[1],a[2]}'`,
+      );
+      // Concatenation produces a plain string in gawk, so the values
+      // sort lexically.
+      expect(result.stdout).toBe("10 9\n");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should honor @val_str_desc ordering", async () => {
       const env = new Bash();
       const result = await env.exec(
@@ -534,6 +589,110 @@ describe("awk associative arrays", () => {
       expect(result.exitCode).toBe(0);
     });
 
+    it("should treat an omitted function parameter as an uninitialized array for asort", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function f(a){print asort(a)} BEGIN{f()}'`,
+      );
+      // gawk prints 0: an omitted parameter is untyped, not a scalar.
+      expect(result.stdout).toBe("0\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should let a how function using the same parameter name write the source array", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function g(a){a[1]=7; return "@val_num_asc"} function f(a){asort(a,a,g(a)); print a[1],a[2]} BEGIN{x[1]=3;x[2]=1;f(x)}'`,
+      );
+      // g's parameter must keep pointing at f's array while g runs,
+      // so its write of a[1]=7 is visible to the sort, as in gawk.
+      expect(result.stdout).toBe("1 7\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should keep swapped array arguments pointing at the right arrays", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'function f(x,y){asort(x); asort(y); print x[1], x[2], y[1], y[2]} function g(x,y){f(y,x)} BEGIN{a[1]=3; a[2]=1; b[1]=4; b[2]=2; g(a,b)}'`,
+      );
+      expect(result.stdout).toBe("2 4 1 3\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should sort numbers by their CONVFMT form in @val_str_asc", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN{a[1]=0.00009; a[2]=0.001; asort(a,b,"@val_str_asc"); print b[1], b[2]}'`,
+      );
+      // gawk formats 0.00009 as "9e-05" (CONVFMT "%.6g"), which sorts
+      // after "0.001". The order is the assertion: with the plain
+      // String form ("0.00009") it would sort first. The printed
+      // "9e-5" (not gawk's "9e-05") is this codebase's existing %g
+      // display in print, not the sort key.
+      expect(result.stdout).toBe("0.001 9e-5\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should treat 'Infinity' as numeric zero in @val_num_asc", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN{a[1]="Infinity"; a[2]="1"; asort(a,b,"@val_num_asc"); print b[1], b[2]}'`,
+      );
+      expect(result.stdout).toBe("Infinity 1\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should honor IGNORECASE in string orderings", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN{IGNORECASE=1; a[1]="b"; a[2]="A"; a[3]="a"; a[4]="B"; asort(a); print a[1],a[2],a[3],a[4]}'`,
+      );
+      expect(result.stdout).toBe("A a B b\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should sort supplementary characters after BMP characters by code point", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN{a[1]="😀"; a[2]="Ａ"; asort(a); print a[1],a[2]}'`,
+      );
+      // gawk compares by code point (UTF-8 byte order), not by UTF-16
+      // code unit, so full-width Ａ (U+FF21) comes before 😀 (U+1F600).
+      expect(result.stdout).toBe("Ａ 😀\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should let an abort interrupt a large sort", async () => {
+      // The mock aborts only once the comparator starts charging: the
+      // conversion phase's own abort checks must pass first, so the
+      // test genuinely exercises an abort during sorting instead of
+      // failing before the sort begins.
+      let comparisonCharging = false;
+      const scope = {
+        consumeWork: (_units: number, site?: string) => {
+          if (site === "asort comparison") comparisonCharging = true;
+          return 0;
+        },
+        throwIfAborted: () => {
+          if (comparisonCharging) {
+            throw new ExecutionAbortedError("", "bash: asort sort aborted\n");
+          }
+        },
+      };
+      const parser = new AwkParser();
+      const ast = parser.parse(
+        `BEGIN { for (i = 3000; i >= 1; i--) x[i] = i; n = asort(x); print n }`,
+      );
+      const ctx = createRuntimeContext({
+        executionScope: scope as unknown as CommandExecutionBudget,
+      });
+      const interp = new AwkInterpreter(ctx);
+      interp.execute(ast);
+      await expect(interp.executeBegin()).rejects.toThrow(
+        ExecutionAbortedError,
+      );
+    });
+
     it("should read and write ARGV through a function-parameter alias", async () => {
       const env = new Bash({
         files: { "/tmp/f1": "", "/tmp/f2": "" },
@@ -585,27 +744,6 @@ describe("awk associative arrays", () => {
         "bash: asort comparison: work work limit exceeded (10002)\n",
       );
       expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
-    });
-
-    it("should let an abort interrupt a large sort", async () => {
-      const scope = {
-        consumeWork: () => 0,
-        throwIfAborted: () => {
-          throw new ExecutionAbortedError("", "bash: asort sort aborted\n");
-        },
-      };
-      const parser = new AwkParser();
-      const ast = parser.parse(
-        `BEGIN { for (i = 3000; i >= 1; i--) x[i] = i; n = asort(x); print n }`,
-      );
-      const ctx = createRuntimeContext({
-        executionScope: scope as unknown as CommandExecutionBudget,
-      });
-      const interp = new AwkInterpreter(ctx);
-      interp.execute(ast);
-      await expect(interp.executeBegin()).rejects.toThrow(
-        ExecutionAbortedError,
-      );
     });
 
     it("should break numeric ties by string value for @val_num_asc (fixes #737)", async () => {
@@ -754,6 +892,67 @@ describe("awk associative arrays", () => {
         `awk 'BEGIN { ARGC=2 } { print FILENAME, $0 }' /one /two`,
       );
       expect(result.stdout).toBe("/one one-line\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should terminate when ARGC is set to Infinity", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { ARGC=1e400 } END { print "done" }'`,
+      );
+      // gawk itself spins forever here; the input scan stops at the
+      // entries that actually exist instead of following ARGC.
+      expect(result.stdout).toBe("done\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should read a file named by ARGV during an earlier file", async () => {
+      const env = new Bash({
+        files: {
+          "/one": "one-line\n",
+          "/two": "two-line\n",
+          "/three": "three-line\n",
+        },
+      });
+      const result = await env.exec(
+        `awk 'FNR==1 {print FILENAME,$0; if (FILENAME=="/one") ARGV[2]="/three"}' /one /two`,
+      );
+      expect(result.stdout).toBe("/one one-line\n/three three-line\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should read stdin for a '-' ARGV entry", async () => {
+      const env = new Bash({
+        files: { "/one": "one-line\n" },
+      });
+      const result = await env.exec(
+        `printf 'stdin\\n' | awk 'BEGIN {a[1]="-"; asort(a,ARGV)} {print FILENAME, $0}' /one`,
+      );
+      expect(result.stdout).toBe("- stdin\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should skip a numeric ARGV entry and read stdin instead", async () => {
+      const env = new Bash({
+        files: { "/one": "one-line\n" },
+      });
+      const result = await env.exec(
+        `printf 'stdin\\n' | awk 'BEGIN {a[1]=1; asort(a,ARGV)} {print}' /one`,
+      );
+      expect(result.stdout).toBe("stdin\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should fill ARGV with many entries without rescanning it per insert", async () => {
+      // Correctness pin for the incremental size tracking: filling
+      // ARGV used to rescan its keys on every insert (quadratic), so
+      // 100,000 inserts burned ~5e9 key visits uncharged. The speed
+      // itself is verified by timing, not by this test.
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { for (i=1; i<=5000; i++) ARGV[i]=i; print ARGV[5000], ARGV[1] }'`,
+      );
+      expect(result.stdout).toBe("5000 1\n");
       expect(result.exitCode).toBe(0);
     });
   });

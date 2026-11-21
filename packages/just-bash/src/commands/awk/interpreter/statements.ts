@@ -522,6 +522,9 @@ async function executeForIn(
 
   for (const key of Object.keys(array)) {
     ctx.vars[stmt.variable] = key;
+    // A for-in key is a plain string, never a numeric string: the
+    // loop variable loses any strnum provenance it had.
+    ctx.strnumVars?.delete(stmt.variable);
 
     ctx.loopContinue = false;
     await withDefenseContext(ctx, "for-in body execution", () =>

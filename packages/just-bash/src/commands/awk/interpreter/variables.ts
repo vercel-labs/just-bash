@@ -23,6 +23,8 @@ export function getVariable(ctx: AwkRuntimeContext, name: string): AwkValue {
       return ctx.ORS;
     case "OFMT":
       return ctx.OFMT;
+    case "CONVFMT":
+      return ctx.CONVFMT;
     case "NR":
       return ctx.NR;
     case "NF":
@@ -64,6 +66,9 @@ export function setVariable(
       return;
     case "OFMT":
       ctx.OFMT = toAwkString(value);
+      return;
+    case "CONVFMT":
+      ctx.CONVFMT = toAwkString(value);
       return;
     case "NR":
       ctx.NR = Math.floor(toNumber(value));
@@ -110,6 +115,10 @@ export function setVariable(
   }
 
   ctx.vars[name] = value;
+  // A scalar write through this path carries no provenance: only the
+  // assignment evaluator (which can see the right-hand side) may
+  // re-mark the variable as a numeric string afterwards.
+  ctx.strnumVars?.delete(name);
 }
 
 /**
@@ -146,6 +155,123 @@ export function getArrayStore(
   if (rawName === "ARGV" || resolvedName === "ARGV") return ctx.ARGV;
   if (rawName === "ENVIRON" || resolvedName === "ENVIRON") return ctx.ENVIRON;
   return ctx.arrays[resolvedName];
+}
+
+/**
+ * Live element count of a prepopulated store, tracked incrementally
+ * (see ctx.specialStoreSizes). Falls back to a one-off key scan for a
+ * context built without the map, e.g. a hand-built test context.
+ */
+export function specialStoreSize(
+  ctx: AwkRuntimeContext,
+  store: Record<string, AwkValue>,
+): number {
+  if (store === ctx.ARGV) {
+    return ctx.specialStoreSizes?.get("ARGV") ?? Object.keys(store).length;
+  }
+  if (store === ctx.ENVIRON) {
+    return ctx.specialStoreSizes?.get("ENVIRON") ?? Object.keys(store).length;
+  }
+  return Object.keys(store).length;
+}
+
+/**
+ * Record a prepopulated store's live element count after a bulk
+ * write (replace/split) that already knows the new size. No-op for
+ * program-created arrays.
+ */
+export function setSpecialStoreSize(
+  ctx: AwkRuntimeContext,
+  store: Record<string, AwkValue>,
+  size: number,
+): void {
+  if (!ctx.specialStoreSizes) ctx.specialStoreSizes = new Map();
+  if (store === ctx.ARGV) ctx.specialStoreSizes.set("ARGV", size);
+  else if (store === ctx.ENVIRON) ctx.specialStoreSizes.set("ENVIRON", size);
+}
+
+/**
+ * True when the named scalar variable currently holds a numeric
+ * string (strnum). Built-in scalars are never strnums.
+ */
+export function isStrnumVar(ctx: AwkRuntimeContext, name: string): boolean {
+  return ctx.strnumVars?.has(name) ?? false;
+}
+
+/**
+ * Record (or clear) that a scalar variable holds a numeric string.
+ * Built-in scalar names are ignored: they are formatted/compared
+ * through their own accessors, never through this set.
+ */
+export function markStrnumVar(
+  ctx: AwkRuntimeContext,
+  name: string,
+  isStrnum: boolean,
+): void {
+  if (BUILTIN_SCALARS.has(name)) return;
+  if (!ctx.strnumVars) ctx.strnumVars = new Set();
+  if (isStrnum) ctx.strnumVars.add(name);
+  else ctx.strnumVars.delete(name);
+}
+
+/**
+ * True when an array element (by resolved array name) holds a numeric
+ * string (strnum).
+ */
+export function isStrnumArrayKey(
+  ctx: AwkRuntimeContext,
+  resolvedName: string,
+  key: string,
+): boolean {
+  return ctx.strnumArrayKeys?.get(resolvedName)?.has(key) ?? false;
+}
+
+/**
+ * Record (or clear) that an array element holds a numeric string.
+ */
+export function markStrnumArrayKey(
+  ctx: AwkRuntimeContext,
+  resolvedName: string,
+  key: string,
+  isStrnum: boolean,
+): void {
+  if (!ctx.strnumArrayKeys) ctx.strnumArrayKeys = new Map();
+  if (isStrnum) {
+    let keys = ctx.strnumArrayKeys.get(resolvedName);
+    if (!keys) {
+      keys = new Set();
+      ctx.strnumArrayKeys.set(resolvedName, keys);
+    }
+    keys.add(key);
+  } else {
+    ctx.strnumArrayKeys.get(resolvedName)?.delete(key);
+  }
+}
+
+/**
+ * Replace an array's strnum-key set wholesale (split/asort rebuild
+ * the array, so the old keys no longer apply).
+ */
+export function setStrnumArrayKeys(
+  ctx: AwkRuntimeContext,
+  resolvedName: string,
+  keys: Set<string>,
+): void {
+  if (!ctx.strnumArrayKeys) ctx.strnumArrayKeys = new Map();
+  if (keys.size > 0) ctx.strnumArrayKeys.set(resolvedName, keys);
+  else ctx.strnumArrayKeys.delete(resolvedName);
+}
+
+/**
+ * Drop an array's strnum-key set entirely (whole-array delete/replace
+ * with unknown provenance; callers that know the new contents set the
+ * keys again afterwards).
+ */
+export function clearStrnumArray(
+  ctx: AwkRuntimeContext,
+  resolvedName: string,
+): void {
+  ctx.strnumArrayKeys?.delete(resolvedName);
 }
 
 /**
@@ -194,7 +320,10 @@ export function chargedSizeOfArray(
 ): number {
   const store = getArrayStore(ctx, rawName, resolvedName);
   if (!store) return 0;
-  return Math.max(0, Object.keys(store).length - prepopulatedSize(ctx, store));
+  return Math.max(
+    0,
+    specialStoreSize(ctx, store) - prepopulatedSize(ctx, store),
+  );
 }
 
 /**
@@ -210,6 +339,7 @@ const BUILTIN_SCALARS = new Set([
   "OFS",
   "ORS",
   "OFMT",
+  "CONVFMT",
   "NR",
   "NF",
   "FNR",
@@ -267,6 +397,10 @@ export function replaceArrayValues(
     for (let i = 0; i < values.length; i++) {
       store[String(i + 1)] = values[i];
     }
+    setSpecialStoreSize(ctx, store, values.length);
+    // The incoming values carry no provenance here; callers that know
+    // it (asort) set the destination's strnum keys again afterwards.
+    clearStrnumArray(ctx, resolvedName);
     // Clamped at zero: a context built without baselines (e.g.
     // hand-built in a test) can otherwise drive the count negative.
     ctx.arrayElementCount = Math.max(
@@ -315,11 +449,11 @@ export function setArrayElement(
       // Only elements beyond the prepopulated contents consume the
       // allowance: the initial ARGV/ENVIRON entries are exempt, so a
       // small maxArrayElements still leaves room for program arrays.
-      // (ARGV/ENVIRON are small — bounded by the command line and the
-      // environment — so counting their keys here stays cheap.)
-      const beyondPrepopulated =
-        Object.keys(store).length >= prepopulatedSize(ctx, store);
-      if (beyondPrepopulated) {
+      // The store size is tracked incrementally (see
+      // ctx.specialStoreSizes): rescanning the keys on every insert
+      // made filling ARGV/ENVIRON quadratic.
+      const size = specialStoreSize(ctx, store);
+      if (size >= prepopulatedSize(ctx, store)) {
         if (ctx.arrayElementCount >= ctx.maxArrayElements) {
           throw new ExecutionLimitError(
             `array element limit exceeded (${ctx.maxArrayElements})`,
@@ -328,8 +462,13 @@ export function setArrayElement(
         }
         ctx.arrayElementCount++;
       }
+      setSpecialStoreSize(ctx, store, size + 1);
     }
     store[key] = value;
+    // The new value carries no provenance at this layer; the
+    // assignment evaluator re-marks the key when the right-hand side
+    // is a field or a numeric-string variable.
+    markStrnumArrayKey(ctx, resolvedArray, key, false);
     return;
   }
   if (!ctx.arrays[resolvedArray]) {
@@ -346,6 +485,9 @@ export function setArrayElement(
     ctx.arrayElementCount++;
   }
   ctx.arrays[resolvedArray][key] = value;
+  // As in the special-store branch, the assignment evaluator re-marks
+  // the key when the right-hand side carries numeric-string provenance.
+  markStrnumArrayKey(ctx, resolvedArray, key, false);
 }
 
 /**
@@ -380,16 +522,20 @@ export function deleteArrayElement(
       // Only a charged element frees allowance when deleted: while the
       // store still holds more than its prepopulated size, the deleted
       // key counts as a program-added one.
-      if (Object.keys(store).length > prepopulatedSize(ctx, store)) {
+      const size = specialStoreSize(ctx, store);
+      if (size > prepopulatedSize(ctx, store)) {
         ctx.arrayElementCount = Math.max(0, ctx.arrayElementCount - 1);
       }
       delete store[key];
+      setSpecialStoreSize(ctx, store, size - 1);
+      markStrnumArrayKey(ctx, resolvedArray, key, false);
     }
     return;
   }
   if (ctx.arrays[resolvedArray]) {
     if (key in ctx.arrays[resolvedArray]) ctx.arrayElementCount--;
     delete ctx.arrays[resolvedArray][key];
+    markStrnumArrayKey(ctx, resolvedArray, key, false);
   }
 }
 
@@ -412,8 +558,11 @@ export function deleteArray(ctx: AwkRuntimeContext, array: string): void {
     for (const key of Object.keys(store)) {
       delete store[key];
     }
+    setSpecialStoreSize(ctx, store, 0);
+    clearStrnumArray(ctx, resolvedArray);
     return;
   }
   ctx.arrayElementCount -= Object.keys(ctx.arrays[resolvedArray] ?? {}).length;
   delete ctx.arrays[resolvedArray];
+  clearStrnumArray(ctx, resolvedArray);
 }

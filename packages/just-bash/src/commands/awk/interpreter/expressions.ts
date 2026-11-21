@@ -24,6 +24,7 @@ import { awkBuiltins } from "../builtins.js";
 import type { AwkRuntimeContext } from "./context.js";
 import { getField, setCurrentLine, setField } from "./fields.js";
 import {
+  isAwkNumericString,
   isTruthy,
   looksLikeNumber,
   matchRegex,
@@ -35,6 +36,10 @@ import {
   getArrayElement,
   getVariable,
   hasArrayElement,
+  isStrnumVar,
+  markStrnumArrayKey,
+  markStrnumVar,
+  resolveArrayName,
   setArrayElement,
   setVariable,
 } from "./variables.js";
@@ -394,8 +399,12 @@ async function callUserFunction(
   // Save only parameter variables (they are local in AWK)
   // Use null-prototype to prevent prototype pollution via user-controlled param names
   const savedParams: Record<string, AwkValue | undefined> = Object.create(null);
+  // A parameter shadows an outer variable of the same name, so its
+  // numeric-string provenance is saved and restored alongside it.
+  const savedStrnumParams = new Map<string, boolean>();
   for (const param of func.params) {
     savedParams[param] = ctx.vars[param];
+    savedStrnumParams.set(param, isStrnumVar(ctx, param));
   }
 
   // Track array aliases we create (to clean up later)
@@ -405,6 +414,21 @@ async function callUserFunction(
   // asort with the same array parameter). Save it so returning restores
   // the outer binding instead of dropping it.
   const shadowedAliases = new Map<string, string>();
+
+  // Resolve array arguments through the caller's aliases BEFORE
+  // installing this call's bindings: a nested call reusing the same
+  // parameter name (e.g. g(a) inside f(a)) must keep pointing at the
+  // caller's array instead of installing a self-alias (a -> a) that
+  // shadows it for the duration of the call. Resolving up front also
+  // keeps swapped arguments (f(y, x) for f(x, y)) pointing at the
+  // right arrays.
+  const resolvedArgNames = new Map<number, string>();
+  for (let i = 0; i < func.params.length && i < args.length; i++) {
+    const arg = args[i];
+    if (arg.type === "variable") {
+      resolvedArgNames.set(i, resolveArrayName(ctx, arg.name));
+    }
+  }
 
   // Set up parameters
   for (let i = 0; i < func.params.length; i++) {
@@ -416,7 +440,7 @@ async function callUserFunction(
       if (arg.type === "variable") {
         const previous = ctx.arrayAliases.get(param);
         if (previous !== undefined) shadowedAliases.set(param, previous);
-        ctx.arrayAliases.set(param, arg.name);
+        ctx.arrayAliases.set(param, resolvedArgNames.get(i) ?? arg.name);
         createdAliases.push(param);
       }
       const value = await withDefenseContext(
@@ -425,8 +449,26 @@ async function callUserFunction(
         () => evalExpr(ctx, arg),
       );
       ctx.vars[param] = value;
+      // The parameter shadows any outer variable of the same name, so
+      // its numeric-string provenance comes only from the argument
+      // just passed: a numeric-looking string argument is a strnum,
+      // anything else — including an array argument, whose scalar slot
+      // holds "" — is not.
+      markStrnumVar(
+        ctx,
+        param,
+        typeof value === "string" && isAwkNumericString(value),
+      );
     } else {
-      ctx.vars[param] = "";
+      // An omitted parameter is untyped: it is neither a scalar nor an
+      // array yet, so it must not be stored as "" (which the asort
+      // validation would read as an initialized scalar). Reads still
+      // yield "" through getVariable's fallback, and a later
+      // assignment gives the parameter a type. The slot is deleted
+      // rather than left alone so an outer variable of the same name
+      // does not leak into the call.
+      delete ctx.vars[param];
+      markStrnumVar(ctx, param, false);
     }
   }
 
@@ -450,6 +492,7 @@ async function callUserFunction(
     } else {
       delete ctx.vars[param];
     }
+    markStrnumVar(ctx, param, savedStrnumParams.get(param) ?? false);
   }
 
   // Clean up array aliases we created, restoring any outer alias this
@@ -486,6 +529,19 @@ async function evalAssignment(
   );
   const target = expr.target;
   const op = expr.operator;
+
+  // Numeric-string (strnum) provenance: a value copied straight from
+  // an input field ($n) or from a variable that itself holds a strnum
+  // stays a strnum; any other right-hand side (literal, arithmetic,
+  // concatenation, function call, array element) is a plain string.
+  // Only a plain "=" assignment carries provenance; compound
+  // assignments produce numbers.
+  const rhsIsStrnum =
+    op === "=" &&
+    ((expr.value.type === "field" &&
+      typeof value === "string" &&
+      isAwkNumericString(value)) ||
+      (expr.value.type === "variable" && isStrnumVar(ctx, expr.value.name)));
 
   let finalValue: AwkValue;
 
@@ -552,7 +608,10 @@ async function evalAssignment(
     );
     setField(ctx, index, finalValue);
   } else if (target.type === "variable") {
+    // setVariable clears the variable's strnum flag; re-mark it when
+    // the right-hand side carried numeric-string provenance.
     setVariable(ctx, target.name, finalValue);
+    if (rhsIsStrnum) markStrnumVar(ctx, target.name, true);
   } else {
     const key = toAwkString(
       await withDefenseContext(ctx, "assignment target array key", () =>
@@ -560,6 +619,12 @@ async function evalAssignment(
       ),
     );
     setArrayElement(ctx, target.array, key, finalValue);
+    markStrnumArrayKey(
+      ctx,
+      resolveArrayName(ctx, target.array),
+      key,
+      rhsIsStrnum,
+    );
   }
 
   return finalValue;
