@@ -197,6 +197,19 @@ describe("awk associative arrays", () => {
       expect(result.stdout).toBe("0 a b\n");
       expect(result.exitCode).toBe(0);
     });
+
+    it("should reject split when the initial count already exceeds the limit", async () => {
+      // ENVIRON alone already fills a maxArrayElements of 5, so the
+      // room for a split is negative: the split must fail on the limit
+      // without doing unbounded work on the input first.
+      const bash = new Bash({ executionLimits: { maxArrayElements: 5 } });
+      const result = await bash.exec(
+        `echo "" | awk 'BEGIN { n = split("a,b,c,d,e,f,g,h", arr, ","); print "n=" n }'`,
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("awk: array element limit exceeded (5)\n");
+      expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+    });
   });
 
   describe("counting with arrays", () => {
@@ -455,25 +468,33 @@ describe("awk associative arrays", () => {
     });
 
     it("should count values copied into ARGV against maxArrayElements", async () => {
+            // ENVIRON holds 12 default entries, already more than the
+      // maxArrayElements of 5, so delete it first: without that, the
+      // limit would trip while building the source array, before asort
+      // ever copies anything into ARGV.
       const bash = new Bash({ executionLimits: { maxArrayElements: 5 } });
       const result = await bash.exec(
-        `echo "" | awk 'BEGIN { r[1]=4; r[2]=3; r[3]=2; r[4]=1; n = asort(r, ARGV); print "n=" n }'`,
+        `echo "" | awk 'BEGIN { delete ENVIRON; r[1]=4; r[2]=3; r[3]=2; r[4]=1; print "built"; n = asort(r, ARGV); print "n=" n }'`,
       );
-      expect(result.stdout).toBe("");
+      expect(result.stdout).toBe("built\n");
       expect(result.stderr).toBe("awk: array element limit exceeded (5)\n");
       expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     });
 
     it("should charge the sort to the shared work budget", async () => {
-      const bash = new Bash({ executionLimits: { maxWorkUnits: 50 } });
+            // 10,000 values against a 10,002 budget: the conversion charge
+      // costs 10,000 units and fits, so the sort itself trips the
+      // limit at the 3rd comparison charge (one unit per 1024
+      // comparisons).
+      const bash = new Bash({ executionLimits: { maxWorkUnits: 10002 } });
       const result = await bash.exec(
-        `echo "" | awk 'BEGIN { for (i = 200; i >= 1; i--) x[i] = i; n = asort(x); print "n=" n }'`,
+        `echo "" | awk 'BEGIN { for (i = 10000; i >= 1; i--) x[i] = i; n = asort(x); print "n=" n }'`,
       );
       expect(result.stdout).toBe("");
       // Scope-charged work errors surface with the shell's "bash:" prefix
       // (the same shape as other commands' consumeWork errors, e.g. xan).
       expect(result.stderr).toBe(
-        "bash: asort value conversion: work work limit exceeded (50)\n",
+        "bash: asort comparison: work work limit exceeded (10002)\n",
       );
       expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
     });
