@@ -301,13 +301,16 @@ async function writeToFile(
   const filePath = fs.resolvePath(ctx.cwd, filename);
 
   if (redirect === ">") {
-    // Overwrite mode: first write clears file, subsequent writes append
-    if (!ctx.openedFiles.has(filePath)) {
+    // Overwrite mode: first write clears file, subsequent writes append.
+    // The open state is keyed by the redirection name as written, so
+    // `print > "./f"` is a different stream from `print > "f"` (awk
+    // identifies redirections by their original string).
+    if (!ctx.openedFiles.has(filename)) {
       // First write - overwrite (write empty first, then append)
       await withDefenseContext(ctx, "redirection overwrite write", () =>
         fs.writeFile(filePath, text),
       );
-      ctx.openedFiles.add(filePath);
+      ctx.openedFiles.add(filename);
     } else {
       // Subsequent write - append
       await withDefenseContext(ctx, "redirection append write", () =>
@@ -316,9 +319,9 @@ async function writeToFile(
     }
   } else {
     // Append mode: always append
-    if (!ctx.openedFiles.has(filePath)) {
+    if (!ctx.openedFiles.has(filename)) {
       // First time seeing this file in append mode
-      ctx.openedFiles.add(filePath);
+      ctx.openedFiles.add(filename);
     }
     await withDefenseContext(ctx, "redirection append mode write", () =>
       fs.appendFile(filePath, text),
