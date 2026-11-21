@@ -425,7 +425,7 @@ async function callUserFunction(
     savedStrnumParams.set(param, isStrnumVar(ctx, param));
   }
 
-  // Resolve array arguments through the caller's aliases BEFORE
+  // Resolve array arguments through the caller's frame BEFORE
   // installing this call's bindings: a nested call reusing the same
   // parameter name (e.g. g(a) inside f(a)) must keep pointing at the
   // caller's array instead of installing a self-binding (a -> a) that
