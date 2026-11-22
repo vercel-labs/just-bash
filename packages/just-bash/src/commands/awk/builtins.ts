@@ -28,6 +28,7 @@ import {
   isIgnoreCaseEnabled,
   isScalarVariable,
   isStrnumArrayKey,
+  markArrayTyped,
   replaceArrayValues,
   resolveArrayName,
   setSpecialStoreSize,
@@ -368,10 +369,12 @@ async function awkSplit(
  * with a lower code point (full-width Ａ U+FF21).
  *
  * Besides the order, each comparator reports `scanned`: the length
- * of the common prefix it actually walked (UTF-16 code units), so
- * the asort work budget charges a comparison for the characters it
- * compared, not for the whole shorter string when the first
- * characters already differ (review 6010326757).
+ * of the common prefix it actually walked — UTF-16 code units for
+ * the code-point comparator, UTF-8 bytes for the IGNORECASE byte
+ * comparator (see compareIgnoreCaseBytes) — so the asort work
+ * budget charges a comparison for the characters it compared, not
+ * for the whole shorter string when the first characters already
+ * differ (review 6010326757).
  */
 function compareCodePoints(
   a: string,
@@ -458,6 +461,10 @@ function utf8BytesOf(codePoint: number, out: number[]): number {
  * signed-byte folding. One code point's UTF-8 form cannot be a strict
  * prefix of another's (the lead byte fixes the length), so comparing
  * code point by code point is the same as comparing the byte streams.
+ * `scanned` is the number of UTF-8 bytes in the common prefix — not
+ * the UTF-16 code-unit index, which undercharges the work budget for
+ * non-ASCII text (one É is two bytes but one code unit, so the old
+ * count charged half the bytes actually walked — review 6011013916).
  */
 function compareIgnoreCaseBytes(
   a: string,
@@ -465,6 +472,11 @@ function compareIgnoreCaseBytes(
 ): { result: number; scanned: number } {
   let i = 0;
   let j = 0;
+  // UTF-8 byte offsets of the code points at i and j: the charge is
+  // for bytes walked, so these advance by each code point's byte
+  // length while i and j advance by UTF-16 code units.
+  let byteI = 0;
+  let byteJ = 0;
   const aBytes: number[] = [0, 0, 0, 0];
   const bBytes: number[] = [0, 0, 0, 0];
   while (i < a.length && j < b.length) {
@@ -477,21 +489,34 @@ function compareIgnoreCaseBytes(
       const fa = foldIgnoreCaseByte(aBytes[k]);
       const fb = foldIgnoreCaseByte(bBytes[k]);
       if (fa !== fb)
-        return { result: fa < fb ? -1 : 1, scanned: Math.min(i, j) };
+        return {
+          result: fa < fb ? -1 : 1,
+          scanned: Math.min(byteI, byteJ) + k,
+        };
     }
-    if (na !== nb) return { result: na < nb ? -1 : 1, scanned: Math.min(i, j) };
+    if (na !== nb)
+      return {
+        result: na < nb ? -1 : 1,
+        scanned: Math.min(byteI, byteJ) + n,
+      };
     i += ca > 0xffff ? 2 : 1;
     j += cb > 0xffff ? 2 : 1;
+    byteI += na;
+    byteJ += nb;
   }
-  if (i < a.length) return { result: 1, scanned: Math.min(i, j) };
-  if (j < b.length) return { result: -1, scanned: Math.min(i, j) };
-  return { result: 0, scanned: Math.min(i, j) };
+  if (i < a.length) return { result: 1, scanned: Math.min(byteI, byteJ) };
+  if (j < b.length) return { result: -1, scanned: Math.min(byteI, byteJ) };
+  return { result: 0, scanned: Math.min(byteI, byteJ) };
 }
 
 function compareNumbers(a: number, b: number): number {
   // NaN is not equal to every number: gawk sorts it after all numbers
-  // in the default and @val_num_* modes (the @val_str_* modes compare
-  // its "-nan"/"nan" spelling instead). NaN against NaN is a tie.
+  // in the default and @val_num_* modes, ascending (the @val_str_*
+  // modes compare its "-nan"/"nan" spelling instead). The descending
+  // modes negate this result, so NaN comes first there — which is
+  // also what gawk does (review 6011013916: the blanket "NaN sorts
+  // after all numbers" does not hold for descending). NaN against
+  // NaN is a tie.
   if (Number.isNaN(a)) return Number.isNaN(b) ? 0 : 1;
   if (Number.isNaN(b)) return -1;
   return a < b ? -1 : a > b ? 1 : 0;
@@ -563,6 +588,67 @@ function formatAwkNumber(ctx: AwkRuntimeContext, value: number): string {
 }
 
 /**
+ * Upper bound on the output length of formatting one number with a
+ * CONVFMT format string, for the lazy-format precharge in asort.
+ * The format's own length covers literals, but a width or precision
+ * can make the output far longer than the format ("%010000.1f" is 12
+ * characters and formats to 10,000 — the old estimate of
+ * format.length + 32 charged 1 unit before allocating 10 KiB per
+ * key; review 6011013916). Each conversion spec contributes the
+ * larger of its width and its precision plus room for a float's
+ * integer digits (a non-integer double can carry ~309 of them, and
+ * %.100f keeps 100 fraction digits). "*" widths/precisions take
+ * their value from an argument, which formatAwkNumber does not
+ * supply, so they contribute nothing here.
+ */
+export function estimateConvfmtOutputWidth(format: string): number {
+  let bound = format.length + 32;
+  let i = 0;
+  while (i < format.length) {
+    if (format[i] !== "%" || i + 1 >= format.length) {
+      i++;
+      continue;
+    }
+    let j = i + 1;
+    if (format[j] === "%") {
+      i = j + 1;
+      continue;
+    }
+    // Positional argument: %n$ — skip the "n$" (it is not a width).
+    const posStart = j;
+    while (j < format.length && /\d/.test(format[j])) j++;
+    if (j > posStart && format[j] === "$") j++;
+    else j = posStart;
+    while (j < format.length && /[-+ #0]/.test(format[j])) j++;
+    let width = 0;
+    if (format[j] === "*") {
+      j++;
+    } else {
+      const start = j;
+      while (j < format.length && /\d/.test(format[j])) j++;
+      if (j > start) width = parseInt(format.slice(start, j), 10);
+    }
+    let precision = 0;
+    if (format[j] === ".") {
+      j++;
+      if (format[j] === "*") {
+        j++;
+      } else {
+        const start = j;
+        while (j < format.length && /\d/.test(format[j])) j++;
+        if (j > start) precision = parseInt(format.slice(start, j), 10);
+      }
+    }
+    // formatPrintf caps field width and precision at 10,000
+    // (100 for %f/%e/%g, throwing above), so clamp here to what can
+    // actually be produced.
+    bound += Math.max(Math.min(width, 10000), Math.min(precision, 10000) + 320);
+    i = j + 1;
+  }
+  return bound;
+}
+
+/**
  * gawk asort(source [, dest [, how]]): sort an array's values and reindex
  * them 1..n. Without dest the source is sorted in place; with dest the
  * source is left unchanged and the sorted values land in dest. Passing the
@@ -578,8 +664,10 @@ function formatAwkNumber(ctx: AwkRuntimeContext, value: number): string {
  * comparison: split("1.0 01 1") sorts as "1.0 01 1" in gawk 5.2.1,
  * verified against a local oracle — review 6010326757 corrected the
  * review-6009811820 claim that had added a string tie-break here),
- * and NaN sorts after every number, as in gawk
- * (the @val_str_* modes compare its "-nan"/"nan" spelling instead).
+ * and NaN sorts after every number in ascending order (the
+ * descending modes reverse the comparison, so NaN comes first there,
+ * as in gawk — review 6011013916). The @val_str_* modes compare
+ * NaN by its "-nan"/"nan" spelling instead.
  * Plain string values follow in string
  * order, so literal "10" sorts before "9". This deliberately differs from the
  * interpreter's `<` rules for mixed types: `<` compares two
@@ -591,6 +679,9 @@ function formatAwkNumber(ctx: AwkRuntimeContext, value: number): string {
  * "@val_str_desc" modes; the numeric modes parse values the way AWK
  * does ("Infinity" is 0, not infinite) and break ties between
  * numerically equal values with a string comparison, as gawk does.
+ * Only the @val_num_* modes break numeric ties by string value —
+ * the default mode never does (review 6011013916: the earlier
+ * wording read as if the tie-break applied to the default too).
  * String comparisons use gawk's ordering: code points (not UTF-16
  * code units), CONVFMT formatting for numbers, and IGNORECASE when
  * it is set.
@@ -666,6 +757,12 @@ async function awkAsort(
   // that modifies the source is visible to the sort.
   const sourceStore = getArrayStore(ctx, sourceRaw, resolvedSource);
   const values: AwkValue[] = sourceStore ? Object.values(sourceStore) : [];
+  // Using the source as an array makes it one even when it is empty
+  // or uninitialized: gawk rejects a later scalar assignment to it
+  // ("attempt to use array `a' in a scalar context"), so record the
+  // type here — the destination is marked by replaceArrayValues
+  // below, but nothing marked the source (review 6011013916).
+  markArrayTyped(ctx, resolvedSource);
   // Numeric-string provenance of the source elements, aligned with
   // `values` (Object.keys and Object.values share an order): input
   // fields and split() parts are strnums, string literals are not.
@@ -755,14 +852,16 @@ async function awkAsort(
     scope?.throwIfAborted("asort sort");
   };
   // A number's string form, formatted on first use and cached: the
-  // cost is charged before formatting, from an estimate (the CONVFMT
-  // length dominates the output when the format is a giant literal),
-  // and the abort signal is polled first when a charge is already
-  // pending — so a hostile CONVFMT trips the work budget after about
-  // one value instead of after 1,024 formatted keys.
+  // cost is charged before formatting, from an estimate of the output
+  // width (format length plus the largest width/precision — a width
+  // can make the output far longer than the format, so estimating
+  // from the format length alone undercharged a hostile CONVFMT;
+  // review 6011013916), and the abort signal is polled first when a
+  // charge is already pending — so a hostile CONVFMT trips the work
+  // budget after about one value instead of after 1,024 formatted keys.
   const entryStr = (entry: AsortEntry): string => {
     if (entry.str !== null) return entry.str;
-    const estimate = (ctx.CONVFMT || "%.6g").length + 32;
+    const estimate = estimateConvfmtOutputWidth(ctx.CONVFMT || "%.6g");
     pendingComparisonWork += 1 + (estimate >> 10);
     if (pendingComparisonWork >= 1024) flushComparisonWork();
     const formatted = formatAwkNumber(ctx, entry.value as number);
@@ -1379,6 +1478,25 @@ export function formatPrintf(
         return text;
       };
 
+      // Pad a formatted float to its field width. Unlike the integer
+      // cases, the "0" flag still zero-pads when a precision is
+      // present (%010.1f prints "00000001.5" in gawk, not spaces),
+      // with the sign kept first ("-0000005.0"); "-" still wins over
+      // "0", as in C (review 6011013916).
+      const padFloatWidth = (text: string): string => {
+        if (!width) return text;
+        const w = parseInt(width, 10);
+        if (flags.includes("-")) return text.padEnd(w);
+        if (flags.includes("0")) {
+          const sign =
+            text[0] === "-" || text[0] === "+" || text[0] === " "
+              ? text[0]
+              : "";
+          return sign + text.slice(sign.length).padStart(w - sign.length, "0");
+        }
+        return text.padStart(w);
+      };
+
       switch (spec) {
         case "s": {
           let str = val !== undefined ? String(val) : "";
@@ -1450,14 +1568,7 @@ export function formatPrintf(
             );
           }
           let str = signForFloat(num.toFixed(prec), num);
-          if (width) {
-            const w = parseInt(width, 10);
-            if (flags.includes("-")) {
-              str = str.padEnd(w);
-            } else {
-              str = str.padStart(w);
-            }
-          }
+          str = padFloatWidth(str);
           append(str);
           if (positionalIdx === undefined) valueIdx++;
           break;
@@ -1477,14 +1588,7 @@ export function formatPrintf(
           let str = num.toExponential(prec);
           if (spec === "E") str = str.toUpperCase();
           str = signForFloat(str, num);
-          if (width) {
-            const w = parseInt(width, 10);
-            if (flags.includes("-")) {
-              str = str.padEnd(w);
-            } else {
-              str = str.padStart(w);
-            }
-          }
+          str = padFloatWidth(str);
           append(str);
           if (positionalIdx === undefined) valueIdx++;
           break;
@@ -1520,14 +1624,7 @@ export function formatPrintf(
             str = str.replace(/\.?0+e/, "e");
           }
           str = signForFloat(str, num);
-          if (width) {
-            const w = parseInt(width, 10);
-            if (flags.includes("-")) {
-              str = str.padEnd(w);
-            } else {
-              str = str.padStart(w);
-            }
-          }
+          str = padFloatWidth(str);
           append(str);
           if (positionalIdx === undefined) valueIdx++;
           break;

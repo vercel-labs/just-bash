@@ -40,12 +40,14 @@ import {
 import type { AwkValue } from "./types.js";
 import {
   deleteArray,
+  forgetArrayTyped,
   getArrayElement,
   getVariable,
   hasArrayElement,
   isScalarVariable,
   isStrnumArrayKey,
   isStrnumVar,
+  LOCAL_SCALAR_PREFIX,
   markStrnumArrayKey,
   markStrnumVar,
   nextLocalArrayName,
@@ -636,7 +638,22 @@ async function callUserFunction(
         frame.set(param, nextLocalScalarName(ctx));
       }
       const value = argValues[i];
-      ctx.vars[param] = value;
+      // Only a scalar-bound parameter holds a value in its slot. An
+      // array-bound parameter used to be stored as "" (the array's
+      // scalar value), which isScalarVariable and assertArrayTarget
+      // then read as an initialized scalar: a deleted or
+      // uninitialized array passed through same-named parameters was
+      // rejected, and T.gawk's arrayref case failed. Delete the slot
+      // instead, as the omitted-parameter branch below does, so an
+      // outer scalar of the same name cannot leak into the call
+      // either — and so a real scalar assigned to the aliased global
+      // mid-call is still seen as a scalar (review 6011013916).
+      // Reads still yield "" through getVariable's fallback.
+      if (frame.get(param)?.startsWith(LOCAL_SCALAR_PREFIX)) {
+        ctx.vars[param] = value;
+      } else {
+        delete ctx.vars[param];
+      }
       // The parameter shadows any outer variable of the same name, so
       // its numeric-string provenance comes only from the argument
       // just passed (snapshot above), never from the value's spelling.
@@ -689,10 +706,17 @@ async function callUserFunction(
       markStrnumVar(ctx, param, savedStrnumParams.get(param) ?? false);
     }
 
-    // Drop this call's frame and the local stores it created.
+    // Drop this call's frame and the local stores it created, with
+    // their type metadata: a synthetic store's name can never be
+    // referenced again once its frame is gone, so its arrayTypedNames
+    // entry would otherwise leak one entry per call forever (review
+    // 6011013916). Only stores this frame created are dropped — a
+    // nested call that aliases an outer frame's local store shares
+    // the name, and the outer frame drops it when it returns.
     popArrayFrame(ctx);
     for (const store of createdLocalStores) {
       deleteArray(ctx, store);
+      forgetArrayTyped(ctx, store);
     }
 
     ctx.hasReturn = false;

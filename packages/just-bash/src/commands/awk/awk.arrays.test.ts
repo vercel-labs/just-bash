@@ -5,9 +5,11 @@ import {
   ExecutionAbortedError,
   ExecutionLimitError,
 } from "../../interpreter/errors.js";
+import { estimateConvfmtOutputWidth } from "./builtins.js";
 import { AwkInterpreter, createRuntimeContext } from "./interpreter/index.js";
 import {
   deleteArrayElement,
+  LOCAL_ARRAY_PREFIX,
   setArrayElement,
   setVariable,
 } from "./interpreter/variables.js";
@@ -477,10 +479,12 @@ describe("awk associative arrays", () => {
     it("should not treat concatenated field values as numeric strings", async () => {
       const env = new Bash();
       const result = await env.exec(
-        `printf '10\\n9\\n' | awk '{a[NR]=$1 ""} END{asort(a); print a[1],a[2]}'`,
+        `printf '9\\n10\\n' | awk '{a[NR]=$1 ""} END{asort(a); print a[1],a[2]}'`,
       );
       // Concatenation produces a plain string in gawk, so the values
-      // sort lexically.
+      // sort lexically ("10" before "9"). The input lines are in
+      // numeric order, so a no-op sort (which would print "9 10")
+      // fails this test (review 6011013916).
       expect(result.stdout).toBe("10 9\n");
       expect(result.exitCode).toBe(0);
     });
@@ -743,14 +747,17 @@ describe("awk associative arrays", () => {
     it("should keep input order for numerically equal values in the default mode (fixes #737)", async () => {
       const env = new Bash();
       const result = await env.exec(
-        `echo "" | awk 'BEGIN{split("1.0 01 1",a); asort(a); print a[1],a[2],a[3]}'`,
+        `echo "" | awk 'BEGIN{split("2 1.0 01 1",a); asort(a); print a[1],a[2],a[3],a[4]}'`,
       );
       // gawk's default comparison does NOT fall through to a string
       // comparison on a numeric tie: split("1.0 01 1") sorts as
       // "1.0 01 1" (stable input order) in gawk 5.2.1. Review
       // 6010326757 corrects the review-6009811820 claim that had
-      // added a string tie-break here.
-      expect(result.stdout).toBe("1.0 01 1\n");
+      // added a string tie-break here. The leading 2 must move to
+      // the end, so this test also tells a real sort apart from a
+      // no-op (review 6011013916: the old input was already in
+      // sorted order).
+      expect(result.stdout).toBe("1.0 01 1 2\n");
       expect(result.exitCode).toBe(0);
     });
 
@@ -768,13 +775,15 @@ describe("awk associative arrays", () => {
     it("should keep input order for a genuine tie in the default mode", async () => {
       const env = new Bash();
       const result = await env.exec(
-        `echo "" | awk 'BEGIN{split("1.00 1.0 1",a); asort(a); print a[1],a[2],a[3]}'`,
+        `echo "" | awk 'BEGIN{split("2 1.00 1.0 1",a); asort(a); print a[1],a[2],a[3],a[4]}'`,
       );
       // All three spellings are the number 1, and they print
       // differently ("1.00" vs "1.0" vs "1"), so this assertion can
       // tell stable input order apart from a string tie-break, which
-      // would print "1 1.0 1.00" (review 6010326757).
-      expect(result.stdout).toBe("1.00 1.0 1\n");
+      // would print "1 1.0 1.00" (review 6010326757). The leading 2
+      // must move to the end, so it can also tell a real sort apart
+      // from a no-op (review 6011013916).
+      expect(result.stdout).toBe("1.00 1.0 1 2\n");
       expect(result.exitCode).toBe(0);
     });
 
@@ -795,8 +804,12 @@ describe("awk associative arrays", () => {
     it("should treat 'Infinity' as numeric zero in @val_num_asc", async () => {
       const env = new Bash();
       const result = await env.exec(
-        `echo "" | awk 'BEGIN{a[1]="Infinity"; a[2]="1"; asort(a,b,"@val_num_asc"); print b[1], b[2]}'`,
+        `echo "" | awk 'BEGIN{a[1]="1"; a[2]="Infinity"; asort(a,b,"@val_num_asc"); print b[1], b[2]}'`,
       );
+      // "Infinity" parses as 0 in the numeric modes, so it sorts
+      // before 1. The input is deliberately in the wrong order, so
+      // a no-op sort (which would print "1 Infinity") fails this
+      // test (review 6011013916).
       expect(result.stdout).toBe("Infinity 1\n");
       expect(result.exitCode).toBe(0);
     });
@@ -1269,10 +1282,12 @@ describe("awk associative arrays", () => {
       // "1.2" stays the string "1.2", so this is not a tie: "1" sorts
       // before "1.2" and 1.4 comes first, as in gawk. A genuine tie
       // (two numbers formatting to the same key) keeps input order;
-      // see the round-8 pins below (review 6008939293).
+      // see the round-8 pins below (review 6008939293). The literal
+      // is first in the input, so a no-op sort (which would print
+      // "1.2 1.4") fails this test (review 6011013916).
       const env = new Bash();
       const result = await env.exec(
-        `echo "" | awk -v CONVFMT=%.0f 'BEGIN{a[1]=1.4; a[2]="1.2"; asort(a,b,"@val_str_asc"); print b[1], b[2]}'`,
+        `echo "" | awk -v CONVFMT=%.0f 'BEGIN{a[1]="1.2"; a[2]=1.4; asort(a,b,"@val_str_asc"); print b[1], b[2]}'`,
       );
       expect(result.stdout).toBe("1.4 1.2\n");
       expect(result.exitCode).toBe(0);
@@ -1318,10 +1333,13 @@ describe("awk associative arrays", () => {
       // gawk prints the same order as "1000000000000000000000 11":
       // the number's string key is its full decimal form, not
       // "1e+21". The equality check asserts the order without
-      // depending on print's %g display, which still differs.
+      // depending on print's %g display, which still differs. The
+      // number is second in the input, so a no-op sort (which would
+      // leave "11" first and print "0") fails this test (review
+      // 6011013916).
       const env = new Bash();
       const result = await env.exec(
-        `echo "" | awk 'BEGIN{a[1]=1e21; a[2]="11"; asort(a,b,"@val_str_asc"); print (b[1]==1e21)}'`,
+        `echo "" | awk 'BEGIN{a[1]="11"; a[2]=1e21; asort(a,b,"@val_str_asc"); print (b[1]==1e21)}'`,
       );
       expect(result.stdout).toBe("1\n");
       expect(result.exitCode).toBe(0);
@@ -1340,10 +1358,12 @@ describe("awk associative arrays", () => {
 
     it("should pad uppercase E exponents in CONVFMT keys", async () => {
       // CONVFMT="%.1E" formats 0.0001 as "1.0E-04", which sorts
-      // before the literal "1.0E-1", as in gawk.
+      // before the literal "1.0E-1", as in gawk. The literal is first
+      // in the input, so a no-op sort (which would print
+      // "1.0E-1 0.0001") fails this test (review 6011013916).
       const env = new Bash();
       const result = await env.exec(
-        `echo "" | awk 'BEGIN{CONVFMT="%.1E"; a[1]=0.0001; a[2]="1.0E-1"; asort(a,b,"@val_str_asc"); print b[1], b[2]}'`,
+        `echo "" | awk 'BEGIN{CONVFMT="%.1E"; a[1]="1.0E-1"; a[2]=0.0001; asort(a,b,"@val_str_asc"); print b[1], b[2]}'`,
       );
       expect(result.stdout).toBe("0.0001 1.0E-1\n");
       expect(result.exitCode).toBe(0);
@@ -1771,17 +1791,19 @@ describe("awk associative arrays", () => {
 
       // C14: a genuine tie — two numbers formatting to the same
       // CONVFMT key — keeps input order in both directions (the
-      // default stable sort), as in gawk.
+      // default stable sort), as in gawk. The 0.4 (key "0") must move
+      // to the front, so each direction also tells a real sort apart
+      // from a no-op (review 6011013916).
       it("should keep input order for a genuine CONVFMT tie in both directions", async () => {
         const env = new Bash();
         const result1 = await env.exec(
-          `echo "" | awk -v CONVFMT=%.0f 'BEGIN{a[1]=1.4; a[2]=1.2; asort(a,b,"@val_str_asc"); print b[1], b[2]}'`,
+          `echo "" | awk -v CONVFMT=%.0f 'BEGIN{a[1]=1.4; a[2]=1.2; a[3]=0.4; asort(a,b,"@val_str_asc"); print b[1], b[2], b[3]}'`,
         );
-        expect(result1.stdout).toBe("1.4 1.2\n");
+        expect(result1.stdout).toBe("0.4 1.4 1.2\n");
         const result2 = await env.exec(
-          `echo "" | awk -v CONVFMT=%.0f 'BEGIN{a[1]=1.2; a[2]=1.4; asort(a,b,"@val_str_asc"); print b[1], b[2]}'`,
+          `echo "" | awk -v CONVFMT=%.0f 'BEGIN{a[1]=1.2; a[2]=1.4; a[3]=0.4; asort(a,b,"@val_str_asc"); print b[1], b[2], b[3]}'`,
         );
-        expect(result2.stdout).toBe("1.2 1.4\n");
+        expect(result2.stdout).toBe("0.4 1.2 1.4\n");
       });
 
       // C14-rev: the literal "1.2" is NOT formatted by CONVFMT, so
@@ -2193,6 +2215,316 @@ describe("awk associative arrays", () => {
           "bash: asort comparison: work work limit exceeded (10)\n",
         );
         expect(foldedResult.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+      });
+    });
+
+    describe("round-11 pins for automated review 6011013916", () => {
+      // Each test pins one claim from automated review 6011013916 on
+      // PR #764, verified against gawk 5.2.1. The default-mode
+      // numeric tie-break and NaN ordering are behaviorally correct
+      // at head (gawk keeps input order on ties; NaN sorts last
+      // ascending and first descending) — those claims are answered
+      // by a docstring/comment clarification plus the tests below,
+      // not by a behavior change.
+
+      // Blocking: a synthetic local array's type metadata must be
+      // dropped when its call frame is destroyed, or every call
+      // with an omitted array parameter leaks one arrayTypedNames
+      // entry forever.
+      it("should drop a synthetic local array's type metadata when its call frame is destroyed", async () => {
+        const parser = new AwkParser();
+        const ast = parser.parse(
+          `function f(a){a[1]=1; a[2]=2; return asort(a)} function g(a){return asort(a)} BEGIN{for(i=0;i<50;i++) f(); x[1]=2; x[2]=1; g(x); print x[1], x[2]}`,
+        );
+        const ctx = createRuntimeContext();
+        const interp = new AwkInterpreter(ctx);
+        interp.execute(ast);
+        await interp.executeBegin();
+        expect(interp.getOutput()).toBe("1 2\n");
+        // Fifty calls created fifty synthetic stores; none may
+        // survive the calls — neither the stores, their type
+        // metadata, nor their strnum keys.
+        expect(
+          [...ctx.arrayTypedNames].filter((name) =>
+            name.startsWith(LOCAL_ARRAY_PREFIX),
+          ),
+        ).toEqual([]);
+        expect(
+          Object.keys(ctx.arrays).filter((name) =>
+            name.startsWith(LOCAL_ARRAY_PREFIX),
+          ),
+        ).toEqual([]);
+        expect(
+          [...ctx.strnumArrayKeys.keys()].filter((name) =>
+            name.startsWith(LOCAL_ARRAY_PREFIX),
+          ),
+        ).toEqual([]);
+        // The local elements' budget is freed; only the global
+        // array's two elements still count.
+        expect(ctx.arrayElementCount).toBe(2);
+        // But the global array passed through the nested call keeps
+        // its type: only synthetic names are dropped, never names a
+        // live frame still aliases.
+        expect(ctx.arrayTypedNames.has("x")).toBe(true);
+      });
+
+      // (b) The "0" flag zero-pads floats in C, even with a
+      // precision — %010.1f is "00000001.5", not spaces. The %e
+      // exponent stays single-digit ("01.23e+4"): this codebase's
+      // existing print spelling, pinned by other tests and out of
+      // scope here — what this test pins is the zero padding.
+      it("should zero-pad floats with the 0 flag, as in gawk", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{print sprintf("%010.1f", 1.5); print sprintf("%010.1f", -5); print sprintf("%08.2f", 1.5); print sprintf("%-08.2f", 1.5); print sprintf("%08.2e", 12345.678); print sprintf("%08.2g", 1.5); print sprintf("%05.1f", -2.5)}'`,
+        );
+        expect(result.stdout).toBe(
+          "00000001.5\n-0000005.0\n00001.50\n1.50    \n01.23e+4\n000001.5\n-02.5\n",
+        );
+        expect(result.exitCode).toBe(0);
+      });
+
+      it("should sort by zero-padded CONVFMT keys in @val_str_asc", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{CONVFMT="%010.1f"; a[1]=1.5; a[2]=-5; asort(a,b,"@val_str_asc"); print b[1], b[2]}'`,
+        );
+        // Zero-padded keys are "00000001.5" and "-0000005.0", so -5
+        // sorts first; space-padded keys would reverse the order.
+        expect(result.stdout).toBe("-5 1.5\n");
+        expect(result.exitCode).toBe(0);
+      });
+
+      // (c) NaN sorts after all numbers ascending and first
+      // descending, in the default and @val_num_* modes; the
+      // @val_str_* modes compare its "-nan" spelling. NaN prints as
+      // 0 here (a pre-existing print divergence), so the tests locate
+      // it with (x != x) instead of printing it.
+      it("should sort NaN after all numbers by default and first when descending", async () => {
+        const env = new Bash();
+        const def = await env.exec(
+          `echo "" | awk 'BEGIN{n=sqrt(-1); a[1]=n; a[2]=2; a[3]=1; asort(a); print a[1], a[2], (a[3]!=a[3])}'`,
+        );
+        expect(def.stdout).toBe("1 2 1\n");
+        expect(def.exitCode).toBe(0);
+        const asc = await env.exec(
+          `echo "" | awk 'BEGIN{n=sqrt(-1); a[1]=n; a[2]=2; a[3]=1; asort(a,b,"@val_num_asc"); print b[1], b[2], (b[3]!=b[3])}'`,
+        );
+        expect(asc.stdout).toBe("1 2 1\n");
+        expect(asc.exitCode).toBe(0);
+        const desc = await env.exec(
+          `echo "" | awk 'BEGIN{n=sqrt(-1); a[1]=n; a[2]=2; a[3]=1; asort(a,b,"@val_num_desc"); print (b[1]!=b[1]), b[2], b[3]}'`,
+        );
+        expect(desc.stdout).toBe("1 2 1\n");
+        expect(desc.exitCode).toBe(0);
+        const strAsc = await env.exec(
+          `echo "" | awk 'BEGIN{n=sqrt(-1); a[1]=n; a[2]=2; a[3]=1; asort(a,b,"@val_str_asc"); print (b[1]!=b[1]), b[2], b[3]}'`,
+        );
+        expect(strAsc.stdout).toBe("1 1 2\n");
+        expect(strAsc.exitCode).toBe(0);
+        const strDesc = await env.exec(
+          `echo "" | awk 'BEGIN{n=sqrt(-1); a[1]=n; a[2]=2; a[3]=1; asort(a,b,"@val_str_desc"); print b[1], b[2], (b[3]!=b[3])}'`,
+        );
+        expect(strDesc.stdout).toBe("2 1 1\n");
+        expect(strDesc.exitCode).toBe(0);
+      });
+
+      // (d) Using an array as an asort source makes it array-typed
+      // even when it is empty or uninitialized, so a later scalar
+      // assignment to it is fatal, as in gawk.
+      it("should make an uninitialized asort source array-typed", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{asort(a,b); a=5; print a}'`,
+        );
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toBe(
+          "awk: attempt to use array `a' in a scalar context\n",
+        );
+        expect(result.exitCode).toBe(2);
+      });
+
+      it("should make an uninitialized in-place asort source array-typed", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{asort(a); a=5; print a}'`,
+        );
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toBe(
+          "awk: attempt to use array `a' in a scalar context\n",
+        );
+        expect(result.exitCode).toBe(2);
+      });
+
+      // (e) A deleted array stays an array when passed through a
+      // same-named function parameter, and so does an uninitialized
+      // array: the parameter slot holds "" in ctx.vars, which must
+      // not be read as a scalar.
+      it("should pass a deleted array through same-named function parameters", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'function g(a){return asort(a)} function f(a){return g(a)} BEGIN{a[1]=3; a[2]=1; delete a; print f(a)}'`,
+        );
+        expect(result.stdout).toBe("0\n");
+        expect(result.exitCode).toBe(0);
+      });
+
+      it("should pass an uninitialized array through same-named function parameters", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'function g(a){return asort(a)} function f(a){return g(a)} BEGIN{print f(a)}'`,
+        );
+        expect(result.stdout).toBe("0\n");
+        expect(result.exitCode).toBe(0);
+      });
+
+      // (e, continued) Passing an uninitialized array through two
+      // functions for element assignment is T.gawk's arrayref case
+      // in the OneTrue AWK spec suite: the parameter slot used to
+      // hold "" and the element write was rejected as a scalar use.
+      it("should pass an uninitialized array through two functions for element assignment", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{test(foo); print foo[1]; test2(foo2); print foo2[1]} function test(foo){test2(foo)} function test2(bar){bar[1]=1}'`,
+        );
+        expect(result.stdout).toBe("1\n1\n");
+        expect(result.exitCode).toBe(0);
+      });
+
+      // The slot fix must not hide a real scalar: assigning a scalar
+      // to the aliased global mid-call makes the parameter a scalar,
+      // and the later array use is fatal, as in gawk.
+      it("should still reject an array use after a mid-call scalar assignment to the aliased global", async () => {
+        const env = new Bash();
+        const asortResult = await env.exec(
+          `echo "" | awk 'function g(){x=5} function f(a){g(); return asort(a)} BEGIN{print f(x)}'`,
+        );
+        expect(asortResult.stdout).toBe("");
+        expect(asortResult.stderr).toBe(
+          "awk: asort: first argument is not an array\n",
+        );
+        expect(asortResult.exitCode).toBe(2);
+        const elemResult = await env.exec(
+          `echo "" | awk 'function g(){x=""} function f(a){g(); a[1]=1; print a[1]} BEGIN{f(x)}'`,
+        );
+        expect(elemResult.stdout).toBe("");
+        expect(elemResult.stderr).toContain("attempt to use scalar");
+        expect(elemResult.exitCode).toBe(2);
+      });
+
+      // (f) String-holding built-ins carry numeric-string provenance
+      // in gawk: -v FS=9 and FS=$1 both make FS a strnum, so a copy
+      // of FS sorts numerically; a literal assignment does not.
+      it("should treat a numeric-string FS from -v as a strnum", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk -v FS=9 'BEGIN{a[1]=FS; a[2]="10"; asort(a); print a[1], a[2]}'`,
+        );
+        expect(result.stdout).toBe("9 10\n");
+        expect(result.exitCode).toBe(0);
+      });
+
+      it("should treat FS assigned from a field as a strnum", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `printf '9\\n' | awk '{FS=$1; a[1]=FS; a[2]="10"; asort(a); print a[1], a[2]}'`,
+        );
+        expect(result.stdout).toBe("9 10\n");
+        expect(result.exitCode).toBe(0);
+      });
+
+      it("should keep a literal FS assignment a plain string", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{FS="9"; a[1]=FS; a[2]="10"; asort(a); print a[1], a[2]}'`,
+        );
+        expect(result.stdout).toBe("10 9\n");
+        expect(result.exitCode).toBe(0);
+      });
+
+      it("should clear a built-in strnum flag when a literal is assigned after a field", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `printf '9\\n' | awk '{FS=$1; FS="9"; a[1]=FS; a[2]="10"; asort(a); print a[1], a[2]}'`,
+        );
+        expect(result.stdout).toBe("10 9\n");
+        expect(result.exitCode).toBe(0);
+      });
+
+      it("should treat numeric-string OFS, ORS, SUBSEP and CONVFMT as strnums", async () => {
+        const env = new Bash();
+        const ofs = await env.exec(
+          `echo "" | awk -v OFS=9 'BEGIN{a[1]=OFS; a[2]="10"; asort(a); printf "%s|%s\\n", a[1], a[2]}'`,
+        );
+        expect(ofs.stdout).toBe("9|10\n");
+        expect(ofs.exitCode).toBe(0);
+        const ors = await env.exec(
+          `echo "" | awk -v ORS=9 'BEGIN{a[1]=ORS; a[2]="10"; asort(a); printf "%s|%s\\n", a[1], a[2]}'`,
+        );
+        expect(ors.stdout).toBe("9|10\n");
+        expect(ors.exitCode).toBe(0);
+        const subsep = await env.exec(
+          `echo "" | awk -v SUBSEP=9 'BEGIN{a[1]=SUBSEP; a[2]="10"; asort(a); print a[1], a[2]}'`,
+        );
+        expect(subsep.stdout).toBe("9 10\n");
+        expect(subsep.exitCode).toBe(0);
+        const convfmt = await env.exec(
+          `echo "" | awk -v CONVFMT=9 'BEGIN{a[1]=CONVFMT; a[2]="10"; asort(a); print a[1], a[2]}'`,
+        );
+        expect(convfmt.stdout).toBe("9 10\n");
+        expect(convfmt.exitCode).toBe(0);
+      });
+
+      // (g) The IGNORECASE byte comparator must charge the UTF-8
+      // bytes it scanned, not the UTF-16 code-unit index: two
+      // 2,049-char strings of É + a/A tie after folding, so the
+      // folded scan is 4,097 bytes and the plain scan 2,048 code
+      // units — 6 conversion + 1 + (6145 >> 10) = 13 units total.
+      // The old code-unit count charged 11 and fit a 12-unit budget.
+      it("should charge IGNORECASE comparisons in UTF-8 bytes, not code units", async () => {
+        const over = new Bash({ executionLimits: { maxWorkUnits: 12 } });
+        const overResult = await over.exec(
+          `echo "" | awk 'BEGIN{IGNORECASE=1; s="É"; for(i=1;i<=11;i++) s=s s; a[1]=s "a"; a[2]=s "A"; n=asort(a,b,"@val_str_asc"); print n}'`,
+        );
+        expect(overResult.stdout).toBe("");
+        expect(overResult.stderr).toBe(
+          "bash: asort comparison: work work limit exceeded (12)\n",
+        );
+        expect(overResult.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+        const fits = new Bash({ executionLimits: { maxWorkUnits: 13 } });
+        const fitsResult = await fits.exec(
+          `echo "" | awk 'BEGIN{IGNORECASE=1; s="É"; for(i=1;i<=11;i++) s=s s; a[1]=s "a"; a[2]=s "A"; n=asort(a,b,"@val_str_asc"); print n}'`,
+        );
+        expect(fitsResult.stdout).toBe("2\n");
+        expect(fitsResult.exitCode).toBe(0);
+      });
+
+      // (h) The lazy CONVFMT precharge must reflect the output width,
+      // not just the format-string length: "%010000.1f" is 12
+      // characters and formats to 10,000.
+      it("should estimate CONVFMT output width from its width and precision", () => {
+        expect(estimateConvfmtOutputWidth("%.6g")).toBeLessThan(1024);
+        expect(estimateConvfmtOutputWidth("%010.1f")).toBeGreaterThanOrEqual(
+          10,
+        );
+        expect(estimateConvfmtOutputWidth("%010000.1f")).toBeGreaterThanOrEqual(
+          10000,
+        );
+        expect(estimateConvfmtOutputWidth("%.100f")).toBeGreaterThanOrEqual(
+          100,
+        );
+      });
+
+      it("should trip the work budget on a width-hostile CONVFMT", async () => {
+        const bash = new Bash({ executionLimits: { maxWorkUnits: 3000 } });
+        const result = await bash.exec(
+          `echo "" | awk 'BEGIN{CONVFMT="%010000.1f"; for(i=1;i<=1024;i++) a[i]=0.1; n=asort(a,b,"@val_num_asc"); print n}'`,
+        );
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toBe(
+          "bash: asort comparison: work work limit exceeded (3000)\n",
+        );
+        expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
       });
     });
   });

@@ -54,6 +54,13 @@ export function setVariable(
   name: string,
   value: AwkValue,
 ): void {
+  // A raw set clears numeric-string provenance: the caller
+  // (assignment evaluation, -v handling, getline) re-marks the flag
+  // when the new value carries it. The built-in cases below return
+  // early, so the clear must happen here, not only on the generic
+  // path at the end — otherwise FS=$1 followed by FS="9" would keep
+  // the strnum flag from the field (review 6011013916).
+  ctx.strnumVars?.delete(name);
   switch (name) {
     case "FS":
       setFieldSeparator(ctx, toAwkString(value));
@@ -268,6 +275,24 @@ export function isArrayTyped(
 }
 
 /**
+ * Drop a resolved array name's type metadata: it is no longer
+ * recorded as array-typed, and its strnum keys are gone too. Used
+ * when a call frame is destroyed for a synthetic store it created
+ * (an omitted parameter's private local array): the name can never
+ * be referenced again, so keeping it would leak one set entry per
+ * call forever (review 6011013916). Never call this for a name
+ * another live frame still aliases — only the frame that created
+ * the store drops it.
+ */
+export function forgetArrayTyped(
+  ctx: AwkRuntimeContext,
+  resolvedName: string,
+): void {
+  ctx.arrayTypedNames?.delete(resolvedName);
+  ctx.strnumArrayKeys?.delete(resolvedName);
+}
+
+/**
  * Reject an array operation on a name that cannot be an array: a
  * scalar-only function parameter, a built-in scalar, or a variable
  * that currently holds a scalar value with no array store under its
@@ -366,18 +391,22 @@ export function isStrnumVar(ctx: AwkRuntimeContext, name: string): boolean {
 
 /**
  * Record (or clear) that a scalar variable holds a numeric string.
- * Built-in scalar names are ignored: they are formatted/compared
- * through their own accessors, never through this set — except
- * IGNORECASE, which has no dedicated slot (it lives in vars) and
- * whose strnum-ness decides its truthiness: a field's "0" is false,
- * a plain string's "0" is true.
+ * String-holding built-ins can hold numeric strings, as in gawk:
+ * -v FS=9 and FS=$1 both make FS a strnum, so a copy of FS sorts
+ * numerically (review 6011013916). FILENAME is the exception — gawk
+ * never treats it as a strnum, even from -v or a field — and the
+ * numeric built-ins (NR, NF, FNR, RSTART, RLENGTH, ARGC) always hold
+ * numbers, so marking them is meaningless; both groups are ignored
+ * here. IGNORECASE has no dedicated slot (it lives in vars) and its
+ * strnum-ness decides its truthiness: a field's "0" is false, a
+ * plain string's "0" is true.
  */
 export function markStrnumVar(
   ctx: AwkRuntimeContext,
   name: string,
   isStrnum: boolean,
 ): void {
-  if (BUILTIN_SCALARS.has(name) && name !== "IGNORECASE") return;
+  if (BUILTIN_SCALARS.has(name) && !STRNUM_BUILTIN_SCALARS.has(name)) return;
   if (!ctx.strnumVars) ctx.strnumVars = new Set();
   if (isStrnum) ctx.strnumVars.add(name);
   else ctx.strnumVars.delete(name);
@@ -542,6 +571,22 @@ const BUILTIN_SCALARS = new Set([
   "IGNORECASE",
 ]);
 
+/**
+ * The built-in scalars that can hold a numeric string (see
+ * markStrnumVar): the string-holding ones, plus IGNORECASE. FILENAME
+ * never is one in gawk, and the numeric built-ins always hold
+ * numbers.
+ */
+const STRNUM_BUILTIN_SCALARS = new Set([
+  "FS",
+  "OFS",
+  "ORS",
+  "OFMT",
+  "CONVFMT",
+  "SUBSEP",
+  "IGNORECASE",
+]);
+
 export function isScalarVariable(
   ctx: AwkRuntimeContext,
   name: string,
@@ -552,6 +597,14 @@ export function isScalarVariable(
   // the same name exists.
   if (resolved.startsWith(LOCAL_SCALAR_PREFIX)) return true;
   if (resolved === "ARGV" || resolved === "ENVIRON") return false;
+  // A name recorded as array-typed stays an array even after its
+  // store is deleted: a deleted array passed through a same-named
+  // function parameter must not be mistaken for a scalar just
+  // because the parameter slot holds "" in ctx.vars (review
+  // 6011013916). (Array-bound parameters no longer plant that ""
+  // at all — see callUserFunction — but the type record is the
+  // backstop for any other path that leaves a value behind.)
+  if (isArrayTyped(ctx, resolved)) return false;
   if (ctx.arrays[resolved] !== undefined) return false;
   if (BUILTIN_SCALARS.has(resolved)) return true;
   return ctx.vars[resolved] !== undefined;
