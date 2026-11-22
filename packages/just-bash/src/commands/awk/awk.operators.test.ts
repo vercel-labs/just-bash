@@ -40,8 +40,12 @@ describe("awk operators", () => {
 
     it("should parse numbers the way AWK does, not parseFloat", async () => {
       // "Infinity" has no numeric prefix in AWK, so it contributes 0
-      // to arithmetic; "0x10" contributes 0 because its leading
-      // numeric prefix is just "0" (AWK has no hex literals).
+      // to arithmetic; the quoted string "0x10" contributes 0 because
+      // its leading numeric prefix is just "0" — a string's numeric
+      // prefix never includes a hex part. (The unquoted literal 0x10
+      // is different: gawk evaluates it to 16 in source code. This
+      // test covers only the quoted-string case; hex literals in
+      // source stay unsupported — review 6009811820.)
       // Sorting and math used to disagree on them (asort read 0,
       // arithmetic read Infinity).
       const env = new Bash();
