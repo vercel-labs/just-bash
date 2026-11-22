@@ -16,9 +16,11 @@ import type { AwkRuntimeContext } from "./context.js";
 import { evalExpr, exprIsStrnum, setBlockExecutor } from "./expressions.js";
 import { isTruthy, toAwkString, toNumber } from "./type-coercion.js";
 import {
+  assertArrayTarget,
   deleteArray,
   deleteArrayElement,
   getArrayStore,
+  markArrayTyped,
   resolveArrayName,
 } from "./variables.js";
 
@@ -519,12 +521,13 @@ async function executeForIn(
   assertAwkDefenseContext(ctx, "for-in execution");
   // Resolve aliases and the ARGV/ENVIRON stores, like element access
   // does: reading ctx.arrays directly misses the dedicated stores and
-  // any array passed in as a function parameter.
-  const array = getArrayStore(
-    ctx,
-    stmt.array,
-    resolveArrayName(ctx, stmt.array),
-  );
+  // any array passed in as a function parameter. Iterating a scalar
+  // (a scalar parameter, a scalar variable) is fatal in gawk, as any
+  // other array use of it is (review 6010326757).
+  const resolvedArray = resolveArrayName(ctx, stmt.array);
+  assertArrayTarget(ctx, stmt.array, resolvedArray);
+  markArrayTyped(ctx, resolvedArray);
+  const array = getArrayStore(ctx, stmt.array, resolvedArray);
   if (!array) return;
 
   for (const key of Object.keys(array)) {

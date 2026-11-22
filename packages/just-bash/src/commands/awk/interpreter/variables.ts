@@ -114,6 +114,7 @@ export function setVariable(
       // The bound changed, so the input loop's cached index list is
       // stale even though no ARGV entry moved.
       bumpArgvVersion(ctx);
+      bumpArgvIndexVersion(ctx);
       return;
   }
 
@@ -124,10 +125,17 @@ export function setVariable(
   // store is empty and the write converts it to a scalar instead
   // (assigning a scalar to a parameter that was already used as an
   // array still fatals, as does assigning one to any other array,
-  // including ARGV/ENVIRON and an array emptied by `delete`... the
-  // last case stays uncaught: a deleted store leaves no record that
-  // the name was ever an array).
+  // including ARGV/ENVIRON and an array emptied by `delete` or by
+  // sorting an empty one: those names stay recorded in
+  // ctx.arrayTypedNames, so a deleted store no longer hides the
+  // type — review 6010326757).
   const resolved = resolveArrayName(ctx, name);
+  // A name ever used as an array keeps that type even when its store
+  // is currently empty or was deleted: check the record before the
+  // store lookup below, so a missing store cannot hide the type.
+  if (isArrayTyped(ctx, resolved)) {
+    throw new Error(`attempt to use array \`${name}' in a scalar context`);
+  }
   const store = getArrayStore(ctx, name, resolved);
   if (store !== undefined) {
     if (
@@ -234,6 +242,68 @@ export function nextLocalScalarName(ctx: AwkRuntimeContext): string {
   const id = ctx.nextLocalArrayId ?? 0;
   ctx.nextLocalArrayId = id + 1;
   return `${LOCAL_SCALAR_PREFIX}${id}`;
+}
+
+/**
+ * Record that a resolved array name has been used as an array, so a
+ * later scalar assignment to it stays the fatal type error gawk
+ * reports even after its store is emptied or deleted.
+ */
+export function markArrayTyped(
+  ctx: AwkRuntimeContext,
+  resolvedName: string,
+): void {
+  if (!ctx.arrayTypedNames) ctx.arrayTypedNames = new Set();
+  ctx.arrayTypedNames.add(resolvedName);
+}
+
+/**
+ * True when a resolved array name has ever been used as an array.
+ */
+export function isArrayTyped(
+  ctx: AwkRuntimeContext,
+  resolvedName: string,
+): boolean {
+  return ctx.arrayTypedNames?.has(resolvedName) ?? false;
+}
+
+/**
+ * Reject an array operation on a name that cannot be an array: a
+ * scalar-only function parameter, a built-in scalar, or a variable
+ * that currently holds a scalar value with no array store under its
+ * resolved name. gawk reports all three as a fatal "attempt to use
+ * scalar ... as an array" (review 6010326757): a scalar parameter
+ * bound to an uninitialized variable must not silently become an
+ * array, and neither must a scalar variable passed as an array
+ * argument. Names with a live array store pass, as do uninitialized
+ * names (no scalar value recorded), which become arrays on first use.
+ * A name recorded as array-typed also passes even when its store is
+ * momentarily absent: replaceArrayValues deletes the old store before
+ * reinserting the sorted values, and a parameter slot holds "" in
+ * ctx.vars while its array lives in the store — neither makes the
+ * name a scalar, and gawk keeps the array type after `delete` too
+ * (verified against gawk 5.2.1).
+ */
+export function assertArrayTarget(
+  ctx: AwkRuntimeContext,
+  rawName: string,
+  resolvedName: string,
+): void {
+  if (resolvedName.startsWith(LOCAL_SCALAR_PREFIX)) {
+    throw new Error(
+      `attempt to use scalar parameter \`${rawName}' as an array`,
+    );
+  }
+  if (isBuiltinScalarName(resolvedName)) {
+    throw new Error(`attempt to use scalar \`${rawName}' as an array`);
+  }
+  if (
+    !isArrayTyped(ctx, resolvedName) &&
+    getArrayStore(ctx, rawName, resolvedName) === undefined &&
+    ctx.vars[resolvedName] !== undefined
+  ) {
+    throw new Error(`attempt to use scalar \`${rawName}' as an array`);
+  }
 }
 
 /**
@@ -503,6 +573,21 @@ export function bumpArgvVersion(ctx: AwkRuntimeContext): void {
 }
 
 /**
+ * Record that the SET of present ARGV indices may have changed, so
+ * the input loop refreshes its cached sorted index list. Bumped only
+ * on insert, delete, whole-store replacement, and ARGC assignment —
+ * never when an existing entry's value is replaced (review
+ * 6010326757): a replacement cannot change which files are read, so
+ * invalidating the cache on it forces a full key scan and sort after
+ * every file that updates an existing ARGV value. Callers that change
+ * the key set bump both versions; value replacements bump only
+ * argvVersion.
+ */
+export function bumpArgvIndexVersion(ctx: AwkRuntimeContext): void {
+  ctx.argvIndexVersion = (ctx.argvIndexVersion ?? 0) + 1;
+}
+
+/**
  * Replace an array's contents with the given values, reindexed 1..n.
  * ARGV and ENVIRON are stored outside ctx.arrays; only the values
  * beyond their prepopulated contents are charged to arrayElementCount
@@ -516,6 +601,9 @@ export function replaceArrayValues(
   values: AwkValue[],
   resolvedName: string = resolveArrayName(ctx, rawName),
 ): void {
+  // Replacing an array's contents uses it as an array, so the name
+  // keeps its array type even if the replacement empties it.
+  markArrayTyped(ctx, resolvedName);
   const store = getArrayStore(ctx, rawName, resolvedName);
   if (store !== undefined && (store === ctx.ARGV || store === ctx.ENVIRON)) {
     const oldCharged = chargedSizeOfArray(ctx, rawName, resolvedName);
@@ -542,7 +630,10 @@ export function replaceArrayValues(
     // The whole store was replaced: its index set may have changed.
     // Only ARGV affects the input loop; an ENVIRON replacement must
     // not invalidate the cached index list.
-    if (store === ctx.ARGV) bumpArgvVersion(ctx);
+    if (store === ctx.ARGV) {
+      bumpArgvVersion(ctx);
+      bumpArgvIndexVersion(ctx);
+    }
     // The incoming values carry no provenance here; callers that know
     // it (asort) set the destination's strnum keys again afterwards.
     clearStrnumArray(ctx, resolvedName);
@@ -576,6 +667,10 @@ export function getArrayElement(
   key: string,
 ): AwkValue {
   const resolvedArray = resolveArrayName(ctx, array);
+  // Reading an element uses the name as an array, even for a missing
+  // key of an uninitialized array (gawk creates the array on read).
+  assertArrayTarget(ctx, array, resolvedArray);
+  markArrayTyped(ctx, resolvedArray);
   const store = getArrayStore(ctx, array, resolvedArray);
   return store?.[key] ?? "";
 }
@@ -593,6 +688,8 @@ export function setArrayElement(
 ): void {
   // Resolve aliases for function parameter passing
   const resolvedArray = resolveArrayName(ctx, array);
+  assertArrayTarget(ctx, array, resolvedArray);
+  markArrayTyped(ctx, resolvedArray);
   const store = getArrayStore(ctx, array, resolvedArray);
   if (store !== undefined && (store === ctx.ARGV || store === ctx.ENVIRON)) {
     if (!(key in store)) {
@@ -616,12 +713,18 @@ export function setArrayElement(
       // A new key appeared: the input loop's cached index list is
       // stale. Only ARGV affects the loop; an ENVIRON insert must
       // not invalidate it.
-      if (store === ctx.ARGV) bumpArgvVersion(ctx);
+      if (store === ctx.ARGV) {
+        bumpArgvVersion(ctx);
+        bumpArgvIndexVersion(ctx);
+      }
     } else if (store === ctx.ARGV) {
-      // Replacing an existing ARGV entry bumps too (review
-      // 6009811820): the index set is unchanged and the loop reads
-      // each entry fresh, but the version must reflect every ARGV
-      // mutation, as ctx.argvVersion documents.
+      // Replacing an existing ARGV entry bumps argvVersion too
+      // (review 6009811820): the index set is unchanged and the loop
+      // reads each entry fresh, but the version must reflect every
+      // ARGV mutation, as ctx.argvVersion documents. The index
+      // version is deliberately NOT bumped here (review 6010326757):
+      // a replacement cannot change which files are read, so it must
+      // not force a full key scan and sort after every file.
       bumpArgvVersion(ctx);
     }
     store[key] = value;
@@ -660,6 +763,8 @@ export function hasArrayElement(
   key: string,
 ): boolean {
   const resolvedArray = resolveArrayName(ctx, array);
+  assertArrayTarget(ctx, array, resolvedArray);
+  markArrayTyped(ctx, resolvedArray);
   const store = getArrayStore(ctx, array, resolvedArray);
   return store?.[key] !== undefined;
 }
@@ -676,6 +781,8 @@ export function deleteArrayElement(
 ): void {
   // Resolve aliases for function parameter passing
   const resolvedArray = resolveArrayName(ctx, array);
+  assertArrayTarget(ctx, array, resolvedArray);
+  markArrayTyped(ctx, resolvedArray);
   const store = getArrayStore(ctx, array, resolvedArray);
   if (store !== undefined && (store === ctx.ARGV || store === ctx.ENVIRON)) {
     if (key in store) {
@@ -688,8 +795,12 @@ export function deleteArrayElement(
       }
       delete store[key];
       setSpecialStoreSize(ctx, store, size - 1);
-      // Only ARGV affects the input loop's cached index list.
-      if (store === ctx.ARGV) bumpArgvVersion(ctx);
+      // Only ARGV affects the input loop's cached index list, and a
+      // deletion changes the key set, so both versions bump.
+      if (store === ctx.ARGV) {
+        bumpArgvVersion(ctx);
+        bumpArgvIndexVersion(ctx);
+      }
       markStrnumArrayKey(ctx, resolvedArray, key, false);
     }
     return;
@@ -709,6 +820,8 @@ export function deleteArrayElement(
 export function deleteArray(ctx: AwkRuntimeContext, array: string): void {
   // Resolve aliases for function parameter passing
   const resolvedArray = resolveArrayName(ctx, array);
+  assertArrayTarget(ctx, array, resolvedArray);
+  markArrayTyped(ctx, resolvedArray);
   const store = getArrayStore(ctx, array, resolvedArray);
   if (store !== undefined && (store === ctx.ARGV || store === ctx.ENVIRON)) {
     // Only the charged part (beyond the prepopulated contents) frees
@@ -721,8 +834,12 @@ export function deleteArray(ctx: AwkRuntimeContext, array: string): void {
       delete store[key];
     }
     setSpecialStoreSize(ctx, store, 0);
-    // Only ARGV affects the input loop's cached index list.
-    if (store === ctx.ARGV) bumpArgvVersion(ctx);
+    // Only ARGV affects the input loop's cached index list, and a
+    // whole-store delete changes the key set, so both versions bump.
+    if (store === ctx.ARGV) {
+      bumpArgvVersion(ctx);
+      bumpArgvIndexVersion(ctx);
+    }
     clearStrnumArray(ctx, resolvedArray);
     return;
   }

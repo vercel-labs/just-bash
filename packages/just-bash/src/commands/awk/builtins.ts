@@ -20,6 +20,7 @@ import {
 import { isAwkNumericString, toNumber } from "./interpreter/type-coercion.js";
 import type { AwkValue } from "./interpreter/types.js";
 import {
+  bumpArgvIndexVersion,
   bumpArgvVersion,
   chargedSizeOfArray,
   getArrayStore,
@@ -264,6 +265,15 @@ async function awkSplit(
     sep = createUserRegex("\\s+");
   }
 
+  // A scalar target is rejected, not silently converted into an
+  // array: gawk fatals on split() into a scalar variable or a
+  // scalar-only parameter, and a separator with side effects may
+  // have assigned the scalar only just now, so the check runs after
+  // every argument was evaluated (review 6010326757).
+  if (isScalarVariable(ctx, arrayName)) {
+    throw new Error("split: second argument is not an array");
+  }
+
   // Resolve aliases and the ARGV/ENVIRON stores, like element access
   // does: splitting into a function parameter, ARGV, or ENVIRON must
   // write the real array, not a shadow under the name as written.
@@ -338,7 +348,10 @@ async function awkSplit(
   }
   // split() replaces the whole store, so its index set may have
   // changed even when the part count matches the old size.
-  if (target === ctx.ARGV) bumpArgvVersion(ctx);
+  if (target === ctx.ARGV) {
+    bumpArgvVersion(ctx);
+    bumpArgvIndexVersion(ctx);
+  }
   const strnumKeys = new Set<string>();
   for (let i = 0; i < parts.length; i++) {
     if (isAwkNumericString(parts[i])) strnumKeys.add(String(i + 1));
@@ -353,20 +366,29 @@ async function awkSplit(
  * same order as UTF-8 bytes — not by UTF-16 code unit, so a
  * supplementary character (emoji U+1F600) sorts after a BMP character
  * with a lower code point (full-width Ａ U+FF21).
+ *
+ * Besides the order, each comparator reports `scanned`: the length
+ * of the common prefix it actually walked (UTF-16 code units), so
+ * the asort work budget charges a comparison for the characters it
+ * compared, not for the whole shorter string when the first
+ * characters already differ (review 6010326757).
  */
-function compareCodePoints(a: string, b: string): number {
+function compareCodePoints(
+  a: string,
+  b: string,
+): { result: number; scanned: number } {
   let i = 0;
   let j = 0;
   while (i < a.length && j < b.length) {
     const ca = a.codePointAt(i) ?? 0;
     const cb = b.codePointAt(j) ?? 0;
-    if (ca !== cb) return ca < cb ? -1 : 1;
+    if (ca !== cb) return { result: ca < cb ? -1 : 1, scanned: Math.min(i, j) };
     i += ca > 0xffff ? 2 : 1;
     j += cb > 0xffff ? 2 : 1;
   }
-  if (i < a.length) return 1;
-  if (j < b.length) return -1;
-  return 0;
+  if (i < a.length) return { result: 1, scanned: Math.min(i, j) };
+  if (j < b.length) return { result: -1, scanned: Math.min(i, j) };
+  return { result: 0, scanned: Math.min(i, j) };
 }
 
 /**
@@ -381,10 +403,18 @@ function compareCodePoints(a: string, b: string): number {
  * therefore walks the UTF-8 bytes with that signed-byte folding —
  * it never lowercases the whole strings.
  */
-function compareAwkStrings(a: string, b: string, ignoreCase: boolean): number {
+function compareAwkStrings(
+  a: string,
+  b: string,
+  ignoreCase: boolean,
+): { result: number; scanned: number } {
   if (!ignoreCase) return compareCodePoints(a, b);
   const folded = compareIgnoreCaseBytes(a, b);
-  return folded !== 0 ? folded : compareCodePoints(a, b);
+  if (folded.result !== 0) return folded;
+  // Tie after folding: the case-sensitive comparison decides, and
+  // its scan is charged on top of the folded scan — both walks ran.
+  const plain = compareCodePoints(a, b);
+  return { result: plain.result, scanned: folded.scanned + plain.scanned };
 }
 
 /**
@@ -429,7 +459,10 @@ function utf8BytesOf(codePoint: number, out: number[]): number {
  * prefix of another's (the lead byte fixes the length), so comparing
  * code point by code point is the same as comparing the byte streams.
  */
-function compareIgnoreCaseBytes(a: string, b: string): number {
+function compareIgnoreCaseBytes(
+  a: string,
+  b: string,
+): { result: number; scanned: number } {
   let i = 0;
   let j = 0;
   const aBytes: number[] = [0, 0, 0, 0];
@@ -443,15 +476,16 @@ function compareIgnoreCaseBytes(a: string, b: string): number {
     for (let k = 0; k < n; k++) {
       const fa = foldIgnoreCaseByte(aBytes[k]);
       const fb = foldIgnoreCaseByte(bBytes[k]);
-      if (fa !== fb) return fa < fb ? -1 : 1;
+      if (fa !== fb)
+        return { result: fa < fb ? -1 : 1, scanned: Math.min(i, j) };
     }
-    if (na !== nb) return na < nb ? -1 : 1;
+    if (na !== nb) return { result: na < nb ? -1 : 1, scanned: Math.min(i, j) };
     i += ca > 0xffff ? 2 : 1;
     j += cb > 0xffff ? 2 : 1;
   }
-  if (i < a.length) return 1;
-  if (j < b.length) return -1;
-  return 0;
+  if (i < a.length) return { result: 1, scanned: Math.min(i, j) };
+  if (j < b.length) return { result: -1, scanned: Math.min(i, j) };
+  return { result: 0, scanned: Math.min(i, j) };
 }
 
 function compareNumbers(a: number, b: number): number {
@@ -539,9 +573,11 @@ function formatAwkNumber(ctx: AwkRuntimeContext, value: number): string {
  * through their dedicated storage, the same place element access uses. The
  * default comparison is a total order matching gawk's: numeric values —
  * JS numbers and numeric strings (strnums) from input fields or split()
- * — sort first, numerically (a numeric tie breaks by string value,
- * as in gawk: split("1.0 01 1") sorts as "01 1 1.0", not in input
- * order — review 6009811820 corrected the earlier stability claim),
+ * — sort first, numerically, and a numeric tie keeps input order
+ * (gawk's default comparison does not fall through to a string
+ * comparison: split("1.0 01 1") sorts as "1.0 01 1" in gawk 5.2.1,
+ * verified against a local oracle — review 6010326757 corrected the
+ * review-6009811820 claim that had added a string tie-break here),
  * and NaN sorts after every number, as in gawk
  * (the @val_str_* modes compare its "-nan"/"nan" spelling instead).
  * Plain string values follow in string
@@ -745,16 +781,18 @@ async function awkAsort(
       if (result === 0) {
         const aStr = entryStr(a);
         const bStr = entryStr(b);
-        result = compareAwkStrings(aStr, bStr, ignoreCase);
+        const compared = compareAwkStrings(aStr, bStr, ignoreCase);
+        result = compared.result;
         stringCompared = true;
-        comparedLength = Math.min(aStr.length, bStr.length);
+        comparedLength = compared.scanned;
       }
     } else if (stringOnly) {
       const aStr = entryStr(a);
       const bStr = entryStr(b);
-      result = compareAwkStrings(aStr, bStr, ignoreCase);
+      const compared = compareAwkStrings(aStr, bStr, ignoreCase);
+      result = compared.result;
       stringCompared = true;
-      comparedLength = Math.min(aStr.length, bStr.length);
+      comparedLength = compared.scanned;
     } else if (a.isNum !== b.isNum) {
       // Total order (gawk's default): numeric values sort before
       // string values, so a strnum "10" sorts before the string "9"
@@ -767,31 +805,22 @@ async function awkAsort(
       result = a.isNum ? -1 : 1;
     } else if (a.isNum) {
       result = compareNumbers(a.num, b.num);
-      // A numeric tie in the default mode breaks by string value,
-      // exactly like the @val_num_* modes (see the numericOnly branch
-      // above): gawk's default comparison falls through to a string
-      // comparison when the numeric values are equal, so strnums
-      // from split("1.0 01 1") sort as "01 1 1.0". The old code
-      // returned 0 and relied on Array.sort stability (review
-      // 6009811820). Only a genuine tie — equal numbers whose
-      // string forms are also equal, e.g. two numbers formatting to
-      // the same CONVFMT key — keeps input order, via the stable
-      // sort. The string forms are formatted here (charged before
-      // they run, as in the numeric modes) so a hostile CONVFMT is
-      // still charged before it runs (see the work-budget test).
-      if (result === 0) {
-        const aStr = entryStr(a);
-        const bStr = entryStr(b);
-        result = compareAwkStrings(aStr, bStr, ignoreCase);
-        stringCompared = true;
-        comparedLength = Math.min(aStr.length, bStr.length);
-      }
+      // A numeric tie in the default mode keeps input order: gawk's
+      // default comparison does NOT fall through to a string
+      // comparison when the numeric values are equal — split("1.0 01
+      // 1") sorts as "1.0 01 1" in gawk 5.2.1, verified against a
+      // local oracle (review 6010326757 corrected the review
+      // 6009811820 claim, which had added a string tie-break here).
+      // Only the @val_num_* modes break numeric ties by string
+      // value (see the numericOnly branch above). Array.sort is
+      // stable, so returning 0 keeps input order for ties.
     } else {
       const aStr = entryStr(a);
       const bStr = entryStr(b);
-      result = compareAwkStrings(aStr, bStr, ignoreCase);
+      const compared = compareAwkStrings(aStr, bStr, ignoreCase);
+      result = compared.result;
       stringCompared = true;
-      comparedLength = Math.min(aStr.length, bStr.length);
+      comparedLength = compared.scanned;
     }
     pendingComparisonWork += 1 + (stringCompared ? comparedLength >> 10 : 0);
     if (pendingComparisonWork >= 1024) flushComparisonWork();
@@ -844,9 +873,12 @@ async function awkSub(
     // stringified target back would convert a numeric scalar into a
     // plain string and change its subsequent sort order, as gawk does not.
     // A field target's index is still validated, so a huge $(1e21)
-    // errors instead of wrapping onto $1.
+    // errors instead of wrapping onto $1. Validating pads the fields
+    // array, and NF follows the padded length in gawk: sub(/z/,"q",$5)
+    // on a one-field record leaves NF at 5 (review 6010326757).
     if (replaced.replacements === 0) {
       validateFieldTarget(targetName, ctx);
+      ctx.NF = ctx.fields.length;
       return 0;
     }
     applyTargetValue(targetName, replaced.value, ctx);
@@ -880,9 +912,11 @@ async function awkGsub(
       awkStringLimit(ctx),
     );
     // As in sub: a no-match gsub leaves its target untouched, but a
-    // field target's index is still validated.
+    // field target's index is still validated — and NF follows the
+    // padded fields length, as in gawk (review 6010326757).
     if (replaced.replacements === 0) {
       validateFieldTarget(targetName, ctx);
+      ctx.NF = ctx.fields.length;
       return 0;
     }
     applyTargetValue(targetName, replaced.value, ctx);
@@ -1323,6 +1357,28 @@ export function formatPrintf(
       const valIdx = positionalIdx !== undefined ? positionalIdx : valueIdx;
       const val = values[valIdx];
 
+      // Prepend the C printf sign for the "+" / " " flags to a
+      // formatted non-negative float (negatives already carry "-").
+      // "+" wins over " " when both are present, as in C. The %d/%i
+      // case builds its sign inline; %f/%e/%g share this helper
+      // (gawk's %+g prints "+1.5" for 1.5, review 6010326757). This
+      // also fixes CONVFMT with a signed format: formatAwkNumber
+      // formats non-integers through %g, so a %+g CONVFMT now keys
+      // 1.5 as "+1.5" while integers still format exactly, without
+      // the flag, as gawk does.
+      const signForFloat = (text: string, num: number): string => {
+        // -0.0 keeps its sign in gawk: %+g prints "-0" and %+f
+        // "-0.000000", never "+0". JS drops the sign when formatting
+        // -0.0 (toFixed gives "0.000000"), so re-add it here; a
+        // negative number's text already carries "-" (verified
+        // against gawk 5.2.1).
+        if (Object.is(num, -0)) return `-${text.replace(/^-/, "")}`;
+        if (num < 0) return text;
+        if (flags.includes("+")) return `+${text}`;
+        if (flags.includes(" ")) return ` ${text}`;
+        return text;
+      };
+
       switch (spec) {
         case "s": {
           let str = val !== undefined ? String(val) : "";
@@ -1393,7 +1449,7 @@ export function formatPrintf(
               "string_length",
             );
           }
-          let str = num.toFixed(prec);
+          let str = signForFloat(num.toFixed(prec), num);
           if (width) {
             const w = parseInt(width, 10);
             if (flags.includes("-")) {
@@ -1420,6 +1476,7 @@ export function formatPrintf(
           }
           let str = num.toExponential(prec);
           if (spec === "E") str = str.toUpperCase();
+          str = signForFloat(str, num);
           if (width) {
             const w = parseInt(width, 10);
             if (flags.includes("-")) {
@@ -1462,6 +1519,7 @@ export function formatPrintf(
           if (str.includes("e")) {
             str = str.replace(/\.?0+e/, "e");
           }
+          str = signForFloat(str, num);
           if (width) {
             const w = parseInt(width, 10);
             if (flags.includes("-")) {

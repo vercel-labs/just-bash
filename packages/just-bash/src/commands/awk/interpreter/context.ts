@@ -109,6 +109,29 @@ export interface AwkRuntimeContext {
    */
   argvVersion: number;
   /**
+   * Key-set version of ARGV: bumped only when the SET of present
+   * indices changes (insert, delete, whole-store replace, ARGC
+   * assignment) — never when an existing entry's value is replaced.
+   * The input loop's cached index list keys off this, not
+   * argvVersion, so replacing a value does not force a full key
+   * scan and sort after every file (review 6010326757): a
+   * replacement cannot change which files are read, and the loop
+   * reads each entry fresh when its turn comes.
+   */
+  argvIndexVersion: number;
+  /**
+   * Resolved array names ever used as an array: subscript access,
+   * asort, split, delete, `in`, or a for-in loop. A name keeps its
+   * array type even when its store is currently empty or was deleted
+   * — a later scalar assignment is the fatal type error gawk
+   * reports — so `a[1]=1; delete a; a=5` and an omitted parameter
+   * after `asort(a)` both reject (review 6010326757), instead of
+   * silently untyping when the store disappears. A name never used
+   * as an array (an uninitialized variable, a fresh omitted
+   * parameter) stays convertible to a scalar by a first assignment.
+   */
+  arrayTypedNames: Set<string>;
+  /**
    * Scalar variable names whose current value is an AWK numeric
    * string (strnum): a numeric-looking string that came from input
    * fields or split(), as opposed to a string literal. Only the
@@ -149,6 +172,17 @@ export interface AwkRuntimeContext {
   lastFieldIsStrnum: boolean;
   lastArrayAccessIsStrnum: boolean;
   lastCallReturnIsStrnum: boolean;
+  /**
+   * Provenance of the value most recently produced by a ternary
+   * (conditional) expression, and by an assignment expression used
+   * as a value: whether it is a numeric string (strnum). Recorded
+   * by the expression itself, right after it evaluates its selected
+   * branch / right-hand side — gawk preserves a strnum through both
+   * shapes (review 6010326757), while every other unlisted shape
+   * (literal, arithmetic, concatenation, ...) is a plain string.
+   */
+  lastTernaryIsStrnum: boolean;
+  lastAssignmentIsStrnum: boolean;
   recordsProcessed: number;
   currentRecursionDepth: number;
 
@@ -272,6 +306,8 @@ export function createRuntimeContext(
     arrayElementBaselines: new Map(),
     specialStoreSizes: new Map(),
     argvVersion: 0,
+    argvIndexVersion: 0,
+    arrayTypedNames: new Set(),
     strnumVars: new Set(),
     strnumArrayKeys: new Map(),
     strnumFields: new Set(),
@@ -279,6 +315,8 @@ export function createRuntimeContext(
     lastFieldIsStrnum: false,
     lastArrayAccessIsStrnum: false,
     lastCallReturnIsStrnum: false,
+    lastTernaryIsStrnum: false,
+    lastAssignmentIsStrnum: false,
     recordsProcessed: 0,
     currentRecursionDepth: 0,
 

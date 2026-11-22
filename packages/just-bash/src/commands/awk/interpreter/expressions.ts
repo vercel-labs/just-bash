@@ -43,6 +43,7 @@ import {
   getArrayElement,
   getVariable,
   hasArrayElement,
+  isScalarVariable,
   isStrnumArrayKey,
   isStrnumVar,
   markStrnumArrayKey,
@@ -118,18 +119,28 @@ export async function evalExpr(
     case "unary":
       return evalUnaryOp(ctx, expr);
 
-    case "ternary":
-      return isTruthy(
+    case "ternary": {
+      const takeConsequent = isTruthy(
         await withDefenseContext(ctx, "ternary condition evaluation", () =>
           evalExpr(ctx, expr.condition),
         ),
-      )
-        ? await withDefenseContext(ctx, "ternary consequent evaluation", () =>
-            evalExpr(ctx, expr.consequent),
-          )
-        : await withDefenseContext(ctx, "ternary alternate evaluation", () =>
-            evalExpr(ctx, expr.alternate),
-          );
+      );
+      const branch = takeConsequent ? expr.consequent : expr.alternate;
+      const value = await withDefenseContext(
+        ctx,
+        takeConsequent
+          ? "ternary consequent evaluation"
+          : "ternary alternate evaluation",
+        () => evalExpr(ctx, branch),
+      );
+      // The selected branch's provenance is the ternary's own: gawk
+      // preserves a numeric string through the branch it takes
+      // (review 6010326757). Record it before returning, so an
+      // assignment or return reading this value sees the branch's
+      // flag, not a stale one left by the condition.
+      ctx.lastTernaryIsStrnum = exprIsStrnum(ctx, branch);
+      return value;
+    }
 
     case "call":
       return evalFunctionCall(ctx, expr.name, expr.args);
@@ -210,8 +221,11 @@ async function evalArrayAccess(
  * describe it: a field reports its tracked flag, an array element
  * reports the flag its own read recorded (computed keys included), a
  * variable consults its flag, and a function call reports what the
- * callee's return recorded. Every other shape (literal, arithmetic,
- * concatenation, ternary, ...) is a plain string.
+ * callee's return recorded. A ternary reports the flag its selected
+ * branch recorded, and an assignment expression reports its
+ * right-hand side's flag — gawk preserves a strnum through both
+ * shapes (review 6010326757). Every other shape (literal,
+ * arithmetic, concatenation, ...) is a plain string.
  */
 export function exprIsStrnum(ctx: AwkRuntimeContext, expr: AwkExpr): boolean {
   switch (expr.type) {
@@ -223,6 +237,10 @@ export function exprIsStrnum(ctx: AwkRuntimeContext, expr: AwkExpr): boolean {
       return ctx.lastArrayAccessIsStrnum;
     case "call":
       return ctx.lastCallReturnIsStrnum;
+    case "ternary":
+      return ctx.lastTernaryIsStrnum;
+    case "assignment":
+      return ctx.lastAssignmentIsStrnum;
     default:
       return false;
   }
@@ -421,7 +439,21 @@ async function evalFunctionCall(
   const builtin = awkBuiltins.get(name);
   if (builtin) {
     // Built-ins use a wrapper that handles async
-    return builtin(args, ctx, { evalExpr: (e: AwkExpr) => evalExpr(ctx, e) });
+    const result = await withDefenseContext(
+      ctx,
+      "built-in call evaluation",
+      async () =>
+        builtin(args, ctx, {
+          evalExpr: (e: AwkExpr) => evalExpr(ctx, e),
+        }),
+    );
+    // A built-in never returns a numeric string, so the flag is false
+    // after it returns even when a nested user call set it while the
+    // built-in's arguments were evaluated (review 6010326757):
+    // without this, `x = substr(g(), 1, 1)` would wrongly mark x a
+    // strnum whenever g() returned one.
+    ctx.lastCallReturnIsStrnum = false;
+    return result;
   }
 
   // Check for user-defined function
@@ -468,10 +500,6 @@ async function callUserFunction(
   // A parameter shadows an outer variable of the same name, so its
   // numeric-string provenance is saved and restored alongside it.
   const savedStrnumParams = new Map<string, boolean>();
-  for (const param of func.params) {
-    savedParams[param] = ctx.vars[param];
-    savedStrnumParams.set(param, isStrnumVar(ctx, param));
-  }
 
   // Resolve array arguments through the caller's frame BEFORE
   // installing this call's bindings: a nested call reusing the same
@@ -481,10 +509,18 @@ async function callUserFunction(
   // keeps swapped arguments (f(y, x) for f(x, y)) pointing at the
   // right arrays.
   const resolvedArgNames = new Map<number, string>();
+  // Whether each variable argument already holds a scalar in the
+  // caller's frame: such an argument is passed by value, not by
+  // reference, so its parameter is a scalar — array operations on it
+  // are rejected instead of silently converting the caller's scalar
+  // into an array (review 6010326757). An uninitialized variable is
+  // untyped (array binding, as before), as is an array.
+  const argIsScalarVariable = new Map<number, boolean>();
   for (let i = 0; i < func.params.length && i < args.length; i++) {
     const arg = args[i];
     if (arg.type === "variable") {
       resolvedArgNames.set(i, resolveArrayName(ctx, arg.name));
+      argIsScalarVariable.set(i, isScalarVariable(ctx, arg.name));
     }
   }
 
@@ -495,9 +531,10 @@ async function callUserFunction(
   // that carry provenance count — a variable holding a strnum, or an
   // array element with a literal key holding a strnum. A literal or
   // any other expression is a plain string even when it looks
-  // numeric: f("10") must not sort "10" numerically. Field
-  // arguments are decided in the loop below, from the value just
-  // evaluated (a field is a strnum exactly when it looks numeric).
+  // numeric: f("10") must not sort "10" numerically. Field, computed
+  // array-key, and function-call arguments are decided in the loop
+  // below, from the value just evaluated (a field is a strnum
+  // exactly when it looks numeric).
   const argIsStrnum = new Map<number, boolean>();
   for (let i = 0; i < func.params.length && i < args.length; i++) {
     const arg = args[i];
@@ -531,7 +568,26 @@ async function callUserFunction(
     );
     if (args[i].type === "field") {
       argFieldIsStrnum.set(i, ctx.lastFieldIsStrnum);
+    } else if (args[i].type === "array_access") {
+      // A computed key is fine here: the read just recorded its flag,
+      // like the field case above (review 6010326757).
+      argIsStrnum.set(i, ctx.lastArrayAccessIsStrnum);
+    } else if (args[i].type === "call") {
+      // A function-call argument's provenance is what the callee
+      // returned (review 6010326757).
+      argIsStrnum.set(i, ctx.lastCallReturnIsStrnum);
     }
+  }
+
+  // Save the parameter slots only AFTER the arguments were evaluated:
+  // an argument is evaluated in the caller's frame, so an assignment
+  // in it to a same-named caller variable (f(y=9) where f's parameter
+  // is y) is a caller-side side effect that must survive the call —
+  // saving before evaluation would restore the old value on return
+  // and discard it (review 6010326757).
+  for (const param of func.params) {
+    savedParams[param] = ctx.vars[param];
+    savedStrnumParams.set(param, isStrnumVar(ctx, param));
   }
 
   // Track array aliases we create (to clean up later)
@@ -563,7 +619,15 @@ async function callUserFunction(
       // same parameter name resolves the argument the same way, so
       // it keeps pointing at the caller's array.
       if (arg.type === "variable") {
-        frame.set(param, resolvedArgNames.get(i) ?? arg.name);
+        if (argIsScalarVariable.get(i) ?? false) {
+          // The argument already holds a scalar in the caller, so
+          // the parameter is a scalar local (see the snapshot above):
+          // bind it to a scalar-only name so array operations on it
+          // are rejected instead of reaching the caller's scalar.
+          frame.set(param, nextLocalScalarName(ctx));
+        } else {
+          frame.set(param, resolvedArgNames.get(i) ?? arg.name);
+        }
       } else {
         // A scalar argument: the parameter is a local scalar, not an
         // array. Bind it to a synthetic scalar-only name so array
@@ -659,11 +723,16 @@ async function evalAssignment(
   // Numeric-string (strnum) provenance: a value copied straight from
   // a field ($n), from a variable that itself holds a strnum, from an
   // array element (any key — the read just recorded its flag), or from
-  // a function call that returned one stays a strnum; any other
-  // right-hand side (literal, arithmetic, concatenation, ternary) is
-  // a plain string. Only a plain "=" assignment carries provenance;
-  // compound assignments produce numbers.
+  // a function call that returned one stays a strnum; a ternary or an
+  // assignment expression carries its selected branch's / right-hand
+  // side's flag; any other right-hand side (literal, arithmetic,
+  // concatenation) is a plain string. Only a plain "=" assignment
+  // carries provenance; compound assignments produce numbers.
   const rhsIsStrnum = op === "=" && exprIsStrnum(ctx, expr.value);
+  // An assignment used as a value carries its right-hand side's
+  // provenance (review 6010326757); a compound assignment produces a
+  // number and never is one.
+  ctx.lastAssignmentIsStrnum = rhsIsStrnum;
 
   let finalValue: AwkValue;
 

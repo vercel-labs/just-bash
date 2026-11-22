@@ -30,6 +30,7 @@ import {
 import { isAwkNumericString } from "./interpreter/type-coercion.js";
 import {
   isBuiltinScalarName,
+  markStrnumArrayKey,
   markStrnumVar,
   setVariable,
 } from "./interpreter/variables.js";
@@ -105,6 +106,14 @@ export const awkCommand2: RuntimeCommand = {
           const varName = assignment.slice(0, eqIdx);
           const varValue = processEscapes(assignment.slice(eqIdx + 1));
           vars[varName] = varValue;
+          // -v FS is a separator option, not a plain variable: gawk
+          // honors whichever of -F and -v FS comes last, so apply it
+          // here in option order (review 6010326757). The later
+          // -v loop still skips FS — it is already in fieldSepStr.
+          if (varName === "FS") {
+            fieldSepStr = varValue;
+            fieldSep = createFieldSepRegex(fieldSepStr);
+          }
         }
         programIdx = i + 1;
       } else if (arg.startsWith("--")) {
@@ -232,15 +241,30 @@ export const awkCommand2: RuntimeCommand = {
       ["ARGV", Object.keys(runtimeCtx.ARGV).length],
       ["ENVIRON", Object.keys(runtimeCtx.ENVIRON).length],
     ]);
+    // Numeric-looking initial ARGV/ENVIRON entries are numeric
+    // strings in gawk: an array copied from them sorts "9" before
+    // "10" numerically, and asort(ARGV) itself does too (verified
+    // against gawk 5.2.1 — review 6010326757). Mark those keys here
+    // so the strnum metadata exists from the start.
+    for (const [key, value] of Object.entries(runtimeCtx.ARGV)) {
+      if (typeof value === "string" && isAwkNumericString(value)) {
+        markStrnumArrayKey(runtimeCtx, "ARGV", key, true);
+      }
+    }
+    for (const [key, value] of Object.entries(runtimeCtx.ENVIRON)) {
+      if (typeof value === "string" && isAwkNumericString(value)) {
+        markStrnumArrayKey(runtimeCtx, "ENVIRON", key, true);
+      }
+    }
 
     // Route -v assignments for built-in variables through their
     // setters, so they reach the dedicated slots reads use instead of
     // sitting unread in vars: -v CONVFMT=%.0f used to leave
     // ctx.CONVFMT at "%.6g". This runs after the ARGC/ARGV setup.
-    // FS, FNR, and ARGC are excluded: -v FS stays driven by -F
-    // (routing it here would let it override -F regardless of
-    // argument order), gawk ignores -v FNR outright, and -v ARGC is
-    // overwritten by the argument count in gawk (argv wins).
+    // FS, FNR, and ARGC are excluded: -v FS was already applied in
+    // the option loop, in order with -F (last one wins, as in gawk);
+    // gawk ignores -v FNR outright, and -v ARGC is overwritten by
+    // the argument count in gawk (argv wins).
     for (const [name, value] of Object.entries(vars)) {
       if (name === "FS" || name === "FNR" || name === "ARGC") continue;
       if (isBuiltinScalarName(name)) setVariable(runtimeCtx, name, value);
@@ -401,13 +425,16 @@ export const awkCommand2: RuntimeCommand = {
       // order, from a cached sorted list: a sparse ARGV (one entry
       // at index 999,999,999,999) never visits the missing indices
       // below it, and reading N unchanged files costs one key scan
-      // instead of N. The list is refreshed only when ARGV (or its
-      // ARGC bound) changed while a file was being processed, tracked
-      // by runtimeCtx.argvVersion. Indices are never revisited: an
-      // entry added behind the current position is not re-read, as
-      // in gawk. Each entry is read fresh when its turn comes, so a
-      // replacement or deletion made while processing an earlier file
-      // takes effect; a lowered ARGC takes effect immediately.
+      // instead of N. The list is refreshed only when the SET of
+      // present indices may have changed while a file was being
+      // processed, tracked by runtimeCtx.argvIndexVersion: a value
+      // replacement cannot change which files are read, so it must
+      // not force a full key scan and sort after every file (review
+      // 6010326757). Indices are never revisited: an entry added
+      // behind the current position is not re-read, as in gawk. Each
+      // entry is read fresh when its turn comes, so a replacement or
+      // deletion made while processing an earlier file takes effect;
+      // a lowered ARGC takes effect immediately.
       let pendingIndices: number[] = [];
       let pendingVersion = -1;
       let nextPending = 0;
@@ -438,10 +465,10 @@ export const awkCommand2: RuntimeCommand = {
         // would be read twice. gawk reads it once.
         pendingIndices = [...new Set(indices)];
         nextPending = 0;
-        pendingVersion = runtimeCtx.argvVersion ?? 0;
+        pendingVersion = runtimeCtx.argvIndexVersion ?? 0;
       };
       for (;;) {
-        if ((runtimeCtx.argvVersion ?? 0) !== pendingVersion) {
+        if ((runtimeCtx.argvIndexVersion ?? 0) !== pendingVersion) {
           refreshPendingIndices();
         }
         if (nextPending >= pendingIndices.length) break;
@@ -473,16 +500,18 @@ export const awkCommand2: RuntimeCommand = {
         // file, as in gawk — and the assignment happens when the
         // operand's turn comes, so a file listed before it does not see
         // the value yet. Only a valid AWK identifier counts ("1x=42"
-        // is a filename); the value is taken literally (no escape
-        // processing, unlike -v) and is a numeric string when it looks
-        // numeric. Assigning to an array name (ARGV=1) is a fatal type
-        // error, via setVariable. An assignment is not input, so it
-        // leaves readAnyInput alone: with no files at all, stdin is
-        // still read after the assignments run.
+        // is a filename); the value is escape-processed like -v (gawk
+        // converts v=a\tb to a three-character value containing a tab),
+        // and is a numeric string when it looks numeric. Assigning to
+        // an array name (ARGV=1) is a fatal type error, via
+        // setVariable. An assignment is not input, so it leaves
+        // readAnyInput alone: with no files at all, stdin is still
+        // read after the assignments run.
         const assignment = parseAssignmentOperand(entry);
         if (assignment) {
-          setVariable(runtimeCtx, assignment.name, assignment.value);
-          if (isAwkNumericString(assignment.value)) {
+          const value = processEscapes(assignment.value);
+          setVariable(runtimeCtx, assignment.name, value);
+          if (isAwkNumericString(value)) {
             markStrnumVar(runtimeCtx, assignment.name, true);
           }
           continue;
@@ -527,15 +556,101 @@ export const awkCommand2: RuntimeCommand = {
 };
 
 function processEscapes(str: string): string {
-  return str
-    .replace(/\\t/g, "\t")
-    .replace(/\\n/g, "\n")
-    .replace(/\\r/g, "\r")
-    .replace(/\\b/g, "\b")
-    .replace(/\\f/g, "\f")
-    .replace(/\\a/g, "\x07") // bell
-    .replace(/\\v/g, "\v")
-    .replace(/\\\\/g, "\\");
+  if (!str.includes("\\")) return str;
+  // One left-to-right pass: the old chained .replace() calls decoded
+  // `\\t` (backslash + t) as a tab, because the \t pass ran before
+  // the \\ pass. gawk's set: the named escapes, octal \ddd (1-3
+  // digits, truncated to a byte), hex \xHH (1-2 digits), and any
+  // other \c as plain c (gawk warns; this keeps the character).
+  // A lone trailing backslash is dropped, as in gawk.
+  let out = "";
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (ch !== "\\") {
+      out += ch;
+      continue;
+    }
+    if (i + 1 >= str.length) break;
+    const next = str[i + 1];
+    switch (next) {
+      case "a":
+        out += "\x07";
+        i++;
+        break;
+      case "b":
+        out += "\b";
+        i++;
+        break;
+      case "f":
+        out += "\f";
+        i++;
+        break;
+      case "n":
+        out += "\n";
+        i++;
+        break;
+      case "r":
+        out += "\r";
+        i++;
+        break;
+      case "t":
+        out += "\t";
+        i++;
+        break;
+      case "v":
+        out += "\v";
+        i++;
+        break;
+      case "\\":
+        out += "\\";
+        i++;
+        break;
+      case '"':
+        out += '"';
+        i++;
+        break;
+      case "x": {
+        // \xHH: one or two hex digits; with none, the x stays.
+        let j = i + 2;
+        let hex = "";
+        while (j < str.length && hex.length < 2 && /[0-9A-Fa-f]/.test(str[j])) {
+          hex += str[j];
+          j++;
+        }
+        if (hex.length > 0) {
+          out += String.fromCharCode(Number.parseInt(hex, 16));
+          i = j - 1;
+        } else {
+          out += "x";
+          i++;
+        }
+        break;
+      }
+      default: {
+        if (next >= "0" && next <= "7") {
+          // \ddd: one to three octal digits, truncated to a byte.
+          let j = i + 1;
+          let oct = "";
+          while (
+            j < str.length &&
+            oct.length < 3 &&
+            str[j] >= "0" &&
+            str[j] <= "7"
+          ) {
+            oct += str[j];
+            j++;
+          }
+          out += String.fromCharCode(Number.parseInt(oct, 8) & 0xff);
+          i = j - 1;
+        } else {
+          out += next;
+          i++;
+        }
+        break;
+      }
+    }
+  }
+  return out;
 }
 
 function createFieldSepRegex(
