@@ -6,6 +6,7 @@ import {
   ExecutionLimitError,
 } from "../../interpreter/errors.js";
 import { AwkInterpreter, createRuntimeContext } from "./interpreter/index.js";
+import { setArrayElement } from "./interpreter/variables.js";
 import { AwkParser } from "./parser2.js";
 
 describe("awk associative arrays", () => {
@@ -735,15 +736,38 @@ describe("awk associative arrays", () => {
       expect(result.exitCode).toBe(0);
     });
 
-    it("should keep input order for numeric ties in the default mode (fixes #737)", async () => {
+    it("should break numeric ties by string value in the default mode (fixes #737)", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "" | awk 'BEGIN{split("1.0 01 1",a); asort(a); print a[1],a[2],a[3]}'`,
       );
-      // gawk's default sort is stable: strnums keep their input
-      // order. Only the @val_num_* modes break ties by string value
-      // (review 6007650999).
-      expect(result.stdout).toBe("1.0 01 1\n");
+      // gawk breaks a numeric tie with the string values: "01" <
+      // "1" < "1.0". The earlier stability claim (review 6007650999)
+      // was wrong; review 6009811820 corrects it.
+      expect(result.stdout).toBe("01 1 1.0\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should break numeric ties by string value across magnitudes in the default mode", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN{split("2 10 1.0 01 1",a); asort(a); print a[1],a[2],a[3],a[4],a[5]}'`,
+      );
+      // 1.0, 01 and 1 tie numerically and order by string value;
+      // 2 and 10 sort numerically after them (review 6009811820).
+      expect(result.stdout).toBe("01 1 1.0 2 10\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should keep input order for a genuine tie in the default mode", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN{a[1]=1.0; a[2]=1; a[3]=1.00; asort(a); print a[1],a[2],a[3]}'`,
+      );
+      // All three are the number 1 with the same CONVFMT form "1",
+      // so the string tie-break also ties and the stable sort keeps
+      // input order (review 6009811820).
+      expect(result.stdout).toBe("1 1 1\n");
       expect(result.exitCode).toBe(0);
     });
 
@@ -1085,6 +1109,38 @@ describe("awk associative arrays", () => {
         `awk 'FNR==1 {print FILENAME,$0; if (FILENAME=="/one") ARGV[2]="/three"}' /one /two`,
       );
       expect(result.stdout).toBe("/one one-line\n/three three-line\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should bump argvVersion when an existing ARGV element is replaced (review 6009811820)", () => {
+      const ctx = createRuntimeContext();
+      expect(ctx.argvVersion).toBe(0);
+      setArrayElement(ctx, "ARGV", "1", "/one");
+      expect(ctx.argvVersion).toBe(1);
+      // Replacing the existing key bumps too: the documented
+      // contract on ctx.argvVersion is a bump on every
+      // insert/delete/replacement, so the input loop's cached index
+      // list can never go stale.
+      setArrayElement(ctx, "ARGV", "1", "/two");
+      expect(ctx.argvVersion).toBe(2);
+      expect(ctx.ARGV["1"]).toBe("/two");
+      // An ENVIRON replacement must not invalidate the input loop.
+      setArrayElement(ctx, "ENVIRON", "X", "1");
+      setArrayElement(ctx, "ENVIRON", "X", "2");
+      expect(ctx.argvVersion).toBe(2);
+    });
+
+    it("should read the replacement file when ARGV is replaced in BEGIN", async () => {
+      const env = new Bash({
+        files: { "/one": "one-line\n", "/two": "two-line\n" },
+      });
+      const result = await env.exec(
+        `awk 'BEGIN { ARGV[2]="/one" } { print FILENAME, $0 }' /one /two`,
+      );
+      // The loop reads each entry fresh when its turn comes, so the
+      // replacement takes effect; the argvVersion bump keeps the
+      // cached index list honest for the same case mid-file.
+      expect(result.stdout).toBe("/one one-line\n/one one-line\n");
       expect(result.exitCode).toBe(0);
     });
 
