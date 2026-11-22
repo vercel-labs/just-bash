@@ -489,11 +489,14 @@ export function isScalarVariable(
 
 /**
  * Record that ARGV (or its ARGC bound) may have changed, so the input
- * loop refreshes its cached list of present indices. Callers bump
- * only when the index set or the bound could have changed: inserting
- * or deleting a key, replacing the whole store, or assigning ARGC.
- * Replacing an existing entry in place does not bump — the loop reads
- * each entry fresh when its turn comes.
+ * loop refreshes its cached list of present indices. Bumped on every
+ * insert, delete, replacement of an ARGV element, on replacing the
+ * whole store, and on every ARGC assignment — matching the contract
+ * documented on ctx.argvVersion. Replacing an existing entry bumps
+ * even though the index set is unchanged and the loop reads each
+ * entry fresh when its turn comes: the bump keeps the version honest
+ * so a future loop change cannot read stale entries (review
+ * 6009811820 corrected the earlier no-bump-on-replacement claim).
  */
 export function bumpArgvVersion(ctx: AwkRuntimeContext): void {
   ctx.argvVersion = (ctx.argvVersion ?? 0) + 1;
@@ -611,10 +614,15 @@ export function setArrayElement(
       }
       setSpecialStoreSize(ctx, store, size + 1);
       // A new key appeared: the input loop's cached index list is
-      // stale. Replacing an existing key does not bump — the loop
-      // reads each entry fresh when its turn comes. Only ARGV
-      // affects the loop; an ENVIRON insert must not invalidate it.
+      // stale. Only ARGV affects the loop; an ENVIRON insert must
+      // not invalidate it.
       if (store === ctx.ARGV) bumpArgvVersion(ctx);
+    } else if (store === ctx.ARGV) {
+      // Replacing an existing ARGV entry bumps too (review
+      // 6009811820): the index set is unchanged and the loop reads
+      // each entry fresh, but the version must reflect every ARGV
+      // mutation, as ctx.argvVersion documents.
+      bumpArgvVersion(ctx);
     }
     store[key] = value;
     // The new value carries no provenance at this layer; the
