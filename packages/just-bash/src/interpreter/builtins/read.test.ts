@@ -201,6 +201,35 @@ describe("read builtin", () => {
       expect(result.stderr).toBe("");
     });
 
+    it("should count overlong, surrogate and out-of-range sequences as one byte", async () => {
+      const env = new Bash({
+        files: {
+          "/overlong3.bin": new Uint8Array([0xe0, 0x80, 0x80, 0x78]),
+          "/overlong4.bin": new Uint8Array([0xf0, 0x80, 0x80, 0x80, 0x78]),
+          "/surrogate.bin": new Uint8Array([0xed, 0xa0, 0x80, 0x78]),
+          "/toolarge.bin": new Uint8Array([0xf4, 0x90, 0x80, 0x80, 0x78]),
+        },
+      });
+      // -n 1 takes only the lead byte, so the rest of the line is left over
+      const result = await env.exec(`
+        for f in overlong3 overlong4 surrogate toolarge; do
+          { read -rn 1 A; read -r REST; echo "\${#REST}"; } < /$f.bin
+          { read -rN 1 A; read -r REST; echo "\${#REST}"; } < /$f.bin
+        done
+      `);
+      expect(result.stdout).toBe("3\n3\n4\n4\n3\n3\n4\n4\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should still read a 4-byte character as one with -n 1", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        printf '😀x\\n' | { read -rn 1 A; read -r B; echo "\${#A} $A $B"; }
+      `);
+      expect(result.stdout).toBe("1 😀 x\n");
+      expect(result.stderr).toBe("");
+    });
+
     it("should decode UTF-8 after stdin is redirected with exec", async () => {
       const env = new Bash({ files: { "/in.txt": "한글\ncafé\n" } });
       const result = await env.exec(`

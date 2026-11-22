@@ -6,6 +6,7 @@ import {
   decodeBytesToUtf8,
   unsafeBytesFromLatin1,
   utf8ByteLength,
+  utf8SequenceLengthAt,
 } from "../../encoding.js";
 import type { ExecResult } from "../../types.js";
 import { ExecutionLimitError } from "../errors.js";
@@ -290,20 +291,11 @@ export function handleRead(
     inputIsBytes ? decodeBytesToUtf8(unsafeBytesFromLatin1(value)) : value;
   // Number of input chars in the character starting at `pos`. A UTF-8 lead
   // byte gives the sequence length, so -n/-N never split a character. An
-  // invalid sequence counts as one byte, so it never eats the bytes after it.
-  const charLengthAt = (pos: number): number => {
-    if (!inputIsBytes) return 1;
-    const lead = effectiveStdin.charCodeAt(pos);
-    let length = 1;
-    if (lead >= 0xf0 && lead <= 0xf4) length = 4;
-    else if (lead >= 0xe0 && lead <= 0xef) length = 3;
-    else if (lead >= 0xc2 && lead <= 0xdf) length = 2;
-    for (let i = 1; i < length; i++) {
-      const next = effectiveStdin.charCodeAt(pos + i);
-      if (!(next >= 0x80 && next <= 0xbf)) return 1;
-    }
-    return length;
-  };
+  // invalid sequence (including overlong and surrogate forms) counts as one
+  // byte, so it never eats the bytes after it.
+  const byteAt = (index: number): number => effectiveStdin.charCodeAt(index);
+  const charLengthAt = (pos: number): number =>
+    inputIsBytes ? utf8SequenceLengthAt(byteAt, pos) : 1;
 
   // Get input
   let line = "";
