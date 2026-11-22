@@ -539,9 +539,10 @@ function formatAwkNumber(ctx: AwkRuntimeContext, value: number): string {
  * through their dedicated storage, the same place element access uses. The
  * default comparison is a total order matching gawk's: numeric values —
  * JS numbers and numeric strings (strnums) from input fields or split()
- * — sort first, numerically (a numeric tie keeps input order, as
- * gawk's stable default sort does; only the @val_num_* modes break
- * ties by string value), and NaN sorts after every number, as in gawk
+ * — sort first, numerically (a numeric tie breaks by string value,
+ * as in gawk: split("1.0 01 1") sorts as "01 1 1.0", not in input
+ * order — review 6009811820 corrected the earlier stability claim),
+ * and NaN sorts after every number, as in gawk
  * (the @val_str_* modes compare its "-nan"/"nan" spelling instead).
  * Plain string values follow in string
  * order, so literal "10" sorts before "9". This deliberately differs from the
@@ -766,17 +767,22 @@ async function awkAsort(
       result = a.isNum ? -1 : 1;
     } else if (a.isNum) {
       result = compareNumbers(a.num, b.num);
-      // A numeric tie in the default mode keeps input order: gawk's
-      // default sort is stable, so strnums from split("1.0 01 1")
-      // stay "1.0 01 1". Only the @val_num_* modes break ties by
-      // string value (see the numericOnly branch above). The string
-      // forms are still formatted here so a hostile CONVFMT is
-      // charged before it runs (see the work-budget test) — the
-      // formatted values are not compared. Returning 0 relies on
-      // Array.sort being stable.
+      // A numeric tie in the default mode breaks by string value,
+      // exactly like the @val_num_* modes (see the numericOnly branch
+      // above): gawk's default comparison falls through to a string
+      // comparison when the numeric values are equal, so strnums
+      // from split("1.0 01 1") sort as "01 1 1.0". The old code
+      // returned 0 and relied on Array.sort stability (review
+      // 6009811820). Only a genuine tie — equal numbers whose
+      // string forms are also equal, e.g. two numbers formatting to
+      // the same CONVFMT key — keeps input order, via the stable
+      // sort. The string forms are formatted here (charged before
+      // they run, as in the numeric modes) so a hostile CONVFMT is
+      // still charged before it runs (see the work-budget test).
       if (result === 0) {
         const aStr = entryStr(a);
         const bStr = entryStr(b);
+        result = compareAwkStrings(aStr, bStr, ignoreCase);
         stringCompared = true;
         comparedLength = Math.min(aStr.length, bStr.length);
       }
