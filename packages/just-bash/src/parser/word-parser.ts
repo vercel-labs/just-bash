@@ -12,6 +12,7 @@ import {
   type WordNode,
   type WordPart,
 } from "../ast/types.js";
+import { utf8SequenceLengthAt } from "../encoding.js";
 import { parseArithmeticExpression } from "./arithmetic-parser.js";
 import { TokenType } from "./lexer.js";
 import type { Parser } from "./parser.js";
@@ -59,109 +60,23 @@ function decodeUtf8WithRecovery(bytes: number[]): string {
   let result = "";
   let i = 0;
 
+  const byteAt = (index: number): number => bytes[index];
+
   while (i < bytes.length) {
     const b0 = bytes[i];
-
-    // ASCII (0xxxxxxx)
-    if (b0 < 0x80) {
+    const length = utf8SequenceLengthAt(byteAt, i);
+    if (length === 1) {
+      // ASCII, or an invalid/incomplete sequence - output the byte as Latin-1
       result += String.fromCharCode(b0);
-      i++;
-      continue;
-    }
-
-    // 2-byte sequence (110xxxxx 10xxxxxx)
-    if ((b0 & 0xe0) === 0xc0) {
-      if (
-        i + 1 < bytes.length &&
-        (bytes[i + 1] & 0xc0) === 0x80 &&
-        b0 >= 0xc2 // Reject overlong sequences
-      ) {
-        const codePoint = ((b0 & 0x1f) << 6) | (bytes[i + 1] & 0x3f);
-        result += String.fromCharCode(codePoint);
-        i += 2;
-        continue;
+    } else {
+      // Payload bits of the lead byte: 5 for 2-byte, 4 for 3-byte, 3 for 4-byte
+      let codePoint = b0 & (0xff >> (length + 1));
+      for (let k = 1; k < length; k++) {
+        codePoint = (codePoint << 6) | (bytes[i + k] & 0x3f);
       }
-      // Invalid or incomplete - output as Latin-1
-      result += String.fromCharCode(b0);
-      i++;
-      continue;
+      result += String.fromCodePoint(codePoint);
     }
-
-    // 3-byte sequence (1110xxxx 10xxxxxx 10xxxxxx)
-    if ((b0 & 0xf0) === 0xe0) {
-      if (
-        i + 2 < bytes.length &&
-        (bytes[i + 1] & 0xc0) === 0x80 &&
-        (bytes[i + 2] & 0xc0) === 0x80
-      ) {
-        // Check for overlong encoding
-        if (b0 === 0xe0 && bytes[i + 1] < 0xa0) {
-          // Overlong - output first byte as Latin-1
-          result += String.fromCharCode(b0);
-          i++;
-          continue;
-        }
-        // Check for surrogate range (U+D800-U+DFFF)
-        const codePoint =
-          ((b0 & 0x0f) << 12) |
-          ((bytes[i + 1] & 0x3f) << 6) |
-          (bytes[i + 2] & 0x3f);
-        if (codePoint >= 0xd800 && codePoint <= 0xdfff) {
-          // Invalid surrogate - output first byte as Latin-1
-          result += String.fromCharCode(b0);
-          i++;
-          continue;
-        }
-        result += String.fromCharCode(codePoint);
-        i += 3;
-        continue;
-      }
-      // Invalid or incomplete - output as Latin-1
-      result += String.fromCharCode(b0);
-      i++;
-      continue;
-    }
-
-    // 4-byte sequence (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
-    if ((b0 & 0xf8) === 0xf0 && b0 <= 0xf4) {
-      if (
-        i + 3 < bytes.length &&
-        (bytes[i + 1] & 0xc0) === 0x80 &&
-        (bytes[i + 2] & 0xc0) === 0x80 &&
-        (bytes[i + 3] & 0xc0) === 0x80
-      ) {
-        // Check for overlong encoding
-        if (b0 === 0xf0 && bytes[i + 1] < 0x90) {
-          // Overlong - output first byte as Latin-1
-          result += String.fromCharCode(b0);
-          i++;
-          continue;
-        }
-        const codePoint =
-          ((b0 & 0x07) << 18) |
-          ((bytes[i + 1] & 0x3f) << 12) |
-          ((bytes[i + 2] & 0x3f) << 6) |
-          (bytes[i + 3] & 0x3f);
-        // Check for valid range (U+10000 to U+10FFFF)
-        if (codePoint > 0x10ffff) {
-          // Invalid - output first byte as Latin-1
-          result += String.fromCharCode(b0);
-          i++;
-          continue;
-        }
-        result += String.fromCodePoint(codePoint);
-        i += 4;
-        continue;
-      }
-      // Invalid or incomplete - output as Latin-1
-      result += String.fromCharCode(b0);
-      i++;
-      continue;
-    }
-
-    // Invalid lead byte (10xxxxxx or 11111xxx) - output as Latin-1
-    result += String.fromCharCode(b0);
-    i++;
+    i += length;
   }
 
   return result;

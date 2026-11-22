@@ -132,4 +132,169 @@ describe("read builtin", () => {
       expect(result.stdout).toBe("1\nhello world\n");
     });
   });
+
+  describe("read with UTF-8 input", () => {
+    it("should read multibyte characters as single characters", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        echo "한글 café 漢字" | { read A B C; echo "\${#A} \${#B} \${#C} $A $B $C"; }
+      `);
+      expect(result.stdout).toBe("2 4 2 한글 café 漢字\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should read each UTF-8 line correctly in a while loop", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        echo -e "한글\\ncafé\\n漢字" | while read LINE; do
+          echo "\${#LINE} $LINE"
+        done
+      `);
+      expect(result.stdout).toBe("2 한글\n4 café\n2 漢字\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should keep text read from a descriptor unchanged", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        read -u 3 A 3<<<"Ã©"
+        read B 3<<<"Ã©" <&3
+        echo "\${#A} \${#B}"
+      `);
+      expect(result.stdout).toBe("2 2\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should count whole characters with -N", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        printf "éx" | { read -N 1 A; read -N 1 B; echo "\${#A} $A \${#B} $B"; }
+      `);
+      expect(result.stdout).toBe("1 é 1 x\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should count whole characters with -n", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        echo "한글x" | { read -n 2 A; echo "\${#A} $A"; }
+      `);
+      expect(result.stdout).toBe("2 한글\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should count an invalid byte as one character with -n and -N", async () => {
+      const env = new Bash({
+        files: {
+          // 0xff never starts a character; 0xe2 does, but x is no continuation
+          "/ff.bin": new Uint8Array([0xff, 0x78, 0x79, 0x7a]),
+          "/e2.bin": new Uint8Array([0xe2, 0x78, 0x79, 0x7a]),
+        },
+      });
+      const result = await env.exec(`
+        { read -n 1 A; read -n 1 B; echo "$B"; } < /ff.bin
+        { read -N 1 A; read -N 1 B; echo "$B"; } < /ff.bin
+        cat /ff.bin | { read -n 1 A; read -n 1 B; echo "$B"; }
+        { read -n 1 A; read -n 1 B; echo "$B"; } < /e2.bin
+      `);
+      expect(result.stdout).toBe("x\nx\nx\nx\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should count overlong, surrogate and out-of-range sequences as one byte", async () => {
+      const env = new Bash({
+        files: {
+          "/overlong3.bin": new Uint8Array([0xe0, 0x80, 0x80, 0x78]),
+          "/overlong4.bin": new Uint8Array([0xf0, 0x80, 0x80, 0x80, 0x78]),
+          "/surrogate.bin": new Uint8Array([0xed, 0xa0, 0x80, 0x78]),
+          "/toolarge.bin": new Uint8Array([0xf4, 0x90, 0x80, 0x80, 0x78]),
+        },
+      });
+      // -n 1 takes only the lead byte, so the rest of the line is left over
+      const result = await env.exec(`
+        for f in overlong3 overlong4 surrogate toolarge; do
+          { read -rn 1 A; read -r REST; echo "\${#REST}"; } < /$f.bin
+          { read -rN 1 A; read -r REST; echo "\${#REST}"; } < /$f.bin
+        done
+      `);
+      expect(result.stdout).toBe("3\n3\n4\n4\n3\n3\n4\n4\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should still read a 4-byte character as one with -n 1", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        printf '😀x\\n' | { read -rn 1 A; read -r B; echo "\${#A} $A $B"; }
+      `);
+      expect(result.stdout).toBe("1 😀 x\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should stop at a multibyte -d delimiter in piped input", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        printf 'aébéc' | { read -rd é A; read -rd é B; read -rd é C; echo "$A|$B|$C"; }
+        printf 'abécd' | { read -rn 5 -d é A; read -r B; echo "$A|$B"; }
+        printf 'a\\\\ébéc' | { read -d é A; echo "$A"; }
+        printf 'a😀b' | { read -rd 😀 A; echo "$A"; }
+      `);
+      expect(result.stdout).toBe("a|b|c\nab|cd\naéb\na\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should use only the first character of the -d argument", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        printf 'xaybz' | { read -rd ab A; read -rd ab B; echo "$A|$B"; }
+      `);
+      expect(result.stdout).toBe("x|ybz\n");
+    });
+
+    it("should keep U+FEFF at the start of a line or -N chunk", async () => {
+      const env = new Bash({
+        files: {
+          // x U+FEFF y \n U+FEFF z \n
+          "/bom.bin": new Uint8Array([
+            0x78, 0xef, 0xbb, 0xbf, 0x79, 0x0a, 0xef, 0xbb, 0xbf, 0x7a, 0x0a,
+          ]),
+        },
+      });
+      const result = await env.exec(`
+        { read -rN 1 a; read -rN 1 b; read -rN 1 c; echo "\${#a}\${#b}\${#c} $c"; } < /bom.bin
+        { read -r L1; read -r L2; echo "\${#L1} \${#L2}"; } < /bom.bin
+      `);
+      expect(result.stdout).toBe("111 y\n3 2\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should count bytes under the C locale", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        export LC_ALL=C
+        printf 'éX' | { read -rN 1 a; read -rN 1 b; read -rN 1 c; printf '<%s>\\n' "$c"; }
+        printf 'éX' | { read -rn 1 a; read -rn 1 b; read -rn 1 c; printf '<%s>\\n' "$c"; }
+        printf 'é\\n' | { read -r A; echo "\${#A}"; }
+        LC_ALL=C.UTF-8
+        printf 'é\\n' | { read -r A; echo "\${#A}"; }
+        LC_ALL= LC_CTYPE=POSIX
+        printf 'é\\n' | { read -r A; echo "\${#A}"; }
+        LC_CTYPE= LANG=C
+        printf 'é\\n' | { read -r A; echo "\${#A}"; }
+      `);
+      expect(result.stdout).toBe("<X>\n<X>\n2\n1\n2\n2\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should decode UTF-8 after stdin is redirected with exec", async () => {
+      const env = new Bash({ files: { "/in.txt": "한글\ncafé\n" } });
+      const result = await env.exec(`
+        exec < /in.txt
+        read A
+        read B
+        echo "\${#A} \${#B}"
+      `);
+      expect(result.stdout).toBe("2 4\n");
+      expect(result.stderr).toBe("");
+    });
+  });
 });

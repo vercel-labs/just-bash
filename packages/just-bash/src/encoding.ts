@@ -22,6 +22,10 @@ export interface ByteString {
 }
 
 const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+const strictUtf8DecoderKeepBom = new TextDecoder("utf-8", {
+  fatal: true,
+  ignoreBOM: true,
+});
 const utf8Encoder = new TextEncoder();
 const DEFAULT_MAX_CONVERSION_BYTES = 512 * 1024 * 1024;
 
@@ -63,6 +67,44 @@ export function utf8ByteLength(value: string): number {
 }
 
 /**
+ * Length of the well-formed UTF-8 sequence starting at `pos`, or 1 when the
+ * byte there is ASCII or does not start one. `byteAt` returns the byte at an
+ * index (anything outside 0-255, such as `undefined` or `NaN`, past the end).
+ *
+ * Follows the Unicode well-formed byte ranges, so overlong forms, surrogates
+ * (U+D800-U+DFFF) and code points above U+10FFFF are rejected. A caller that
+ * steps one byte on a rejected sequence never swallows the bytes after it.
+ */
+export function utf8SequenceLengthAt(
+  byteAt: (index: number) => number,
+  pos: number,
+): number {
+  const lead = byteAt(pos);
+  let length: number;
+  let secondMin = 0x80;
+  let secondMax = 0xbf;
+  // E0 and F0 below these second bytes are overlong, ED A0+ encodes a
+  // surrogate, and F4 90+ lies above U+10FFFF.
+  if (lead >= 0xc2 && lead <= 0xdf) length = 2;
+  else if (lead >= 0xe0 && lead <= 0xef) {
+    length = 3;
+    if (lead === 0xe0) secondMin = 0xa0;
+    else if (lead === 0xed) secondMax = 0x9f;
+  } else if (lead >= 0xf0 && lead <= 0xf4) {
+    length = 4;
+    if (lead === 0xf0) secondMin = 0x90;
+    else if (lead === 0xf4) secondMax = 0x8f;
+  } else return 1;
+  const second = byteAt(pos + 1);
+  if (!(second >= secondMin && second <= secondMax)) return 1;
+  for (let i = 2; i < length; i++) {
+    const next = byteAt(pos + i);
+    if (!(next >= 0x80 && next <= 0xbf)) return 1;
+  }
+  return length;
+}
+
+/**
  * Tag a latin1 byte buffer (each char = one byte) as a `ByteString`. Use at
  * the pipeline edge: `cmdCtx.stdin = unsafeBytesFromLatin1(prevStdout)`.
  * Avoid inside command implementations.
@@ -89,10 +131,15 @@ export function latin1FromBytes(b: ByteString): string {
  * Falls back to the raw latin1 view if the bytes are not valid UTF-8 (e.g.
  * a binary stream piped into grep). Callers that want hard failure on
  * invalid UTF-8 should encode + decode manually with `{ fatal: true }`.
+ *
+ * A leading U+FEFF is dropped as a byte-order mark unless `keepBom` is set.
+ * Set it when decoding a slice of a larger stream (such as one `read` line),
+ * where U+FEFF at the start of the slice is data, not a BOM.
  */
 export function decodeBytesToUtf8(
   b: ByteString,
   maxBytes: number = DEFAULT_MAX_CONVERSION_BYTES,
+  { keepBom = false }: { keepBom?: boolean } = {},
 ): string {
   const s = b as unknown as string;
   if (!s) return s;
@@ -114,7 +161,9 @@ export function decodeBytesToUtf8(
   for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
 
   try {
-    return strictUtf8Decoder.decode(bytes);
+    return (keepBom ? strictUtf8DecoderKeepBom : strictUtf8Decoder).decode(
+      bytes,
+    );
   } catch {
     return s;
   }
