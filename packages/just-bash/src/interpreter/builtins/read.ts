@@ -4,6 +4,8 @@
 
 import {
   decodeBytesToUtf8,
+  encodeUtf8ToBytes,
+  latin1FromBytes,
   unsafeBytesFromLatin1,
   utf8ByteLength,
   utf8SequenceLengthAt,
@@ -20,6 +22,17 @@ import {
 import { checkReadonlyError } from "../helpers/readonly.js";
 import { result } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
+
+/**
+ * Whether the script selected the C (or POSIX) locale for character handling.
+ * LC_ALL wins over LC_CTYPE, which wins over LANG; empty values are skipped.
+ * With none set, just-bash treats text as UTF-8, so this returns false.
+ */
+function isCLocale(ctx: InterpreterContext): boolean {
+  const env = ctx.state.env;
+  const locale = env.get("LC_ALL") || env.get("LC_CTYPE") || env.get("LANG");
+  return locale === "C" || locale === "POSIX";
+}
 
 export function handleRead(
   ctx: InterpreterContext,
@@ -278,24 +291,44 @@ export function handleRead(
 
   // Handle -d '' (empty delimiter) - reads until NUL byte
   // Empty string delimiter means read until NUL byte (\0)
-  const effectiveDelimiter = delimiter === "" ? "\0" : delimiter;
+  // Like bash, only the first character of the -d argument is the delimiter.
+  const effectiveDelimiter =
+    delimiter === ""
+      ? "\0"
+      : String.fromCodePoint(delimiter.codePointAt(0) as number);
 
   // Stdin (pipes, redirects, and fd 0 itself) holds one char per byte, while a
   // numbered descriptor (`-u N`, `<&N` with N > 0, or a group fed by one) is
-  // already text. Byte input is decoded, and -n/-N count whole characters.
+  // already text. Byte input is decoded as UTF-8, and -n/-N count whole
+  // characters, unless the script picked the C locale, where a character is
+  // one byte and the value is left as read (like bash).
   const inputIsBytes =
     !readsFromFd &&
     stdinSourceFd <= 0 &&
     !(!stdin && (ctx.state.groupStdinSourceFd ?? -1) > 0);
+  const decodeUtf8 = inputIsBytes && !isCLocale(ctx);
+  // U+FEFF at the start of a line or -n/-N chunk is data, not a BOM.
   const toText = (value: string): string =>
-    inputIsBytes ? decodeBytesToUtf8(unsafeBytesFromLatin1(value)) : value;
+    decodeUtf8
+      ? decodeBytesToUtf8(unsafeBytesFromLatin1(value), undefined, {
+          keepBom: true,
+        })
+      : value;
   // Number of input chars in the character starting at `pos`. A UTF-8 lead
   // byte gives the sequence length, so -n/-N never split a character. An
   // invalid sequence (including overlong and surrogate forms) counts as one
   // byte, so it never eats the bytes after it.
   const byteAt = (index: number): number => effectiveStdin.charCodeAt(index);
   const charLengthAt = (pos: number): number =>
-    inputIsBytes ? utf8SequenceLengthAt(byteAt, pos) : 1;
+    decodeUtf8 ? utf8SequenceLengthAt(byteAt, pos) : 1;
+  // The delimiter as it appears in the input: its UTF-8 bytes when decoding
+  // byte input, so `-d é` matches the two bytes of a piped `é`.
+  const delimiterInput =
+    decodeUtf8 && utf8ByteLength(effectiveDelimiter) > 1
+      ? latin1FromBytes(encodeUtf8ToBytes(effectiveDelimiter))
+      : effectiveDelimiter;
+  const isDelimiterAt = (pos: number): boolean =>
+    effectiveStdin.startsWith(delimiterInput, pos);
 
   // Get input
   let line = "";
@@ -371,8 +404,8 @@ export function handleRead(
     let hitDelimiter = false;
     while (inputPos < effectiveStdin.length && charCount < nchars) {
       const char = effectiveStdin[inputPos];
-      if (char === effectiveDelimiter) {
-        consumed = inputPos + 1;
+      if (isDelimiterAt(inputPos)) {
+        consumed = inputPos + delimiterInput.length;
         hitDelimiter = true;
         break;
       }
@@ -380,18 +413,18 @@ export function handleRead(
         // Backslash escape: consume both chars, but only count as 1 char
         // The escaped character is kept, backslash is removed
         const nextChar = effectiveStdin[inputPos + 1];
-        if (nextChar === effectiveDelimiter && effectiveDelimiter === "\n") {
+        if (nextChar === "\n" && effectiveDelimiter === "\n") {
           // Backslash-newline is a line continuation: consume both, don't count as a char
           // Continue reading from the next line
           inputPos += 2;
           consumed = inputPos;
           continue;
         }
-        if (nextChar === effectiveDelimiter) {
+        if (isDelimiterAt(inputPos + 1)) {
           // Backslash-delimiter (non-newline): counts as one char (the escaped delimiter)
-          inputPos += 2;
+          inputPos += 1 + delimiterInput.length;
           charCount++;
-          appendLine(nextChar);
+          appendLine(delimiterInput);
           consumed = inputPos;
           continue;
         }
@@ -424,8 +457,8 @@ export function handleRead(
       const char = effectiveStdin[inputPos];
 
       // Check for delimiter
-      if (char === effectiveDelimiter) {
-        consumed = inputPos + effectiveDelimiter.length;
+      if (isDelimiterAt(inputPos)) {
+        consumed = inputPos + delimiterInput.length;
         foundDelimiter = true;
         break;
       }
@@ -440,10 +473,10 @@ export function handleRead(
           continue;
         }
 
-        if (nextChar === effectiveDelimiter) {
+        if (isDelimiterAt(inputPos + 1)) {
           // Backslash-delimiter: escape the delimiter, include it literally
-          appendLine(nextChar);
-          inputPos += 2;
+          appendLine(delimiterInput);
+          inputPos += 1 + delimiterInput.length;
           continue;
         }
 

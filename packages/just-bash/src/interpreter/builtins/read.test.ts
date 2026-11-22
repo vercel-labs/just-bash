@@ -230,6 +230,61 @@ describe("read builtin", () => {
       expect(result.stderr).toBe("");
     });
 
+    it("should stop at a multibyte -d delimiter in piped input", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        printf 'aébéc' | { read -rd é A; read -rd é B; read -rd é C; echo "$A|$B|$C"; }
+        printf 'abécd' | { read -rn 5 -d é A; read -r B; echo "$A|$B"; }
+        printf 'a\\\\ébéc' | { read -d é A; echo "$A"; }
+        printf 'a😀b' | { read -rd 😀 A; echo "$A"; }
+      `);
+      expect(result.stdout).toBe("a|b|c\nab|cd\naéb\na\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should use only the first character of the -d argument", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        printf 'xaybz' | { read -rd ab A; read -rd ab B; echo "$A|$B"; }
+      `);
+      expect(result.stdout).toBe("x|ybz\n");
+    });
+
+    it("should keep U+FEFF at the start of a line or -N chunk", async () => {
+      const env = new Bash({
+        files: {
+          // x U+FEFF y \n U+FEFF z \n
+          "/bom.bin": new Uint8Array([
+            0x78, 0xef, 0xbb, 0xbf, 0x79, 0x0a, 0xef, 0xbb, 0xbf, 0x7a, 0x0a,
+          ]),
+        },
+      });
+      const result = await env.exec(`
+        { read -rN 1 a; read -rN 1 b; read -rN 1 c; echo "\${#a}\${#b}\${#c} $c"; } < /bom.bin
+        { read -r L1; read -r L2; echo "\${#L1} \${#L2}"; } < /bom.bin
+      `);
+      expect(result.stdout).toBe("111 y\n3 2\n");
+      expect(result.stderr).toBe("");
+    });
+
+    it("should count bytes under the C locale", async () => {
+      const env = new Bash();
+      const result = await env.exec(`
+        export LC_ALL=C
+        printf 'éX' | { read -rN 1 a; read -rN 1 b; read -rN 1 c; printf '<%s>\\n' "$c"; }
+        printf 'éX' | { read -rn 1 a; read -rn 1 b; read -rn 1 c; printf '<%s>\\n' "$c"; }
+        printf 'é\\n' | { read -r A; echo "\${#A}"; }
+        LC_ALL=C.UTF-8
+        printf 'é\\n' | { read -r A; echo "\${#A}"; }
+        LC_ALL= LC_CTYPE=POSIX
+        printf 'é\\n' | { read -r A; echo "\${#A}"; }
+        LC_CTYPE= LANG=C
+        printf 'é\\n' | { read -r A; echo "\${#A}"; }
+      `);
+      expect(result.stdout).toBe("<X>\n<X>\n2\n1\n2\n2\n");
+      expect(result.stderr).toBe("");
+    });
+
     it("should decode UTF-8 after stdin is redirected with exec", async () => {
       const env = new Bash({ files: { "/in.txt": "한글\ncafé\n" } });
       const result = await env.exec(`

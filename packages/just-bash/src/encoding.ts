@@ -22,6 +22,10 @@ export interface ByteString {
 }
 
 const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+const strictUtf8DecoderKeepBom = new TextDecoder("utf-8", {
+  fatal: true,
+  ignoreBOM: true,
+});
 const utf8Encoder = new TextEncoder();
 const DEFAULT_MAX_CONVERSION_BYTES = 512 * 1024 * 1024;
 
@@ -127,10 +131,15 @@ export function latin1FromBytes(b: ByteString): string {
  * Falls back to the raw latin1 view if the bytes are not valid UTF-8 (e.g.
  * a binary stream piped into grep). Callers that want hard failure on
  * invalid UTF-8 should encode + decode manually with `{ fatal: true }`.
+ *
+ * A leading U+FEFF is dropped as a byte-order mark unless `keepBom` is set.
+ * Set it when decoding a slice of a larger stream (such as one `read` line),
+ * where U+FEFF at the start of the slice is data, not a BOM.
  */
 export function decodeBytesToUtf8(
   b: ByteString,
   maxBytes: number = DEFAULT_MAX_CONVERSION_BYTES,
+  { keepBom = false }: { keepBom?: boolean } = {},
 ): string {
   const s = b as unknown as string;
   if (!s) return s;
@@ -152,7 +161,9 @@ export function decodeBytesToUtf8(
   for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
 
   try {
-    return strictUtf8Decoder.decode(bytes);
+    return (keepBom ? strictUtf8DecoderKeepBom : strictUtf8Decoder).decode(
+      bytes,
+    );
   } catch {
     return s;
   }
