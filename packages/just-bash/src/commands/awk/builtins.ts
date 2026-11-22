@@ -13,21 +13,18 @@ import type { AwkExpr } from "./ast.js";
 import type { AwkRuntimeContext } from "./interpreter/context.js";
 import {
   ensureFieldCount,
+  markStrnumField,
   rebuildLine,
   splitFields,
 } from "./interpreter/fields.js";
-import {
-  isAwkNumericString,
-  isTruthy,
-  toNumber,
-} from "./interpreter/type-coercion.js";
+import { isAwkNumericString, toNumber } from "./interpreter/type-coercion.js";
 import type { AwkValue } from "./interpreter/types.js";
 import {
   bumpArgvVersion,
   chargedSizeOfArray,
   getArrayStore,
-  getVariable,
   initialSizeOfArray,
+  isIgnoreCaseEnabled,
   isScalarVariable,
   isStrnumArrayKey,
   replaceArrayValues,
@@ -155,30 +152,45 @@ function getTargetValue(targetName: string, ctx: AwkRuntimeContext): string {
 }
 
 /**
+ * Validate a sub/gsub field target's index without writing anything:
+ * a huge $(1e21) must still hit the field-count limit instead of
+ * silently wrapping onto $1 (or being ignored). $0 and plain variables
+ * need no validation.
+ */
+function validateFieldTarget(targetName: string, ctx: AwkRuntimeContext): void {
+  if (targetName.startsWith("$") && targetName !== "$0") {
+    ensureFieldCount(ctx, Number(targetName.slice(1)));
+  }
+}
+
+/**
  * Apply a new value to a target variable, updating $0 and fields as needed.
- * A sub/gsub result is a plain string, never a numeric string — unless
- * no replacement was made, in which case the value is untouched and
- * keeps its numeric-string provenance, as in gawk.
+ * A sub/gsub result is a plain string, never a numeric string. Callers
+ * skip this entirely when no replacement was made, so the value keeps
+ * both its type and its numeric-string provenance in that case.
  */
 function applyTargetValue(
   targetName: string,
   newValue: string,
   ctx: AwkRuntimeContext,
-  retainStrnum = false,
 ): void {
   if (targetName === "$0") {
     ctx.line = newValue;
+    ctx.lineIsStrnum = false;
     ctx.fields = splitFields(ctx, newValue);
     ctx.NF = ctx.fields.length;
   } else if (targetName.startsWith("$")) {
     const idx = Number(targetName.slice(1)) - 1;
     ensureFieldCount(ctx, idx + 1);
     ctx.fields[idx] = newValue;
+    // A sub/gsub result is a plain string, so the field stops being a
+    // numeric string (rebuildLine clears $0's own flag).
+    markStrnumField(ctx, idx + 1, false);
     ctx.NF = ctx.fields.length;
     rebuildLine(ctx);
   } else {
     ctx.vars[targetName] = newValue;
-    if (!retainStrnum) ctx.strnumVars?.delete(targetName);
+    ctx.strnumVars?.delete(targetName);
   }
 }
 
@@ -443,6 +455,11 @@ function compareIgnoreCaseBytes(a: string, b: string): number {
 }
 
 function compareNumbers(a: number, b: number): number {
+  // NaN is not equal to every number: gawk sorts it after all numbers
+  // in the default and @val_num_* modes (the @val_str_* modes compare
+  // its "-nan"/"nan" spelling instead). NaN against NaN is a tie.
+  if (Number.isNaN(a)) return Number.isNaN(b) ? 0 : 1;
+  if (Number.isNaN(b)) return -1;
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
@@ -469,17 +486,38 @@ function formatIntegerExactly(value: number): string {
 }
 
 /**
+ * The sign bit of a double, read straight from the float64 bits.
+ * C's printf (which gawk uses) spells a NaN with its sign, so
+ * sqrt(-1) and inf*0 are "-nan" while inf-inf is "nan".
+ */
+function isNegativeDouble(value: number): boolean {
+  const view = new DataView(new ArrayBuffer(8));
+  view.setFloat64(0, value);
+  return view.getBigUint64(0) >> 63n === 1n;
+}
+
+/**
  * Format a JS number as gawk formats it for a string comparison
  * (CONVFMT, default "%.6g"): integers keep their full decimal form
  * ("1000000000", not "1e+09"; "1e21" prints its exact decimal value,
  * not "1e+21") and non-integers use CONVFMT, with the exponent padded
  * to two digits as C's %g/%E does ("9e-05", "1.0E-04", not "9e-5").
+ * Non-finite values use gawk's spellings ("+inf", "-inf", "-nan").
  * A CONVFMT the formatter rejects falls back to String(value).
  */
 function formatAwkNumber(ctx: AwkRuntimeContext, value: number): string {
+  if (Number.isNaN(value)) {
+    return isNegativeDouble(value) ? "-nan" : "nan";
+  }
+  if (!Number.isFinite(value)) {
+    return value < 0 ? "-inf" : "+inf";
+  }
   if (Number.isInteger(value)) {
-    const str = String(value);
-    return str.includes("e") ? formatIntegerExactly(value) : str;
+    // -0 prints as "0" in gawk, and every integer prints its exact
+    // decimal value — never JavaScript's shortest round-trip form
+    // (1234567890123456789 is ...768, not ...800).
+    if (value === 0) return "0";
+    return formatIntegerExactly(value);
   }
   const format = ctx.CONVFMT || "%.6g";
   try {
@@ -503,7 +541,9 @@ function formatAwkNumber(ctx: AwkRuntimeContext, value: number): string {
  * JS numbers and numeric strings (strnums) from input fields or split()
  * — sort first, numerically (a numeric tie keeps input order, as
  * gawk's stable default sort does; only the @val_num_* modes break
- * ties by string value), and plain string values follow in string
+ * ties by string value), and NaN sorts after every number, as in gawk
+ * (the @val_str_* modes compare its "-nan"/"nan" spelling instead).
+ * Plain string values follow in string
  * order, so literal "10" sorts before "9". This deliberately differs from the
  * interpreter's `<` rules for mixed types: `<` compares two
  * numeric-looking strings numerically ("10" < "9" is false there) and
@@ -617,7 +657,7 @@ async function awkAsort(
   // are never compared (only numeric ties and the string modes need
   // them). The lazy format is charged before it runs, below.
   const scope = ctx.executionScope;
-  const ignoreCase = isTruthy(getVariable(ctx, "IGNORECASE"));
+  const ignoreCase = isIgnoreCaseEnabled(ctx);
   type AsortEntry = {
     value: AwkValue;
     str: string | null;
@@ -794,12 +834,16 @@ async function awkSub(
         createSubReplacement(replacement, match[0], awkStringLimit(ctx)),
       awkStringLimit(ctx),
     );
-    applyTargetValue(
-      targetName,
-      replaced.value,
-      ctx,
-      replaced.replacements === 0,
-    );
+    // A no-match sub leaves its target untouched: writing the
+    // stringified target back would convert a numeric scalar into a
+    // plain string and change its subsequent sort order, as gawk does not.
+    // A field target's index is still validated, so a huge $(1e21)
+    // errors instead of wrapping onto $1.
+    if (replaced.replacements === 0) {
+      validateFieldTarget(targetName, ctx);
+      return 0;
+    }
+    applyTargetValue(targetName, replaced.value, ctx);
     return replaced.replacements;
   } catch (error) {
     rethrowFatalExecutionError(error);
@@ -829,12 +873,13 @@ async function awkGsub(
         createSubReplacement(replacement, match[0], awkStringLimit(ctx)),
       awkStringLimit(ctx),
     );
-    applyTargetValue(
-      targetName,
-      replaced.value,
-      ctx,
-      replaced.replacements === 0,
-    );
+    // As in sub: a no-match gsub leaves its target untouched, but a
+    // field target's index is still validated.
+    if (replaced.replacements === 0) {
+      validateFieldTarget(targetName, ctx);
+      return 0;
+    }
+    applyTargetValue(targetName, replaced.value, ctx);
     return replaced.replacements;
   } catch (error) {
     rethrowFatalExecutionError(error);

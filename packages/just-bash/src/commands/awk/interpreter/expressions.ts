@@ -22,7 +22,13 @@ import type {
 } from "../ast.js";
 import { awkBuiltins } from "../builtins.js";
 import type { AwkRuntimeContext } from "./context.js";
-import { getField, setCurrentLine, setField } from "./fields.js";
+import {
+  getField,
+  isStrnumField,
+  markStrnumField,
+  setCurrentLine,
+  setField,
+} from "./fields.js";
 import {
   isAwkNumericString,
   isTruthy,
@@ -169,6 +175,11 @@ async function evalFieldRef(
       ),
     ),
   );
+  // Record whether this field is a numeric string: the assignment and
+  // return paths read it right after evaluating a right-hand side.
+  // The index expression runs first, so a field read inside it is
+  // overwritten by this (outermost) read.
+  ctx.lastFieldIsStrnum = isStrnumField(ctx, index);
   return getField(ctx, index);
 }
 
@@ -182,7 +193,39 @@ async function evalArrayAccess(
       evalExpr(ctx, expr.key),
     ),
   );
+  // Same provenance record as for fields: a computed key is fine here,
+  // because the key was just evaluated to read this element.
+  ctx.lastArrayAccessIsStrnum = isStrnumArrayKey(
+    ctx,
+    resolveArrayName(ctx, expr.array),
+    key,
+  );
   return getArrayElement(ctx, expr.array, key);
+}
+
+/**
+ * Whether the value just evaluated from `expr` is a numeric string
+ * (strnum). Only assignment ("=") and return statements read this,
+ * right after evaluating the value, so the last-read flags always
+ * describe it: a field reports its tracked flag, an array element
+ * reports the flag its own read recorded (computed keys included), a
+ * variable consults its flag, and a function call reports what the
+ * callee's return recorded. Every other shape (literal, arithmetic,
+ * concatenation, ternary, ...) is a plain string.
+ */
+export function exprIsStrnum(ctx: AwkRuntimeContext, expr: AwkExpr): boolean {
+  switch (expr.type) {
+    case "field":
+      return ctx.lastFieldIsStrnum;
+    case "variable":
+      return isStrnumVar(ctx, expr.name);
+    case "array_access":
+      return ctx.lastArrayAccessIsStrnum;
+    case "call":
+      return ctx.lastCallReturnIsStrnum;
+    default:
+      return false;
+  }
 }
 
 async function evalBinaryOp(
@@ -369,6 +412,11 @@ async function evalFunctionCall(
   args: AwkExpr[],
 ): Promise<AwkValue> {
   assertAwkDefenseContext(ctx, "function call evaluation");
+  // A call's return provenance starts false: built-ins never return a
+  // numeric string, an unknown function returns "", and a user function
+  // records its own return when one executes (a function that falls
+  // through without returning keeps this false).
+  ctx.lastCallReturnIsStrnum = false;
   // Check for built-in functions first
   const builtin = awkBuiltins.get(name);
   if (builtin) {
@@ -465,13 +513,34 @@ async function callUserFunction(
     }
   }
 
+  // Evaluate every argument expression in the caller's frame BEFORE
+  // pushing this call's frame: gawk evaluates arguments before the
+  // call, so an argument that reads an array must not see a callee
+  // parameter of the same name shadow it (h(a[1]) where h has a
+  // parameter a used to resolve to h's empty local array instead of
+  // the caller's array). A field argument's strnum flag is captured
+  // per argument here, right after its own evaluation, because a
+  // later argument's reads would overwrite the shared flag.
+  const argValues: AwkValue[] = [];
+  const argFieldIsStrnum = new Map<number, boolean>();
+  for (let i = 0; i < func.params.length && i < args.length; i++) {
+    argValues.push(
+      await withDefenseContext(ctx, "user function argument evaluation", () =>
+        evalExpr(ctx, args[i]),
+      ),
+    );
+    if (args[i].type === "field") {
+      argFieldIsStrnum.set(i, ctx.lastFieldIsStrnum);
+    }
+  }
+
   // Track array aliases we create (to clean up later)
   // This call gets its own array-binding frame (one binding per
-  // parameter), installed after the arguments were resolved in the
-  // caller's frame above: a binding always names the final store,
-  // never another parameter, so two parameters can never alias each
-  // other through a cycle, and a callee never sees a caller's
-  // bindings. Omitted parameters get a fresh empty local array;
+  // parameter), installed after the arguments were resolved and
+  // evaluated in the caller's frame above: a binding always names the
+  // final store, never another parameter, so two parameters can never
+  // alias each other through a cycle, and a callee never sees a
+  // caller's bindings. Omitted parameters get a fresh empty local array;
   // parameters that received a scalar get a scalar-only binding, so
   // array built-ins reject them instead of reaching an outer array
   // of the same name. The frame is popped (and the local stores it
@@ -502,18 +571,14 @@ async function callUserFunction(
         // outer array of the same name.
         frame.set(param, nextLocalScalarName(ctx));
       }
-      const value = await withDefenseContext(
-        ctx,
-        "user function argument evaluation",
-        () => evalExpr(ctx, arg),
-      );
+      const value = argValues[i];
       ctx.vars[param] = value;
       // The parameter shadows any outer variable of the same name, so
       // its numeric-string provenance comes only from the argument
       // just passed (snapshot above), never from the value's spelling.
       let paramIsStrnum = argIsStrnum.get(i) ?? false;
       if (arg.type === "field") {
-        paramIsStrnum = typeof value === "string" && isAwkNumericString(value);
+        paramIsStrnum = argFieldIsStrnum.get(i) ?? false;
       }
       markStrnumVar(ctx, param, paramIsStrnum);
     } else {
@@ -592,29 +657,13 @@ async function evalAssignment(
   const op = expr.operator;
 
   // Numeric-string (strnum) provenance: a value copied straight from
-  // an input field ($n), from a variable that itself holds a strnum,
-  // or from an array element with a literal key holding a strnum stays
-  // a strnum; any other right-hand side (literal, arithmetic,
-  // concatenation, function call, ternary, array element with a
-  // computed key) is a plain string. Only a plain "=" assignment
-  // carries provenance; compound assignments produce numbers.
-  const rhsArrayAccess = expr.value.type === "array_access" ? expr.value : null;
-  const rhsArrayKey = rhsArrayAccess
-    ? literalKeyString(rhsArrayAccess.key)
-    : null;
-  const rhsIsStrnum =
-    op === "=" &&
-    ((expr.value.type === "field" &&
-      typeof value === "string" &&
-      isAwkNumericString(value)) ||
-      (expr.value.type === "variable" && isStrnumVar(ctx, expr.value.name)) ||
-      (rhsArrayAccess !== null &&
-        rhsArrayKey !== null &&
-        isStrnumArrayKey(
-          ctx,
-          resolveArrayName(ctx, rhsArrayAccess.array),
-          rhsArrayKey,
-        )));
+  // a field ($n), from a variable that itself holds a strnum, from an
+  // array element (any key — the read just recorded its flag), or from
+  // a function call that returned one stays a strnum; any other
+  // right-hand side (literal, arithmetic, concatenation, ternary) is
+  // a plain string. Only a plain "=" assignment carries provenance;
+  // compound assignments produce numbers.
+  const rhsIsStrnum = op === "=" && exprIsStrnum(ctx, expr.value);
 
   let finalValue: AwkValue;
 
@@ -680,6 +729,10 @@ async function evalAssignment(
       ),
     );
     setField(ctx, index, finalValue);
+    // Fields store strings, so a number or numeric-string value
+    // assigned to one is only visible as numeric through the flag
+    // (a compound assignment always produces a number).
+    markStrnumField(ctx, index, typeof finalValue === "number" || rhsIsStrnum);
   } else if (target.type === "variable") {
     // setVariable clears the variable's strnum flag; re-mark it when
     // the right-hand side carried numeric-string provenance.
@@ -726,6 +779,9 @@ async function applyIncDec(
     );
     oldVal = toNumber(getField(ctx, index));
     setField(ctx, index, oldVal + delta);
+    // The field now holds a number, so a later copy of it sorts
+    // numerically.
+    markStrnumField(ctx, index, true);
   } else if (operand.type === "variable") {
     oldVal = toNumber(getVariable(ctx, operand.name));
     setVariable(ctx, operand.name, oldVal + delta);
@@ -835,6 +891,8 @@ async function evalGetline(
 
   if (variable) {
     setVariable(ctx, variable, nextLine);
+    // A line read from input is a numeric string when it looks numeric.
+    if (isAwkNumericString(nextLine)) markStrnumVar(ctx, variable, true);
   } else {
     setCurrentLine(ctx, nextLine);
   }
@@ -903,6 +961,7 @@ async function evalGetlineFromCommand(
 
   if (variable) {
     setVariable(ctx, variable, line);
+    if (isAwkNumericString(line)) markStrnumVar(ctx, variable, true);
   } else {
     setCurrentLine(ctx, line);
   }
@@ -972,6 +1031,7 @@ async function evalGetlineFromFile(
 
   if (variable) {
     setVariable(ctx, variable, line);
+    if (isAwkNumericString(line)) markStrnumVar(ctx, variable, true);
   } else {
     setCurrentLine(ctx, line);
   }

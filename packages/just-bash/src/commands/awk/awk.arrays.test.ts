@@ -621,7 +621,7 @@ describe("awk associative arrays", () => {
       expect(result.exitCode).toBe(0);
     });
 
-        it("should keep same-named swapped array arguments pointing at the right arrays", async () => {
+    it("should keep same-named swapped array arguments pointing at the right arrays", async () => {
       const env = new Bash();
       const result = await env.exec(
         `echo "" | awk 'function f(a,b){asort(a); asort(b); print a[1], a[2], b[1], b[2]} BEGIN{a[1]=3; a[2]=1; b[1]=4; b[2]=2; f(b,a)}'`,
@@ -1039,7 +1039,7 @@ describe("awk associative arrays", () => {
       expect(result.exitCode).toBe(0);
     });
 
-        it("should read stdin when ARGC is negative Infinity", async () => {
+    it("should read stdin when ARGC is negative Infinity", async () => {
       const env = new Bash({ files: { "/f": "file-line\n" } });
       const result = await env.exec(
         `printf 'stdin-line\\n' | awk 'BEGIN{ARGC=-1e400; ARGV[1]="/f"} {print FILENAME, $0}'`,
@@ -1065,8 +1065,10 @@ describe("awk associative arrays", () => {
       const result = await env.exec(
         `awk 'BEGIN{ARGC=2; ARGV["01"]="/one"; ARGV[1]="/one"} {print $0}'`,
       );
-      // "01" and "1" name the same index; without dedup the file is
-      // read twice. gawk reads it once (review 6008016191).
+      // "01" and "1" are distinct keys in gawk, but only the canonical
+      // key is consulted as input index 1; both map to pending index 1
+      // here, so without dedup the file is read twice. gawk reads it
+      // once (review 6008016191).
       expect(result.stdout).toBe("one-line\n");
       expect(result.exitCode).toBe(0);
     });
@@ -1172,8 +1174,11 @@ describe("awk associative arrays", () => {
     });
 
     it("should sort with the -v CONVFMT value", async () => {
-      // With CONVFMT=%.0f both 1.4 and "1.2" format to "1", so the
-      // tie keeps input order: 1.4 first, as in gawk.
+      // CONVFMT=%.0f formats the number 1.4 to "1", but the literal
+      // "1.2" stays the string "1.2", so this is not a tie: "1" sorts
+      // before "1.2" and 1.4 comes first, as in gawk. A genuine tie
+      // (two numbers formatting to the same key) keeps input order;
+      // see the round-8 pins below (review 6008939293).
       const env = new Bash();
       const result = await env.exec(
         `echo "" | awk -v CONVFMT=%.0f 'BEGIN{a[1]=1.4; a[2]="1.2"; asort(a,b,"@val_str_asc"); print b[1], b[2]}'`,
@@ -1386,6 +1391,398 @@ describe("awk associative arrays", () => {
         "bash: asort comparison: work work limit exceeded (3000)\n",
       );
       expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+    });
+
+    describe("round-8 pins for automated review 6008939293", () => {
+      // Each test pins one claim from automated review 6008939293 on
+      // PR #764, verified against gawk 5.2.1. C15 (hex literal 0x10)
+      // is deliberately NOT pinned here: it is a pre-existing parser
+      // gap, out of scope for this PR. The NaN @val_str_asc
+      // destination-type divergence (gawk stores the strnum "-nan",
+      // just-bash keeps number NaN) is likewise out of scope and not
+      // pinned. C5b is not repeated: the field-strnum sub/gsub
+      // no-replacement cases are already covered above.
+
+      // C2: argument expressions are evaluated in the caller's frame,
+      // so a[1]/a[2] read the caller's array even when the callee's
+      // parameters share the name a.
+      it("should evaluate call arguments in the caller's frame when the callee reuses the parameter name", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'function h(a, b) { print "[" a "][" b "]" } function f(a) { h(a[1], a[2]) } BEGIN { g[1]="X"; g[2]="Y"; f(g) }'`,
+        );
+        expect(result.stdout).toBe("[X][Y]\n");
+      });
+
+      // C6: assigning a scalar to an omitted parameter must make
+      // asort reject it instead of erasing the destination.
+      it("should reject asort of an omitted parameter assigned a scalar, without erasing the destination", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'function f(p) { p = 42; return asort(p, dest) } BEGIN { dest[1]="keep"; dest[2]="keep2"; n = f(); print "n=" n " dest1=[" dest[1] "]" }'`,
+        );
+        expect(result.exitCode).toBe(2);
+        expect(result.stderr).toContain(
+          "asort: first argument is not an array",
+        );
+      });
+
+      // C7: a how function assigning a scalar to an omitted local
+      // parameter (via the alias) must be caught by the recheck.
+      it("should reject asort when the how function assigns a scalar to an omitted local parameter", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'function setit(x) { x = 42; return "" } function f(p) { return asort(p, d, setit(p)) } BEGIN { d[1]="keep"; n = f(); print "n=" n " d1=[" d[1] "]" }'`,
+        );
+        expect(result.exitCode).toBe(2);
+        expect(result.stderr).toContain(
+          "asort: first argument is not an array",
+        );
+      });
+
+      // C7b: the same, but the aliased array is non-empty, so gawk
+      // fatals on the scalar assignment itself.
+      it("should fatal when the how function assigns a scalar to a non-empty aliased array", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'function setit(x) { x = 42; return "" } function f(p) { p[1]=7; return asort(p, d, setit(p)) } BEGIN { d[1]="keep"; n = f(); print "n=" n }'`,
+        );
+        expect(result.exitCode).toBe(2);
+        expect(result.stderr).toContain("attempt to use array");
+      });
+
+      // C5a: a no-match sub must leave a numeric scalar a number, so
+      // it still sorts in the numeric group.
+      it("should keep a numeric scalar numeric when sub makes no replacement", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN { x=42; sub(/z/, "y", x); a[1]=x; a[2]="100"; n=asort(a,b); print b[1], b[2] }'`,
+        );
+        expect(result.stdout).toBe("42 100\n");
+      });
+
+      // C9a: a plain string "0" is truthy in gawk, so IGNORECASE="0"
+      // still folds case.
+      it("should treat IGNORECASE set to the string 0 as truthy", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN { IGNORECASE="0"; a[1]="B"; a[2]="a"; n=asort(a, b, "@val_str_asc"); print b[1], b[2] }'`,
+        );
+        expect(result.stdout).toBe("a B\n");
+      });
+
+      // C9b: the number 0 is falsy, so IGNORECASE=0 does not fold.
+      it("should treat IGNORECASE set to the number 0 as falsy", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN { IGNORECASE=0; a[1]="B"; a[2]="a"; n=asort(a, b, "@val_str_asc"); print b[1], b[2] }'`,
+        );
+        expect(result.stdout).toBe("B a\n");
+      });
+
+      // C9e: a strnum 0 from a field is falsy, like the number 0.
+      it("should treat IGNORECASE set from a field holding 0 as falsy", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "0" | awk '{ IGNORECASE=$1; a[1]="B"; a[2]="a"; n=asort(a, b, "@val_str_asc"); print b[1], b[2] }'`,
+        );
+        expect(result.stdout).toBe("B a\n");
+      });
+
+      // C9f: the string "00" is truthy (only the exact string "0"
+      // is falsy among numeric-looking strings).
+      it("should treat IGNORECASE set to the string 00 as truthy", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN { IGNORECASE="00"; a[1]="B"; a[2]="a"; n=asort(a, b, "@val_str_asc"); print b[1], b[2] }'`,
+        );
+        expect(result.stdout).toBe("a B\n");
+      });
+
+      // C11a: a BEGIN block may rewrite an ARGV entry into a
+      // var=value operand, which assigns the variable.
+      it("should assign a variable when BEGIN rewrites an ARGV entry to a var=value operand", async () => {
+        const env = new Bash({ files: { "/f": "hello\n" } });
+        const result = await env.exec(
+          `awk 'BEGIN { ARGV[1]="v=42"; ARGV[2]="/f"; ARGC=3 } { print "line:" $0 } END { print "v=" v }'`,
+        );
+        expect(result.stdout).toBe("line:hello\nv=42\n");
+        expect(result.exitCode).toBe(0);
+      });
+
+      // C11b: a var=value operand on the command line assigns.
+      it("should assign a variable from a var=value command-line operand", async () => {
+        const env = new Bash({ files: { "/f": "hello\n" } });
+        const result = await env.exec(
+          `awk '{ print "line:" $0 } END { print "v=" v }' 'v=42' /f`,
+        );
+        expect(result.stdout).toBe("line:hello\nv=42\n");
+        expect(result.exitCode).toBe(0);
+      });
+
+      // C11g: an assignment operand after a file applies only after
+      // that file has been read.
+      it("should apply a var=value operand after the preceding file, in order", async () => {
+        const env = new Bash({ files: { "/f": "hello\n" } });
+        const result = await env.exec(
+          `awk '{ print "line:" $0 " v=[" v "]" } END { print "v=[" v "]" }' /f 'v=42'`,
+        );
+        expect(result.stdout).toBe("line:hello v=[]\nv=[42]\n");
+        expect(result.exitCode).toBe(0);
+      });
+
+      // C11d: an invalid assignment operand (bad variable name) is
+      // treated as a filename, as in gawk.
+      it("should treat an invalid var=value operand as a filename", async () => {
+        const env = new Bash({ files: { "/f": "hello\n" } });
+        const result = await env.exec(
+          `awk 'BEGIN{print "start"} {print $0}' '1x=42' /f`,
+        );
+        expect(result.stderr).toContain("1x=42");
+        expect(result.exitCode).toBe(1);
+      });
+
+      // C11e: assignment operands do not process backslash escapes.
+      it("should not process escapes in a var=value operand", async () => {
+        const env = new Bash({ files: { "/f": "hello\n" } });
+        const result = await env.exec(
+          `awk 'END { print "v=[" v "]" }' 'v=a\\tb' /f`,
+        );
+        expect(result.stdout).toBe("v=[a\\tb]\n");
+        expect(result.exitCode).toBe(0);
+      });
+
+      // C11f: an FS=, operand assigns FS (but only for later files,
+      // as in gawk).
+      it("should assign FS from an FS=, command-line operand", async () => {
+        const env = new Bash({ files: { "/f": "hello\n" } });
+        const result = await env.exec(
+          `awk '{ print "NF=" NF " f1=[" $1 "]" } END { print "FS=[" FS "]" }' 'FS=,' /f`,
+        );
+        expect(result.stdout).toBe("NF=1 f1=[hello]\nFS=[,]\n");
+        expect(result.exitCode).toBe(0);
+      });
+
+      // C11c: a value assigned through an ARGV var=value operand is
+      // a strnum, so it sorts numerically.
+      it("should keep a value assigned through an ARGV operand as a strnum", async () => {
+        const env = new Bash({ files: { "/f": "hello\n" } });
+        const result = await env.exec(
+          `awk 'BEGIN { ARGV[1]="v=42"; ARGV[2]="/f"; ARGC=3 } END { a[1]=v; a[2]="100"; n=asort(a,b); print b[1], b[2] }'`,
+        );
+        expect(result.stdout).toBe("42 100\n");
+        expect(result.exitCode).toBe(0);
+      });
+
+      // C1b: NaN sorts after every number in the default mode.
+      it("should sort NaN last in the default mode", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN { x=sqrt(-1); a[1]=x; a[2]=5; a[3]=2; n=asort(a,b); print b[1], b[2] }'`,
+        );
+        expect(result.stdout).toBe("2 5\n");
+      });
+
+      // C1b2: the same for @val_num_asc.
+      it("should sort NaN last in @val_num_asc", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN { x=sqrt(-1); a[1]=x; a[2]=5; a[3]=2; n=asort(a,b,"@val_num_asc"); print b[1], b[2] }'`,
+        );
+        expect(result.stdout).toBe("2 5\n");
+      });
+
+      // NaN probe: in @val_num_asc and the default mode the NaN value
+      // stays a number NaN and lands last.
+      it("should keep NaN as a number NaN sorted last in @val_num_asc", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{a[1]=sqrt(-1); a[2]=5; a[3]=2; asort(a,b,"@val_num_asc"); print (b[3]!=b[3]), b[1], b[2]}'`,
+        );
+        expect(result.stdout).toBe("1 2 5\n");
+      });
+
+      it("should keep NaN as a number NaN sorted last in the default mode", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{a[1]=sqrt(-1); a[2]=5; a[3]=2; asort(a,b); print (b[3]!=b[3]), b[1], b[2]}'`,
+        );
+        expect(result.stdout).toBe("1 2 5\n");
+      });
+
+      // C4a: a field returned from a function keeps its strnum type.
+      it("should keep a field's strnum type through a function return", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "42" | awk 'function getf() { return $1 } { x=getf(); a[1]=x; a[2]="100"; n=asort(a,b); print b[1], b[2] }'`,
+        );
+        expect(result.stdout).toBe("42 100\n");
+      });
+
+      // C4b: a -v value keeps its strnum type.
+      it("should keep a -v value as a strnum", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk -v v=42 'BEGIN { a[1]=v; a[2]="100"; n=asort(a,b); print b[1], b[2] }'`,
+        );
+        expect(result.stdout).toBe("42 100\n");
+      });
+
+      // C4c: an array element copied through a computed key keeps its
+      // strnum type.
+      it("should keep a strnum through a computed-key array copy", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN { split("42 100", s); k=1; a[1]=s[k]; a[2]="100"; n=asort(a,b); print b[1], b[2] }'`,
+        );
+        expect(result.stdout).toBe("42 100\n");
+      });
+
+      // C4d: a value read by getline keeps its strnum type.
+      it("should keep a getline value as a strnum", async () => {
+        const env = new Bash({ files: { "/f": "42\n" } });
+        const result = await env.exec(
+          `awk 'BEGIN{ while((getline x < "/f")>0){ a[1]=x; a[2]="100"; n=asort(a,b); print b[1], b[2] } }'`,
+        );
+        expect(result.stdout).toBe("42 100\n");
+      });
+
+      // C4e: assigning a plain string to a field makes it a plain
+      // string, not a strnum.
+      it("should not treat a field assigned a plain string as a strnum", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "x" | awk '{ $1="42"; x=$1; a[1]=x; a[2]="100"; n=asort(a,b); print b[1], b[2] }'`,
+        );
+        expect(result.stdout).toBe("100 42\n");
+      });
+
+      // C14: a genuine tie — two numbers formatting to the same
+      // CONVFMT key — keeps input order in both directions (the
+      // default stable sort), as in gawk.
+      it("should keep input order for a genuine CONVFMT tie in both directions", async () => {
+        const env = new Bash();
+        const result1 = await env.exec(
+          `echo "" | awk -v CONVFMT=%.0f 'BEGIN{a[1]=1.4; a[2]=1.2; asort(a,b,"@val_str_asc"); print b[1], b[2]}'`,
+        );
+        expect(result1.stdout).toBe("1.4 1.2\n");
+        const result2 = await env.exec(
+          `echo "" | awk -v CONVFMT=%.0f 'BEGIN{a[1]=1.2; a[2]=1.4; asort(a,b,"@val_str_asc"); print b[1], b[2]}'`,
+        );
+        expect(result2.stdout).toBe("1.2 1.4\n");
+      });
+
+      // C14-rev: the literal "1.2" is NOT formatted by CONVFMT, so
+      // "1" (from 1.4) sorts before "1.2" and the number comes first
+      // even when the literal was first in the input.
+      it("should sort a CONVFMT-formatted number before a literal string with the same digits", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk -v CONVFMT=%.0f 'BEGIN{a[1]="1.2"; a[2]=1.4; asort(a,b,"@val_str_asc"); print b[1], b[2]}'`,
+        );
+        expect(result.stdout).toBe("1.4 1.2\n");
+      });
+
+      // C14-120: the literal "1.20" keeps its trailing zero, so the
+      // number 1.2 (formatted to "1") sorts before it.
+      it("should not let a literal keep a CONVFMT tie with its numeric form", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk -v CONVFMT=%.0f 'BEGIN{a[1]="1.20"; a[2]=1.2; asort(a,b,"@val_str_asc"); print b[1], b[2]}'`,
+        );
+        expect(result.stdout).toBe("1.2 1.20\n");
+      });
+
+      // C8c: gawk's %g conversion does not add a sign for %+g on a
+      // plain print (the flag is accepted and ignored for the value).
+      it("should not add a sign for CONVFMT %+g on a plain print", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN { CONVFMT="%+g"; x=42; print "[" x "" "]" }'`,
+        );
+        expect(result.stdout).toBe("[42]\n");
+      });
+
+      // C8disc: the %+g sign flag is likewise ignored in string sort
+      // keys, so -5 still sorts before 42.
+      it("should ignore the %+g sign flag in @val_str_asc sort keys", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN { CONVFMT="%+g"; a[1]=42; a[2]="-5"; n=asort(a,b,"@val_str_asc"); print b[1], b[2] }'`,
+        );
+        expect(result.stdout).toBe("-5 42\n");
+      });
+
+      // P1: assigning a scalar to an omitted parameter succeeds; the
+      // parameter is untyped until it is used, not an eager array.
+      it("should let an omitted parameter take a scalar assignment", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'function f(a){ a=42; print "a=" a } BEGIN { f() }'`,
+        );
+        expect(result.stdout).toBe("a=42\n");
+        expect(result.exitCode).toBe(0);
+      });
+
+      // P4: once an omitted parameter has been used as an array,
+      // assigning it a scalar is a fatal error in gawk.
+      it("should fatal when a scalar is assigned to an omitted parameter already used as an array", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'function f(a){ a[1]=9; a=42; print "a=" a } BEGIN { f() }'`,
+        );
+        expect(result.exitCode).toBe(2);
+        expect(result.stderr).toContain("attempt to use array");
+      });
+
+      // P2: the same fatal applies to an array created by split.
+      it("should fatal when a scalar is assigned to an array created by split", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{split("", e); e=42; print "e=" e}'`,
+        );
+        expect(result.exitCode).toBe(2);
+        expect(result.stderr).toContain("attempt to use array");
+      });
+
+      // ARGV probe: assigning a scalar to ARGV fatals, as in gawk.
+      it("should fatal when a scalar is assigned to ARGV", async () => {
+        const env = new Bash({ files: { "/one": "one-line\n" } });
+        const result = await env.exec(`awk 'END{print "end"}' 'ARGV=1' /one`);
+        expect(result.exitCode).toBe(2);
+        expect(result.stderr).toContain("attempt to use array");
+      });
+
+      // C12 pin: "01" alone does not name input index 1 — only the
+      // canonical key is consulted — so with ARGV[1] deleted the
+      // file is not read and stdin is used instead.
+      it("should read stdin when only the noncanonical ARGV key 01 names a file", async () => {
+        const env = new Bash({ files: { "/one": "one-line\n" } });
+        const result = await env.exec(
+          `printf 'stdin-line\\n' | awk 'BEGIN{ARGC=2; ARGV["01"]="/one"; delete ARGV[1]} {print FILENAME, $0}'`,
+        );
+        expect(result.stdout).toBe("- stdin-line\n");
+      });
+
+      // Re-sort probe: values produced by asort keep their strnum
+      // provenance, so a second asort still sorts numerically.
+      it("should keep strnum provenance through an asort destination on re-sort", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{a[1]=5; a[2]="10"; asort(a,b,"@val_str_asc"); n=asort(b,c); print c[1], c[2]}'`,
+        );
+        expect(result.stdout).toBe("5 10\n");
+      });
+
+      // Large-integer probe: exact integer forms survive the string
+      // sort key, so both equality checks hold.
+      it("should keep exact large-integer forms in @val_str_asc", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{a[1]=1234567890123456789; a[2]="1234567890123456770"; n=asort(a,b,"@val_str_asc"); print (b[1]==1234567890123456789), (b[2]=="1234567890123456770")}'`,
+        );
+        expect(result.stdout).toBe("1 1\n");
+      });
     });
   });
 });

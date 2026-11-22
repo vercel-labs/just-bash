@@ -27,7 +27,12 @@ import {
   AwkInterpreter,
   createRuntimeContext,
 } from "./interpreter/index.js";
-import { isBuiltinScalarName, setVariable } from "./interpreter/variables.js";
+import { isAwkNumericString } from "./interpreter/type-coercion.js";
+import {
+  isBuiltinScalarName,
+  markStrnumVar,
+  setVariable,
+} from "./interpreter/variables.js";
 import { AwkParser } from "./parser2.js";
 
 const awkHelp = {
@@ -40,6 +45,21 @@ const awkHelp = {
     "    --help display this help and exit",
   ],
 };
+
+/**
+ * A command-line var=value operand: a valid AWK identifier, "=" and the
+ * rest of the entry as the literal value. Anything else (no "=", an
+ * identifier that does not start the entry, "1x=42") is a filename.
+ */
+const ASSIGNMENT_OPERAND = /^([A-Za-z_][A-Za-z0-9_]*)=([\s\S]*)$/;
+
+function parseAssignmentOperand(
+  entry: string,
+): { name: string; value: string } | null {
+  const match = ASSIGNMENT_OPERAND.exec(entry);
+  if (!match) return null;
+  return { name: match[1], value: match[2] };
+}
 
 export const awkCommand2: RuntimeCommand = {
   name: "awk",
@@ -226,6 +246,15 @@ export const awkCommand2: RuntimeCommand = {
       if (isBuiltinScalarName(name)) setVariable(runtimeCtx, name, value);
     }
 
+    // A -v value is a numeric string when it looks numeric, as in gawk:
+    // -v v=42 sorts numerically, and -v IGNORECASE="0" reads as a
+    // numeric string (falsy) rather than a plain "0" (truthy). Built-in
+    // names are ignored here except IGNORECASE, which has no dedicated
+    // slot (see markStrnumVar).
+    for (const [name, value] of Object.entries(vars)) {
+      if (isAwkNumericString(value)) markStrnumVar(runtimeCtx, name, true);
+    }
+
     // Create interpreter
     const interp = new AwkInterpreter(runtimeCtx);
     interp.execute(ast);
@@ -403,8 +432,10 @@ export const awkCommand2: RuntimeCommand = {
           }
         }
         indices.sort((a, b) => a - b);
-        // Noncanonical keys ("01", "1") name the same index: without
-        // dedup the file would be read twice. gawk reads it once.
+        // "01" and "1" are distinct ARGV keys in gawk, but only the
+        // canonical key is consulted as input index 1; both keys map
+        // to the same pending index here, so without dedup the file
+        // would be read twice. gawk reads it once.
         pendingIndices = [...new Set(indices)];
         nextPending = 0;
         pendingVersion = runtimeCtx.argvVersion ?? 0;
@@ -436,6 +467,24 @@ export const awkCommand2: RuntimeCommand = {
           );
           readAnyInput = true;
           if (runtimeCtx.shouldExit) break;
+          continue;
+        }
+        // A var=value operand assigns the variable instead of naming a
+        // file, as in gawk — and the assignment happens when the
+        // operand's turn comes, so a file listed before it does not see
+        // the value yet. Only a valid AWK identifier counts ("1x=42"
+        // is a filename); the value is taken literally (no escape
+        // processing, unlike -v) and is a numeric string when it looks
+        // numeric. Assigning to an array name (ARGV=1) is a fatal type
+        // error, via setVariable. An assignment is not input, so it
+        // leaves readAnyInput alone: with no files at all, stdin is
+        // still read after the assignments run.
+        const assignment = parseAssignmentOperand(entry);
+        if (assignment) {
+          setVariable(runtimeCtx, assignment.name, assignment.value);
+          if (isAwkNumericString(assignment.value)) {
+            markStrnumVar(runtimeCtx, assignment.name, true);
+          }
           continue;
         }
         const missing = await processFile(entry);

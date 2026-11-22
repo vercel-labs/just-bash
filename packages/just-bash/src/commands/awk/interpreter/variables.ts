@@ -117,6 +117,46 @@ export function setVariable(
       return;
   }
 
+  // A scalar write to a name that currently resolves to an array
+  // store is a fatal type error in gawk ("attempt to use array `x' in
+  // a scalar context") — with one exception: an omitted function
+  // parameter is untyped until first used as an array, so its private
+  // store is empty and the write converts it to a scalar instead
+  // (assigning a scalar to a parameter that was already used as an
+  // array still fatals, as does assigning one to any other array,
+  // including ARGV/ENVIRON and an array emptied by `delete`... the
+  // last case stays uncaught: a deleted store leaves no record that
+  // the name was ever an array).
+  const resolved = resolveArrayName(ctx, name);
+  const store = getArrayStore(ctx, name, resolved);
+  if (store !== undefined) {
+    if (
+      resolved.startsWith(LOCAL_ARRAY_PREFIX) &&
+      Object.keys(store).length === 0
+    ) {
+      // Convert the untyped parameter to a scalar: drop its private
+      // store and rebind every live frame entry for it to a scalar-only
+      // name, so later reads (and isScalarVariable) see a scalar. The
+      // value is also recorded under each of those names, so an outer
+      // frame's variable reads the scalar assigned through an alias
+      // (a how-function assigning through a parameter that aliases the
+      // omitted local must make the caller's variable a scalar too).
+      delete ctx.arrays[resolved];
+      clearStrnumArray(ctx, resolved);
+      const scalarName = nextLocalScalarName(ctx);
+      for (const frame of ctx.arrayAliasFrames ?? []) {
+        for (const [key, target] of frame) {
+          if (target === resolved) {
+            frame.set(key, scalarName);
+            ctx.vars[key] = value;
+          }
+        }
+      }
+    } else {
+      throw new Error(`attempt to use array \`${name}' in a scalar context`);
+    }
+  }
+
   ctx.vars[name] = value;
   // A scalar write through this path carries no provenance: only the
   // assignment evaluator (which can see the right-hand side) may
@@ -257,14 +297,17 @@ export function isStrnumVar(ctx: AwkRuntimeContext, name: string): boolean {
 /**
  * Record (or clear) that a scalar variable holds a numeric string.
  * Built-in scalar names are ignored: they are formatted/compared
- * through their own accessors, never through this set.
+ * through their own accessors, never through this set — except
+ * IGNORECASE, which has no dedicated slot (it lives in vars) and
+ * whose strnum-ness decides its truthiness: a field's "0" is false,
+ * a plain string's "0" is true.
  */
 export function markStrnumVar(
   ctx: AwkRuntimeContext,
   name: string,
   isStrnum: boolean,
 ): void {
-  if (BUILTIN_SCALARS.has(name)) return;
+  if (BUILTIN_SCALARS.has(name) && name !== "IGNORECASE") return;
   if (!ctx.strnumVars) ctx.strnumVars = new Set();
   if (isStrnum) ctx.strnumVars.add(name);
   else ctx.strnumVars.delete(name);
@@ -384,6 +427,22 @@ export function chargedSizeOfArray(
 
 export function isBuiltinScalarName(name: string): boolean {
   return BUILTIN_SCALARS.has(name);
+}
+
+/**
+ * Whether IGNORECASE is enabled, the way gawk reads it. A number
+ * follows numeric truth (0 is false); a numeric string (strnum, e.g.
+ * copied from a field) does too, so a field's "0" is false. But any
+ * other non-empty string enables it — even "0": gawk treats
+ * IGNORECASE as a string flag here, not a numeric truth test, so a
+ * plain string assignment IGNORECASE="0" is truthy. The generic
+ * isTruthy would get the plain-"0" case wrong.
+ */
+export function isIgnoreCaseEnabled(ctx: AwkRuntimeContext): boolean {
+  const value = getVariable(ctx, "IGNORECASE");
+  if (typeof value === "number") return value !== 0;
+  if (isStrnumVar(ctx, "IGNORECASE")) return toNumber(value) !== 0;
+  return value !== "";
 }
 
 /**

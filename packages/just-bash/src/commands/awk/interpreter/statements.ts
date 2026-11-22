@@ -13,7 +13,7 @@ import { utf8ByteLength } from "../../printf/escapes.js";
 import type { AwkArrayAccess, AwkExpr, AwkStmt, AwkVariable } from "../ast.js";
 import { formatPrintf } from "../builtins.js";
 import type { AwkRuntimeContext } from "./context.js";
-import { evalExpr, setBlockExecutor } from "./expressions.js";
+import { evalExpr, exprIsStrnum, setBlockExecutor } from "./expressions.js";
 import { isTruthy, toAwkString, toNumber } from "./type-coercion.js";
 import {
   deleteArray,
@@ -186,6 +186,13 @@ async function executeStmt(
               evalExpr(ctx, returnExpr),
             )
           : "";
+        // Record whether the returned value is a numeric string, so a
+        // caller assigning the call's result keeps its provenance (a
+        // field returned from a function stays a strnum, as in gawk).
+        // A bare `return` yields "" and is never a strnum.
+        ctx.lastCallReturnIsStrnum = returnExpr
+          ? exprIsStrnum(ctx, returnExpr)
+          : false;
       }
       break;
 

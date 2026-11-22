@@ -8,7 +8,7 @@ import { utf8ByteLength } from "../../../encoding.js";
 import { ExecutionLimitError } from "../../../interpreter/errors.js";
 import { ConstantRegex, createUserRegex } from "../../../regex/index.js";
 import type { AwkRuntimeContext } from "./context.js";
-import { toAwkString } from "./type-coercion.js";
+import { isAwkNumericString, toAwkString } from "./type-coercion.js";
 import type { AwkValue } from "./types.js";
 
 /**
@@ -39,6 +39,16 @@ export function splitFields(ctx: AwkRuntimeContext, line: string): string[] {
       "array_elements",
     );
   }
+  // Fields re-split from a line are input-like: a numeric-looking one
+  // is a strnum, whether the line came from a record, a $0 assignment,
+  // or a sub/gsub rewrite of $0 (gawk marks them all the same way).
+  // A field assigned a plain string later is unmarked by its own
+  // assignment, so this set is rebuilt wholesale on every re-split.
+  if (!ctx.strnumFields) ctx.strnumFields = new Set();
+  ctx.strnumFields.clear();
+  fields.forEach((field, index) => {
+    if (isAwkNumericString(field)) ctx.strnumFields.add(index + 1);
+  });
   return fields;
 }
 
@@ -77,8 +87,13 @@ function recordSizeError(ctx: AwkRuntimeContext): ExecutionLimitError {
 
 /**
  * Rebuild $0 from the fields array, checking the joined size first.
+ * A rebuilt $0 is a computed string, never a numeric string, however
+ * numeric-looking it comes out: $0's own strnum flag is cleared here
+ * (a field assignment that triggers this rebuild re-marks its own
+ * field through the assignment path, not through $0).
  */
 export function rebuildLine(ctx: AwkRuntimeContext): void {
+  ctx.lineIsStrnum = false;
   if (ctx.maxOutputSize > 0) {
     let size = Math.max(0, ctx.fields.length - 1) * utf8ByteLength(ctx.OFS);
     for (const field of ctx.fields) {
@@ -132,11 +147,51 @@ export function setField(
 
 /**
  * Update context with a new line (used when processing input).
+ * A record read from input is a numeric string when it looks numeric,
+ * so $0 itself carries that provenance until it is rebuilt or rewritten.
  */
 export function setCurrentLine(ctx: AwkRuntimeContext, line: string): void {
   ctx.line = line;
+  ctx.lineIsStrnum = isAwkNumericString(line);
   ctx.fields = splitFields(ctx, line);
   ctx.NF = ctx.fields.length;
+}
+
+/**
+ * True when the field at the given 1-based index (0 is $0) currently
+ * holds a numeric string. The set alone is not trusted: a stale entry
+ * (a field dropped by an NF shrink, a value since overwritten without
+ * re-marking) must not report a strnum for a value that no longer
+ * looks numeric, so the current value is checked too.
+ */
+export function isStrnumField(ctx: AwkRuntimeContext, index: number): boolean {
+  if (index === 0) {
+    return ctx.lineIsStrnum && isAwkNumericString(ctx.line);
+  }
+  if (index < 1 || index > ctx.fields.length) return false;
+  return (
+    (ctx.strnumFields?.has(index) ?? false) &&
+    isAwkNumericString(ctx.fields[index - 1])
+  );
+}
+
+/**
+ * Record (or clear) that a field holds a numeric string. Index 0 is
+ * $0 itself; a field assigned a number counts as numeric, since fields
+ * store strings and the flag is the only record of number-ness.
+ */
+export function markStrnumField(
+  ctx: AwkRuntimeContext,
+  index: number,
+  isStrnum: boolean,
+): void {
+  if (index === 0) {
+    ctx.lineIsStrnum = isStrnum;
+    return;
+  }
+  if (!ctx.strnumFields) ctx.strnumFields = new Set();
+  if (isStrnum) ctx.strnumFields.add(index);
+  else ctx.strnumFields.delete(index);
 }
 
 /**

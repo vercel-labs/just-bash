@@ -122,6 +122,33 @@ export interface AwkRuntimeContext {
    * know a value's origin (field/variable assignment, split, asort).
    */
   strnumArrayKeys: Map<string, Set<string>>;
+  /**
+   * Field indices (1-based; 0 is $0) whose current value is an AWK
+   * numeric string (strnum). Fields are stored as plain strings, so
+   * this set is the only record of whether a numeric-looking field
+   * came from input (a strnum) or from a plain-string assignment.
+   * Rebuilt by splitFields whenever $0 is re-split; a field
+   * assignment re-marks its own index. $0's own flag lives in
+   * lineIsStrnum below, because $0 is a single value, not an element.
+   */
+  strnumFields: Set<number>;
+  /**
+   * Whether $0 itself is currently a numeric string: true for a record
+   * read from input whose line looks numeric, and for a $0 assigned a
+   * number or a strnum; false once $0 is rebuilt from fields or
+   * rewritten by sub/gsub (a computed string, never a strnum).
+   */
+  lineIsStrnum: boolean;
+  /**
+   * Provenance of the value most recently read from a field, an array
+   * element, or a user-function return: whether it is a numeric string
+   * (strnum). Recorded by the read itself and consumed immediately
+   * after evaluating a right-hand side (assignment) or return
+   * expression, so each flag always describes that value.
+   */
+  lastFieldIsStrnum: boolean;
+  lastArrayAccessIsStrnum: boolean;
+  lastCallReturnIsStrnum: boolean;
   recordsProcessed: number;
   currentRecursionDepth: number;
 
@@ -247,6 +274,11 @@ export function createRuntimeContext(
     argvVersion: 0,
     strnumVars: new Set(),
     strnumArrayKeys: new Map(),
+    strnumFields: new Set(),
+    lineIsStrnum: false,
+    lastFieldIsStrnum: false,
+    lastArrayAccessIsStrnum: false,
+    lastCallReturnIsStrnum: false,
     recordsProcessed: 0,
     currentRecursionDepth: 0,
 
