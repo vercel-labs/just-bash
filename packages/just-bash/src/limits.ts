@@ -115,6 +115,14 @@ export interface ExecutionLimits {
   /** Maximum Python execution time in milliseconds (normal default: 30000) */
   maxPythonTimeoutMs?: number;
 
+  /**
+   * Maximum Python synchronous bridge payload bytes (default: 8 MiB).
+   * Applies to file reads/writes and HTTP responses. Must be a finite integer
+   * from 24 to 2147483647; 24 bytes are required for filesystem stat replies.
+   * Python files also remain subject to maxStringLength.
+   */
+  maxPythonBridgeBytes?: number;
+
   /** Maximum JavaScript execution time in milliseconds (normal default: 30000) */
   maxJsTimeoutMs?: number;
 
@@ -202,6 +210,7 @@ const DEFAULT_LIMITS: Required<ExecutionLimits> = {
   maxExtensionCleanupTimeMs: 100,
   maxSqliteTimeoutMs: 30000,
   maxPythonTimeoutMs: 30000,
+  maxPythonBridgeBytes: 8 * 1024 * 1024,
   maxJsTimeoutMs: 30000,
   maxJsBridgeRequests: 1_000_000,
   maxGlobOperations: 1000000,
@@ -329,6 +338,8 @@ export function resolveLimits(
       userLimits.maxSqliteTimeoutMs ?? defaults.maxSqliteTimeoutMs,
     maxPythonTimeoutMs:
       userLimits.maxPythonTimeoutMs ?? defaults.maxPythonTimeoutMs,
+    maxPythonBridgeBytes:
+      userLimits.maxPythonBridgeBytes ?? defaults.maxPythonBridgeBytes,
     maxJsTimeoutMs: userLimits.maxJsTimeoutMs ?? defaults.maxJsTimeoutMs,
     maxJsBridgeRequests:
       userLimits.maxJsBridgeRequests ?? defaults.maxJsBridgeRequests,
@@ -357,6 +368,17 @@ export function resolveLimits(
         `${key} must be a non-negative safe integer or positive Infinity`,
       );
     }
+  }
+
+  // The synchronous bridge stores lengths in signed 32-bit fields and must
+  // have enough room for its fixed-size stat response, even with tiny limits.
+  if (
+    resolved.maxPythonBridgeBytes < 24 ||
+    resolved.maxPythonBridgeBytes > 0x7fffffff
+  ) {
+    throw new RangeError(
+      "maxPythonBridgeBytes must be between 24 and 2147483647 bytes",
+    );
   }
 
   return resolved;
