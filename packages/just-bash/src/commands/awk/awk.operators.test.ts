@@ -38,6 +38,24 @@ describe("awk operators", () => {
       expect(result.exitCode).toBe(0);
     });
 
+    it("should parse numbers the way AWK does, not parseFloat", async () => {
+      // "Infinity" has no numeric prefix in AWK, so it contributes 0
+      // to arithmetic; the quoted string "0x10" contributes 0 because
+      // its leading numeric prefix is just "0" — a string's numeric
+      // prefix never includes a hex part. (The unquoted literal 0x10
+      // is different: gawk evaluates it to 16 in source code. This
+      // test covers only the quoted-string case; hex literals in
+      // source stay unsupported — review 6009811820.)
+      // Sorting and math used to disagree on them (asort read 0,
+      // arithmetic read Infinity).
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { print ("Infinity" + 0), ("0x10" + 0), ("1a" + 0) }'`,
+      );
+      expect(result.stdout).toBe("0 0 1\n");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("should handle negative modulo", async () => {
       const env = new Bash();
       const result = await env.exec(`echo "" | awk 'BEGIN { print -17 % 5 }'`);
@@ -119,6 +137,19 @@ describe("awk operators", () => {
         `echo "" | awk 'BEGIN { print (3 <= 5), (5 <= 5), (6 <= 5) }'`,
       );
       expect(result.stdout).toBe("1 1 0\n");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("should compare non-numeric strings as strings, not numbers", async () => {
+      // "", "0x10" and "Infinity" are not numeric strings in AWK, so
+      // they compare lexically: "" < "0", "0x10" < "2" — and "0x10"
+      // > "0", which a parseFloat-based comparison gets wrong (it
+      // reads "0x10" as 0). "Infinity" > "1" ("I" > "1").
+      const env = new Bash();
+      const result = await env.exec(
+        `echo "" | awk 'BEGIN { print ("" < "0"), ("0x10" < "2"), ("0x10" > "0"), ("Infinity" < "1") }'`,
+      );
+      expect(result.stdout).toBe("1 1 1 0\n");
       expect(result.exitCode).toBe(0);
     });
 

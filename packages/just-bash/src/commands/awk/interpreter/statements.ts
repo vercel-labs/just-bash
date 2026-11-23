@@ -13,9 +13,16 @@ import { utf8ByteLength } from "../../printf/escapes.js";
 import type { AwkArrayAccess, AwkExpr, AwkStmt, AwkVariable } from "../ast.js";
 import { formatPrintf } from "../builtins.js";
 import type { AwkRuntimeContext } from "./context.js";
-import { evalExpr, setBlockExecutor } from "./expressions.js";
+import { evalExpr, exprIsStrnum, setBlockExecutor } from "./expressions.js";
 import { isTruthy, toAwkString, toNumber } from "./type-coercion.js";
-import { deleteArray, deleteArrayElement } from "./variables.js";
+import {
+  assertArrayTarget,
+  deleteArray,
+  deleteArrayElement,
+  getArrayStore,
+  markArrayTyped,
+  resolveArrayName,
+} from "./variables.js";
 
 // Register the block executor with expressions module (for user function calls)
 setBlockExecutor(executeBlock);
@@ -181,6 +188,13 @@ async function executeStmt(
               evalExpr(ctx, returnExpr),
             )
           : "";
+        // Record whether the returned value is a numeric string, so a
+        // caller assigning the call's result keeps its provenance (a
+        // field returned from a function stays a strnum, as in gawk).
+        // A bare `return` yields "" and is never a strnum.
+        ctx.lastCallReturnIsStrnum = returnExpr
+          ? exprIsStrnum(ctx, returnExpr)
+          : false;
       }
       break;
 
@@ -505,11 +519,22 @@ async function executeForIn(
   stmt: { variable: string; array: string; body: AwkStmt },
 ): Promise<void> {
   assertAwkDefenseContext(ctx, "for-in execution");
-  const array = ctx.arrays[stmt.array];
+  // Resolve aliases and the ARGV/ENVIRON stores, like element access
+  // does: reading ctx.arrays directly misses the dedicated stores and
+  // any array passed in as a function parameter. Iterating a scalar
+  // (a scalar parameter, a scalar variable) is fatal in gawk, as any
+  // other array use of it is (review 6010326757).
+  const resolvedArray = resolveArrayName(ctx, stmt.array);
+  assertArrayTarget(ctx, stmt.array, resolvedArray);
+  markArrayTyped(ctx, resolvedArray);
+  const array = getArrayStore(ctx, stmt.array, resolvedArray);
   if (!array) return;
 
   for (const key of Object.keys(array)) {
     ctx.vars[stmt.variable] = key;
+    // A for-in key is a plain string, never a numeric string: the
+    // loop variable loses any strnum provenance it had.
+    ctx.strnumVars?.delete(stmt.variable);
 
     ctx.loopContinue = false;
     await withDefenseContext(ctx, "for-in body execution", () =>
