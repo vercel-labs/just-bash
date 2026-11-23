@@ -554,6 +554,66 @@ describe("date", () => {
       expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
     });
+
+    it("-u reads the -d input as UTC, not in $TZ", async () => {
+      const env = new Bash({ env: { TZ: "Europe/Berlin" } });
+      const result = await env.exec(
+        "date -u -d 2026-03-03 +%FT%T; date -u -d '2026-03-03T12:00:00' +%s",
+      );
+      expect(result.stdout).toBe("2026-03-03T00:00:00\n1772539200\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("-u reads fractional-second and minute-only -d input as UTC", async () => {
+      const env = new Bash({ env: { TZ: "Asia/Kolkata" } });
+      const result = await env.exec(
+        [
+          "date -u -d '2026-03-03T12:00:00.500' +%s",
+          "date -u -d '2026-03-03T12:00:00,5' +%s",
+          "date -u -d '2026-03-03T12:00' +%s",
+          "date -u -d '2026-03-03 12:00' +%s",
+        ].join("; "),
+      );
+      expect(result.stdout).toBe(
+        "1772539200\n1772539200\n1772539200\n1772539200\n",
+      );
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("reads fractional-second -d input in $TZ", async () => {
+      const env = new Bash({ env: { TZ: "America/New_York" } });
+      const result = await env.exec(
+        "date -d '2026-03-03T12:00:00.250' +%s; date -d '2026-03-03T12:00:00.250Z' +%s",
+      );
+      expect(result.stdout).toBe("1772557200\n1772539200\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it.each([
+      "date -u -d '2026-03-03T24:00:00.500' +%FT%T",
+      "date -u -d '2026-03-03T24:00:00,5' +%FT%T",
+      "date -u -d '2026-03-03T24:00:00.0001' +%FT%T",
+      "export TZ=America/New_York && date -d '2026-03-03T24:00:00.500' +%FT%T",
+    ])("rejects hour 24 with a nonzero fraction: %s", async (cmd) => {
+      const env = new Bash({ env: { TZ: "UTC" } });
+      const result = await env.exec(cmd);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("invalid date");
+      expect(result.exitCode).toBe(1);
+    });
+
+    it("still reads 24:00:00 with no or a zero fraction as next midnight", async () => {
+      const env = new Bash({ env: { TZ: "UTC" } });
+      const result = await env.exec(
+        "date -u -d '2026-03-03T24:00:00' +%FT%T; date -u -d '2026-03-03T24:00:00.000' +%FT%T",
+      );
+      expect(result.stdout).toBe("2026-03-04T00:00:00\n2026-03-04T00:00:00\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
   });
 });
 
