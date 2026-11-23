@@ -591,6 +591,29 @@ describe("date", () => {
       expect(result.stderr).toBe("");
       expect(result.exitCode).toBe(0);
     });
+
+    it.each([
+      "date -u -d '2026-03-03T24:00:00.500' +%FT%T",
+      "date -u -d '2026-03-03T24:00:00,5' +%FT%T",
+      "date -u -d '2026-03-03T24:00:00.0001' +%FT%T",
+      "export TZ=America/New_York && date -d '2026-03-03T24:00:00.500' +%FT%T",
+    ])("rejects hour 24 with a nonzero fraction: %s", async (cmd) => {
+      const env = new Bash({ env: { TZ: "UTC" } });
+      const result = await env.exec(cmd);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("invalid date");
+      expect(result.exitCode).toBe(1);
+    });
+
+    it("still reads 24:00:00 with no or a zero fraction as next midnight", async () => {
+      const env = new Bash({ env: { TZ: "UTC" } });
+      const result = await env.exec(
+        "date -u -d '2026-03-03T24:00:00' +%FT%T; date -u -d '2026-03-03T24:00:00.000' +%FT%T",
+      );
+      expect(result.stdout).toBe("2026-03-04T00:00:00\n2026-03-04T00:00:00\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
   });
 });
 

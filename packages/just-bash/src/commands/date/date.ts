@@ -87,6 +87,9 @@ function parseBareISOInTimezone(s: string, tz: string): Date | null {
   );
   if (!m) return null;
   const [, yr, mo, dy, hr = "00", mn = "00", sc = "00", frac = ""] = m;
+  // 24:00:00 means the next midnight, but 24:00:00.5 is not a valid time.
+  // Bail out so it falls through to new Date(s), which rejects it like GNU.
+  if (hr === "24" && /[1-9]/.test(frac)) return null;
   // Fractional seconds (2026-03-03T12:00:00.5) are resolved on the whole
   // second and added back at the end; tzShownAsUtc only has second precision.
   const ms = Number(frac.slice(0, 3).padEnd(3, "0"));
