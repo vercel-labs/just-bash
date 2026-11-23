@@ -274,9 +274,17 @@ export const awkCommand2: RuntimeCommand = {
     // -v v=42 sorts numerically, and -v IGNORECASE="0" reads as a
     // numeric string (falsy) rather than a plain "0" (truthy). Built-in
     // names are ignored here except IGNORECASE, which has no dedicated
-    // slot (see markStrnumVar).
+    // slot (see markStrnumVar). FS is the exception: -F can override
+    // -v FS after it (last one wins), so marking from the -v value
+    // would mark a superseded "9" onto the ":" that actually won —
+    // FS is marked from the final separator instead, below (review
+    // 6011335623).
     for (const [name, value] of Object.entries(vars)) {
+      if (name === "FS") continue;
       if (isAwkNumericString(value)) markStrnumVar(runtimeCtx, name, true);
+    }
+    if (isAwkNumericString(fieldSepStr)) {
+      markStrnumVar(runtimeCtx, "FS", true);
     }
 
     // Create interpreter

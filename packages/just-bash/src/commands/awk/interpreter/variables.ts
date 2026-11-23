@@ -6,7 +6,12 @@
 
 import { ExecutionLimitError } from "../../../interpreter/errors.js";
 import type { AwkRuntimeContext } from "./context.js";
-import { ensureFieldCount, rebuildLine, setFieldSeparator } from "./fields.js";
+import {
+  clearFieldNumbersPast,
+  ensureFieldCount,
+  rebuildLine,
+  setFieldSeparator,
+} from "./fields.js";
 import { toAwkString, toNumber } from "./type-coercion.js";
 import type { AwkValue } from "./types.js";
 
@@ -44,6 +49,39 @@ export function getVariable(ctx: AwkRuntimeContext, name: string): AwkValue {
   }
 
   return ctx.vars[name] ?? "";
+}
+
+/**
+ * Rebind every live alias-frame entry for `resolved` to a fresh
+ * scalar-only name, so each alias becomes scalar-typed. In gawk,
+ * assigning a scalar to one alias of a cell types all of them as
+ * scalars (a later asort or element assignment on any alias is a
+ * fatal type error) — but the VALUE stays with the variable actually
+ * assigned, so this only rebinds the frames and never writes a value:
+ * the caller records the value under the assigned name alone (review
+ * 6011335623). No name is minted when nothing aliases `resolved`.
+ */
+function rebindAliasesToScalar(ctx: AwkRuntimeContext, resolved: string): void {
+  const frames = ctx.arrayAliasFrames ?? [];
+  let found = false;
+  for (const frame of frames) {
+    for (const target of frame.values()) {
+      if (target === resolved) {
+        found = true;
+        break;
+      }
+    }
+    if (found) break;
+  }
+  if (!found) return;
+  const scalarName = nextLocalScalarName(ctx);
+  for (const frame of frames) {
+    for (const [key, target] of frame) {
+      if (target === resolved) {
+        frame.set(key, scalarName);
+      }
+    }
+  }
 }
 
 /**
@@ -89,6 +127,10 @@ export function setVariable(
         throw new Error("NF set to negative value");
       } else if (newNF < ctx.NF) {
         ctx.fields = ctx.fields.slice(0, newNF);
+        // Dropped fields lose their number records too: a later
+        // re-growth pads with "", which must not read back a stale
+        // number (review 6011335623).
+        clearFieldNumbersPast(ctx, newNF);
         rebuildLine(ctx);
       } else if (!(newNF <= ctx.NF)) {
         // Also taken when the current NF is NaN
@@ -151,25 +193,27 @@ export function setVariable(
     ) {
       // Convert the untyped parameter to a scalar: drop its private
       // store and rebind every live frame entry for it to a scalar-only
-      // name, so later reads (and isScalarVariable) see a scalar. The
-      // value is also recorded under each of those names, so an outer
-      // frame's variable reads the scalar assigned through an alias
-      // (a how-function assigning through a parameter that aliases the
-      // omitted local must make the caller's variable a scalar too).
+      // name, so later reads (and isScalarVariable) see a scalar.
+      // The type propagates to every alias, as in gawk (a nested call
+      // assigning through an omitted local makes the caller's
+      // parameter scalar-typed, so a later asort on it is rejected) —
+      // but the VALUE lands only in the variable actually assigned:
+      // gawk prints [] for the caller's parameter after g(p) assigns
+      // x=42, so no other alias's slot is written (review 6011335623).
       delete ctx.arrays[resolved];
       clearStrnumArray(ctx, resolved);
-      const scalarName = nextLocalScalarName(ctx);
-      for (const frame of ctx.arrayAliasFrames ?? []) {
-        for (const [key, target] of frame) {
-          if (target === resolved) {
-            frame.set(key, scalarName);
-            ctx.vars[key] = value;
-          }
-        }
-      }
+      rebindAliasesToScalar(ctx, resolved);
     } else {
       throw new Error(`attempt to use array \`${name}' in a scalar context`);
     }
+  } else {
+    // No live store: the name is untyped or a plain scalar, but other
+    // live parameters may alias the same cell (f(x, x), or a global a
+    // function parameter aliases). Assigning a scalar types them all
+    // as scalars in gawk, while the value stays with the variable
+    // actually assigned — so rebind the aliases here too, before the
+    // write below records the value under `name` alone.
+    rebindAliasesToScalar(ctx, resolved);
   }
 
   ctx.vars[name] = value;
@@ -383,7 +427,9 @@ export function setSpecialStoreSize(
 
 /**
  * True when the named scalar variable currently holds a numeric
- * string (strnum). Built-in scalars are never strnums.
+ * string (strnum). String-holding built-ins (FS, OFS, ORS, OFMT,
+ * CONVFMT, SUBSEP, IGNORECASE) can be strnums — see markStrnumVar —
+ * while FILENAME and the numeric built-ins never are.
  */
 export function isStrnumVar(ctx: AwkRuntimeContext, name: string): boolean {
   return ctx.strnumVars?.has(name) ?? false;
@@ -611,15 +657,17 @@ export function isScalarVariable(
 }
 
 /**
- * Record that ARGV (or its ARGC bound) may have changed, so the input
- * loop refreshes its cached list of present indices. Bumped on every
- * insert, delete, replacement of an ARGV element, on replacing the
- * whole store, and on every ARGC assignment — matching the contract
- * documented on ctx.argvVersion. Replacing an existing entry bumps
- * even though the index set is unchanged and the loop reads each
+ * Record that ARGV (or its ARGC bound) may have changed. Bumped on
+ * every insert, delete, replacement of an ARGV element, on replacing
+ * the whole store, and on every ARGC assignment — matching the
+ * contract documented on ctx.argvVersion. Replacing an existing entry
+ * bumps even though the index set is unchanged and the loop reads each
  * entry fresh when its turn comes: the bump keeps the version honest
  * so a future loop change cannot read stale entries (review
  * 6009811820 corrected the earlier no-bump-on-replacement claim).
+ * Note the input loop keys its cached index list off
+ * argvIndexVersion, not this counter, so bumping here does not by
+ * itself refresh that list (review 6011335623).
  */
 export function bumpArgvVersion(ctx: AwkRuntimeContext): void {
   ctx.argvVersion = (ctx.argvVersion ?? 0) + 1;

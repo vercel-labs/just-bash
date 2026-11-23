@@ -1915,13 +1915,19 @@ describe("awk associative arrays", () => {
       });
 
       // Large-integer probe: exact integer forms survive the string
-      // sort key, so both equality checks hold.
+      // sort key, so both equality checks hold. The values are
+      // exactly representable as doubles, so the print order and the
+      // sentinel concat really discriminate: the earlier probe used
+      // 1234567890123456789, which is not representable (its exact
+      // value is ...768) and printed through OFMT as "1.23457e+18"
+      // in head versus gawk's exact form, so its == checks were
+      // vacuous (review 6011335623).
       it("should keep exact large-integer forms in @val_str_asc", async () => {
         const env = new Bash();
         const result = await env.exec(
-          `echo "" | awk 'BEGIN{a[1]=1234567890123456789; a[2]="1234567890123456770"; n=asort(a,b,"@val_str_asc"); print (b[1]==1234567890123456789), (b[2]=="1234567890123456770")}'`,
+          `echo "" | awk 'BEGIN{a[1]="1234567890123457"; a[2]=1234567890123456; n=asort(a,b,"@val_str_asc"); print b[1], b[2]; print (b[1] "x") == "1234567890123456x", (b[2] "x") == "1234567890123457x"}'`,
         );
-        expect(result.stdout).toBe("1 1\n");
+        expect(result.stdout).toBe("1234567890123456 1234567890123457\n1 1\n");
       });
     });
 
@@ -2287,11 +2293,13 @@ describe("awk associative arrays", () => {
       it("should sort by zero-padded CONVFMT keys in @val_str_asc", async () => {
         const env = new Bash();
         const result = await env.exec(
-          `echo "" | awk 'BEGIN{CONVFMT="%010.1f"; a[1]=1.5; a[2]=-5; asort(a,b,"@val_str_asc"); print b[1], b[2]}'`,
+          `echo "" | awk 'BEGIN{CONVFMT="%010.1f"; a[1]=1.5; a[2]=-5.5; asort(a,b,"@val_str_asc"); print b[1], b[2]}'`,
         );
-        // Zero-padded keys are "00000001.5" and "-0000005.0", so -5
-        // sorts first; space-padded keys would reverse the order.
-        expect(result.stdout).toBe("-5 1.5\n");
+        // Zero-padded keys are "00000001.5" and "-0000005.5", so
+        // -5.5 sorts first; space-padded keys would reverse the
+        // order. An integer (-5) would not exercise this at all:
+        // integers bypass CONVFMT and key as "-5" (review 6011335623).
+        expect(result.stdout).toBe("-5.5 1.5\n");
         expect(result.exitCode).toBe(0);
       });
 
@@ -2525,6 +2533,213 @@ describe("awk associative arrays", () => {
           "bash: asort comparison: work work limit exceeded (3000)\n",
         );
         expect(result.exitCode).toBe(ExecutionLimitError.EXIT_CODE);
+      });
+    });
+
+    describe("round-12 pins for automated review 6011335623", () => {
+      // Each test pins one LIVE claim from automated review
+      // 6011335623 on PR #764, verified against gawk 5.2.1. The
+      // STALE claims are not pinned here: (a) default numeric ties
+      // keep input order (already pinned at line ~747), (j)
+      // fall-through keeps the nested call's flag, (f)/(h)
+      // comment-only. (k) abort-during-sort and (l)/(m) are
+      // test-only changes, covered by the rewritten tests above.
+
+      // (b) Argument provenance is captured per-arg after its own
+      // evaluation, not snapshotted before the call: a reassignment
+      // before the second use of the same variable makes that use
+      // plain, and ternary/assignment args keep their strnum flag.
+      it("should not snapshot argument provenance before side effects", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `printf '9\\n' | awk 'function h(x,y){a[1]=y;a[2]="10";asort(a);print a[1],a[2]} {s=$1; h(s="5", s)}'`,
+        );
+        expect(result.stdout).toBe("10 5\n");
+      });
+
+      it("should carry strnum provenance through ternary arguments", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `printf '9\\n' | awk 'function h(x){a[1]=x;a[2]="10";asort(a);print a[1],a[2]} {h((1 ? $1 : "x"))}'`,
+        );
+        expect(result.stdout).toBe("9 10\n");
+      });
+
+      it("should carry strnum provenance through assignment arguments", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `printf '9\\n' | awk 'function h(x){a[1]=x;a[2]="10";asort(a);print a[1],a[2]} {h((x=$1))}'`,
+        );
+        expect(result.stdout).toBe("9 10\n");
+      });
+
+      // (c) A scalar assignment to an omitted parameter types ALL
+      // its aliases as scalars, but the value lands only in the
+      // assigned name — it must not leak into the caller's local.
+      it("should not leak an omitted-param assignment value to the caller", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'function g(x){x=42} function f(p){g(p);print "[" p "]"} BEGIN{f()}'`,
+        );
+        expect(result.stdout).toBe("[]\n");
+      });
+
+      it("should type every alias as a scalar on an omitted-param assignment", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'function f(a,b){a=42; return asort(b,d)} BEGIN{d[1]="keep"; n=f(x,x); print "n="n}'`,
+        );
+        expect(result.exitCode).toBe(2);
+        expect(result.stderr).toContain(
+          "asort: first argument is not an array",
+        );
+      });
+
+      // (d) A nested assignment inside the target/index must not
+      // overwrite the outer assignment's strnum flag: the array
+      // index assignment's value is plain "zzz".
+      it("should not let a nested target assignment overwrite the outer strnum flag", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `printf '9\\n' | awk '{y=(a[k=$1]="zzz"); b[1]=y; b[2]="10"; asort(b); print b[1],b[2]}'`,
+        );
+        expect(result.stdout).toBe("10 zzz\n");
+      });
+
+      // (e) A field assigned a number stays numeric for later ops:
+      // under CONVFMT %.1f the field keys as "1.2", and a 1e400
+      // field sorts as a number (+inf) before strings. Order is
+      // asserted via ==, not the printed form: gawk prints the
+      // cached CONVFMT form ("1.2", "+inf"), head prints OFMT
+      // ("1.234", "Infinity") — a pre-existing print-form
+      // divergence, out of this round's scope.
+      it("should keep a field's numeric-ness for later sorts", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{CONVFMT="%.1f"; $1=1.234; a[1]="1.23"; a[2]=$1; n=asort(a,b,"@val_str_asc"); print (b[1]==1.234), (b[2]=="1.23")}'`,
+        );
+        expect(result.stdout).toBe("1 1\n");
+      });
+
+      it("should sort an overflowing field as a number", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{$1=1e400; a[1]="zzz"; a[2]=$1; n=asort(a); print (a[1]==1e400), (a[2]=="zzz")}'`,
+        );
+        expect(result.stdout).toBe("1 1\n");
+      });
+
+      // (g) The last of -F / -v FS wins, including its type: -v
+      // FS=9 then -F: leaves FS a plain string (":" sorts after
+      // "10" as a string), while -F: then -v FS=9 leaves it a
+      // strnum ("9" sorts before "10" numerically).
+      it("should let the last of -F / -v FS win, including its type", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `printf 'a:b\\n' | awk -v FS=9 -F: 'BEGIN{a[1]=FS; a[2]="10"; asort(a); print a[1],a[2]}'`,
+        );
+        expect(result.stdout).toBe("10 :\n");
+      });
+
+      // (i) split() marks its destination array-typed — including
+      // split("") with no elements — so a later scalar assignment
+      // is rejected like gawk, and split("") returns 0.
+      it("should mark a split destination array-typed", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{split("x y",a); a=5; print "no fatal"}'`,
+        );
+        expect(result.exitCode).toBe(2);
+        expect(result.stderr).toContain("attempt to use array");
+      });
+
+      it("should mark an empty split destination array-typed", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{n=split("",a); print "n="n; a=5; print "no fatal"}'`,
+        );
+        expect(result.exitCode).toBe(2);
+        expect(result.stderr).toContain("attempt to use array");
+      });
+
+      it("should return 0 with no elements for split of an empty string", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{n=split("",a); print "n="n; print (1 in a)}'`,
+        );
+        expect(result.stdout).toBe("n=0\n0\n");
+      });
+
+      // (sub/gsub) A no-match sub/gsub still uses its target as a
+      // scalar in gawk: an uninitialized target becomes "" so a
+      // later asort on it is rejected instead of silently clearing
+      // the destination.
+      it("should make an uninitialized target a scalar on a no-match sub", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{d[1]="keep"; sub(/z/,"q",s); print asort(s,d), "["d[1]"]"}'`,
+        );
+        expect(result.exitCode).toBe(2);
+        expect(result.stderr).toContain(
+          "asort: first argument is not an array",
+        );
+      });
+
+      it("should make an uninitialized target a scalar on a no-match gsub", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{d[1]="keep"; gsub(/z/,"q",s); print asort(s,d), "["d[1]"]"}'`,
+        );
+        expect(result.exitCode).toBe(2);
+        expect(result.stderr).toContain(
+          "asort: first argument is not an array",
+        );
+      });
+
+      // (CONVFMT follow-up) %g rounds to the precision FIRST, then
+      // chooses fixed vs exponential form from the rounded value:
+      // 0.00009999999 rounds to 0.0001 (fixed), 999999.5 rounds to
+      // 1e+06 (exponential). sprintf keeps the single-digit exponent
+      // this codebase pins in its print tests; only the CONVFMT
+      // key path pads the exponent to two digits.
+      it("should round %g before choosing fixed vs exponential form", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{print sprintf("%.6g", 0.00009999999); print sprintf("%.6g", 999999.5)}'`,
+        );
+        expect(result.stdout).toBe("0.0001\n1e+6\n");
+      });
+
+      it("should round a CONVFMT %g key before choosing its form", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{CONVFMT="%.6g"; a[1]=0.00009999999; a[2]="0.0002"; n=asort(a,b,"@val_str_asc"); print (b[1]==0.00009999999), (b[2]=="0.0002")}'`,
+        );
+        expect(result.stdout).toBe("1 1\n");
+      });
+
+      // (CONVFMT follow-up) The exponent is padded inside the
+      // formatter, before field-width padding: "%8.1e" keys as 8
+      // characters (" 1.2e+04"), not 9.
+      it("should pad a CONVFMT %e exponent before width padding", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{CONVFMT="%8.1e"; a[1]=12345.678; a[2]=" 1.2e+03"; n=asort(a,b,"@val_str_asc"); print (b[1]==" 1.2e+03")}'`,
+        );
+        expect(result.stdout).toBe("1\n");
+      });
+
+      // (CONVFMT follow-up) A "*" width or precision takes its value
+      // from an argument, which CONVFMT does not supply: gawk
+      // fatals, so the formatter rejects it instead of silently
+      // consuming the value as the width.
+      it("should reject a CONVFMT with a star width or precision", async () => {
+        const env = new Bash();
+        const result = await env.exec(
+          `echo "" | awk 'BEGIN{CONVFMT="%*f"; a[1]=10.5; a[2]="zzz"; n=asort(a,b,"@val_str_asc"); print b[1], b[2]}'`,
+        );
+        expect(result.exitCode).toBe(2);
+        expect(result.stderr).toContain('invalid CONVFMT "%*f"');
       });
     });
   });

@@ -44,8 +44,11 @@ export function splitFields(ctx: AwkRuntimeContext, line: string): string[] {
   // or a sub/gsub rewrite of $0 (gawk marks them all the same way).
   // A field assigned a plain string later is unmarked by its own
   // assignment, so this set is rebuilt wholesale on every re-split.
+  // Re-split fields are strings, never numbers: any numeric-field
+  // record from before the re-split is dropped with it.
   if (!ctx.strnumFields) ctx.strnumFields = new Set();
   ctx.strnumFields.clear();
+  ctx.numberFields?.clear();
   fields.forEach((field, index) => {
     if (isAwkNumericString(field)) ctx.strnumFields.add(index + 1);
   });
@@ -109,7 +112,10 @@ export function rebuildLine(ctx: AwkRuntimeContext): void {
 
 /**
  * Get a field value by index.
- * $0 is the whole line, $1 is first field, etc.
+ * $0 is the whole line, $1 is first field, etc. A field assigned a
+ * number keeps that number: gawk preserves it for later operations
+ * (a CONVFMT sort key, a non-finite sort, arithmetic), so the
+ * numeric record wins over the stored string spelling.
  */
 export function getField(ctx: AwkRuntimeContext, index: number): AwkValue {
   if (index === 0) {
@@ -117,6 +123,9 @@ export function getField(ctx: AwkRuntimeContext, index: number): AwkValue {
   }
   if (index < 0 || index > ctx.fields.length) {
     return "";
+  }
+  if (ctx.numberFields?.has(index)) {
+    return ctx.numberFields.get(index) as number;
   }
   return ctx.fields[index - 1] ?? "";
 }
@@ -139,6 +148,15 @@ export function setField(
     // Extend fields array if needed
     ensureFieldCount(ctx, index);
     ctx.fields[index - 1] = toAwkString(value);
+    // A number assigned to a field stays a number (see numberFields):
+    // record it, so later reads return the number instead of the
+    // string spelling. A string assignment clears any earlier number.
+    if (typeof value === "number") {
+      if (!ctx.numberFields) ctx.numberFields = new Map();
+      ctx.numberFields.set(index, value);
+    } else {
+      ctx.numberFields?.delete(index);
+    }
     ctx.NF = ctx.fields.length;
     // Rebuild $0 from fields
     rebuildLine(ctx);
@@ -169,6 +187,9 @@ export function isStrnumField(ctx: AwkRuntimeContext, index: number): boolean {
     return ctx.lineIsStrnum && isAwkNumericString(ctx.line);
   }
   if (index < 1 || index > ctx.fields.length) return false;
+  // A field holding a number is a number, not a numeric string — its
+  // provenance is the number record, never this set.
+  if (ctx.numberFields?.has(index)) return false;
   return (
     (ctx.strnumFields?.has(index) ?? false) &&
     isAwkNumericString(ctx.fields[index - 1])
@@ -177,8 +198,9 @@ export function isStrnumField(ctx: AwkRuntimeContext, index: number): boolean {
 
 /**
  * Record (or clear) that a field holds a numeric string. Index 0 is
- * $0 itself; a field assigned a number counts as numeric, since fields
- * store strings and the flag is the only record of number-ness.
+ * $0 itself. A field assigned a number is not marked here: setField
+ * records it as a number instead, and isStrnumField reports false
+ * for it — a number is not a numeric string.
  */
 export function markStrnumField(
   ctx: AwkRuntimeContext,
@@ -192,6 +214,30 @@ export function markStrnumField(
   if (!ctx.strnumFields) ctx.strnumFields = new Set();
   if (isStrnum) ctx.strnumFields.add(index);
   else ctx.strnumFields.delete(index);
+}
+
+/**
+ * Drop the number record for one field: the field now holds a plain
+ * string (a sub/gsub rewrite, or a string assignment that bypassed
+ * setField). A later read returns the stored string spelling.
+ */
+export function clearFieldNumber(ctx: AwkRuntimeContext, index: number): void {
+  ctx.numberFields?.delete(index);
+}
+
+/**
+ * Drop the number records for fields past `count`: an NF shrink drops
+ * those fields, so a later re-growth must read "" for them, not a
+ * stale number from before the shrink.
+ */
+export function clearFieldNumbersPast(
+  ctx: AwkRuntimeContext,
+  count: number,
+): void {
+  if (!ctx.numberFields) return;
+  for (const index of [...ctx.numberFields.keys()]) {
+    if (index > count) ctx.numberFields.delete(index);
+  }
 }
 
 /**

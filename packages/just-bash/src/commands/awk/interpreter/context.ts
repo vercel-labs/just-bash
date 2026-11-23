@@ -101,11 +101,13 @@ export interface AwkRuntimeContext {
   /**
    * Mutation counter for ARGV (and ARGC, which bounds it): bumped on
    * every insert/delete/replacement of an ARGV element and on every
-   * ARGC assignment. The input loop caches the sorted list of present
-   * ARGV indices and refreshes it only when this changes, so reading
-   * N files costs one key scan instead of N — while a program that
-   * adds or drops entries mid-file still has its changes picked up.
-   * A hand-built context starts at 0, like a fresh runtime context.
+   * ARGC assignment. It records that ARGV changed, but the input
+   * loop does NOT key off it: the loop caches the sorted list of
+   * present ARGV indices and refreshes it only when argvIndexVersion
+   * changes, so reading N files costs one key scan instead of N —
+   * while a program that adds or drops entries mid-file still has its
+   * changes picked up. A hand-built context starts at 0, like a fresh
+   * runtime context.
    */
   argvVersion: number;
   /**
@@ -151,10 +153,24 @@ export interface AwkRuntimeContext {
    * this set is the only record of whether a numeric-looking field
    * came from input (a strnum) or from a plain-string assignment.
    * Rebuilt by splitFields whenever $0 is re-split; a field
-   * assignment re-marks its own index. $0's own flag lives in
+   * assignment re-marks its own index. A field assigned a number is
+   * NOT in this set — it is a number, recorded in numberFields below
+   * (review 6011335623). $0's own flag lives in
    * lineIsStrnum below, because $0 is a single value, not an element.
    */
   strnumFields: Set<number>;
+  /**
+   * Field indices (1-based) whose current value is a JS number, from
+   * a numeric assignment (`$1 = 1.234`), a compound assignment, or an
+   * increment. Fields store strings, so without this record the
+   * number-ness would be lost: a numeric field must sort by its
+   * CONVFMT form in string mode and as a number (including +inf)
+   * elsewhere, as in gawk — a strnum flag alone cannot express that,
+   * because it keys off the string spelling. Cleared wholesale
+   * whenever the fields are re-split, and per index whenever the
+   * field is assigned a string or rewritten by sub/gsub.
+   */
+  numberFields: Map<number, number>;
   /**
    * Whether $0 itself is currently a numeric string: true for a record
    * read from input whose line looks numeric, and for a $0 assigned a
@@ -311,6 +327,7 @@ export function createRuntimeContext(
     strnumVars: new Set(),
     strnumArrayKeys: new Map(),
     strnumFields: new Set(),
+    numberFields: new Map(),
     lineIsStrnum: false,
     lastFieldIsStrnum: false,
     lastArrayAccessIsStrnum: false,

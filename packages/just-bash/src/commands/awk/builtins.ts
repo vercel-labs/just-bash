@@ -12,6 +12,7 @@ import { createUserRegex, type UserRegex } from "../../regex/index.js";
 import type { AwkExpr } from "./ast.js";
 import type { AwkRuntimeContext } from "./interpreter/context.js";
 import {
+  clearFieldNumber,
   ensureFieldCount,
   markStrnumField,
   rebuildLine,
@@ -25,14 +26,18 @@ import {
   chargedSizeOfArray,
   getArrayStore,
   initialSizeOfArray,
+  isArrayTyped,
+  isBuiltinScalarName,
   isIgnoreCaseEnabled,
   isScalarVariable,
   isStrnumArrayKey,
+  LOCAL_ARRAY_PREFIX,
   markArrayTyped,
   replaceArrayValues,
   resolveArrayName,
   setSpecialStoreSize,
   setStrnumArrayKeys,
+  setVariable,
 } from "./interpreter/variables.js";
 
 /**
@@ -186,8 +191,10 @@ function applyTargetValue(
     ensureFieldCount(ctx, idx + 1);
     ctx.fields[idx] = newValue;
     // A sub/gsub result is a plain string, so the field stops being a
-    // numeric string (rebuildLine clears $0's own flag).
+    // numeric string (rebuildLine clears $0's own flag) — and stops
+    // being a number, if it was one.
     markStrnumField(ctx, idx + 1, false);
+    clearFieldNumber(ctx, idx + 1);
     ctx.NF = ctx.fields.length;
     rebuildLine(ctx);
   } else {
@@ -252,7 +259,12 @@ async function awkSplit(
   }
   const arrayName = arrayExpr.name;
 
+  // The separator: a single space means the default whitespace split,
+  // whether it came from FS or an explicit third argument. Only that
+  // path drops leading/trailing whitespace; an explicit regex or
+  // string separator keeps its empty fields ("a," splits to ["a", ""]).
   let sep: string | UserRegex = ctx.FS;
+  let isDefaultWhitespace = false;
   if (args.length >= 3) {
     const sepExpr = args[2];
     // Check if the separator is a regex literal
@@ -260,10 +272,16 @@ async function awkSplit(
       sep = createUserRegex(sepExpr.pattern);
     } else {
       const sepVal = toAwkString(await evaluator.evalExpr(sepExpr));
-      sep = sepVal === " " ? createUserRegex("\\s+") : sepVal;
+      if (sepVal === " ") {
+        sep = createUserRegex("\\s+");
+        isDefaultWhitespace = true;
+      } else {
+        sep = sepVal;
+      }
     }
   } else if (ctx.FS === " ") {
     sep = createUserRegex("\\s+");
+    isDefaultWhitespace = true;
   }
 
   // A scalar target is rejected, not silently converted into an
@@ -311,10 +329,18 @@ async function awkSplit(
     0,
     ctx.maxArrayElements - ctx.arrayElementCount + previousCharged + baseline,
   );
+  // Splitting an empty string yields no fields in gawk, for any
+  // separator — and the default whitespace split drops leading and
+  // trailing whitespace, so a whitespace-only string yields none
+  // either (review 6011335623). An explicit regex or string separator
+  // keeps its empty fields ("a," splits to ["a", ""]).
+  const splitInput = isDefaultWhitespace ? str.trim() : str;
   const parts =
-    typeof sep === "string"
-      ? str.split(sep, available + 1)
-      : sep.split(str, available + 1);
+    splitInput === ""
+      ? []
+      : typeof sep === "string"
+        ? str.split(sep, available + 1)
+        : sep.split(splitInput, available + 1);
   if (parts.length > available) {
     throw new ExecutionLimitError(
       `array element limit exceeded (${ctx.maxArrayElements})`,
@@ -353,6 +379,12 @@ async function awkSplit(
     bumpArgvVersion(ctx);
     bumpArgvIndexVersion(ctx);
   }
+  // Splitting into a name uses it as an array even when the result is
+  // empty (split("", a) creates an empty array in gawk), so record
+  // the type here: without it, a later scalar assignment to the name
+  // would silently succeed once the store was emptied or deleted
+  // (review 6011335623).
+  markArrayTyped(ctx, resolvedArrayName);
   const strnumKeys = new Set<string>();
   for (let i = 0; i < parts.length; i++) {
     if (isAwkNumericString(parts[i])) strnumKeys.add(String(i + 1));
@@ -562,7 +594,10 @@ function isNegativeDouble(value: number): boolean {
  * not "1e+21") and non-integers use CONVFMT, with the exponent padded
  * to two digits as C's %g/%E does ("9e-05", "1.0E-04", not "9e-5").
  * Non-finite values use gawk's spellings ("+inf", "-inf", "-nan").
- * A CONVFMT the formatter rejects falls back to String(value).
+ * A CONVFMT the formatter rejects falls back to String(value) — except
+ * a "*" width or precision, which gawk rejects outright ("not enough
+ * arguments to satisfy format string"): it is thrown instead of
+ * silently consuming the value as the width (review 6011335623).
  */
 function formatAwkNumber(ctx: AwkRuntimeContext, value: number): string {
   if (Number.isNaN(value)) {
@@ -579,9 +614,16 @@ function formatAwkNumber(ctx: AwkRuntimeContext, value: number): string {
     return formatIntegerExactly(value);
   }
   const format = ctx.CONVFMT || "%.6g";
+  if (/(?:^|[^%])%(?:\d+\$)?[-+ #0]*(?:\*|\.\*)/.test(format)) {
+    throw new Error(`invalid CONVFMT "${format}"`);
+  }
   try {
-    const str = formatPrintf(format, [value], awkStringLimit(ctx));
-    return str.replace(/([eE])([+-]?)(\d)$/, "$1$20$3");
+    // Pad exponents inside the formatter, before any field-width
+    // padding: padding them afterwards (as the old post-replace did)
+    // made "%8.1e" keys one character too wide.
+    return formatPrintf(format, [value], awkStringLimit(ctx), {
+      padExponents: true,
+    });
   } catch {
     return String(value);
   }
@@ -599,7 +641,8 @@ function formatAwkNumber(ctx: AwkRuntimeContext, value: number): string {
  * integer digits (a non-integer double can carry ~309 of them, and
  * %.100f keeps 100 fraction digits). "*" widths/precisions take
  * their value from an argument, which formatAwkNumber does not
- * supply, so they contribute nothing here.
+ * supply — but such a format is rejected outright before formatting
+ * (see formatAwkNumber), so it never reaches the precharge either.
  */
 export function estimateConvfmtOutputWidth(format: string): number {
   let bound = format.length + 32;
@@ -946,6 +989,36 @@ async function awkAsort(
   return values.length;
 }
 
+/**
+ * A no-match sub/gsub still uses its target as a scalar in gawk: an
+ * uninitialized variable becomes "" (so a later asort on it is
+ * rejected instead of clearing the destination), and an omitted
+ * parameter becomes a scalar the same way. An existing value — a
+ * number included — is left alone, as is an array target (review
+ * 6011335623).
+ */
+function touchUninitializedSubTarget(
+  ctx: AwkRuntimeContext,
+  targetName: string,
+  target: string,
+): void {
+  if (targetName.startsWith("$")) return;
+  if (isBuiltinScalarName(targetName)) return;
+  if (ctx.vars[targetName] !== undefined) return;
+  const resolved = resolveArrayName(ctx, targetName);
+  if (isArrayTyped(ctx, resolved)) return;
+  const store = getArrayStore(ctx, targetName, resolved);
+  if (
+    store !== undefined &&
+    !(
+      resolved.startsWith(LOCAL_ARRAY_PREFIX) && Object.keys(store).length === 0
+    )
+  ) {
+    return;
+  }
+  setVariable(ctx, targetName, target);
+}
+
 async function awkSub(
   args: AwkExpr[],
   ctx: AwkRuntimeContext,
@@ -975,9 +1048,13 @@ async function awkSub(
     // errors instead of wrapping onto $1. Validating pads the fields
     // array, and NF follows the padded length in gawk: sub(/z/,"q",$5)
     // on a one-field record leaves NF at 5 (review 6010326757).
+    // An uninitialized variable target still becomes a scalar, as in
+    // gawk — otherwise a later asort on it would silently clear its
+    // destination instead of erroring (review 6011335623).
     if (replaced.replacements === 0) {
       validateFieldTarget(targetName, ctx);
       ctx.NF = ctx.fields.length;
+      touchUninitializedSubTarget(ctx, targetName, target);
       return 0;
     }
     applyTargetValue(targetName, replaced.value, ctx);
@@ -1012,10 +1089,13 @@ async function awkGsub(
     );
     // As in sub: a no-match gsub leaves its target untouched, but a
     // field target's index is still validated — and NF follows the
-    // padded fields length, as in gawk (review 6010326757).
+    // padded fields length, as in gawk (review 6010326757). An
+    // uninitialized variable target still becomes a scalar (review
+    // 6011335623).
     if (replaced.replacements === 0) {
       validateFieldTarget(targetName, ctx);
       ctx.NF = ctx.fields.length;
+      touchUninitializedSubTarget(ctx, targetName, target);
       return 0;
     }
     applyTargetValue(targetName, replaced.value, ctx);
@@ -1325,12 +1405,23 @@ export function formatPrintf(
   format: string,
   values: AwkValue[],
   maxBytes: number = DEFAULT_AWK_STRING_LIMIT,
+  options?: { padExponents?: boolean },
 ): string {
   let valueIdx = 0;
   let result = "";
   let resultBytes = 0;
   let i = 0;
   const maxFieldWidth = Math.min(MAX_PRINTF_WIDTH, maxBytes);
+  // Pad a single-digit exponent to two digits ("1.2e+4" -> "1.2e+04"),
+  // as C's printf does. Only applied when the caller asks (CONVFMT
+  // keys via formatAwkNumber): sprintf/printf keep the single-digit
+  // exponent this codebase pins in its print tests — and the padding
+  // must happen BEFORE field-width padding, or "%8.1e" comes out one
+  // character too wide (review 6011335623).
+  const padExponent = (text: string): string =>
+    options?.padExponents
+      ? text.replace(/([eE])([+-]?)(\d)$/, "$1$20$3")
+      : text;
   const append = (value: string): void => {
     const bytes = utf8ByteLength(value);
     if (bytes > maxBytes - resultBytes) {
@@ -1587,6 +1678,7 @@ export function formatPrintf(
           }
           let str = num.toExponential(prec);
           if (spec === "E") str = str.toUpperCase();
+          str = padExponent(str);
           str = signForFloat(str, num);
           str = padFloatWidth(str);
           append(str);
@@ -1605,12 +1697,18 @@ export function formatPrintf(
               "string_length",
             );
           }
-          const exp = num !== 0 ? Math.floor(Math.log10(Math.abs(num))) : 0;
+          // C's %g rounds to `prec` significant digits FIRST, then
+          // chooses fixed vs exponential form from the rounded
+          // value's exponent: 0.00009999999 rounds to 0.0001
+          // (exponent -4, fixed form), not 1e-04 (review 6011335623).
+          const rounded = num === 0 ? 0 : Number(num.toPrecision(prec));
+          const exp =
+            rounded !== 0 ? Math.floor(Math.log10(Math.abs(rounded))) : 0;
           let str: string;
           if (num === 0) {
             str = "0";
           } else if (exp < -4 || exp >= prec) {
-            str = num.toExponential(prec - 1);
+            str = rounded.toExponential(prec - 1);
             if (spec === "G") str = str.toUpperCase();
           } else {
             str = num.toPrecision(prec);
@@ -1623,6 +1721,7 @@ export function formatPrintf(
           if (str.includes("e")) {
             str = str.replace(/\.?0+e/, "e");
           }
+          str = padExponent(str);
           str = signForFloat(str, num);
           str = padFloatWidth(str);
           append(str);

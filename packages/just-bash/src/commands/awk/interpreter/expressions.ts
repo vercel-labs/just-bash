@@ -433,9 +433,12 @@ async function evalFunctionCall(
 ): Promise<AwkValue> {
   assertAwkDefenseContext(ctx, "function call evaluation");
   // A call's return provenance starts false: built-ins never return a
-  // numeric string, an unknown function returns "", and a user function
-  // records its own return when one executes (a function that falls
-  // through without returning keeps this false).
+  // numeric string, and an unknown function returns "". A user function
+  // records its own return when one executes; a function that falls
+  // through without returning keeps whatever the last nested call or
+  // return left in the flag, as in gawk (verified against gawk 5.2.1:
+  // a fall-through after `return $1` inside still sorts as a strnum —
+  // review 6011335623).
   ctx.lastCallReturnIsStrnum = false;
   // Check for built-in functions first
   const builtin = awkBuiltins.get(name);
@@ -465,18 +468,6 @@ async function evalFunctionCall(
   }
 
   return "";
-}
-
-/**
- * The key string of a literal array key ("1", 2), or null when the
- * key is not a literal. A literal key can be resolved without
- * evaluating anything, so provenance lookups through it never run
- * user code twice.
- */
-function literalKeyString(key: AwkExpr): string | null {
-  if (key.type === "string") return key.value;
-  if (key.type === "number") return String(key.value);
-  return null;
 }
 
 async function callUserFunction(
@@ -526,58 +517,61 @@ async function callUserFunction(
     }
   }
 
-  // Snapshot each argument's numeric-string provenance BEFORE any
-  // binding is installed, for the same reason as the names above: a
-  // later parameter can shadow the variable an argument was read
-  // from, so the flag must be captured up front. Only the shapes
-  // that carry provenance count — a variable holding a strnum, or an
-  // array element with a literal key holding a strnum. A literal or
-  // any other expression is a plain string even when it looks
-  // numeric: f("10") must not sort "10" numerically. Field, computed
-  // array-key, and function-call arguments are decided in the loop
-  // below, from the value just evaluated (a field is a strnum
-  // exactly when it looks numeric).
+  // Each argument's numeric-string provenance is captured in the loop
+  // below, right after its own evaluation — not in a prepass before
+  // any argument runs. A prepass reads stale flags: an earlier
+  // argument's side effect can change a variable an argument was read
+  // from (h(s="5", s) must see s as a plain string, not the strnum it
+  // held before the call), and ternary and assignment arguments never
+  // had their provenance captured at all (review 6011335623). The
+  // loop runs before any binding is installed, so a later parameter
+  // still cannot shadow the variable an argument was read from. Only
+  // the shapes that carry provenance count — a variable holding a
+  // strnum, an array element, a field, a call's return, a ternary's
+  // selected branch, or an assignment's right-hand side. A literal or
+  // any other expression is a plain string even when it looks numeric:
+  // f("10") must not sort "10" numerically.
   const argIsStrnum = new Map<number, boolean>();
-  for (let i = 0; i < func.params.length && i < args.length; i++) {
-    const arg = args[i];
-    if (arg.type === "variable") {
-      argIsStrnum.set(i, isStrnumVar(ctx, arg.name));
-    } else if (arg.type === "array_access") {
-      const key = literalKeyString(arg.key);
-      argIsStrnum.set(
-        i,
-        key !== null &&
-          isStrnumArrayKey(ctx, resolveArrayName(ctx, arg.array), key),
-      );
-    }
-  }
 
   // Evaluate every argument expression in the caller's frame BEFORE
   // pushing this call's frame: gawk evaluates arguments before the
   // call, so an argument that reads an array must not see a callee
   // parameter of the same name shadow it (h(a[1]) where h has a
   // parameter a used to resolve to h's empty local array instead of
-  // the caller's array). A field argument's strnum flag is captured
+  // the caller's array). Each argument's strnum flag is captured
   // per argument here, right after its own evaluation, because a
   // later argument's reads would overwrite the shared flag.
   const argValues: AwkValue[] = [];
   const argFieldIsStrnum = new Map<number, boolean>();
   for (let i = 0; i < func.params.length && i < args.length; i++) {
+    const arg = args[i];
     argValues.push(
       await withDefenseContext(ctx, "user function argument evaluation", () =>
-        evalExpr(ctx, args[i]),
+        evalExpr(ctx, arg),
       ),
     );
-    if (args[i].type === "field") {
+    if (arg.type === "field") {
       argFieldIsStrnum.set(i, ctx.lastFieldIsStrnum);
-    } else if (args[i].type === "array_access") {
+    } else if (arg.type === "array_access") {
       // A computed key is fine here: the read just recorded its flag,
       // like the field case above (review 6010326757).
       argIsStrnum.set(i, ctx.lastArrayAccessIsStrnum);
-    } else if (args[i].type === "call") {
+    } else if (arg.type === "call") {
       // A function-call argument's provenance is what the callee
       // returned (review 6010326757).
       argIsStrnum.set(i, ctx.lastCallReturnIsStrnum);
+    } else if (arg.type === "variable") {
+      // Read after this argument's own evaluation: an earlier
+      // argument may have reassigned the variable (review 6011335623).
+      argIsStrnum.set(i, isStrnumVar(ctx, arg.name));
+    } else if (arg.type === "ternary") {
+      // The selected branch's provenance, recorded by the ternary
+      // itself (review 6011335623).
+      argIsStrnum.set(i, ctx.lastTernaryIsStrnum);
+    } else if (arg.type === "assignment") {
+      // The right-hand side's provenance, recorded by the assignment
+      // itself (review 6011335623).
+      argIsStrnum.set(i, ctx.lastAssignmentIsStrnum);
     }
   }
 
@@ -755,7 +749,9 @@ async function evalAssignment(
   const rhsIsStrnum = op === "=" && exprIsStrnum(ctx, expr.value);
   // An assignment used as a value carries its right-hand side's
   // provenance (review 6010326757); a compound assignment produces a
-  // number and never is one.
+  // number and never is one. This is set again before returning:
+  // evaluating the target below can overwrite the shared flag with a
+  // nested assignment's provenance (review 6011335623).
   ctx.lastAssignmentIsStrnum = rhsIsStrnum;
 
   let finalValue: AwkValue;
@@ -822,10 +818,11 @@ async function evalAssignment(
       ),
     );
     setField(ctx, index, finalValue);
-    // Fields store strings, so a number or numeric-string value
-    // assigned to one is only visible as numeric through the flag
-    // (a compound assignment always produces a number).
-    markStrnumField(ctx, index, typeof finalValue === "number" || rhsIsStrnum);
+    // Fields store strings, so a string value assigned to one is
+    // only visible as numeric through the strnum flag; a number value
+    // is recorded as a number by setField instead, and is not a
+    // strnum (a compound assignment always produces a number).
+    markStrnumField(ctx, index, rhsIsStrnum);
   } else if (target.type === "variable") {
     // setVariable clears the variable's strnum flag; re-mark it when
     // the right-hand side carried numeric-string provenance.
@@ -845,6 +842,14 @@ async function evalAssignment(
       rhsIsStrnum,
     );
   }
+
+  // Re-assert this assignment's own provenance before returning:
+  // evaluating the target (a field index or array key) can itself
+  // contain a nested assignment, which overwrote the shared flag
+  // with ITS right-hand side's provenance. An enclosing assignment
+  // or function-argument read must see this assignment's flag, not
+  // the target's (review 6011335623).
+  ctx.lastAssignmentIsStrnum = rhsIsStrnum;
 
   return finalValue;
 }
