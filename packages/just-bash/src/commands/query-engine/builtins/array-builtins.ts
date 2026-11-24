@@ -270,12 +270,6 @@ export function evalArrayBuiltin(
       return [true];
     }
 
-    case "select": {
-      if (args.length === 0) return [value];
-      const conds = evaluate(value, args[0], ctx);
-      return conds.some(isTruthy) ? [value] : [];
-    }
-
     case "map": {
       if (args.length === 0 || !Array.isArray(value)) return [null];
       assertResultCapacity(ctx, 0, value.length);

@@ -1765,6 +1765,12 @@ function evalBuiltin(
   args: AstNode[],
   ctx: EvalContext,
 ): QueryValue[] {
+  if (name === "select") {
+    if (args.length === 0) return [value];
+    const conditions = evaluate(value, args[0], ctx);
+    return conditions.some(isTruthy) ? [value] : [];
+  }
+
   // Handle simple single-argument math functions via lookup table
   const simpleMathFn = SIMPLE_MATH_FUNCTIONS.get(name);
   if (simpleMathFn) {
@@ -1863,7 +1869,7 @@ function evalBuiltin(
     // handled by evalObjectBuiltin
     //
     // sort, sort_by, bsearch, unique_by, group_by, max, max_by, min, min_by,
-    // add, any, all, select, map, map_values, has, in, contains, inside
+    // add, any, all, map, map_values, has, in, contains, inside
     // handled by evalArrayBuiltin
     //
     // getpath, setpath, delpaths, path, del, pick, paths, leaf_paths
@@ -2031,7 +2037,7 @@ function evalBuiltin(
     // first, last, nth, range handled by evalControlBuiltin
 
     // sort, sort_by, bsearch, unique_by, group_by, max, max_by, min, min_by,
-    // add, any, all, select, map, map_values, has, in, contains, inside
+    // add, any, all, map, map_values, has, in, contains, inside
     // handled by evalArrayBuiltin
 
     // getpath, setpath, delpaths, path, del, pick, paths, leaf_paths

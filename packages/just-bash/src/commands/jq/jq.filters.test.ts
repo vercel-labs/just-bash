@@ -11,6 +11,18 @@ describe("jq filters", () => {
       expect(result.stdout).toBe("[\n  4,\n  5\n]\n");
     });
 
+    it("passes zero predicates and drops false, null and empty predicates", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "jq -nc '[1 | select(0), select(false), select(null), select(empty)]'",
+      );
+      expect(result).toMatchObject({
+        stdout: "[1]\n",
+        stderr: "",
+        exitCode: 0,
+      });
+    });
+
     it("should transform with map", async () => {
       const env = new Bash();
       const result = await env.exec("echo '[1,2,3]' | jq 'map(. * 2)'");
