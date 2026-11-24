@@ -9,6 +9,17 @@ describe("jq operators", () => {
       expect(result.stdout).toBe("8\n");
     });
 
+    it.each([
+      ["1.5 + -2", "-0.5\n"],
+      ["(1, 2) + 10", "11\n12\n"],
+      ["10 + (1, 2)", "11\n12\n"],
+      ["(empty + 2), (1 + empty)", ""],
+    ])("preserves numeric addition results for %s", async (filter, stdout) => {
+      const env = new Bash();
+      const result = await env.exec(`jq -n '${filter}'`);
+      expect(result).toMatchObject({ stdout, stderr: "", exitCode: 0 });
+    });
+
     it("should subtract numbers", async () => {
       const env = new Bash();
       const result = await env.exec("echo '10' | jq '. - 4'");

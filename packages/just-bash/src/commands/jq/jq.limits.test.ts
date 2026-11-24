@@ -13,6 +13,23 @@ import { evaluate, parse } from "../query-engine/index.js";
  */
 
 describe("JQ Execution Limits", () => {
+  it("charges numeric addition against the jq work limit", async () => {
+    const command = "jq -n '1 + 2'";
+    const atLimit = new Bash({ executionLimits: { maxJqIterations: 4 } });
+    const belowLimit = new Bash({ executionLimits: { maxJqIterations: 3 } });
+
+    expect(await atLimit.exec(command)).toMatchObject({
+      stdout: "3\n",
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(await belowLimit.exec(command)).toMatchObject({
+      stdout: "",
+      stderr: "jq: query evaluation: too many iterations (3)\n",
+      exitCode: ExecutionLimitError.EXIT_CODE,
+    });
+  });
+
   describe("string allocation protection", () => {
     it("rejects string multiplication before repeat allocates", async () => {
       const env = new Bash({
