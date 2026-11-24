@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Bash } from "../../Bash.js";
+import { ExecutionLimitError } from "../../interpreter/errors.js";
 
 describe("jq operators", () => {
   describe("arithmetic operators", () => {
@@ -7,6 +8,46 @@ describe("jq operators", () => {
       const env = new Bash();
       const result = await env.exec("echo '5' | jq '. + 3'");
       expect(result.stdout).toBe("8\n");
+    });
+
+    it.each([
+      ["1.5 + -2", "-0.5\n"],
+      ["(1, 2) + 10", "11\n12\n"],
+      ["10 + (1, 2)", "11\n12\n"],
+      ["(empty + 2), (1 + empty)", ""],
+    ])("preserves numeric addition results for %s", async (filter, stdout) => {
+      const env = new Bash();
+      const result = await env.exec(`jq -n '${filter}'`);
+      expect(result).toMatchObject({ stdout, stderr: "", exitCode: 0 });
+    });
+
+    it("preserves null operands in addition", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "jq -nc '[null + null, null + 5, 5 + null]'",
+      );
+      expect(result).toMatchObject({
+        stdout: "[null,5,5]\n",
+        stderr: "",
+        exitCode: 0,
+      });
+    });
+
+    it("charges numeric addition against the jq work limit", async () => {
+      const command = "jq -n '1 + 2'";
+      const atLimit = new Bash({ executionLimits: { maxJqIterations: 4 } });
+      const belowLimit = new Bash({ executionLimits: { maxJqIterations: 3 } });
+
+      expect(await atLimit.exec(command)).toMatchObject({
+        stdout: "3\n",
+        stderr: "",
+        exitCode: 0,
+      });
+      expect(await belowLimit.exec(command)).toMatchObject({
+        stdout: "",
+        stderr: "jq: query evaluation: too many iterations (3)\n",
+        exitCode: ExecutionLimitError.EXIT_CODE,
+      });
     });
 
     it("should subtract numbers", async () => {

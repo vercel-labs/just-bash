@@ -1624,6 +1624,14 @@ function evalBinaryOp(
   assertQueryResultCapacity(ctx, 0, resultCount);
   chargeQueryWork(ctx, resultCount);
 
+  if (op === "+" && leftVals.length === 1 && rightVals.length === 1) {
+    const [left] = leftVals;
+    const [right] = rightVals;
+    if (typeof left === "number" && typeof right === "number") {
+      return [left + right];
+    }
+  }
+
   return leftVals.flatMap((l) =>
     rightVals.map((r) => {
       switch (op) {

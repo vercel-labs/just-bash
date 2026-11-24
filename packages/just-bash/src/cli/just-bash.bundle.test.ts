@@ -161,6 +161,28 @@ describe("just-bash CJS bundle", () => {
 // runtime require("tty")/require("os") that the shim throws for unless the
 // build banner provides createRequire.
 describe("just-bash ESM bundle", () => {
+  it("runs jq numeric reductions and enforces work limits", async () => {
+    const esmBundlePath = resolve(__dirname, "../../dist/bundle/index.js");
+    const { Bash } = await import(esmBundlePath);
+    const bash = new Bash();
+
+    expect(
+      await bash.exec("jq -n 'reduce range(0; 1000) as $i (0; . + $i)'"),
+    ).toMatchObject({ stdout: "499500\n", stderr: "", exitCode: 0 });
+
+    const limited = new Bash({ executionLimits: { maxJqIterations: 3 } });
+    expect(await limited.exec("jq -n '1 + 2'")).toMatchObject({
+      stdout: "",
+      stderr: "jq: query evaluation: too many iterations (3)\n",
+      exitCode: 126,
+    });
+    expect(await limited.exec("jq -n '0'")).toMatchObject({
+      stdout: "0\n",
+      stderr: "",
+      exitCode: 0,
+    });
+  });
+
   it("should be importable and run file command", async () => {
     const esmBundlePath = resolve(__dirname, "../../dist/bundle/index.js");
     const mod = await import(esmBundlePath);
