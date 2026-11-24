@@ -21,6 +21,18 @@ describe("jq operators", () => {
       expect(result).toMatchObject({ stdout, stderr: "", exitCode: 0 });
     });
 
+    it("preserves null operands in addition", async () => {
+      const env = new Bash();
+      const result = await env.exec(
+        "jq -nc '[null + null, null + 5, 5 + null]'",
+      );
+      expect(result).toMatchObject({
+        stdout: "[null,5,5]\n",
+        stderr: "",
+        exitCode: 0,
+      });
+    });
+
     it("charges numeric addition against the jq work limit", async () => {
       const command = "jq -n '1 + 2'";
       const atLimit = new Bash({ executionLimits: { maxJqIterations: 4 } });
