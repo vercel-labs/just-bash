@@ -12,6 +12,7 @@ import { decodeBytesToUtf8, utf8ByteLength } from "../../encoding.js";
 import { rethrowFatalExecutionError } from "../../fatal-execution-error.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import type { ExecResult, RuntimeCommandContext } from "../../types.js";
+import { parseColumnSpec } from "./column-selection.js";
 
 export interface CsvRow {
   [key: string]: string | number | boolean | null;
@@ -21,6 +22,8 @@ export type CsvData = CsvRow[];
 export type CsvCells = Array<Array<string | number | boolean | null>>;
 
 export interface CsvParseLimits {
+  inferTypes?: boolean;
+  stringColumns?: string;
   maxStringLength?: number;
   maxArrayElements?: number;
   maxRows?: number;
@@ -142,11 +145,16 @@ export function parseCsv(
       "array_elements",
     );
   }
+  const stringColumns = new Set(
+    parseColumnSpec(limits.stringColumns ?? "", headers),
+  );
   let cellCount = 0;
   let limitError: ExecutionLimitError | undefined;
   Papa.parse<Record<string, unknown>>(normalizedInput, {
     header: true,
-    dynamicTyping: true,
+    dynamicTyping: limits.inferTypes
+      ? (field) => !stringColumns.has(String(field))
+      : false,
     skipEmptyLines: true,
     step: (result, parser) => {
       const fields = Object.keys(result.data);
@@ -345,6 +353,7 @@ function formatCsvValues(
 export async function readCsvInput(
   args: string[],
   ctx: RuntimeCommandContext,
+  options: Pick<CsvParseLimits, "inferTypes" | "stringColumns"> = {},
 ): Promise<{ headers: string[]; data: CsvData; error?: ExecResult }> {
   const file = args.find((a) => !a.startsWith("-"));
   let input: string;
@@ -371,6 +380,7 @@ export async function readCsvInput(
   }
 
   const { headers, data } = parseCsv(input, {
+    ...options,
     maxStringLength: Math.min(
       ctx.limits.maxInputBytes,
       ctx.limits.maxStringLength,
