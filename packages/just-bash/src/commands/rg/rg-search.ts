@@ -6,6 +6,7 @@ import { gunzipSync } from "node:zlib";
 import { BoundedStringBuilder } from "../../bounded-builder.js";
 import {
   decodeBytesToUtf8,
+  encodeUtf8ToBytes,
   latin1FromBytes,
   readBytesFrom,
   unsafeBytesFromLatin1,
@@ -17,6 +18,7 @@ import { FileTraversalBudget } from "../../fs/traversal.js";
 import { shellJoinArgs } from "../../helpers/shell-quote.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { createUserRegex, type UserRegex } from "../../regex/index.js";
+import { readCommandStdin } from "../../streams/command-stdio.js";
 import type { ExecResult, RuntimeCommandContext } from "../../types.js";
 import {
   buildRegex,
@@ -175,6 +177,7 @@ export async function executeSearch(
   // decoded lines remain live until regex compilation completes, so keep a
   // conservative lease for every source and release all of them together.
   const patterns = options.patterns.slice();
+  let patternStdin: Awaited<ReturnType<typeof readCommandStdin>> | undefined;
   const patternSourceLeases: ResourceLease[] = [];
   let aggregatePatternInputBytes = 0;
   let regex: UserRegex;
@@ -190,8 +193,9 @@ export async function executeSearch(
         let contentBytes: number;
 
         if (patternFile === "-") {
-          rawContent = ctx.stdin;
-          contentBytes = latin1FromBytes(ctx.stdin).length;
+          patternStdin ??= await readCommandStdin(ctx);
+          rawContent = patternStdin;
+          contentBytes = latin1FromBytes(rawContent).length;
           aggregatePatternInputBytes = accountPatternInput(
             ctx,
             contentBytes,
@@ -288,9 +292,10 @@ export async function executeSearch(
   // Skip when `-f -` already consumed stdin for patterns to avoid
   // double-consuming it as both pattern source and search input.
   const stdinConsumedByPatternFile = options.patternFiles.includes("-");
-  const stdinText = decodeBytesToUtf8(ctx.stdin);
-  // Ripgrep treats character devices and closed descriptors as absent input.
-  // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/cli/src/lib.rs#L204-L208
+  const stdinText =
+    inputPaths.length === 0 && !stdinConsumedByPatternFile
+      ? decodeBytesToUtf8(await readCommandStdin(ctx))
+      : "";
   if (
     inputPaths.length === 0 &&
     (ctx.stdinProvided || stdinText.length > 0) &&
@@ -368,8 +373,30 @@ export async function executeSearch(
     );
   }
 
+  // Ordinary pipelines consume the same globally ordered discovery lazily.
+  if (ctx.stdio && !options.json && !options.stats) {
+    const { files, singleExplicitFile, errors } = await discoverFiles(
+      ctx,
+      paths,
+      options,
+      gitignore,
+      typeRegistry,
+    );
+    return searchFiles(
+      ctx,
+      files,
+      regex,
+      options,
+      !options.noFilename && (options.withFilename || !singleExplicitFile),
+      options.lineNumber &&
+        (explicitLineNumbers || (!singleExplicitFile && !options.onlyMatching)),
+      errors,
+      kResetGroup,
+    );
+  }
+
   // Collect files to search
-  const { files, singleExplicitFile, stderr } = await collectFiles(
+  const { files, singleExplicitFile, errors } = await collectFiles(
     ctx,
     paths,
     options,
@@ -378,7 +405,11 @@ export async function executeSearch(
   );
 
   if (files.length === 0) {
-    return { stdout: "", stderr, exitCode: stderr ? 2 : 1 };
+    return {
+      stdout: "",
+      stderr: errors.build(),
+      exitCode: errors.byteLength ? 2 : 1,
+    };
   }
 
   // Determine output settings
@@ -404,7 +435,7 @@ export async function executeSearch(
     options,
     showFilename,
     effectiveLineNumbers,
-    stderr,
+    errors,
     kResetGroup,
   );
 }
@@ -459,7 +490,7 @@ function buildSearchRegex(
 interface CollectFilesResult {
   files: string[];
   singleExplicitFile: boolean;
-  stderr: string;
+  errors: BoundedStringBuilder;
 }
 
 /**
@@ -472,56 +503,86 @@ async function collectFiles(
   gitignore: GitignoreManager | null,
   typeRegistry: FileTypeRegistry,
 ): Promise<CollectFilesResult> {
+  const discovered = await discoverFiles(
+    ctx,
+    paths,
+    options,
+    gitignore,
+    typeRegistry,
+  );
   const files: string[] = [];
+  for await (const file of discovered.files) {
+    if (files.length >= ctx.limits.maxArrayElements) {
+      throw new ExecutionLimitError(
+        `rg: file collection limit exceeded (${ctx.limits.maxArrayElements})`,
+        "array_elements",
+      );
+    }
+    files.push(file);
+  }
+  return {
+    files,
+    singleExplicitFile: discovered.singleExplicitFile,
+    errors: discovered.errors,
+  };
+}
+
+async function discoverFiles(
+  ctx: RuntimeCommandContext,
+  paths: string[],
+  options: RgOptions,
+  gitignore: GitignoreManager | null,
+  typeRegistry: FileTypeRegistry,
+): Promise<{
+  files: AsyncGenerator<string>;
+  singleExplicitFile: boolean;
+  errors: BoundedStringBuilder;
+}> {
+  const sources: AsyncGenerator<string>[] = [];
   const errors = new BoundedStringBuilder(
     Math.min(ctx.limits.maxOutputSize, ctx.limits.maxStringLength),
     "rg",
   );
+
   const traversalBudget = new FileTraversalBudget({
     limits: ctx.limits,
     signal: ctx.signal,
     executionScope: ctx.executionScope,
     site: "rg",
   });
+  const admittedExplicitFiles = new Set<string>();
   let explicitFileCount = 0;
   let directoryCount = 0;
-
   for (const path of paths) {
     traversalBudget.checkpoint();
     const fullPath = ctx.fs.resolvePath(ctx.cwd, path);
-
     try {
       const stat = await ctx.fs.stat(fullPath);
-
       if (stat.isFile) {
         explicitFileCount++;
-        // Check max filesize
-        if (options.maxFilesize > 0 && stat.size > options.maxFilesize) {
-          continue;
-        }
-        // Explicit files bypass recursive ignore/type/glob selection.
-        // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/ignore/src/walk.rs#L1095-L1110
-        if (files.length >= ctx.limits.maxArrayElements) {
-          throw new ExecutionLimitError(
-            `rg: file collection limit exceeded (${ctx.limits.maxArrayElements})`,
-            "array_elements",
+        if (options.maxFilesize <= 0 || stat.size <= options.maxFilesize) {
+          admittedExplicitFiles.add(path);
+          sources.push(
+            (async function* () {
+              yield path;
+            })(),
           );
         }
-        files.push(path);
       } else if (stat.isDirectory) {
         directoryCount++;
-        await walkDirectory(
-          ctx,
-          path,
-          fullPath,
-          0,
-          options,
-          gitignore,
-          typeRegistry,
-          files,
-          errors,
-          traversalBudget,
-          new Set(),
+        sources.push(
+          walkDirectory(
+            ctx,
+            path,
+            fullPath,
+            0,
+            options,
+            gitignore,
+            typeRegistry,
+            errors,
+            traversalBudget,
+            new Set(),
+          ),
         );
       }
     } catch (error) {
@@ -529,21 +590,74 @@ async function collectFiles(
       errors.append(`rg: ${path}: Unable to access path\n`);
     }
   }
-
-  const sortedFiles = options.sort === "path" ? files.sort() : files;
-
+  const files = mergeFileSources(sources, options.sort === "path");
   return {
-    files: sortedFiles,
+    files:
+      directoryCount > 0
+        ? filterFileSizes(ctx, files, options, errors, admittedExplicitFiles)
+        : files,
     singleExplicitFile:
       paths.length === 1 && explicitFileCount === 1 && directoryCount === 0,
-    stderr: errors.build(),
+    errors,
   };
+}
+
+/** Merge sorted roots without collecting their complete directory trees. */
+async function* mergeFileSources(
+  sources: AsyncGenerator<string>[],
+  sorted: boolean,
+): AsyncGenerator<string> {
+  try {
+    if (!sorted) {
+      for (const source of sources) yield* source;
+      return;
+    }
+    const heap: { path: string; source: number }[] = [];
+    const before = (a: (typeof heap)[number], b: (typeof heap)[number]) =>
+      a.path < b.path || (a.path === b.path && a.source < b.source);
+    const push = (entry: (typeof heap)[number]) => {
+      let i = heap.length;
+      heap.push(entry);
+      while (i > 0) {
+        const parent = (i - 1) >> 1;
+        if (!before(entry, heap[parent])) break;
+        heap[i] = heap[parent];
+        i = parent;
+      }
+      heap[i] = entry;
+    };
+    for (let i = 0; i < sources.length; i++) {
+      const head = await sources[i].next();
+      if (!head.done) push({ path: head.value, source: i });
+    }
+    while (heap.length) {
+      const first = heap[0];
+      const last = heap.pop();
+      if (heap.length && last) {
+        let i = 0;
+        while (2 * i + 1 < heap.length) {
+          let child = 2 * i + 1;
+          if (child + 1 < heap.length && before(heap[child + 1], heap[child]))
+            child++;
+          if (!before(heap[child], last)) break;
+          heap[i] = heap[child];
+          i = child;
+        }
+        heap[i] = last;
+      }
+      yield first.path;
+      const next = await sources[first.source].next();
+      if (!next.done) push({ path: next.value, source: first.source });
+    }
+  } finally {
+    for (const source of sources) await source.return(undefined);
+  }
 }
 
 /**
  * Recursively walk a directory and collect matching files
  */
-async function walkDirectory(
+async function* walkDirectory(
   ctx: RuntimeCommandContext,
   relativePath: string,
   absolutePath: string,
@@ -551,11 +665,10 @@ async function walkDirectory(
   options: RgOptions,
   gitignore: GitignoreManager | null,
   typeRegistry: FileTypeRegistry,
-  files: string[],
   errors: BoundedStringBuilder,
   budget: FileTraversalBudget,
   activeDirectories: Set<string>,
-): Promise<void> {
+): AsyncGenerator<string> {
   if (depth >= options.maxDepth) {
     return;
   }
@@ -591,6 +704,40 @@ async function walkDirectory(
           name,
           isFile: undefined as boolean | undefined,
         }));
+
+    if (options.sort === "path") {
+      if (entries.length > ctx.limits.maxArrayElements) {
+        throw new ExecutionLimitError(
+          `rg: directory entry limit exceeded (${ctx.limits.maxArrayElements})`,
+          "array_elements",
+        );
+      }
+      const keys = new Map<string, string>();
+      for (const entry of entries) {
+        budget.checkpoint(0);
+        let isDirectory = "isDirectory" in entry && entry.isDirectory === true;
+        if (
+          entry.isFile === undefined ||
+          (options.followSymlinks &&
+            "isSymbolicLink" in entry &&
+            entry.isSymbolicLink)
+        ) {
+          try {
+            isDirectory = (
+              await ctx.fs.stat(ctx.fs.resolvePath(absolutePath, entry.name))
+            ).isDirectory;
+          } catch (error) {
+            rethrowFatalExecutionError(error);
+          }
+        }
+        keys.set(entry.name, entry.name + (isDirectory ? "/" : ""));
+      }
+      entries.sort((a, b) => {
+        const left = keys.get(a.name) as string;
+        const right = keys.get(b.name) as string;
+        return left < right ? -1 : left > right ? 1 : 0;
+      });
+    }
 
     for (const entry of entries) {
       budget.checkpoint();
@@ -702,7 +849,7 @@ async function walkDirectory(
       }
 
       if (isDirectory) {
-        await walkDirectory(
+        yield* walkDirectory(
           ctx,
           entryRelativePath,
           entryAbsolutePath,
@@ -710,26 +857,13 @@ async function walkDirectory(
           options,
           gitignore,
           typeRegistry,
-          files,
           errors,
           budget,
           activeDirectories,
         );
       } else if (isFile) {
         budget.visit(depth + 1);
-        // Check max filesize
-        if (options.maxFilesize > 0) {
-          try {
-            const fileStat = await ctx.fs.stat(entryAbsolutePath);
-            if (fileStat.size > options.maxFilesize) {
-              continue;
-            }
-          } catch (error) {
-            rethrowFatalExecutionError(error);
-            errors.append(`rg: ${entryRelativePath}: Unable to access path\n`);
-            continue;
-          }
-        }
+
         if (
           shouldIncludeFile(
             entryRelativePath,
@@ -739,13 +873,7 @@ async function walkDirectory(
             typeRegistry,
           )
         ) {
-          if (files.length >= ctx.limits.maxArrayElements) {
-            throw new ExecutionLimitError(
-              `rg: file collection limit exceeded (${ctx.limits.maxArrayElements})`,
-              "array_elements",
-            );
-          }
-          files.push(entryRelativePath);
+          yield entryRelativePath;
         }
       }
     }
@@ -891,34 +1019,33 @@ async function listFiles(
   // Default to current directory
   const paths = inputPaths.length === 0 ? ["."] : inputPaths;
 
-  // Collect files
-  const { files, stderr } = await collectFiles(
+  const { files, errors } = await discoverFiles(
     ctx,
     paths,
     options,
     gitignore,
     typeRegistry,
   );
-
-  if (files.length === 0) {
-    return { stdout: "", stderr, exitCode: stderr ? 2 : 1 };
-  }
-
-  // In quiet mode, just indicate success without output
-  if (options.quiet) {
-    return { stdout: "", stderr: "", exitCode: 0 };
-  }
-
-  // Output file list
   const sep = options.nullSeparator ? "\0" : "\n";
   const output = new BoundedStringBuilder(
     Math.min(ctx.limits.maxOutputSize, ctx.limits.maxStringLength),
     "rg",
   );
-  for (const file of files) output.append(file).append(sep);
-  const stdout = output.build();
-
-  return { stdout, stderr, exitCode: stderr ? 2 : 0 };
+  let found = false;
+  for await (const file of files) {
+    found = true;
+    if (options.quiet) continue;
+    if (ctx.stdio) {
+      await ctx.stdio.write(encodeUtf8ToBytes(file + sep));
+    } else {
+      output.append(file).append(sep);
+    }
+  }
+  return {
+    stdout: output.build(),
+    stderr: errors.build(),
+    exitCode: errors.byteLength ? 2 : found ? 0 : 1,
+  };
 }
 
 /**
@@ -1107,23 +1234,77 @@ interface JsonMatch {
 /**
  * Search files and produce output
  */
+async function* fileBatches(
+  files: string[] | AsyncIterable<string>,
+  size: number,
+  firstBatchSize = size,
+): AsyncGenerator<string[]> {
+  let batch: string[] = [];
+  let limit = firstBatchSize;
+  for await (const file of files) {
+    batch.push(file);
+    if (batch.length === limit) {
+      yield batch;
+      batch = [];
+      limit = size;
+    }
+  }
+  if (batch.length) yield batch;
+}
+
+/** Keep lazy metadata reads in the same bounded batches as file contents. */
+async function* filterFileSizes(
+  ctx: RuntimeCommandContext,
+  files: AsyncIterable<string>,
+  options: RgOptions,
+  errors: BoundedStringBuilder,
+  admittedExplicitFiles: ReadonlySet<string>,
+): AsyncGenerator<string> {
+  if (options.maxFilesize <= 0) {
+    yield* files;
+    return;
+  }
+  for await (const batch of fileBatches(files, options.searchZip ? 2 : 50, 1)) {
+    const stats = await Promise.allSettled(
+      batch.map((file) =>
+        admittedExplicitFiles.has(file)
+          ? undefined
+          : ctx.fs.stat(ctx.fs.resolvePath(ctx.cwd, file)),
+      ),
+    );
+    for (const result of stats)
+      if (result.status === "rejected")
+        rethrowFatalExecutionError(result.reason);
+    for (const [index, result] of stats.entries()) {
+      if (result.status === "rejected") {
+        errors.append(`rg: ${batch[index]}: Unable to access path\n`);
+      }
+      if (
+        result.status === "fulfilled" &&
+        (result.value === undefined || result.value.size <= options.maxFilesize)
+      ) {
+        yield batch[index];
+      }
+    }
+  }
+}
+
 async function searchFiles(
   ctx: RuntimeCommandContext,
-  files: string[],
+  files: string[] | AsyncIterable<string>,
   regex: UserRegex,
   options: RgOptions,
   showFilename: boolean,
   effectiveLineNumbers: boolean,
-  collectedErrors: string,
+  errors: BoundedStringBuilder,
   kResetGroup?: number,
 ): Promise<ExecResult> {
   let stdout = "";
+  let hasOutput = false;
+  let searchedFiles = 0;
+  const streamingOutput =
+    !options.json && !options.stats ? ctx.stdio : undefined;
   let anyMatch = false;
-  const errors = new BoundedStringBuilder(
-    Math.min(ctx.limits.maxOutputSize, ctx.limits.maxStringLength),
-    "rg",
-  );
-  errors.append(collectedErrors);
 
   // JSON mode tracking
   const jsonMessages: string[] = [];
@@ -1133,183 +1314,207 @@ async function searchFiles(
 
   // Compressed files retain both the decompressed byte buffer and decoded
   // string while being searched. Keep their concurrency deliberately small.
-  const BATCH_SIZE = options.searchZip ? 2 : 50;
-  outer: for (let i = 0; i < files.length; i += BATCH_SIZE) {
-    const batch = files.slice(i, i + BATCH_SIZE);
+  const batchSize = options.searchZip ? 2 : 50;
+  outer: for await (const batch of fileBatches(
+    files,
+    batchSize,
+    streamingOutput ? 1 : batchSize,
+  )) {
+    // Observe downstream closure even when the next file has no matches.
+    if (streamingOutput) await streamingOutput.write(unsafeBytesFromLatin1(""));
+    searchedFiles += batch.length;
 
-    const results = await Promise.all(
-      batch.map(async (file) => {
-        const filePath = ctx.fs.resolvePath(ctx.cwd, file);
-        const fileData = await readFileContent(
+    const prepared = await Promise.allSettled(
+      batch.map((file) =>
+        readFileContent(
           ctx,
-          filePath,
+          ctx.fs.resolvePath(ctx.cwd, file),
           file,
           options,
           errors,
-        );
+        ),
+      ),
+    );
+    try {
+      for (let index = 0; index < batch.length; index++) {
+        if (streamingOutput)
+          await streamingOutput.write(unsafeBytesFromLatin1(""));
+        const file = batch[index];
+        const read = prepared[index];
+        if (read.status === "rejected") throw read.reason;
+        const fileData = read.value;
+        const res = (() => {
+          if (!fileData) return null;
 
-        if (!fileData) return null;
+          const { content, isBinary, lease } = fileData;
+          bytesSearched += content.length;
 
-        const { content, isBinary, lease } = fileData;
-        bytesSearched += content.length;
-
-        // Skip binary files unless -a/--text is specified.
-        if (isBinary && !options.searchBinary) {
-          lease?.release();
-          return null;
-        }
-
-        const filenameForSearch =
-          showFilename &&
-          (!options.heading || options.count || options.countMatches)
-            ? file
-            : "";
-        try {
-          const result = searchContent(content, regex, {
-            invertMatch: options.invertMatch,
-            showLineNumbers: effectiveLineNumbers,
-            countOnly: options.count,
-            countMatches: options.countMatches,
-            filename: filenameForSearch,
-            onlyMatching: options.onlyMatching,
-            beforeContext: options.beforeContext,
-            afterContext: options.afterContext,
-            maxCount: options.maxCount,
-            contextSeparator: options.contextSeparator,
-            showColumn: options.column,
-            vimgrep: options.vimgrep,
-            showByteOffset: options.byteOffset,
-            replace:
-              options.replace !== null
-                ? convertReplacement(options.replace)
-                : null,
-            passthru: options.passthru,
-            multiline: options.multiline,
-            kResetGroup,
-            maxWork: ctx.limits.maxLoopIterations,
-            maxMatches: ctx.limits.maxArrayElements,
-            signal: ctx.signal,
-          });
-
-          // JSON formatting below needs the source after this task ends, so
-          // transfer lease ownership with the returned batch item.
-          if (options.json && result.matched) {
-            return { file, result, content, isBinary: false, lease };
+          // Skip binary files unless -a/--text is specified.
+          if (isBinary && !options.searchBinary) {
+            lease?.release();
+            return null;
           }
 
-          lease?.release();
-          return { file, result };
-        } catch (error) {
-          lease?.release();
-          throw error;
-        }
-      }),
-    );
+          const filenameForSearch =
+            showFilename &&
+            (!options.heading || options.count || options.countMatches)
+              ? file
+              : "";
+          try {
+            const result = searchContent(content, regex, {
+              invertMatch: options.invertMatch,
+              showLineNumbers: effectiveLineNumbers,
+              countOnly: options.count,
+              countMatches: options.countMatches,
+              filename: filenameForSearch,
+              onlyMatching: options.onlyMatching,
+              beforeContext: options.beforeContext,
+              afterContext: options.afterContext,
+              maxCount: options.maxCount,
+              contextSeparator: options.contextSeparator,
+              showColumn: options.column,
+              vimgrep: options.vimgrep,
+              showByteOffset: options.byteOffset,
+              replace:
+                options.replace !== null
+                  ? convertReplacement(options.replace)
+                  : null,
+              passthru: options.passthru,
+              multiline: options.multiline,
+              kResetGroup,
+              maxWork: ctx.limits.maxLoopIterations,
+              maxMatches: ctx.limits.maxArrayElements,
+              signal: ctx.signal,
+            });
 
-    for (const res of results) {
-      if (!res) continue;
-
-      const { file, result } = res;
-
-      if (result.matched) {
-        anyMatch = true;
-        filesWithMatch++;
-        totalMatches += result.matchCount;
-
-        if (options.quiet && !options.json) {
-          // Quiet mode without JSON: exit early on first match
-          break outer;
-        }
-
-        if (options.json && !options.quiet) {
-          // JSON mode without quiet: output begin/match/end messages
-          const content = (res as { content?: string }).content || "";
-          jsonMessages.push(
-            JSON.stringify({ type: "begin", data: { path: { text: file } } }),
-          );
-
-          // Find matches and output them
-          const lines = content.split("\n");
-          regex.lastIndex = 0;
-          let lineOffset = 0;
-          for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-            const line = lines[lineIdx];
-            regex.lastIndex = 0;
-            const submatches: JsonSubmatch[] = [];
-
-            for (
-              let match = regex.exec(line);
-              match !== null;
-              match = regex.exec(line)
-            ) {
-              const submatch: JsonSubmatch = {
-                match: { text: match[0] },
-                start: match.index,
-                end: match.index + match[0].length,
-              };
-              if (options.replace !== null) {
-                submatch.replacement = { text: options.replace };
-              }
-              submatches.push(submatch);
-              if (match[0].length === 0) regex.lastIndex++;
+            // JSON formatting below needs the source after this task ends, so
+            // transfer lease ownership with the returned batch item.
+            if (options.json && result.matched) {
+              return { file, result, content, isBinary: false, lease };
             }
 
-            if (submatches.length > 0) {
-              const matchMsg: JsonMatch = {
-                type: "match",
+            lease?.release();
+            return { file, result };
+          } catch (error) {
+            lease?.release();
+            throw error;
+          }
+        })();
+        if (!res) continue;
+
+        const { result } = res;
+
+        if (result.matched) {
+          anyMatch = true;
+          filesWithMatch++;
+          totalMatches += result.matchCount;
+
+          if (options.quiet && !options.json && !options.filesWithoutMatch) {
+            // Quiet mode without JSON: exit early on first match
+            break outer;
+          }
+
+          if (options.json && !options.quiet) {
+            // JSON mode without quiet: output begin/match/end messages
+            const content = (res as { content?: string }).content || "";
+            jsonMessages.push(
+              JSON.stringify({ type: "begin", data: { path: { text: file } } }),
+            );
+
+            // Find matches and output them
+            const lines = content.split("\n");
+            regex.lastIndex = 0;
+            let lineOffset = 0;
+            for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+              const line = lines[lineIdx];
+              regex.lastIndex = 0;
+              const submatches: JsonSubmatch[] = [];
+
+              for (
+                let match = regex.exec(line);
+                match !== null;
+                match = regex.exec(line)
+              ) {
+                const submatch: JsonSubmatch = {
+                  match: { text: match[0] },
+                  start: match.index,
+                  end: match.index + match[0].length,
+                };
+                if (options.replace !== null) {
+                  submatch.replacement = { text: options.replace };
+                }
+                submatches.push(submatch);
+                if (match[0].length === 0) regex.lastIndex++;
+              }
+
+              if (submatches.length > 0) {
+                const matchMsg: JsonMatch = {
+                  type: "match",
+                  data: {
+                    path: { text: file },
+                    lines: { text: `${line}\n` },
+                    line_number: lineIdx + 1,
+                    absolute_offset: lineOffset,
+                    submatches,
+                  },
+                };
+                jsonMessages.push(JSON.stringify(matchMsg));
+              }
+              lineOffset += line.length + 1;
+            }
+
+            jsonMessages.push(
+              JSON.stringify({
+                type: "end",
                 data: {
                   path: { text: file },
-                  lines: { text: `${line}\n` },
-                  line_number: lineIdx + 1,
-                  absolute_offset: lineOffset,
-                  submatches,
+                  binary_offset: null,
+                  stats: {
+                    elapsed: { secs: 0, nanos: 0, human: "0s" },
+                    searches: 1,
+                    searches_with_match: 1,
+                    bytes_searched: content.length,
+                    bytes_printed: 0,
+                    matched_lines: result.matchCount,
+                    matches: result.matchCount,
+                  },
                 },
-              };
-              jsonMessages.push(JSON.stringify(matchMsg));
+              }),
+            );
+          } else if (options.filesWithMatches) {
+            const sep = options.nullSeparator ? "\0" : "\n";
+            stdout += `${file}${sep}`;
+          } else if (!options.filesWithoutMatch) {
+            // Keep main's heading separators when previous output has been flushed.
+            if (options.heading && !options.count && !options.countMatches) {
+              if (hasOutput || stdout) stdout += "\n";
+              if (showFilename) stdout += `${file}\n`;
             }
-            lineOffset += line.length + 1;
+            stdout += result.output;
           }
-
-          jsonMessages.push(
-            JSON.stringify({
-              type: "end",
-              data: {
-                path: { text: file },
-                binary_offset: null,
-                stats: {
-                  elapsed: { secs: 0, nanos: 0, human: "0s" },
-                  searches: 1,
-                  searches_with_match: 1,
-                  bytes_searched: content.length,
-                  bytes_printed: 0,
-                  matched_lines: result.matchCount,
-                  matches: result.matchCount,
-                },
-              },
-            }),
-          );
-        } else if (options.filesWithMatches) {
+        } else if (options.filesWithoutMatch) {
+          hasOutput = true;
+          if (options.quiet && !options.json) break outer;
           const sep = options.nullSeparator ? "\0" : "\n";
           stdout += `${file}${sep}`;
-        } else if (!options.filesWithoutMatch) {
-          // Filename visibility still controls headings for one explicit file.
-          // https://github.com/BurntSushi/ripgrep/blob/15.2.0/crates/core/flags/hiargs.rs#L176-L195
-          if (options.heading && !options.count && !options.countMatches) {
-            if (stdout) stdout += "\n";
-            if (showFilename) stdout += `${file}\n`;
-          }
+        } else if (
+          options.includeZero &&
+          (options.count || options.countMatches)
+        ) {
           stdout += result.output;
         }
-      } else if (options.filesWithoutMatch) {
-        const sep = options.nullSeparator ? "\0" : "\n";
-        stdout += `${file}${sep}`;
-      } else if (
-        options.includeZero &&
-        (options.count || options.countMatches)
-      ) {
-        stdout += result.output;
+        (res as { lease?: ResourceLease }).lease?.release();
+        if (stdout) {
+          hasOutput = true;
+          if (streamingOutput && !options.quiet) {
+            await streamingOutput.write(encodeUtf8ToBytes(stdout));
+            stdout = "";
+          }
+        }
       }
-      (res as { lease?: ResourceLease }).lease?.release();
+    } finally {
+      for (const read of prepared)
+        if (read.status === "fulfilled") read.value?.lease?.release();
     }
   }
 
@@ -1322,7 +1527,7 @@ async function searchFiles(
           elapsed_total: { secs: 0, nanos: 0, human: "0s" },
           stats: {
             elapsed: { secs: 0, nanos: 0, human: "0s" },
-            searches: files.length,
+            searches: searchedFiles,
             searches_with_match: filesWithMatch,
             bytes_searched: bytesSearched,
             bytes_printed: 0,
@@ -1346,7 +1551,7 @@ async function searchFiles(
       `${totalMatches} matches`,
       `${totalMatches} matched lines`,
       `${filesWithMatch} files contained matches`,
-      `${files.length} files searched`,
+      `${searchedFiles} files searched`,
       `${bytesSearched} bytes searched`,
     ].join("\n");
     finalStdout += `${statsOutput}\n`;
@@ -1369,7 +1574,7 @@ async function searchFiles(
   let exitCode: number;
   if (options.filesWithoutMatch) {
     // Success means we found files without matches (stdout has content)
-    exitCode = stdout.length > 0 ? 0 : 1;
+    exitCode = hasOutput || stdout.length > 0 ? 0 : 1;
   } else {
     exitCode = anyMatch ? 0 : 1;
   }
