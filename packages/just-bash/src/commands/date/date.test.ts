@@ -572,3 +572,34 @@ describe("date strftime execution limits", () => {
     expect(result.stderr).toContain("strftime: output size limit exceeded");
   });
 });
+
+describe("date -d spellings outside the ISO grammar", () => {
+  // These reached `new Date` with $TZ set, which read them in the host's zone.
+  it.each([
+    ["Jan 1 2021 10:00", "1609462800"],
+    ["2021-01-01T10:00:00.5000", "1609462800"],
+  ])("reads %s in $TZ", async (spelling, epoch) => {
+    const env = new Bash();
+    const result = await env.exec(`TZ=Asia/Tokyo date -d '${spelling}' +%s`);
+    expect(result.stdout).toBe(`${epoch}\n`);
+    expect(result.exitCode).toBe(0);
+  });
+
+  // `touch` reads these zones, so `date -d` must read the same instant.
+  it.each([
+    ["EST5", "2026-01-02 03:04", "1767341040"],
+    ["EST5EDT,M3.2.0,M11.1.0", "2026-07-02 03:04", "1782975840"],
+  ])("reads -d in a POSIX TZ=%s", async (tz, spelling, epoch) => {
+    const env = new Bash();
+    const result = await env.exec(`TZ='${tz}' date -d '${spelling}' +%s`);
+    expect(result.stdout).toBe(`${epoch}\n`);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("still displays in UTC under a POSIX TZ", async () => {
+    const env = new Bash();
+    const result = await env.exec("TZ=EST5 date -d @0 '+%H:%M %z'");
+    expect(result.stdout).toBe("00:00 +0000\n");
+    expect(result.exitCode).toBe(0);
+  });
+});

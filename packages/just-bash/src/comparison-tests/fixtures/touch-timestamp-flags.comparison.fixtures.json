@@ -1,0 +1,46 @@
+{
+  "1fa83f5cc9bb1261": {
+    "command": "touch -t 202601010000 charlie.txt && touch -t 202301010000 bravo.txt && touch -r charlie.txt alpha.txt && find . -newer bravo.txt -name '*.txt' | sort",
+    "files": {
+      "alpha.txt": "a\n",
+      "bravo.txt": "b\n",
+      "charlie.txt": "c\n"
+    },
+    "stdout": "./alpha.txt\n./charlie.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ae3ef03c43b5bf33": {
+    "command": "touch -t 2601010000 alpha.txt && touch -t 2301010000 bravo.txt && touch -t 2001010000 charlie.txt && find . -newer bravo.txt -name '*.txt' | sort",
+    "files": {
+      "alpha.txt": "a\n",
+      "bravo.txt": "b\n",
+      "charlie.txt": "c\n"
+    },
+    "stdout": "./alpha.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f2a089912eb55b03": {
+    "command": "touch -t 202601010000.30 alpha.txt && touch -t 202601010000.20 bravo.txt && touch -t 202601010000.10 charlie.txt && find . -newer bravo.txt -name '*.txt' | sort",
+    "files": {
+      "alpha.txt": "a\n",
+      "bravo.txt": "b\n",
+      "charlie.txt": "c\n"
+    },
+    "stdout": "./alpha.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f67188f015f99f6f": {
+    "command": "touch -t 202601010000 alpha.txt && touch -t 202301010000 bravo.txt && touch -t 202001010000 charlie.txt && find . -newer bravo.txt -name '*.txt' | sort",
+    "files": {
+      "alpha.txt": "a\n",
+      "bravo.txt": "b\n",
+      "charlie.txt": "c\n"
+    },
+    "stdout": "./alpha.txt\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
