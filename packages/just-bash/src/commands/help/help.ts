@@ -25,6 +25,7 @@ const CATEGORIES = new Map<string, string[]>([
       "chmod",
       "stat",
       "readlink",
+      "realpath",
     ],
   ],
   [
