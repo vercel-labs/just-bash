@@ -142,6 +142,7 @@ Currently locked fixtures:
 - `rg-grep-tool.comparison.test.ts` - All fixtures use the version-pinned ripgrep 15.2.0 oracle, which CI does not install
 - `ls -R` - Uses Linux-style output with ".:" header
 - `cat -n` with multiple files - Uses continuous line numbering (Linux behavior)
+- `stat -c` - GNU-only flag, recorded from GNU coreutils 9.12 (`gstat` on PATH as `stat`, `LC_ALL=C`)
 
 ## API Reference
 
