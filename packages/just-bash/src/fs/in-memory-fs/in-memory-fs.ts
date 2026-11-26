@@ -872,27 +872,6 @@ export class InMemoryFs implements IFileSystem {
     }
   }
 
-  /** rename(2) requires the destination's parent directory to exist. */
-  private async assertMvDestParent(
-    src: string,
-    dest: string,
-    destNorm: string,
-  ): Promise<void> {
-    const parent = dirname(destNorm);
-    if (parent === "/") return;
-    let parentStat: FsStat;
-    try {
-      parentStat = await this.stat(parent);
-    } catch {
-      throw new Error(
-        `ENOENT: no such file or directory, mv '${src}' -> '${dest}'`,
-      );
-    }
-    if (!parentStat.isDirectory) {
-      throw new Error(`ENOTDIR: not a directory, mv '${src}' -> '${dest}'`);
-    }
-  }
-
   async mv(src: string, dest: string): Promise<void> {
     validatePath(src, "mv");
     validatePath(dest, "mv");
@@ -904,23 +883,24 @@ export class InMemoryFs implements IFileSystem {
     if (!source) {
       throw new Error(`ENOENT: no such file or directory, mv '${src}'`);
     }
-    // rename(2) rejects a missing or non-directory destination parent first, and
-    // it does so on the path the caller wrote: `mv /f /file/deep` must blame
-    // the file in the way, not whatever the resolved path turns out to be.
-    await this.assertMvDestParent(src, dest, destNorm);
+    // Resolve the containing directory. rename(2) operates on the final
+    // directory entry itself, even if that entry is a symbolic link.
+    const parent = this.resolvePathWithSymlinks(dirname(destNorm));
+    const parentEntry = this.data.get(parent);
+    if (!parentEntry) {
+      throw new Error(
+        `ENOENT: no such file or directory, mv '${src}' -> '${dest}'`,
+      );
+    }
+    if (parentEntry.type !== "directory") {
+      throw new Error(`ENOTDIR: not a directory, mv '${src}' -> '${dest}'`);
+    }
+    const destReal = joinPath(
+      parent,
+      destNorm.slice(destNorm.lastIndexOf("/") + 1),
+    );
+    if (srcNorm === destReal) return;
 
-    // A destination parent that is itself a symlink must then be written
-    // through: storing the entry at the unresolved path registers it where no
-    // read ever looks. Reads follow /link and ask for /real/f.txt, while the
-    // move wrote /link/f.txt and deleted the source — the file becomes
-    // unreachable.
-    //
-    // The final component is resolved too, so a destination that is a symlink is
-    // followed like rename(2): the link survives and its target is replaced.
-    // Resolving only the parent would overwrite the link entry itself, which is
-    // the one outcome rename(2) rules out. `destNorm` stays the path reported in
-    // messages.
-    const destReal = this.resolvePathWithSymlinks(destNorm);
     if (
       source.type === "directory" &&
       isSameOrDescendantPath(srcNorm, destReal)
@@ -929,6 +909,9 @@ export class InMemoryFs implements IFileSystem {
     }
 
     if (source.type === "directory") {
+      if (this.data.get(destReal)?.type === "symlink") {
+        throw new Error(`ENOTDIR: not a directory, mv '${src}' -> '${dest}'`);
+      }
       await this.mkdir(destReal, { recursive: true });
       const children = await this.readdir(srcNorm);
       for (const child of children) {

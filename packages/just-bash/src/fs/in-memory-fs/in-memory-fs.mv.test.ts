@@ -23,13 +23,28 @@ describe("InMemoryFs mv destination parent", () => {
     );
   });
 
-  it("does not reject a symlinked destination parent", async () => {
+  it("keeps a file reachable through a symlinked destination parent", async () => {
     const fs = new InMemoryFs({
       "/real/.keep": "",
       "/f.txt": "content",
     });
     await fs.symlink("/real", "/link");
-    await expect(fs.mv("/f.txt", "/link/f.txt")).resolves.toBeUndefined();
+    await fs.mv("/f.txt", "/link/f.txt");
+
+    await expect(fs.readFile("/link/f.txt")).resolves.toBe("content");
+    await expect(fs.readFile("/real/f.txt")).resolves.toBe("content");
+    await expect(fs.stat("/f.txt")).rejects.toThrow("ENOENT");
+  });
+
+  it("preserves errors raised while resolving the destination parent", async () => {
+    const fs = new InMemoryFs({ "/src.txt": "content", "/file": "" });
+    await fs.symlink("/loop", "/loop");
+
+    await expect(fs.mv("/src.txt", "/file/child/dest")).rejects.toThrow(
+      "ENOTDIR",
+    );
+    await expect(fs.mv("/src.txt", "/loop/dest")).rejects.toThrow("ELOOP");
+    await expect(fs.readFile("/src.txt")).resolves.toBe("content");
   });
 
   it("still renames a directory to a missing destination", async () => {
@@ -40,88 +55,43 @@ describe("InMemoryFs mv destination parent", () => {
   });
 });
 
-it("keeps a file reachable after moving it through a symlinked parent", async () => {
-  const fs = new InMemoryFs({
-    "/real/.keep": "",
-    "/f.txt": "content",
-  });
-  await fs.symlink("/real", "/link");
-  await fs.mv("/f.txt", "/link/f.txt");
-  // Reads resolve through /link, so the content must live at /real/f.txt.
-  await expect(fs.readFile("/link/f.txt")).resolves.toBe("content");
-  await expect(fs.readFile("/real/f.txt")).resolves.toBe("content");
-});
-
-// rename(2) resolves the whole destination path, so a destination that is a
-// symlink is followed: the link survives and its target is replaced. Reads alone
-// cannot distinguish that from replacing the link, because both land on the same
-// bytes, so the link itself is asserted too.
 describe("InMemoryFs mv onto a symlink", () => {
-  it("follows the link and replaces its target", async () => {
-    const fs = new InMemoryFs({ "/real/victim.txt": "IMPORTANT" });
-    await fs.writeFile("/src.txt", "NEW");
-    await fs.symlink("/real/victim.txt", "/link");
+  it("replaces the destination link and preserves its target", async () => {
+    const fs = new InMemoryFs({
+      "/real/target.txt": "original",
+      "/src.txt": "moved",
+    });
+    await fs.symlink("/real/target.txt", "/link");
 
     await fs.mv("/src.txt", "/link");
 
-    expect(await fs.readFile("/real/victim.txt")).toBe("NEW");
-    expect(await fs.readFile("/link")).toBe("NEW");
-    expect(await fs.readlink("/link")).toBe("/real/victim.txt");
-    await expect(fs.readFile("/src.txt")).rejects.toThrow(
-      "ENOENT: no such file or directory, open '/src.txt'",
-    );
+    await expect(fs.readFile("/real/target.txt")).resolves.toBe("original");
+    await expect(fs.readFile("/link")).resolves.toBe("moved");
+    expect((await fs.lstat("/link")).isSymbolicLink).toBe(false);
+    await expect(fs.stat("/src.txt")).rejects.toThrow("ENOENT");
   });
 
-  it("follows a link whose target is relative", async () => {
-    const fs = new InMemoryFs({ "/real/victim.txt": "IMPORTANT" });
-    await fs.writeFile("/src.txt", "NEW");
-    await fs.symlink("real/victim.txt", "/link");
+  it("replaces a dangling destination link", async () => {
+    const fs = new InMemoryFs({ "/src.txt": "moved" });
+    await fs.symlink("/missing.txt", "/link");
 
     await fs.mv("/src.txt", "/link");
 
-    expect(await fs.readFile("/real/victim.txt")).toBe("NEW");
-    expect(await fs.readlink("/link")).toBe("real/victim.txt");
+    await expect(fs.readFile("/link")).resolves.toBe("moved");
+    await expect(fs.stat("/missing.txt")).rejects.toThrow("ENOENT");
   });
 
-  it("follows a chain of links to the entry that ends it", async () => {
-    const fs = new InMemoryFs({ "/real/victim.txt": "IMPORTANT" });
-    await fs.writeFile("/src.txt", "NEW");
-    await fs.symlink("/real/victim.txt", "/hop");
-    await fs.symlink("/hop", "/link");
-
-    await fs.mv("/src.txt", "/link");
-
-    // Both links survive and the target they end at holds the moved file.
-    expect(await fs.readFile("/real/victim.txt")).toBe("NEW");
-    expect(await fs.readlink("/link")).toBe("/hop");
-    expect(await fs.readlink("/hop")).toBe("/real/victim.txt");
-  });
-
-  it("lands the entry at a dangling link's own path", async () => {
-    const fs = new InMemoryFs({ "/real/.keep": "" });
-    await fs.writeFile("/src.txt", "NEW");
-    await fs.symlink("/real/missing.txt", "/link");
-
-    await fs.mv("/src.txt", "/link");
-
-    // Nothing sits at the target, so the entry goes where the link points and
-    // the link becomes a plain one to it.
-    expect(await fs.readFile("/real/missing.txt")).toBe("NEW");
-    expect(await fs.readFile("/link")).toBe("NEW");
-  });
-
-  it("merges a directory into the directory a link points at", async () => {
+  it("refuses to replace a destination link with a directory", async () => {
     const fs = new InMemoryFs({
       "/target/.keep": "",
       "/srcdir/file.txt": "content",
     });
     await fs.symlink("/target", "/link");
 
-    await fs.mv("/srcdir", "/link");
-
-    expect(await fs.readFile("/target/file.txt")).toBe("content");
-    expect(await fs.readFile("/link/file.txt")).toBe("content");
-    expect(await fs.readlink("/link")).toBe("/target");
+    await expect(fs.mv("/srcdir", "/link")).rejects.toThrow("ENOTDIR");
+    await expect(fs.readFile("/srcdir/file.txt")).resolves.toBe("content");
+    await expect(fs.stat("/target/file.txt")).rejects.toThrow("ENOENT");
+    await expect(fs.readlink("/link")).resolves.toBe("/target");
   });
 
   it("refuses to move a directory into itself through a link", async () => {
@@ -133,4 +103,26 @@ describe("InMemoryFs mv onto a symlink", () => {
     );
     expect(await fs.readFile("/srcdir/inner/file.txt")).toBe("content");
   });
+});
+
+it("keeps the source when a symlinked parent resolves to the same destination", async () => {
+  const fs = new InMemoryFs({ "/real/file.txt": "content" });
+  await fs.symlink("/real", "/link");
+
+  await fs.mv("/real/file.txt", "/link/file.txt");
+
+  await expect(fs.readFile("/real/file.txt")).resolves.toBe("content");
+});
+
+it("moves a file only once when two moves start together", async () => {
+  const fs = new InMemoryFs({ "/dir/src.txt": "content" });
+  const first = fs.mv("/dir/src.txt", "/dir/first.txt");
+  const second = fs.mv("/dir/src.txt", "/dir/second.txt");
+
+  await Promise.all([
+    expect(first).resolves.toBeUndefined(),
+    expect(second).rejects.toThrow("ENOENT"),
+  ]);
+  await expect(fs.readFile("/dir/first.txt")).resolves.toBe("content");
+  await expect(fs.stat("/dir/second.txt")).rejects.toThrow("ENOENT");
 });
