@@ -79,6 +79,11 @@ export interface AwkRuntimeContext {
 
   // Output buffer (stdout)
   output: string;
+  // UTF-8 size of `output`, kept as it grows so no write has to re-measure it
+  outputBytes: number;
+  // Last UTF-16 code unit written to `output`, or -1 before any, read in its
+  // place so a write never touches the accumulated string
+  lastOutputCode: number;
 
   // Filesystem access for getline < file and print > file
   fs?: AwkFileSystem;
@@ -182,6 +187,8 @@ export function createRuntimeContext(
     inEndBlock: false,
 
     output: "",
+    outputBytes: 0,
+    lastOutputCode: -1,
     openedFiles: new Set(),
 
     fs,

@@ -24,6 +24,22 @@ setBlockExecutor(executeBlock);
  * Check if AWK output buffer has exceeded the maximum size.
  * Throws ExecutionLimitError if the limit is set and exceeded.
  */
+function appendAwkOutput(ctx: AwkRuntimeContext, text: string): void {
+  // Two writes can split one character: a high surrogate ending the output so
+  // far and a low one starting this write measure 3 bytes each apart and 4
+  // together, which is what the output now holds. The last code unit is kept
+  // on the context rather than read back from `output`, since reading a
+  // character of a string built by `+=` flattens all of it.
+  const last = ctx.lastOutputCode;
+  const first = text.charCodeAt(0);
+  const joinsSurrogatePair =
+    last >= 0xd800 && last <= 0xdbff && first >= 0xdc00 && first <= 0xdfff;
+  ctx.output += text;
+  ctx.outputBytes += utf8ByteLength(text) - (joinsSurrogatePair ? 2 : 0);
+  if (text.length > 0) ctx.lastOutputCode = text.charCodeAt(text.length - 1);
+  checkAwkOutputSize(ctx);
+}
+
 function checkAwkOutputSize(ctx: AwkRuntimeContext): void {
   if (ctx.maxOutputSize > 0 && ctx.output.length > ctx.maxOutputSize) {
     throw new ExecutionLimitError(
@@ -230,8 +246,7 @@ async function executePrint(
       writeToFile(ctx, output.redirect, output.file, text),
     );
   } else {
-    ctx.output += text;
-    checkAwkOutputSize(ctx);
+    appendAwkOutput(ctx, text);
   }
 }
 
@@ -261,7 +276,7 @@ async function executePrintf(
   // DEBUG: console.log("printf DEBUG:", JSON.stringify({formatStr, values}));
   const remainingOutput =
     ctx.maxOutputSize > 0
-      ? Math.max(0, ctx.maxOutputSize - utf8ByteLength(ctx.output))
+      ? Math.max(0, ctx.maxOutputSize - ctx.outputBytes)
       : undefined;
   const text = formatPrintf(formatStr, values, remainingOutput);
 
@@ -270,8 +285,7 @@ async function executePrintf(
       writeToFile(ctx, output.redirect, output.file, text),
     );
   } else {
-    ctx.output += text;
-    checkAwkOutputSize(ctx);
+    appendAwkOutput(ctx, text);
   }
 }
 
@@ -288,8 +302,7 @@ async function writeToFile(
   const fs = ctx.fs;
   if (!fs || !ctx.cwd) {
     // No filesystem access - just append to output
-    ctx.output += text;
-    checkAwkOutputSize(ctx);
+    appendAwkOutput(ctx, text);
     return;
   }
 
