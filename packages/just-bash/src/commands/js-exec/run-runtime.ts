@@ -71,7 +71,6 @@ interface QueuedExecution {
 
 const executionQueue: QueuedExecution[] = [];
 let executionActive = false;
-const RUN_MEMORY_LIMIT_BYTES = 64 * 1024 * 1024;
 const RUN_SYNC_BRIDGE_PAYLOAD_BYTES = 8 * 1024 * 1024;
 const RUN_MAX_LIMIT_VALUE = 2_147_483_647;
 const RUN_BRIDGE_VALUE_OVERHEAD_BYTES = 4096;
@@ -89,6 +88,29 @@ const createOpaqueSuffix = (): string => {
 const createHostNamespace = (): string => `__jbHost_${createOpaqueSuffix()}`;
 
 class JsExecQueueCanceledError extends Error {}
+
+// run rejects an invocation, before starting a worker, when its synchronous
+// bridge buffer is larger than memoryLimitBytes; of its RunBridgeLimitErrors
+// only that one reports both sizes in its details.
+const bridgeBufferExceedingMemoryLimit = (
+  error: unknown,
+  memoryLimitBytes: number,
+): number | undefined => {
+  if (!(error instanceof RunBridgeLimitError)) return undefined;
+  const details = error.details;
+  if (
+    typeof details === "object" &&
+    details !== null &&
+    "memoryLimitBytes" in details &&
+    details.memoryLimitBytes === memoryLimitBytes &&
+    "syncBridgeBytes" in details &&
+    typeof details.syncBridgeBytes === "number" &&
+    details.syncBridgeBytes > memoryLimitBytes
+  ) {
+    return details.syncBridgeBytes;
+  }
+  return undefined;
+};
 
 const RUN_BUFFER_MODULE_SOURCE = BUFFER_MODULE_SOURCE.replace(
   "Buffer.prototype.toString = function(encoding, start, end) {",
@@ -691,9 +713,9 @@ async function executeWithRunInner(
   deadline: number,
   deadlineSignal: AbortSignal,
 ): Promise<ExecResult> {
-  // run accounts for the SharedArrayBuffer inside the invocation budget and
-  // adds framing space to host-function arguments. Leave bounded headroom
-  // while preserving the existing 64 MiB QuickJS heap limit.
+  // run requires its synchronous bridge buffer to fit within the configured
+  // memory limit (maxJsMemoryBytes), passes the full limit to QuickJS, and
+  // adds framing space to host-function arguments, so keep the payload bounded.
   const maxBridgePayloadBytes = Math.min(
     ctx.limits.maxWorkerMessageBytes,
     RUN_SYNC_BRIDGE_PAYLOAD_BYTES,
@@ -1164,6 +1186,10 @@ ${bootstrap}
     deadline === Number.POSITIVE_INFINITY
       ? RUN_MAX_LIMIT_VALUE
       : Math.min(Math.max(1, deadline - Date.now()), RUN_MAX_LIMIT_VALUE);
+  const runMemoryLimitBytes = Math.min(
+    Math.max(1, ctx.limits.maxJsMemoryBytes),
+    RUN_MAX_LIMIT_VALUE,
+  );
 
   try {
     await jsExecContext.run(true, async () => {
@@ -1187,7 +1213,7 @@ ${bootstrap}
               RUN_MAX_LIMIT_VALUE,
             ),
             maxSourceBytes: maxRunSourceBytes,
-            memoryLimitBytes: RUN_MEMORY_LIMIT_BYTES,
+            memoryLimitBytes: runMemoryLimitBytes,
             timeoutMs: runTimeoutMs,
           },
           moduleLoader,
@@ -1210,8 +1236,17 @@ ${bootstrap}
         (!options.isModule &&
           errorLocation.file === "run.js" &&
           errorLocation.line <= sourceLineOffset));
+    const bridgeBufferBytes = bridgeBufferExceedingMemoryLimit(
+      error,
+      runMemoryLimitBytes,
+    );
     if (requestedExitCode !== undefined) {
       output.exitCode = requestedExitCode;
+    } else if (bridgeBufferBytes !== undefined) {
+      output.exitCode = 1;
+      appendDiagnostic(
+        `js-exec: executionLimits.maxJsMemoryBytes (${ctx.limits.maxJsMemoryBytes}) is smaller than the ${bridgeBufferBytes} byte host bridge buffer\n`,
+      );
     } else if (bridgeLimitExceeded || error instanceof RunBridgeLimitError) {
       bridgeLimitExceeded = true;
       reportBridgeLimit();

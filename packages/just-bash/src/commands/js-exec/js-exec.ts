@@ -39,7 +39,7 @@ Node.js Compatibility:
     string_decoder, querystring
 
 Limits:
-  Memory: 64 MB per execution
+  Memory: configurable via maxJsMemoryBytes (default 64 MiB)
   Timeout: configurable via maxJsTimeoutMs
   Engine: run (QuickJS)
 `;

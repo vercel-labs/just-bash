@@ -121,6 +121,12 @@ export interface ExecutionLimits {
   /** Maximum JavaScript host-bridge operations (normal default: 1000000) */
   maxJsBridgeRequests?: number;
 
+  /**
+   * Maximum QuickJS heap bytes for one js-exec run (default: 64 MiB).
+   * Accepted values above 2147483647, including Infinity, clamp to that maximum.
+   */
+  maxJsMemoryBytes?: number;
+
   /** Maximum glob filesystem operations (normal default: 1000000) */
   maxGlobOperations?: number;
 
@@ -204,6 +210,7 @@ const DEFAULT_LIMITS: Required<ExecutionLimits> = {
   maxPythonTimeoutMs: 30000,
   maxJsTimeoutMs: 30000,
   maxJsBridgeRequests: 1_000_000,
+  maxJsMemoryBytes: 64 * 1024 * 1024,
   maxGlobOperations: 1000000,
   maxStringLength: 64 * 1024 * 1024,
   maxArrayElements: 1000000,
@@ -332,6 +339,7 @@ export function resolveLimits(
     maxJsTimeoutMs: userLimits.maxJsTimeoutMs ?? defaults.maxJsTimeoutMs,
     maxJsBridgeRequests:
       userLimits.maxJsBridgeRequests ?? defaults.maxJsBridgeRequests,
+    maxJsMemoryBytes: userLimits.maxJsMemoryBytes ?? defaults.maxJsMemoryBytes,
     maxGlobOperations:
       userLimits.maxGlobOperations ?? defaults.maxGlobOperations,
     maxStringLength: userLimits.maxStringLength ?? defaults.maxStringLength,
