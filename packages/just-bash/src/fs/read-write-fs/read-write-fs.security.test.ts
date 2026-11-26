@@ -205,9 +205,10 @@ describe("ReadWriteFs Security - Path Traversal Prevention", () => {
       expect(await rwfs.exists("/to-move.txt")).toBe(true);
 
       const targetPath = path.join(outsideDir, "moved.txt");
-      // Note: mv to outside path maps to a deep nested path inside root
-      // which may fail with ENOENT if parent dirs don't exist
-      await rwfs.mv("/to-move.txt", targetPath);
+      // mv to outside path maps to a deep nested path inside root whose
+      // parent dirs do not exist, so the move fails closed (rename(2) does
+      // not create missing destination parents)
+      await expect(rwfs.mv("/to-move.txt", targetPath)).rejects.toThrow();
 
       // Real outside directory should not have the file
       expect(fs.existsSync(targetPath)).toBe(false);

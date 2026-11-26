@@ -147,4 +147,29 @@ describe("ReadWriteFs mv transaction", () => {
       "keep",
     );
   });
+
+  it("throws ENOENT instead of creating missing destination parents", async () => {
+    fs.writeFileSync(path.join(root, "abc.txt"), "content");
+
+    const error = await adapter
+      .mv("/abc.txt", "/def/abc.txt")
+      .catch((value) => value);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(String(error)).toBe(
+      "Error: ENOENT: no such file or directory, mv '/abc.txt' -> '/def/abc.txt'",
+    );
+    expect(fs.readFileSync(path.join(root, "abc.txt"), "utf8")).toBe("content");
+    expect(fs.existsSync(path.join(root, "def"))).toBe(false);
+  });
+
+  it("throws ENOTDIR when the destination parent is a file", async () => {
+    fs.writeFileSync(path.join(root, "f.txt"), "");
+    fs.writeFileSync(path.join(root, "b"), "content");
+
+    await expect(adapter.mv("/f.txt", "/b/c")).rejects.toThrow(
+      "ENOTDIR: not a directory, mv '/f.txt' -> '/b/c'",
+    );
+    expect(fs.existsSync(path.join(root, "b/c"))).toBe(false);
+  });
 });

@@ -589,7 +589,8 @@ export class InMemoryFs implements IFileSystem {
     let resolvedPath = "";
     const seen = new Set<string>();
 
-    for (const part of parts) {
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
       resolvedPath = `${resolvedPath}/${part}`;
 
       // Check if this path component is a symlink
@@ -615,6 +616,20 @@ export class InMemoryFs implements IFileSystem {
         throw new Error(
           `ELOOP: too many levels of symbolic links, open '${path}'`,
         );
+      }
+
+      // A component that leads somewhere else (i.e. anything but the last)
+      // has to be a directory to be traversed. The real filesystem reports
+      // ENOTDIR here; skipping the check would let the lookup fall through to
+      // "no entry at this path" and report ENOENT, so `mv /f /file/deep` would
+      // blame a missing directory instead of the file standing in its way.
+      if (
+        i < parts.length - 1 &&
+        entry &&
+        entry.type !== "directory" &&
+        entry.type !== "symlink"
+      ) {
+        throw new Error(`ENOTDIR: not a directory, stat '${path}'`);
       }
     }
 
@@ -868,28 +883,48 @@ export class InMemoryFs implements IFileSystem {
     if (!source) {
       throw new Error(`ENOENT: no such file or directory, mv '${src}'`);
     }
+    // Resolve the containing directory. rename(2) operates on the final
+    // directory entry itself, even if that entry is a symbolic link.
+    const parent = this.resolvePathWithSymlinks(dirname(destNorm));
+    const parentEntry = this.data.get(parent);
+    if (!parentEntry) {
+      throw new Error(
+        `ENOENT: no such file or directory, mv '${src}' -> '${dest}'`,
+      );
+    }
+    if (parentEntry.type !== "directory") {
+      throw new Error(`ENOTDIR: not a directory, mv '${src}' -> '${dest}'`);
+    }
+    const destReal = joinPath(
+      parent,
+      destNorm.slice(destNorm.lastIndexOf("/") + 1),
+    );
+    if (srcNorm === destReal) return;
+
     if (
       source.type === "directory" &&
-      isSameOrDescendantPath(srcNorm, destNorm)
+      isSameOrDescendantPath(srcNorm, destReal)
     ) {
       throw new Error(`EINVAL: cannot move '${src}' into itself, '${dest}'`);
     }
 
     if (source.type === "directory") {
-      await this.mkdir(destNorm, { recursive: true });
+      if (this.data.get(destReal)?.type === "symlink") {
+        throw new Error(`ENOTDIR: not a directory, mv '${src}' -> '${dest}'`);
+      }
+      await this.mkdir(destReal, { recursive: true });
       const children = await this.readdir(srcNorm);
       for (const child of children) {
-        await this.mv(joinPath(srcNorm, child), joinPath(destNorm, child));
+        await this.mv(joinPath(srcNorm, child), joinPath(destReal, child));
       }
       this.deleteEntry(srcNorm);
       return;
     }
 
-    this.ensureParentDirs(destNorm);
     // Reuse the same body while the old path still retains it. The accounting
     // helper therefore sees an existing reference and a rename never needs
     // temporary capacity equal to the file size.
-    this.setEntry(destNorm, source);
+    this.setEntry(destReal, source);
     this.deleteEntry(srcNorm);
   }
 
