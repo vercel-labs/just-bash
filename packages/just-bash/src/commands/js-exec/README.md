@@ -254,7 +254,7 @@ and/or `@executor-js/sdk` discovery (GraphQL, OpenAPI, MCP).
 
 ## Limits
 
-- **Memory**: 64 MB per execution
+- **Memory**: 64 MiB QuickJS heap per execution (configurable via `maxJsMemoryBytes`; accepted values above 2,147,483,647, including `Infinity`, clamp to that maximum). A value smaller than the host bridge buffer, just over 8 MiB by default, fails every run before any guest code starts
 - **Timeout**: 30 seconds normally and 10 seconds in the hardened profile; never raised by enabling network access (configurable via `maxJsTimeoutMs`, including time spent waiting for another `js-exec` invocation; `Infinity` maps to about 24.9 days)
 - **Host bridge operations**: 8 MiB per-call payload ceiling, bounded by `maxJsBridgeRequests` (100,000 in the hardened profile and 1,000,000 otherwise)
 - **Engine**: QuickJS (compiled to WebAssembly)
