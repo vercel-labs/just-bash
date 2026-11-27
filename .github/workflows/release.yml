@@ -89,7 +89,7 @@ jobs:
         run: pnpm test:dist
 
       - name: Create release PR or publish
-        uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf # v1.7.0
+        uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
           version: pnpm version-packages
           publish: pnpm release
