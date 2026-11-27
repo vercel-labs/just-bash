@@ -41,6 +41,10 @@ export function getVariable(ctx: AwkRuntimeContext, name: string): AwkValue {
       return ctx.ARGC;
   }
 
+  if (ctx.functions.has(name)) {
+    throw new Error(`cannot use function ${name} as a variable`);
+  }
+
   return ctx.vars[name] ?? "";
 }
 
