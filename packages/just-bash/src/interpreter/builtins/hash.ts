@@ -16,6 +16,7 @@
  */
 
 import type { ExecResult } from "../../types.js";
+import { searchPath } from "../command-resolution.js";
 import { quoteValue } from "../helpers/quoting.js";
 import { failure, OK, success } from "../helpers/result.js";
 import type { InterpreterContext } from "../types.js";
@@ -189,8 +190,6 @@ export async function handleHash(
   // Add names to hash table (look up in PATH)
   let hasError = false;
   let stderr = "";
-  const pathEnv = ctx.state.env.get("PATH") || "/usr/bin:/bin";
-  const pathDirs = pathEnv.split(":");
 
   for (const name of names) {
     // Skip if name contains / (it's a path, not looked up in PATH)
@@ -200,19 +199,12 @@ export async function handleHash(
       continue;
     }
 
-    // Search PATH for the command
-    let found = false;
-    for (const dir of pathDirs) {
-      if (!dir) continue;
-      const fullPath = `${dir}/${name}`;
-      if (await ctx.fs.exists(fullPath)) {
-        ctx.state.hashTable.set(name, fullPath);
-        found = true;
-        break;
-      }
-    }
-
-    if (!found) {
+    // Search PATH for the command; like bash, only a file that can run is
+    // remembered
+    const match = await searchPath(ctx, name);
+    if (match?.executable) {
+      ctx.state.hashTable.set(name, match.displayPath);
+    } else {
       stderr += `bash: hash: ${name}: not found\n`;
       hasError = true;
     }
