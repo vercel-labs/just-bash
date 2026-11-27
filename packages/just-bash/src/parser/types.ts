@@ -7,7 +7,7 @@
 import { type Token, TokenType } from "./lexer.js";
 
 // Parser limits to prevent hangs and resource exhaustion
-export const MAX_INPUT_SIZE = 1_000_000; // 1MB max input
+export const MAX_INPUT_SIZE = 1_000_000; // Maximum input length in UTF-16 code units
 export const MAX_TOKENS = 100_000; // Max tokens to parse
 const MAX_PARSE_ITERATIONS = 1_000_000; // Max iterations in parsing loops
 export const MAX_PARSER_DEPTH = 200; // Max recursion depth for nested constructs
