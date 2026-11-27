@@ -197,7 +197,10 @@ export const cpCommand: RuntimeCommand = {
           throw error;
         }
         const message = getErrorMessage(error);
-        if (message.includes("ENOENT") || message.includes("no such file")) {
+        // Classify by the errno the message leads with. A cross-mount copy
+        // that failed on some entries quotes their errors inside its own, and
+        // an ENOENT among them does not mean the source operand is missing.
+        if (/^(?:ENOENT\b|no such file)/.test(message)) {
           stderr += `cp: cannot stat '${src}': No such file or directory\n`;
         } else {
           stderr += `cp: cannot copy '${src}': ${message}\n`;
