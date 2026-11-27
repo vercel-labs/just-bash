@@ -35,10 +35,9 @@ import {
   SubshellExitError,
 } from "./errors.js";
 import {
-  escapeGlobChars,
   expandWord,
+  expandWordForPattern,
   expandWordWithGlob,
-  isWordFullyQuoted,
 } from "./expansion.js";
 import { appendBoundedElements } from "./helpers/bounded-array.js";
 import { executeCondition } from "./helpers/condition.js";
@@ -646,11 +645,9 @@ async function executeCaseBody(
     if (!fallThrough) {
       // Normal pattern matching
       for (const pattern of item.patterns) {
-        let patternStr = await expandWord(ctx, pattern);
-        // If the pattern is fully quoted, escape glob characters for literal matching
-        if (isWordFullyQuoted(pattern)) {
-          patternStr = escapeGlobChars(patternStr);
-        }
+        // Backslash escapes and quoted parts stay literal, unquoted expansions
+        // and glob characters still act as a pattern (as on the right of [[ == ]])
+        const patternStr = await expandWordForPattern(ctx, pattern);
         const nocasematch = ctx.state.shoptOptions.nocasematch;
         const extglob = ctx.state.shoptOptions.extglob;
         if (
