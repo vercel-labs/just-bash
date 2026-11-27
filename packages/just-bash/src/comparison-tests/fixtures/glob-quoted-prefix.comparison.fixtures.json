@@ -1,0 +1,134 @@
+{
+  "008642820ecf37af": {
+    "command": "printf '[%s]\\n' \"s*t\"/*",
+    "files": {
+      "App Support (x) [y]/a.txt": "a",
+      "App Support (x) [y]/b.md": "b",
+      "e m/.keep": "",
+      "s*t/k": "k"
+    },
+    "stdout": "[s*t/k]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "19ddd6d957e07da6": {
+    "command": "printf '[%s]\\n' App\\ Support\\ \\(x\\)\\ \\[y\\]/*",
+    "files": {
+      "App Support (x) [y]/a.txt": "a",
+      "App Support (x) [y]/b.md": "b",
+      "e m/.keep": "",
+      "s*t/k": "k"
+    },
+    "stdout": "[App Support (x) [y]/a.txt]\n[App Support (x) [y]/b.md]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "27c7764066885f73": {
+    "command": "set -f; printf '[%s]\\n' \"App Support (x) [y]\"/* e\\ m/*",
+    "files": {
+      "App Support (x) [y]/a.txt": "a",
+      "App Support (x) [y]/b.md": "b",
+      "e m/.keep": "",
+      "s*t/k": "k"
+    },
+    "stdout": "[App Support (x) [y]/*]\n[e m/*]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "47d6f782c855ba3e": {
+    "command": "d=\"App Support (x) [y]\"; for f in \"$d\"/*.txt; do echo \"[$f]\"; done",
+    "files": {
+      "App Support (x) [y]/a.txt": "a",
+      "App Support (x) [y]/b.md": "b",
+      "e m/.keep": "",
+      "s*t/k": "k"
+    },
+    "stdout": "[App Support (x) [y]/a.txt]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5ee5330af12bb07b": {
+    "command": "printf '[%s]\\n' \"./App Support (x) [y]/\"*.md",
+    "files": {
+      "App Support (x) [y]/a.txt": "a",
+      "App Support (x) [y]/b.md": "b",
+      "e m/.keep": "",
+      "s*t/k": "k"
+    },
+    "stdout": "[./App Support (x) [y]/b.md]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "663b6b5fee8bd779": {
+    "command": "printf '[%s]\\n' 'App Support (x) [y]'/[ab].*",
+    "files": {
+      "App Support (x) [y]/a.txt": "a",
+      "App Support (x) [y]/b.md": "b",
+      "e m/.keep": "",
+      "s*t/k": "k"
+    },
+    "stdout": "[App Support (x) [y]/a.txt]\n[App Support (x) [y]/b.md]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6b701fe850733edf": {
+    "command": "printf '[%s]\\n' \"e m\"/*",
+    "files": {
+      "App Support (x) [y]/a.txt": "a",
+      "App Support (x) [y]/b.md": "b",
+      "e m/.keep": "",
+      "s*t/k": "k"
+    },
+    "stdout": "[e m/*]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "7ca8e1ac666138b5": {
+    "command": "printf '[%s]\\n' 'a\\b'*",
+    "files": {
+      "App Support (x) [y]/a.txt": "a",
+      "App Support (x) [y]/b.md": "b",
+      "e m/.keep": "",
+      "s*t/k": "k"
+    },
+    "stdout": "[a\\b*]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bdbfdda4e4bb1a18": {
+    "command": "printf '[%s]\\n' \"no such (dir)\"/*.txt \"App Support (x) [y]\"/*.csv",
+    "files": {
+      "App Support (x) [y]/a.txt": "a",
+      "App Support (x) [y]/b.md": "b",
+      "e m/.keep": "",
+      "s*t/k": "k"
+    },
+    "stdout": "[no such (dir)/*.txt]\n[App Support (x) [y]/*.csv]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "d6c9683ae8fff959": {
+    "command": "printf '[%s]\\n' \"App Support (x) [y]\"/*",
+    "files": {
+      "App Support (x) [y]/a.txt": "a",
+      "App Support (x) [y]/b.md": "b",
+      "e m/.keep": "",
+      "s*t/k": "k"
+    },
+    "stdout": "[App Support (x) [y]/a.txt]\n[App Support (x) [y]/b.md]\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ffc31419ac299cf5": {
+    "command": "shopt -s nullglob; printf '[%s]\\n' \"e m\"/* \"App Support (x) [y]\"/*.md end",
+    "files": {
+      "App Support (x) [y]/a.txt": "a",
+      "App Support (x) [y]/b.md": "b",
+      "e m/.keep": "",
+      "s*t/k": "k"
+    },
+    "stdout": "[App Support (x) [y]/b.md]\n[end]\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

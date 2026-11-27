@@ -695,6 +695,12 @@ export async function expandRedirectTarget(
 
   const matches = await globExpander.expand(globPattern);
 
+  // The pattern itself back means every glob character in it was escaped,
+  // so the word is not a pattern and names itself
+  if (matches.length === 1 && matches[0] === globPattern) {
+    return { target: value };
+  }
+
   if (matches.length === 0) {
     // No matches
     if (globExpander.hasFailglob()) {

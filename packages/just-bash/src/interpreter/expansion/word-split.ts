@@ -149,7 +149,7 @@ async function hasMixedQuotedDefaultValue(
  * Unquoted parameter expansions, command substitutions, and arithmetic expansions
  * are splittable. Quoted parts (DoubleQuoted, SingleQuoted) are NOT splittable.
  */
-function isPartSplittable(part: WordPart): boolean {
+export function isPartSplittable(part: WordPart): boolean {
   // Quoted parts are never splittable
   if (part.type === "DoubleQuoted" || part.type === "SingleQuoted") {
     return false;
