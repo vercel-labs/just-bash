@@ -1,0 +1,30 @@
+{
+  "04fe875a7ddac764": {
+    "command": "for f in a b; do { echo \"$f\"; } > out; cat out; done | cat",
+    "files": {},
+    "stdout": "a\nb\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "338854be5f7bcb2e": {
+    "command": "for f in a b c; do echo \"$f\"; break; done | cat",
+    "files": {},
+    "stdout": "a\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "668047edf693bba7": {
+    "command": "for f in a b c; do echo \"$f\"; continue; echo bad; done | cat",
+    "files": {},
+    "stdout": "a\nb\nc\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "bef522aadcbfed13": {
+    "command": "f=outside; for f in a b c; do echo \"$f\"; done | cat; echo \"$f\"",
+    "files": {},
+    "stdout": "a\nb\nc\noutside\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

@@ -57,6 +57,8 @@ export {
   RedirectNotAllowedError,
   TooManyRedirectsError,
 } from "./network/index.js";
+export type { CommandStdio } from "./streams/command-stdio.js";
+export { readCommandStdin } from "./streams/command-stdio.js";
 export type {
   BashExecResult,
   Command,
