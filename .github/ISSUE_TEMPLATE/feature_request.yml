@@ -30,3 +30,5 @@ body:
     attributes:
       label: Additional context
       description: Anything else that would help, such as the embedding environment or related issues.
+
+# AGENTS: Use the 'technical-writer' skill when writing the content for this issue.

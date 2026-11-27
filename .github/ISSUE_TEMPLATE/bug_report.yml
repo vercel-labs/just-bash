@@ -60,3 +60,5 @@ body:
       render: markdown
     validations:
       required: true
+
+# AGENTS: Use the 'technical-writer' skill when writing the content for this issue.

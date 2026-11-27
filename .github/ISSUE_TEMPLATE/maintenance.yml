@@ -25,3 +25,5 @@ body:
     attributes:
       label: Scope
       description: The packages or files involved, whether users are affected, and links to failing CI runs, logs, or dependency references when relevant.
+
+# AGENTS: Use the 'technical-writer' skill when writing the content for this issue.
