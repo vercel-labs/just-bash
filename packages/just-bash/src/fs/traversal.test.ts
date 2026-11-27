@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ExecutionAbortedError,
   ExecutionLimitError,
@@ -55,6 +55,41 @@ describe("filesystem traversal primitives", () => {
       "/root/z",
       "/root/z/file",
     ]);
+  });
+
+  it("settles earlier reads when a later metadata call throws synchronously", async () => {
+    const fs = new InMemoryFs({ "/root/a": "a", "/root/b": "b" });
+    const lstat = fs.lstat.bind(fs);
+    let completed = false;
+    const pending = new Promise<FsStat>((resolve) => {
+      setTimeout(() => {
+        completed = true;
+        resolve(lstat("/root/a"));
+      }, 0);
+    });
+    vi.spyOn(fs, "lstat").mockImplementation((path) => {
+      if (path === "/root/a") return pending;
+      if (path === "/root/b") throw new Error("metadata unavailable");
+      return lstat(path);
+    });
+
+    try {
+      await expect(
+        traverseFileTree(
+          {
+            fs,
+            root: "/root",
+            limits: resolveLimits(),
+            site: "test",
+            readAhead: true,
+          },
+          () => undefined,
+        ),
+      ).rejects.toThrow("metadata unavailable");
+      expect(completed).toBe(true);
+    } finally {
+      await pending;
+    }
   });
 
   it("detects a followed symlink cycle by stable directory identity", async () => {

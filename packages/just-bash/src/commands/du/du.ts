@@ -129,6 +129,7 @@ async function calculateSize(
       site: "du",
       symlinks: "never",
       includeLeave: true,
+      readAhead: true,
     },
     (entry) => {
       const relative = entry.path.slice(fullPath.length).replace(/^\//, "");
