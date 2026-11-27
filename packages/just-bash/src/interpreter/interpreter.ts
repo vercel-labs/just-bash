@@ -150,6 +150,8 @@ export interface InterpreterOptions {
     argsJson: string,
     abortSignal: AbortSignal,
   ) => Promise<string>;
+  /** Whether a redirect makes a directory it names that does not exist */
+  redirectCreatesDirectories?: boolean;
 }
 
 export class Interpreter {
@@ -173,6 +175,7 @@ export class Interpreter {
       requireDefenseContext: options.requireDefenseContext ?? false,
       jsBootstrapCode: options.jsBootstrapCode,
       invokeTool: options.invokeTool,
+      redirectCreatesDirectories: options.redirectCreatesDirectories ?? true,
     };
   }
 
