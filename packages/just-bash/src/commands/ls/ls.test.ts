@@ -26,6 +26,67 @@ describe("ls", () => {
     expect(result.stderr).toBe("");
   });
 
+  it("should print inode numbers with -i and --inode", async () => {
+    const env = new Bash({
+      files: {
+        "/dir/a.txt": "",
+        "/dir/b.txt": "",
+      },
+    });
+
+    const shortResult = await env.exec("ls -i /dir");
+    expect(shortResult.stdout).toMatch(/^\d+ a\.txt\n\d+ b\.txt\n$/);
+    const shortInodes =
+      shortResult.stdout.match(/^\d+(?= )/gm)?.map(Number) ?? [];
+    const repeatedShortResult = await env.exec("ls -i /dir");
+    expect(repeatedShortResult.stdout).toBe(shortResult.stdout);
+    expect(shortInodes).toHaveLength(2);
+    expect(shortInodes.every((inode) => inode > 0)).toBe(true);
+    expect(new Set(shortInodes).size).toBe(2);
+    expect(shortResult.stderr).toBe("");
+
+    const longResult = await env.exec("ls --inode /dir");
+    expect(longResult.stdout).toMatch(/^\d+ a\.txt\n\d+ b\.txt\n$/);
+    const longInodes =
+      longResult.stdout.match(/^\d+(?= )/gm)?.map(Number) ?? [];
+    expect(longInodes).toHaveLength(2);
+    expect(longInodes.every((inode) => inode > 0)).toBe(true);
+    expect(new Set(longInodes).size).toBe(2);
+    expect(longResult.stderr).toBe("");
+
+    const directoryResult = await env.exec("ls -id /dir");
+    const repeatedDirectoryResult = await env.exec("ls -id /dir");
+    expect(directoryResult.stdout).toMatch(/^\d+ \/dir\n$/);
+    expect(repeatedDirectoryResult.stdout).toBe(directoryResult.stdout);
+    expect(Number(directoryResult.stdout.match(/^\d+/)?.[0])).toBeGreaterThan(0);
+  });
+
+  it("should print inodes before the mode in long format", async () => {
+    const env = new Bash({
+      files: {
+        "/dir/file.txt": "",
+      },
+    });
+
+    const fileResult = await env.exec("ls -il /dir/file.txt");
+    expect(fileResult.stdout).toMatch(
+      /^\d+ -rw-r--r-- 1 user user\s+0 \w{3}\s+\d+\s+[\d:]+\s+\/dir\/file\.txt\n$/,
+    );
+
+    const directoryResult = await env.exec("ls -il /dir");
+    expect(directoryResult.stdout).toMatch(
+      /^total 1\n\d+ -rw-r--r-- 1 user user\s+0 \w{3}\s+\d+\s+[\d:]+\s+file\.txt\n$/,
+    );
+
+    const directoryOnlyResult = await env.exec("ls -ild /dir");
+    expect(directoryOnlyResult.stdout).toMatch(
+      /^\d+ drwxr-xr-x 1 user user\s+\d+ \w{3}\s+\d+\s+[\d:]+\s+\/dir\n$/,
+    );
+    expect(fileResult.stderr).toBe("");
+    expect(directoryResult.stderr).toBe("");
+    expect(directoryOnlyResult.stderr).toBe("");
+  });
+
   it("should hide hidden files by default", async () => {
     const env = new Bash({
       files: {

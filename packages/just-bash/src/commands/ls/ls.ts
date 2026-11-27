@@ -144,6 +144,7 @@ const lsHelp = {
     "-d, --directory      list directories themselves, not their contents",
     "-F, --classify       append indicator (one of */=>@) to entries",
     "-h, --human-readable with -l, print sizes like 1K 234M 2G etc.",
+    "-i, --inode          print the index number of each file",
     "-l                   use a long listing format",
     "-r, --reverse        reverse order while sorting",
     "-R, --recursive      list subdirectories recursively",
@@ -160,6 +161,7 @@ const argDefs = {
   showAll: { short: "a", long: "all", type: "boolean" as const },
   showAlmostAll: { short: "A", long: "almost-all", type: "boolean" as const },
   longFormat: { short: "l", type: "boolean" as const },
+  inode: { short: "i", long: "inode", type: "boolean" as const },
   humanReadable: {
     short: "h",
     long: "human-readable",
@@ -196,6 +198,7 @@ export const lsCommand: RuntimeCommand = {
     const reverse = parsed.result.flags.reverse;
     const classifyFiles = parsed.result.flags.classifyFiles;
     const directoryOnly = parsed.result.flags.directoryOnly;
+    const showInode = parsed.result.flags.inode;
     const sortKey = resolveSortKey(
       args,
       parsed.result.flags.sortBySize,
@@ -247,16 +250,18 @@ export const lsCommand: RuntimeCommand = {
               : String(size).padStart(5);
             const mtime = stat.mtime ?? new Date(0);
             const dateStr = formatDate(mtime);
+            const inode = showInode ? `${String(stat.ino ?? 0)} ` : "";
             stdout = appendLsOutput(
               ctx,
               stdout,
-              `${mode} 1 user user ${sizeStr} ${dateStr} ${path}${suffix}\n`,
+              `${inode}${mode} 1 user user ${sizeStr} ${dateStr} ${path}${suffix}\n`,
             );
           } else {
             const suffix = classifyFiles
               ? classifySuffix(await ctx.fs.lstat(fullPath))
               : "";
-            stdout = appendLsOutput(ctx, stdout, `${path}${suffix}\n`);
+            const inode = showInode ? `${String(stat.ino ?? 0)} ` : "";
+            stdout = appendLsOutput(ctx, stdout, `${inode}${path}${suffix}\n`);
           }
         } catch {
           stderr = appendLsOutput(
@@ -321,6 +326,7 @@ export const lsCommand: RuntimeCommand = {
         humanReadable,
         sortKey,
         classifyFiles,
+        showInode,
         false,
         traversalBudget,
         0,
@@ -464,6 +470,7 @@ async function listPath(
   humanReadable: boolean = false,
   sortKey: SortKey = "name",
   classifyFiles: boolean = false,
+  showInode: boolean = false,
   _isSubdir: boolean = false,
   traversalBudget: FileTraversalBudget = new FileTraversalBudget({
     limits: ctx.limits,
@@ -496,13 +503,15 @@ async function listPath(
           : String(size).padStart(5);
         const mtime = stat.mtime ?? new Date(0);
         const dateStr = formatDate(mtime);
+        const inode = showInode ? `${String(stat.ino ?? 0)} ` : "";
         return {
-          stdout: `-rw-r--r-- 1 user user ${sizeStr} ${dateStr} ${path}${fileSuffix}\n`,
+          stdout: `${inode}-rw-r--r-- 1 user user ${sizeStr} ${dateStr} ${path}${fileSuffix}\n`,
           stderr: "",
           exitCode: 0,
         };
       }
-      return { stdout: `${path}${fileSuffix}\n`, stderr: "", exitCode: 0 };
+      const inode = showInode ? `${String(stat.ino ?? 0)} ` : "";
+      return { stdout: `${inode}${path}${fileSuffix}\n`, stderr: "", exitCode: 0 };
     }
 
     const identity =
@@ -574,10 +583,13 @@ async function listPath(
 
       // Add special entries first
       for (const entry of specialEntries) {
+        const inode = showInode
+          ? `${String((await ctx.fs.lstat(fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`)).ino ?? 0)} `
+          : "";
         stdout = appendLsOutput(
           ctx,
           stdout,
-          `drwxr-xr-x 1 user user     0 Jan  1 00:00 ${entry}\n`,
+          `${inode}drwxr-xr-x 1 user user     0 Jan  1 00:00 ${entry}\n`,
         );
       }
 
@@ -605,9 +617,10 @@ async function listPath(
                 : String(size).padStart(5);
               const mtime = entryStat.mtime ?? new Date(0);
               const dateStr = formatDate(mtime);
+              const inode = showInode ? `${String(entryStat.ino ?? 0)} ` : "";
               return {
                 name: entry,
-                line: `${mode} 1 user user ${sizeStr} ${dateStr} ${entry}${suffix}\n`,
+                line: `${inode}${mode} 1 user user ${sizeStr} ${dateStr} ${entry}${suffix}\n`,
               };
             } catch {
               return {
@@ -647,9 +660,10 @@ async function listPath(
               fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`;
             try {
               const entryStat = await ctx.fs.lstat(entryPath);
-              return `${entry}${classifySuffix(entryStat)}`;
+              const inode = showInode ? `${String(entryStat.ino ?? 0)} ` : "";
+              return `${inode}${entry}${classifySuffix(entryStat)}`;
             } catch {
-              return entry;
+              return showInode ? `${entry}` : entry;
             }
           }),
         );
@@ -658,7 +672,19 @@ async function listPath(
 
       stdout = appendLsOutput(ctx, stdout, joinLsLines(ctx, classified));
     } else {
-      stdout = appendLsOutput(ctx, stdout, joinLsLines(ctx, entries));
+      const formattedEntries = await Promise.all(
+        entries.map(async (entry) => {
+          if (!showInode) return entry;
+          const entryPath = fullPath === "/" ? `/${entry}` : `${fullPath}/${entry}`;
+          try {
+            const entryStat = await ctx.fs.lstat(entryPath);
+            return `${String(entryStat.ino ?? 0)} ${entry}`;
+          } catch {
+            return `${entry}`;
+          }
+        }),
+      );
+      stdout = appendLsOutput(ctx, stdout, joinLsLines(ctx, formattedEntries));
     }
 
     // Handle recursive - parallel processing for better performance
@@ -738,6 +764,7 @@ async function listPath(
           humanReadable,
           sortKey,
           classifyFiles,
+          showInode,
           true,
           traversalBudget,
           traversalDepth + 1,
@@ -788,6 +815,7 @@ export const flagsForFuzzing: CommandFuzzInfo = {
     { flag: "-A", type: "boolean" },
     { flag: "-l", type: "boolean" },
     { flag: "-h", type: "boolean" },
+    { flag: "-i", type: "boolean" },
     { flag: "-R", type: "boolean" },
     { flag: "-r", type: "boolean" },
     { flag: "-S", type: "boolean" },

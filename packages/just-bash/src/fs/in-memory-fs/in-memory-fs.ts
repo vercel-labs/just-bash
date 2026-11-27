@@ -81,7 +81,7 @@ function isFileInit(
 
 export class InMemoryFs implements IFileSystem {
   private data: Map<string, FsEntry> = new Map();
-  private entryIdentities = new WeakMap<FsEntry, string>();
+  private entryIdentities = new WeakMap<FsEntry, number>();
   private nextEntryIdentity = 1;
   private readonly maxTotalBytes: number;
   private retainedBytes = 0;
@@ -194,13 +194,13 @@ export class InMemoryFs implements IFileSystem {
     return utf8ByteLength(content);
   }
 
-  private identityFor(entry: FsEntry): string {
-    let identity = this.entryIdentities.get(entry);
-    if (!identity) {
-      identity = `memfs:${this.nextEntryIdentity++}`;
-      this.entryIdentities.set(entry, identity);
+  private inodeFor(entry: FsEntry): number {
+    let inode = this.entryIdentities.get(entry);
+    if (inode === undefined) {
+      inode = this.nextEntryIdentity++;
+      this.entryIdentities.set(entry, inode);
     }
-    return identity;
+    return inode;
   }
 
   constructor(initialFiles?: InitialFiles, options: InMemoryFsOptions = {}) {
@@ -470,6 +470,7 @@ export class InMemoryFs implements IFileSystem {
       }
     }
 
+    const ino = this.inodeFor(entry);
     return {
       isFile: entry.type === "file",
       isDirectory: entry.type === "directory",
@@ -477,7 +478,8 @@ export class InMemoryFs implements IFileSystem {
       mode: entry.mode,
       size,
       mtime: entry.mtime || new Date(),
-      identity: this.identityFor(entry),
+      ino,
+      identity: `memfs:${ino}`,
     };
   }
 
@@ -493,6 +495,7 @@ export class InMemoryFs implements IFileSystem {
 
     // For symlinks, return symlink info (don't follow)
     if (entry.type === "symlink") {
+      const ino = this.inodeFor(entry);
       return {
         isFile: false,
         isDirectory: false,
@@ -500,6 +503,8 @@ export class InMemoryFs implements IFileSystem {
         mode: entry.mode,
         size: entry.target.length,
         mtime: entry.mtime || new Date(),
+        ino,
+        identity: `memfs:${ino}`,
       };
     }
 
@@ -519,6 +524,7 @@ export class InMemoryFs implements IFileSystem {
       }
     }
 
+    const ino = this.inodeFor(entry);
     return {
       isFile: entry.type === "file",
       isDirectory: entry.type === "directory",
@@ -526,7 +532,8 @@ export class InMemoryFs implements IFileSystem {
       mode: entry.mode,
       size,
       mtime: entry.mtime || new Date(),
-      identity: this.identityFor(entry),
+      ino,
+      identity: `memfs:${ino}`,
     };
   }
 
@@ -970,7 +977,7 @@ export class InMemoryFs implements IFileSystem {
       mode: resolved.mode,
       mtime: resolved.mtime,
     };
-    this.entryIdentities.set(linkedEntry, this.identityFor(resolved));
+    this.entryIdentities.set(linkedEntry, this.inodeFor(resolved));
     this.setEntry(newNorm, linkedEntry);
   }
 
