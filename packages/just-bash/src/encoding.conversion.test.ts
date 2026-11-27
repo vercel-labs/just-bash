@@ -3,6 +3,7 @@ import {
   bytesFromUint8Array,
   encodeUtf8ToBytes,
   latin1FromBytes,
+  uint8ArrayFromLatin1,
   utf8ByteLength,
 } from "./encoding.js";
 
@@ -83,4 +84,16 @@ it("bounds browser conversion argument counts", () => {
   expect(spy).toHaveBeenCalled();
   for (const args of spy.mock.calls)
     expect(args.length).toBeLessThanOrEqual(8192);
+});
+
+describe("uint8ArrayFromLatin1", () => {
+  it("reverses bytesFromUint8Array for every byte value", () => {
+    const bytes = Uint8Array.from(
+      { length: 70001 },
+      (_, i) => (i * 131 + 7) & 255,
+    );
+    const latin1 = latin1FromBytes(bytesFromUint8Array(bytes));
+    expect(uint8ArrayFromLatin1(latin1)).toEqual(bytes);
+    expect(uint8ArrayFromLatin1("")).toEqual(new Uint8Array(0));
+  });
 });
