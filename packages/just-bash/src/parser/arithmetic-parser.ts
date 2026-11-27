@@ -40,6 +40,32 @@ function preprocessArithInput(input: string): string {
   let result = "";
   let i = 0;
   while (i < input.length) {
+    // Command substitutions keep their text verbatim: it is parsed and run as a
+    // shell script later, where quoting is significant. Stripping quotes here
+    // would turn $(printf %s "$q") into $(printf %s $q) and word-split the value.
+    // $(( )) is not a command substitution, so it falls through to be preprocessed.
+    if (input[i] === "$" && input[i + 1] === "(" && input[i + 2] !== "(") {
+      let depth = 1;
+      let j = i + 2;
+      while (j < input.length && depth > 0) {
+        if (input[j] === "(") depth++;
+        else if (input[j] === ")") depth--;
+        if (depth > 0) j++;
+      }
+      result += input.slice(i, Math.min(j + 1, input.length));
+      i = j + 1;
+      continue;
+    }
+    if (input[i] === "`") {
+      let j = i + 1;
+      while (j < input.length && input[j] !== "`") {
+        if (input[j] === "\\") j++;
+        j++;
+      }
+      result += input.slice(i, Math.min(j + 1, input.length));
+      i = j + 1;
+      continue;
+    }
     if (input[i] === '"') {
       // Skip opening quote
       i++;

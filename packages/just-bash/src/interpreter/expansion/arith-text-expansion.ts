@@ -7,6 +7,7 @@
  */
 
 import type { InterpreterContext } from "../types.js";
+import { runCommandSubstitutionText } from "./command-substitution.js";
 import { getVariable } from "./variable.js";
 
 /**
@@ -81,6 +82,21 @@ export async function expandDollarVarsInArithText(
         i += 2;
         continue;
       }
+    }
+    // Backtick command substitution - don't expand. Like $(...), the command
+    // runs against the live interpreter state when the arithmetic node is
+    // evaluated, so splicing variable values in here would both lose quoting
+    // and let variable data be re-parsed as shell syntax.
+    if (text[i] === "`") {
+      let j = i + 1;
+      while (j < text.length && text[j] !== "`") {
+        // Skip escaped characters so \` stays inside the span
+        if (text[j] === "\\") j++;
+        j++;
+      }
+      result += text.slice(i, Math.min(j + 1, text.length));
+      i = j + 1;
+      continue;
     }
     // Check for double quotes - expand variables inside but keep the quotes
     // (arithmetic preprocessor will strip them)
@@ -167,20 +183,9 @@ export async function expandSubscriptForAssocArray(
           }
           j++;
         }
-        // Extract and execute the command
+        // Extract and execute the command against the current shell state
         const cmdStr = inner.slice(i + 2, j - 1);
-        if (ctx.execFn) {
-          const cmdResult = await ctx.execFn(cmdStr, {
-            signal: ctx.state.signal,
-          });
-          // Strip trailing newlines like command substitution does
-          result += cmdResult.stdout.replace(/\n+$/, "");
-          // Forward stderr to expansion stderr
-          if (cmdResult.stderr) {
-            ctx.state.expansionStderr =
-              (ctx.state.expansionStderr || "") + cmdResult.stderr;
-          }
-        }
+        result += await runCommandSubstitutionText(ctx, cmdStr);
         i = j;
       } else if (inner[i + 1] === "{") {
         // Check for ${...} - find matching }
@@ -218,16 +223,7 @@ export async function expandSubscriptForAssocArray(
         j++;
       }
       const cmdStr = inner.slice(i + 1, j);
-      if (ctx.execFn) {
-        const cmdResult = await ctx.execFn(cmdStr, {
-          signal: ctx.state.signal,
-        });
-        result += cmdResult.stdout.replace(/\n+$/, "");
-        if (cmdResult.stderr) {
-          ctx.state.expansionStderr =
-            (ctx.state.expansionStderr || "") + cmdResult.stderr;
-        }
-      }
+      result += await runCommandSubstitutionText(ctx, cmdStr);
       i = j + 1;
     } else {
       result += inner[i];

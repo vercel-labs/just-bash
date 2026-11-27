@@ -1,0 +1,67 @@
+{
+  "0ae82e11e577eb29": {
+    "command": "echo $(( $(declare -i N; echo 1) ))\nN=\"2+3\"\necho \"N=$N\"",
+    "files": {},
+    "stdout": "1\nN=2+3\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "1843ab1af033bb8b": {
+    "command": "a='$(echo 1)'\nb=a\necho \"[$(( b ))]\"\necho \"status=$?\"",
+    "files": {},
+    "stdout": "status=1\n",
+    "stderr": "/bin/bash: line 3: $(echo 1): syntax error: operand expected (error token is \"$(echo 1)\")\n",
+    "exitCode": 0,
+    "locked": true
+  },
+  "1a57bbd4c7f457cc": {
+    "command": "echo $(( $(f() { :; }; echo 1) ))\ntype f >/dev/null 2>&1 && echo leaked || echo isolated",
+    "files": {},
+    "stdout": "1\nisolated\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "5677456ee8f77709": {
+    "command": "echo $(( $(shopt -s nullglob; echo 1) ))\nshopt -q nullglob && echo leaked || echo isolated",
+    "files": {},
+    "stdout": "1\nisolated\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "89cceb23635d8e76": {
+    "command": "a=(0 1 2)\nb=(3 4 5)\nsub='a[$(echo 2)]'\necho \"${b[sub]}\"",
+    "files": {},
+    "stdout": "5\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "920a845fe32b9f93": {
+    "command": "echo $(( $(set -u; echo 1) ))\necho \"[$UNSET_VAR] status=$?\"",
+    "files": {},
+    "stdout": "1\n[] status=0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "9a38a22a1db5ae67": {
+    "command": "v='$(echo 1)'\necho \"[$(( $(echo v) ))]\"\necho \"status=$?\"",
+    "files": {},
+    "stdout": "status=1\n",
+    "stderr": "/bin/bash: line 2: $(echo 1): syntax error: operand expected (error token is \"$(echo 1)\")\n",
+    "exitCode": 0,
+    "locked": true
+  },
+  "b9c0490e3bae3f1a": {
+    "command": "K=1\necho $(( $(K=99; echo 2) ))\necho \"K=$K\"",
+    "files": {},
+    "stdout": "2\nK=1\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "cb7c9d5c48feb69b": {
+    "command": "mkdir -p deep\nbefore=$PWD\necho $(( $(cd deep; echo 1) ))\ntest \"$PWD\" = \"$before\" && echo same",
+    "files": {},
+    "stdout": "1\nsame\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
