@@ -213,5 +213,17 @@ describe("redirections with binary data", () => {
 
       expect(result.stdout).toBe("Ü Ö Ä ü ö ä ß\n");
     });
+
+    it("should pass UTF-8 bytes on stdin for <> like it does for <", async () => {
+      const env = new Bash({ files: { "/in.txt": "é\n" } });
+
+      const result = await env.exec("wc -c <> /in.txt; wc -c < /in.txt");
+      expect(result.stdout).toBe("3\n3\n");
+      expect(result.stderr).toBe("");
+
+      await env.exec("cat <> /in.txt > /out.txt");
+      const buffer = await env.fs.readFileBuffer("/out.txt");
+      expect(Array.from(buffer)).toEqual([0xc3, 0xa9, 0x0a]);
+    });
   });
 });
