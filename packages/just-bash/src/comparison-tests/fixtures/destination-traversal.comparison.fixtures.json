@@ -1,0 +1,130 @@
+{
+  "0fb5f6e312e3acce": {
+    "command": "\n          mv source existing/ 2>/dev/null\n          echo \"status=$?\"\n          test -f source; echo \"source=$?\"\n          test -f missing; echo \"missing-file=$?\"\n          test -f existing/source; echo \"copied-file=$?\"\n          cat blocking\n        ",
+    "files": {
+      "source": "payload\n",
+      "blocking": "original\n",
+      "existing/keep": "keep\n"
+    },
+    "stdout": "status=0\nsource=1\nmissing-file=1\ncopied-file=0\noriginal\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2da3465c3b5f79cc": {
+    "command": "\n        ln -s real/dir link\n        cp source link/../copied\n        echo \"status=$?\"\n        cat real/copied\n        cat copied\n        test -f source; echo \"source=$?\"\n      ",
+    "files": {
+      "source": "payload\n",
+      "real/dir/keep": "keep\n",
+      "copied": "original\n"
+    },
+    "stdout": "status=0\npayload\noriginal\nsource=0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "4fac025217966c5f": {
+    "command": "\n          mv source blocking/ 2>/dev/null\n          echo \"status=$?\"\n          test -f source; echo \"source=$?\"\n          test -f missing; echo \"missing-file=$?\"\n          test -f existing/source; echo \"copied-file=$?\"\n          cat blocking\n        ",
+    "files": {
+      "source": "payload\n",
+      "blocking": "original\n",
+      "existing/keep": "keep\n"
+    },
+    "stdout": "status=1\nsource=0\nmissing-file=1\ncopied-file=1\noriginal\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "566cc1d7c744ab85": {
+    "command": "\n        ln -s real/dir link\n        cp source link/../destination\n        echo \"status=$?\"\n        cat real/destination/source\n        test -f destination; echo \"wrong-destination=$?\"\n      ",
+    "files": {
+      "source": "payload\n",
+      "real/dir/keep": "keep\n",
+      "real/destination/keep": "keep\n"
+    },
+    "stdout": "status=0\npayload\nwrong-destination=1\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "62c916f9edc85f91": {
+    "command": "\n          cp source blocking/ 2>/dev/null\n          echo \"status=$?\"\n          test -f source; echo \"source=$?\"\n          test -f missing; echo \"missing-file=$?\"\n          test -f existing/source; echo \"copied-file=$?\"\n          cat blocking\n        ",
+    "files": {
+      "source": "payload\n",
+      "blocking": "original\n",
+      "existing/keep": "keep\n"
+    },
+    "stdout": "status=1\nsource=0\nmissing-file=1\ncopied-file=1\noriginal\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "63d4c5e564a4d624": {
+    "command": "\n          cp source existing/ 2>/dev/null\n          echo \"status=$?\"\n          test -f source; echo \"source=$?\"\n          test -f missing; echo \"missing-file=$?\"\n          test -f existing/source; echo \"copied-file=$?\"\n          cat blocking\n        ",
+    "files": {
+      "source": "payload\n",
+      "blocking": "original\n",
+      "existing/keep": "keep\n"
+    },
+    "stdout": "status=0\nsource=0\nmissing-file=1\ncopied-file=0\noriginal\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8ccdc1a26f229bec": {
+    "command": "\n        ln -s real/dir link\n        mv source link/../destination\n        echo \"status=$?\"\n        cat real/destination/source\n        test -f destination; echo \"wrong-destination=$?\"\n      ",
+    "files": {
+      "source": "payload\n",
+      "real/dir/keep": "keep\n",
+      "real/destination/keep": "keep\n"
+    },
+    "stdout": "status=0\npayload\nwrong-destination=1\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8f814e6ceb0a40e7": {
+    "command": "\n          mv source missing/ 2>/dev/null\n          echo \"status=$?\"\n          test -f source; echo \"source=$?\"\n          test -f missing; echo \"missing-file=$?\"\n          test -f existing/source; echo \"copied-file=$?\"\n          cat blocking\n        ",
+    "files": {
+      "source": "payload\n",
+      "blocking": "original\n",
+      "existing/keep": "keep\n"
+    },
+    "stdout": "status=1\nsource=0\nmissing-file=1\ncopied-file=1\noriginal\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "e7cbbd54baacaed5": {
+    "command": "\n        mv source missing/ 2>/dev/null\n        echo \"status=$?\"\n        test -d source; echo \"source=$?\"\n        cat missing/nested\n      ",
+    "files": {
+      "source/nested": "payload\n"
+    },
+    "stdout": "status=0\nsource=1\npayload\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "eb277e18978b68c4": {
+    "command": "\n        cp -r source missing/ 2>/dev/null\n        echo \"status=$?\"\n        test -d source; echo \"source=$?\"\n        cat missing/nested\n      ",
+    "files": {
+      "source/nested": "payload\n"
+    },
+    "stdout": "status=0\nsource=0\npayload\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "f8c94bb066f54616": {
+    "command": "\n          cp source missing/ 2>/dev/null\n          echo \"status=$?\"\n          test -f source; echo \"source=$?\"\n          test -f missing; echo \"missing-file=$?\"\n          test -f existing/source; echo \"copied-file=$?\"\n          cat blocking\n        ",
+    "files": {
+      "source": "payload\n",
+      "blocking": "original\n",
+      "existing/keep": "keep\n"
+    },
+    "stdout": "status=1\nsource=0\nmissing-file=1\ncopied-file=1\noriginal\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "fbbf1cdbc5b6d4e8": {
+    "command": "\n        ln -s real/dir link\n        mv source link/../copied\n        echo \"status=$?\"\n        cat real/copied\n        cat copied\n        test -f source; echo \"source=$?\"\n      ",
+    "files": {
+      "source": "payload\n",
+      "real/dir/keep": "keep\n",
+      "copied": "original\n"
+    },
+    "stdout": "status=0\npayload\noriginal\nsource=1\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
