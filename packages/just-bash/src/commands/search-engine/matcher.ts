@@ -7,23 +7,7 @@ import {
   ExecutionLimitError,
 } from "../../interpreter/errors.js";
 import type { UserRegex } from "../../regex/index.js";
-import type { PreFilter } from "./regex.js";
-
-/**
- * Substring fast-path check: returns true if at least one needle is present
- * in the line, meaning the regex *might* match. False means provably no match.
- *
- * For case-insensitive filters, the line is lowercased once per call. Both the
- * needles and the line are compared in lowercase.
- */
-function preFilterMatches(preFilter: PreFilter, line: string): boolean {
-  const haystack = preFilter.ignoreCase ? line.toLowerCase() : line;
-  const needles = preFilter.needles;
-  for (let i = 0; i < needles.length; i++) {
-    if (haystack.indexOf(needles[i]) !== -1) return true;
-  }
-  return false;
-}
+import { type PreFilter, preFilterMatches } from "./required-literals.js";
 
 /**
  * Apply a replacement pattern using capture groups from a regex match
@@ -85,8 +69,8 @@ export interface SearchOptions {
   /** If \K was used, this is the capture group index containing the "real" match */
   kResetGroup?: number;
   /**
-   * Optional substring fast-path: skip RE2 entirely for lines where no needle
-   * is present. Pre-computed by buildRegex from the source pattern.
+   * Optional substring fast-path: skip RE2 entirely for a file or line that
+   * lacks the pattern's required literals. Pre-computed by buildRegex.
    */
   preFilter?: PreFilter | null;
   /** Maximum synchronous matching/formatting work units. */
@@ -169,6 +153,21 @@ export function searchContent(
       maxMatches,
       signal,
     });
+  }
+
+  // A file without the required literals has no matching line, so neither the
+  // line split nor RE2 runs. Inverting or passthru must still print its lines.
+  if (
+    preFilter &&
+    !invertMatch &&
+    !passthru &&
+    !preFilterMatches(preFilter, content)
+  ) {
+    if (countOnly || countMatches) {
+      const countStr = filename ? `${filename}:0` : "0";
+      return { output: `${countStr}\n`, matched: false, matchCount: 0 };
+    }
+    return { output: "", matched: false, matchCount: 0 };
   }
 
   let work = 0;

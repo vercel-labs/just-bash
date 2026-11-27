@@ -11,6 +11,7 @@ import { matchGlob } from "../../utils/glob.js";
 import { showHelp, unknownOption } from "../help.js";
 import {
   buildRegex,
+  type PreFilter,
   type RegexMode,
   searchContent,
 } from "../search-engine/index.js";
@@ -473,7 +474,7 @@ export const grepCommand: RuntimeCommand = {
 
     let regex: UserRegex;
     let kResetGroup: number | undefined;
-    let preFilter: import("../search-engine/regex.js").PreFilter | undefined;
+    let preFilter: PreFilter | undefined;
     try {
       const regexResult = buildRegex(combined.pattern, {
         mode: combined.mode,
@@ -699,31 +700,6 @@ export const grepCommand: RuntimeCommand = {
               }
 
               content = await ctx.fs.readFile(filePath);
-            }
-
-            // File-level preFilter: skip searchContent entirely when no needle exists in file.
-            // Avoids content.split("\n") and all per-line work for the common zero-match case.
-            if (preFilter && !invertMatch) {
-              const haystack = preFilter.ignoreCase
-                ? content.toLowerCase()
-                : content;
-              if (!preFilter.needles.some((n) => haystack.includes(n))) {
-                if (countOnly) {
-                  const countStr = showFilename ? `${file}:0` : "0";
-                  return {
-                    file,
-                    result: {
-                      output: `${countStr}\n`,
-                      matched: false,
-                      matchCount: 0,
-                    },
-                  };
-                }
-                return {
-                  file,
-                  result: { output: "", matched: false, matchCount: 0 },
-                };
-              }
             }
 
             const result = searchContent(content, regex, {
