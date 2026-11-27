@@ -12,8 +12,10 @@ import { createUserRegex, type UserRegex } from "../../regex/index.js";
 import type { AwkExpr } from "./ast.js";
 import type { AwkRuntimeContext } from "./interpreter/context.js";
 import {
+  compileFieldSeparator,
   ensureFieldCount,
   rebuildLine,
+  regexSplitter,
   splitFields,
 } from "./interpreter/fields.js";
 import type { AwkValue } from "./interpreter/types.js";
@@ -221,27 +223,26 @@ async function awkSplit(
   }
   const arrayName = arrayExpr.name;
 
-  let sep: string | UserRegex = ctx.FS;
-  if (args.length >= 3) {
-    const sepExpr = args[2];
-    // Check if the separator is a regex literal
-    if (sepExpr.type === "regex") {
-      sep = createUserRegex(sepExpr.pattern);
-    } else {
-      const sepVal = toAwkString(await evaluator.evalExpr(sepExpr));
-      sep = sepVal === " " ? createUserRegex("\\s+") : sepVal;
-    }
-  } else if (ctx.FS === " ") {
-    sep = createUserRegex("\\s+");
-  }
+  // Evaluate the separator before sizing the split, since its side effects
+  // may add array elements
+  const sepExpr = args[2];
+  const sepStr =
+    sepExpr && sepExpr.type !== "regex"
+      ? toAwkString(await evaluator.evalExpr(sepExpr))
+      : ctx.FS;
 
   const previousCount = Object.keys(ctx.arrays[arrayName] ?? {}).length;
   const available =
     ctx.maxArrayElements - ctx.arrayElementCount + previousCount;
-  const parts =
-    typeof sep === "string"
-      ? str.split(sep, available + 1)
-      : sep.split(str, available + 1);
+  // Produce one part past the limit so an oversized split fails rather than
+  // being truncated. Split limits are uint32s.
+  const limit = available < 0xfffffffe ? available + 1 : undefined;
+  const splitter =
+    sepExpr?.type === "regex"
+      ? regexSplitter(sepExpr.pattern)
+      : compileFieldSeparator(sepStr);
+
+  const parts = splitter(str, limit);
   if (parts.length > available) {
     throw new ExecutionLimitError(
       `array element limit exceeded (${ctx.maxArrayElements})`,

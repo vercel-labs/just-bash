@@ -16,7 +16,6 @@
  */
 
 export {
-  ConstantRegex,
   createUserRegex,
   type RegexLike,
   type ReplaceCallback,

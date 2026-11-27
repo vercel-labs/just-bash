@@ -6,10 +6,19 @@
 
 import { utf8ByteLength } from "../../../encoding.js";
 import { ExecutionLimitError } from "../../../interpreter/errors.js";
-import { ConstantRegex, createUserRegex } from "../../../regex/index.js";
+import { createUserRegex } from "../../../regex/index.js";
 import type { AwkRuntimeContext } from "./context.js";
 import { toAwkString } from "./type-coercion.js";
 import type { AwkValue } from "./types.js";
+
+/**
+ * Splits a string into at most `limit` fields, as awk does for one FS.
+ */
+export type FieldSplitter = (input: string, limit?: number) => string[];
+
+/** The default FS: runs of whitespace, ignoring leading and trailing ones. */
+export const splitOnWhitespace: FieldSplitter = (input, limit) =>
+  input.trim().split(/\s+/, limit).filter(Boolean);
 
 /**
  * Split a line into fields based on the field separator.
@@ -25,14 +34,7 @@ export function splitFields(ctx: AwkRuntimeContext, line: string): string[] {
   // String.prototype.split treats its limit as a uint32, so leave huge or
   // unlimited maxima unbounded rather than letting them wrap
   const limit = max < 0xfffffffe ? max + 1 : undefined;
-  const fields =
-    ctx.FS === " "
-      ? // Default FS: split on runs of whitespace, skip leading/trailing
-        line
-          .trim()
-          .split(/\s+/, limit)
-          .filter(Boolean)
-      : ctx.fieldSep.split(line, limit);
+  const fields = ctx.fieldSep(line, limit);
   if (fields.length > max) {
     throw new ExecutionLimitError(
       `field count limit exceeded (${max})`,
@@ -140,17 +142,58 @@ export function setCurrentLine(ctx: AwkRuntimeContext, line: string): void {
 }
 
 /**
+ * Compile FS, or a split() separator string, into a field splitter.
+ */
+export function compileFieldSeparator(fs: string): FieldSplitter {
+  if (fs === " ") {
+    return splitOnWhitespace;
+  }
+  const literal = fs.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Any other single character separates fields literally, as in POSIX awk
+  if (fs.length === 1) {
+    return regexSplitter(literal);
+  }
+  try {
+    return regexSplitter(fs);
+  } catch {
+    return regexSplitter(literal);
+  }
+}
+
+// Callers bound the field count through the split limit, and ignored empty
+// matches must not use up the regex's own result cap
+const UNCAPPED = { maxResults: Number.MAX_SAFE_INTEGER };
+
+/**
+ * Split on a regex the way awk does: empty matches never separate fields,
+ * except that an empty pattern splits into characters.
+ */
+export function regexSplitter(pattern: string): FieldSplitter {
+  if (pattern === "") {
+    const regex = createUserRegex("", "", UNCAPPED);
+    return (input, limit) => regex.split(input, limit);
+  }
+  const regex = createUserRegex(pattern, "g", UNCAPPED);
+  return (input, limit = Number.POSITIVE_INFINITY) => {
+    if (input === "") return [];
+    const fields: string[] = [];
+    let start = 0;
+    for (const match of regex.matchAll(input)) {
+      if (fields.length >= limit) return fields;
+      if (match[0] === "") continue;
+      const index = match.index ?? 0;
+      fields.push(input.slice(start, index));
+      start = index + match[0].length;
+    }
+    if (fields.length < limit) fields.push(input.slice(start));
+    return fields;
+  };
+}
+
+/**
  * Update field separator and recompile regex.
  */
 export function setFieldSeparator(ctx: AwkRuntimeContext, fs: string): void {
   ctx.FS = fs;
-  if (fs === " ") {
-    ctx.fieldSep = new ConstantRegex(/\s+/);
-  } else {
-    try {
-      ctx.fieldSep = createUserRegex(fs);
-    } catch {
-      ctx.fieldSep = createUserRegex(fs.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-    }
-  }
+  ctx.fieldSep = compileFieldSeparator(fs);
 }
