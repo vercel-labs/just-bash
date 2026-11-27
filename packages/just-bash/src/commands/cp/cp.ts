@@ -24,6 +24,7 @@ const cpHelp = {
   usage: "cp [OPTION]... SOURCE... DEST",
   options: [
     "-r, -R, --recursive  copy directories recursively",
+    "-f, --force          if an existing destination file cannot be opened, remove it and try again",
     "-n, --no-clobber     do not overwrite an existing file",
     "-p, --preserve       preserve file attributes",
     "-v, --verbose        explain what is being done",
@@ -34,6 +35,7 @@ const cpHelp = {
 const argDefs = {
   recursive: { short: "r", long: "recursive", type: "boolean" as const },
   recursiveUpper: { short: "R", type: "boolean" as const },
+  force: { short: "f", long: "force", type: "boolean" as const },
   noClobber: { short: "n", long: "no-clobber", type: "boolean" as const },
   preserve: { short: "p", long: "preserve", type: "boolean" as const },
   verbose: { short: "v", long: "verbose", type: "boolean" as const },
@@ -56,6 +58,7 @@ export const cpCommand: RuntimeCommand = {
     const recursive =
       parsed.result.flags.recursive || parsed.result.flags.recursiveUpper;
     const noClobber = parsed.result.flags.noClobber;
+    const force = parsed.result.flags.force;
     const preserve = parsed.result.flags.preserve;
     const verbose = parsed.result.flags.verbose;
     const paths = parsed.result.positional;
@@ -178,7 +181,31 @@ export const cpCommand: RuntimeCommand = {
           );
         }
 
-        await ctx.fs.cp(srcPath, targetPath, { recursive });
+        try {
+          await ctx.fs.cp(srcPath, targetPath, { recursive });
+        } catch (cpErr) {
+          // POSIX: -f removes the destination and retries when the existing
+          // destination cannot be opened for writing. -n takes precedence.
+          if (force && !noClobber) {
+            let removed = true;
+            try {
+              await ctx.fs.rm(targetPath, { recursive: true });
+            } catch {
+              removed = false;
+            }
+            if (removed) {
+              try {
+                await ctx.fs.cp(srcPath, targetPath, { recursive });
+              } catch (_retryErr) {
+                throw cpErr;
+              }
+            } else {
+              throw cpErr;
+            }
+          } else {
+            throw cpErr;
+          }
+        }
 
         // Note: preserve flag is accepted but timestamps are not actually preserved
         // in the virtual filesystem (the fs.cp doesn't support preserving metadata)
