@@ -28,7 +28,7 @@ const dateHelp = {
  * when `TZ` is set to a value Node's ICU build can't resolve, matching GNU
  * `date` (which silently uses local time on invalid `TZ`).
  */
-function isValidTimezone(tz: string): boolean {
+export function isValidTimezone(tz: string): boolean {
   try {
     new Intl.DateTimeFormat(undefined, { timeZone: tz });
     return true;
@@ -81,7 +81,7 @@ function tzShownAsUtc(d: Date, tz: string): Date | null {
  *   components-as-UTC, which is still EDT for the November case, so the
  *   loop converges on the earlier (EDT) instant.
  */
-function parseBareISOInTimezone(s: string, tz: string): Date | null {
+export function parseBareISOInTimezone(s: string, tz: string): Date | null {
   const m = s.match(
     /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?$/,
   );

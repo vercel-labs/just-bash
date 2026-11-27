@@ -8,7 +8,9 @@ export type Expression =
   | { type: "type"; fileType: "f" | "d" }
   | { type: "empty" }
   | { type: "mtime"; days: number; comparison: "exact" | "more" | "less" }
+  | { type: "mmin"; minutes: number; comparison: "exact" | "more" | "less" }
   | { type: "newer"; refPath: string }
+  | { type: "newermt"; time: number } // reference time in ms since the epoch
   | {
       type: "size";
       value: number;
@@ -47,6 +49,7 @@ export interface EvalContext {
   size: number; // file size in bytes
   mode: number; // file permission mode
   newerRefTimes: Map<string, number>; // reference file mtimes for -newer
+  now: number; // when the command started, the reference for -mtime and -mmin
   depth?: number; // depth in directory tree (for -printf %d)
   startingPoint?: string; // starting search path (for -printf %P)
 }
