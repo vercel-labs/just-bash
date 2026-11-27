@@ -1,0 +1,69 @@
+{
+  "2250961e06f87421": {
+    "command": "printf aabbb | tr -ds a ''",
+    "files": {},
+    "stdout": "bbb",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "3f83fb86f9a4818f": {
+    "command": "printf bababccbb | tr -ds a b",
+    "files": {},
+    "stdout": "bccb",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "50ade0ef74f81e68": {
+    "command": "printf babab | tr -cds b b",
+    "files": {},
+    "stdout": "b",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6006ab3d3c4038aa": {
+    "command": "printf /wGA | base64 -d | tr '\\001' A | base64",
+    "files": {},
+    "stdout": "/0GA\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "874b80cf57074504": {
+    "command": "printf /wEBgA== | base64 -d | tr -s '\\001' | base64",
+    "files": {},
+    "stdout": "/wGA\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "9ff760b81716c8d1": {
+    "command": "printf aaa | tr -ds a",
+    "files": {},
+    "stdout": "",
+    "stderr": "tr: missing operand after 'a'\nTwo strings must be given when both deleting and squeezing repeats.\nTry 'tr --help' for more information.\n",
+    "exitCode": 1
+  },
+  "a435013f99b28889": {
+    "command": "printf /wE= | base64 -d | tr -d '\\000-\\037' | base64",
+    "files": {},
+    "stdout": "/w==\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  },
+  "a68545e1ae8e7557": {
+    "command": "printf aaabbb | tr -ds a b",
+    "files": {},
+    "stdout": "b",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "c1eb0592269bc353": {
+    "command": "printf /wH/ | base64 -d | tr -ds '\\001' '\\377' | base64",
+    "files": {},
+    "stdout": "/w==\n",
+    "stderr": "",
+    "exitCode": 0,
+    "locked": true
+  }
+}

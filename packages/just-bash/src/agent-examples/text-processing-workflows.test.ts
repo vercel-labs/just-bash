@@ -824,7 +824,7 @@ Stack trace follows...`,
     it("should replace unsafe filename characters with underscores", async () => {
       const env = createSanitizeEnv();
       const result = await env.exec(
-        "cat /data/filenames.txt | tr -c 'a-zA-Z0-9._-\\n' '_'",
+        "cat /data/filenames.txt | tr -c 'a-zA-Z0-9._\\n-' '_'",
       );
       expect(result.stdout).toContain("report_2024.pdf");
       expect(result.stdout).toContain("my_file__1_.doc");
