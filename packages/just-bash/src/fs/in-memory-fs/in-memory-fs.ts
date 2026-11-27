@@ -33,6 +33,7 @@ import {
   isSameOrDescendantPath,
   joinPath,
   MAX_SYMLINK_DEPTH,
+  modeAfterWrite,
   normalizePath,
   resolvePath,
   resolveSymlinkTarget,
@@ -77,6 +78,18 @@ function isFileInit(
     !(value instanceof Uint8Array) &&
     "content" in value
   );
+}
+
+/**
+ * Mode for a body written over the entry already stored at a path. Truncating
+ * a file never changes its permission bits, so an overwrite keeps the stored
+ * mode instead of falling back to the default; a new path still gets the
+ * default.
+ */
+function modeForOverwrite(existing: FsEntry | undefined): number {
+  return existing?.type === "file"
+    ? modeAfterWrite(existing.mode)
+    : DEFAULT_FILE_MODE;
 }
 
 export class InMemoryFs implements IFileSystem {
@@ -270,7 +283,7 @@ export class InMemoryFs implements IFileSystem {
     this.setEntry(normalized, {
       type: "file",
       content: buffer,
-      mode: metadata?.mode ?? DEFAULT_FILE_MODE,
+      mode: metadata?.mode ?? modeForOverwrite(this.data.get(normalized)),
       mtime: metadata?.mtime ?? new Date(),
     });
   }
@@ -291,7 +304,7 @@ export class InMemoryFs implements IFileSystem {
     this.setEntry(normalized, {
       type: "file",
       lazy,
-      mode: metadata?.mode ?? DEFAULT_FILE_MODE,
+      mode: metadata?.mode ?? modeForOverwrite(this.data.get(normalized)),
       mtime: metadata?.mtime ?? new Date(),
     });
   }
@@ -423,7 +436,7 @@ export class InMemoryFs implements IFileSystem {
       this.setEntry(normalized, {
         type: "file",
         content: combined,
-        mode: materialized.mode,
+        mode: modeAfterWrite(materialized.mode),
         mtime: new Date(),
       });
     } else {
