@@ -285,8 +285,12 @@ export class Interpreter {
             env: mapToRecord(this.ctx.state.env),
           };
         }
-        // ExecutionLimitError must always propagate - these are safety limits
-        if (error instanceof ExecutionLimitError) {
+        // ExecutionLimitError must always propagate - these are safety limits.
+        // An abort propagates the same way and keeps the output printed so far.
+        if (
+          error instanceof ExecutionLimitError ||
+          error instanceof ExecutionAbortedError
+        ) {
           output.prependTo(error);
           throw error;
         }

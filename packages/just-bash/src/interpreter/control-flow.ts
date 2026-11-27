@@ -28,6 +28,7 @@ import {
   BreakError,
   ContinueError,
   ErrexitError,
+  ExecutionAbortedError,
   ExecutionLimitError,
   ExitError,
   GlobError,
@@ -41,7 +42,7 @@ import {
   isWordFullyQuoted,
 } from "./expansion.js";
 import { appendBoundedElements } from "./helpers/bounded-array.js";
-import { executeCondition } from "./helpers/condition.js";
+import { type ConditionResult, executeCondition } from "./helpers/condition.js";
 import { getErrorMessage } from "./helpers/errors.js";
 import {
   adoptLoopStatus,
@@ -159,6 +160,7 @@ async function executeBoundedStatements(
       error instanceof ErrexitError ||
       error instanceof ExitError ||
       error instanceof ExecutionLimitError ||
+      error instanceof ExecutionAbortedError ||
       error instanceof SubshellExitError
     ) {
       error.prependOutput(output.stdout, output.stderr);
@@ -168,6 +170,29 @@ async function executeBoundedStatements(
     return output.build(1);
   }
   return output.build(exitCode);
+}
+
+/**
+ * Attach the output a compound command collected so far to an abort that
+ * stops one of its conditions, so the partial result keeps it.
+ */
+function prependAbortOutput(error: unknown, output: CompoundOutput): void {
+  if (error instanceof ExecutionAbortedError) {
+    error.prependOutput(output.stdout, output.stderr);
+  }
+}
+
+async function executeCompoundCondition(
+  ctx: InterpreterContext,
+  statements: StatementNode[],
+  output: CompoundOutput,
+): Promise<ConditionResult> {
+  try {
+    return await executeCondition(ctx, statements);
+  } catch (error) {
+    prependAbortOutput(error, output);
+    throw error;
+  }
 }
 
 export async function executeIf(
@@ -187,7 +212,11 @@ async function executeIfBody(
 
   for (const clause of node.clauses) {
     // Condition evaluation should not trigger errexit
-    const condResult = await executeCondition(ctx, clause.condition);
+    const condResult = await executeCompoundCondition(
+      ctx,
+      clause.condition,
+      output,
+    );
     output.append(condResult.stdout, condResult.stderr);
 
     if (condResult.exitCode === 0) {
@@ -478,6 +507,7 @@ async function executeWhileBody(
           shouldContinue = true;
         } else {
           ctx.state.inCondition = savedInCondition;
+          prependAbortOutput(error, output);
           throw error;
         }
       } finally {
@@ -573,7 +603,11 @@ async function executeUntilBody(
       }
 
       // Condition evaluation should not trigger errexit
-      const condResult = await executeCondition(ctx, node.condition);
+      const condResult = await executeCompoundCondition(
+        ctx,
+        node.condition,
+        output,
+      );
       output.append(condResult.stdout, condResult.stderr);
 
       if (condResult.exitCode === 0) break;

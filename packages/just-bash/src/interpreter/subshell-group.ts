@@ -18,6 +18,7 @@ import {
   BreakError,
   ContinueError,
   ErrexitError,
+  ExecutionAbortedError,
   ExecutionLimitError,
   ExitError,
   isScopeExitError,
@@ -128,8 +129,12 @@ async function executeSubshellBody(
       exitCode = res.exitCode;
     }
   } catch (error) {
-    // ExecutionLimitError must always propagate - these are safety limits
-    if (error instanceof ExecutionLimitError) {
+    // ExecutionLimitError must always propagate - these are safety limits.
+    // An abort propagates the same way and keeps the output printed so far.
+    if (
+      error instanceof ExecutionLimitError ||
+      error instanceof ExecutionAbortedError
+    ) {
       output.prependTo(error);
       throw error;
     }
@@ -292,8 +297,12 @@ async function executeGroupBody(
   } catch (error) {
     // Restore groupStdin before handling error
     restoreGroupStdin();
-    // ExecutionLimitError must always propagate - these are safety limits
-    if (error instanceof ExecutionLimitError) {
+    // ExecutionLimitError must always propagate - these are safety limits.
+    // An abort propagates the same way and keeps the output printed so far.
+    if (
+      error instanceof ExecutionLimitError ||
+      error instanceof ExecutionAbortedError
+    ) {
       output.prependTo(error);
       throw error;
     }
