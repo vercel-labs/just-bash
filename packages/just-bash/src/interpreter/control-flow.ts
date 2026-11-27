@@ -83,6 +83,40 @@ function resolveLoopStdin(
   return { owns: false };
 }
 
+/**
+ * Give an `if`, `for`, C-style `for` or `case` the stdin it was handed as a
+ * pipeline stage or as a function body, the way a group gets it: the
+ * condition, the words and the body all read one stream through
+ * `ctx.state.groupStdin`, and the enclosing stream comes back afterwards.
+ *
+ * A redirection on the compound itself (`fi < file`) was already installed by
+ * `withPreparedRedirections` and wins. Without a stream of its own the
+ * compound shares the enclosing stdin, so reads inside it move the shared
+ * position: `printf 'a\nb\n' | { if :; then read x; fi; read y; }` gives
+ * `y=b`.
+ */
+async function withCompoundStdin(
+  ctx: InterpreterContext,
+  stdin: string,
+  stdinOwned: boolean,
+  prepared: PreparedRedirections,
+  run: () => Promise<ExecResult>,
+): Promise<ExecResult> {
+  if (prepared.stdin !== undefined || (!stdinOwned && stdin === "")) {
+    return run();
+  }
+  const savedGroupStdin = ctx.state.groupStdin;
+  const savedGroupStdinSourceFd = ctx.state.groupStdinSourceFd;
+  ctx.state.groupStdin = stdin;
+  ctx.state.groupStdinSourceFd = undefined;
+  try {
+    return await run();
+  } finally {
+    ctx.state.groupStdin = savedGroupStdin;
+    ctx.state.groupStdinSourceFd = savedGroupStdinSourceFd;
+  }
+}
+
 class CompoundOutput {
   private stdoutChunks: string[] = [];
   private stderrChunks: string[] = [];
@@ -173,9 +207,13 @@ async function executeBoundedStatements(
 export async function executeIf(
   ctx: InterpreterContext,
   node: IfNode,
+  stdin = "",
+  stdinOwned = false,
 ): Promise<ExecResult> {
-  return withPreparedRedirections(ctx, node.redirections, "", () =>
-    executeIfBody(ctx, node),
+  return withPreparedRedirections(ctx, node.redirections, stdin, (prepared) =>
+    withCompoundStdin(ctx, stdin, stdinOwned, prepared, () =>
+      executeIfBody(ctx, node),
+    ),
   );
 }
 
@@ -205,9 +243,13 @@ async function executeIfBody(
 export async function executeFor(
   ctx: InterpreterContext,
   node: ForNode,
+  stdin = "",
+  stdinOwned = false,
 ): Promise<ExecResult> {
-  return withPreparedRedirections(ctx, node.redirections, "", () =>
-    executeForBody(ctx, node),
+  return withPreparedRedirections(ctx, node.redirections, stdin, (prepared) =>
+    withCompoundStdin(ctx, stdin, stdinOwned, prepared, () =>
+      executeForBody(ctx, node),
+    ),
   );
 }
 
@@ -306,9 +348,13 @@ async function executeForBody(
 export async function executeCStyleFor(
   ctx: InterpreterContext,
   node: CStyleForNode,
+  stdin = "",
+  stdinOwned = false,
 ): Promise<ExecResult> {
-  return withPreparedRedirections(ctx, node.redirections, "", () =>
-    executeCStyleForBody(ctx, node),
+  return withPreparedRedirections(ctx, node.redirections, stdin, (prepared) =>
+    withCompoundStdin(ctx, stdin, stdinOwned, prepared, () =>
+      executeCStyleForBody(ctx, node),
+    ),
   );
 }
 
@@ -620,9 +666,13 @@ async function executeUntilBody(
 export async function executeCase(
   ctx: InterpreterContext,
   node: CaseNode,
+  stdin = "",
+  stdinOwned = false,
 ): Promise<ExecResult> {
-  return withPreparedRedirections(ctx, node.redirections, "", () =>
-    executeCaseBody(ctx, node),
+  return withPreparedRedirections(ctx, node.redirections, stdin, (prepared) =>
+    withCompoundStdin(ctx, stdin, stdinOwned, prepared, () =>
+      executeCaseBody(ctx, node),
+    ),
   );
 }
 
