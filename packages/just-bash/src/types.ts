@@ -46,6 +46,11 @@ export interface ExecResult {
   internalProducerCommand?: string;
   /** @internal Whether `exec` gives the producer external diagnostic formatting. */
   internalProducerOmitsShellPrefix?: boolean;
+  /** @internal Producers of buffered stdout relayed by compound commands. */
+  internalStdoutProducers?: {
+    command: string;
+    omitShellPrefix?: boolean;
+  }[];
   /** @internal Bytes consumed from a descriptor-backed stdin stream. */
   internalStdinConsumed?: number;
   /**

@@ -13,6 +13,9 @@ export class ExecutionOutputAccumulator {
   private readonly stderrChunks: string[] = [];
   private stdoutBytes = 0;
   private stderrBytes = 0;
+  private readonly stdoutProducers: NonNullable<
+    ExecResult["internalStdoutProducers"]
+  > = [];
   private readonly attachedErrors = new WeakSet<ControlFlowError>();
 
   constructor(
@@ -56,6 +59,11 @@ export class ExecutionOutputAccumulator {
     if (this.attachedErrors.has(error)) return;
     this.attachedErrors.add(error);
     error.prependOutput(this.stdout, this.stderr);
+    if (this.stdoutProducers.length > 0) {
+      error.internalStdoutProducers = this.stdoutProducers.concat(
+        error.internalStdoutProducers ?? [],
+      );
+    }
   }
 
   appendResult(result: ExecResult, stdout: string = result.stdout): void {
@@ -71,6 +79,18 @@ export class ExecutionOutputAccumulator {
       Math.min(result.internalOutputAccounting?.stdout ?? 0, stdoutBytes),
       stdoutKind,
     );
+    if (stdout) {
+      if (result.internalStdoutProducers) {
+        for (const producer of result.internalStdoutProducers) {
+          this.stdoutProducers.push(producer);
+        }
+      } else if (result.internalProducerCommand) {
+        this.stdoutProducers.push({
+          command: result.internalProducerCommand,
+          omitShellPrefix: result.internalProducerOmitsShellPrefix,
+        });
+      }
+    }
     this.append(
       "stderr",
       result.stderr,
@@ -79,11 +99,17 @@ export class ExecutionOutputAccumulator {
   }
 
   build(exitCode: number, extra?: Partial<ExecResult>): ExecResult {
+    const stdoutProducers = this.stdoutProducers.concat(
+      extra?.internalStdoutProducers ?? [],
+    );
     return {
       stdout: this.stdoutChunks.join(""),
       stderr: this.stderrChunks.join(""),
       exitCode,
       ...extra,
+      ...(stdoutProducers.length > 0
+        ? { internalStdoutProducers: stdoutProducers }
+        : null),
       internalOutputAccounting: {
         stdout: this.stdoutBytes,
         stderr: this.stderrBytes,
