@@ -115,7 +115,7 @@ describe("js-exec Node.js compatibility", () => {
         files: { "/home/user/s.txt": "12345" },
       });
       const result = await env.exec(
-        `js-exec -m -c "const s = await fs.promises.stat('/home/user/s.txt'); console.log(s.isFile, s.size)"`,
+        `js-exec -m -c "const s = await fs.promises.stat('/home/user/s.txt'); console.log(s.isFile(), s.size)"`,
       );
       expect(result.stdout).toBe("true 5\n");
       expect(result.exitCode).toBe(0);
@@ -152,6 +152,26 @@ describe("js-exec Node.js compatibility", () => {
       expect(result.stdout).toBe("true\n");
       expect(result.exitCode).toBe(0);
     });
+
+    it("should be the fs/promises module, for require and import alike", async () => {
+      const env = new Bash({
+        javascript: true,
+        files: {
+          "/home/user/p.txt": "promised",
+          "/home/user/p.mjs":
+            "import { readFile, stat } from 'node:fs/promises';\nimport fsp from 'fs/promises';\nconsole.log(await readFile('/home/user/p.txt', 'utf8'), (await stat('/home/user/p.txt')).isFile(), fsp === fs.promises);\n",
+        },
+      });
+      const required = await env.exec(
+        `js-exec -m -c "const fsp = require('node:fs/promises'); console.log(await fsp.readFile('/home/user/p.txt', 'utf8'), fsp === fs.promises)"`,
+      );
+      expect(required.stdout).toBe("promised true\n");
+      expect(required.exitCode).toBe(0);
+
+      const imported = await env.exec("js-exec /home/user/p.mjs");
+      expect(imported.stdout).toBe("promised true true\n");
+      expect(imported.exitCode).toBe(0);
+    });
   });
 
   describe("callback error detection", () => {
@@ -187,7 +207,7 @@ describe("js-exec Node.js compatibility", () => {
         files: { "/home/user/f.txt": "hello" },
       });
       const result = await env.exec(
-        `js-exec -c "const s = fs.lstatSync('/home/user/f.txt'); console.log(s.isFile, s.size)"`,
+        `js-exec -c "const s = fs.lstatSync('/home/user/f.txt'); console.log(s.isFile(), s.size)"`,
       );
       expect(result.stdout).toBe("true 5\n");
       expect(result.exitCode).toBe(0);

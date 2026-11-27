@@ -412,6 +412,10 @@ export async function traverseFileTree(
     });
     const names = await options.fs.readdir(item.path);
     budget.checkpoint();
+    // Admit the children against the entry ceiling before sorting or
+    // queueing them, so a directory wider than the limit is refused without
+    // first holding all of it.
+    budget.reserve(names.length);
     names.sort((a, b) => a.localeCompare(b));
     for (let index = names.length - 1; index >= 0; index--) {
       stack.push({
