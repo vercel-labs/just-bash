@@ -27,6 +27,9 @@ const xargsHelp = {
   ],
 };
 
+// An option that takes a value, with the value attached: -n2, -I{}, -d, or -P4
+const ATTACHED_VALUE_OPTION = /^-([IdnP])([\s\S]+)$/;
+
 function splitExactBounded(
   input: string,
   delimiter: string,
@@ -97,13 +100,18 @@ export const xargsCommand: RuntimeCommand = {
 
     // Parse xargs options
     for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-      if (arg === "-I" && i + 1 < args.length) {
-        replaceStr = args[++i];
+      // -I, -d, -n and -P take their value as the next argument (-n 2) or
+      // attached to the option (-n2)
+      const attachedValue = ATTACHED_VALUE_OPTION.exec(args[i]);
+      const arg = attachedValue ? `-${attachedValue[1]}` : args[i];
+      const hasValue = attachedValue !== null || i + 1 < args.length;
+      const takeValue = () => (attachedValue ? attachedValue[2] : args[++i]);
+      if (arg === "-I" && hasValue) {
+        replaceStr = takeValue();
         commandStart = i + 1;
-      } else if (arg === "-d" && i + 1 < args.length) {
+      } else if (arg === "-d" && hasValue) {
         // Parse delimiter - handle escape sequences like \n, \t
-        const delimArg = args[++i];
+        const delimArg = takeValue();
         delimiter = delimArg
           .replace(/\\n/g, "\n")
           .replace(/\\t/g, "\t")
@@ -111,8 +119,8 @@ export const xargsCommand: RuntimeCommand = {
           .replace(/\\0/g, "\0")
           .replace(/\\\\/g, "\\");
         commandStart = i + 1;
-      } else if (arg === "-n" && i + 1 < args.length) {
-        const value = args[++i];
+      } else if (arg === "-n" && hasValue) {
+        const value = takeValue();
         const parsedNumber = Number(value);
         if (
           !/^\d+$/.test(value) ||
@@ -127,8 +135,8 @@ export const xargsCommand: RuntimeCommand = {
         }
         maxArgs = parsedNumber;
         commandStart = i + 1;
-      } else if (arg === "-P" && i + 1 < args.length) {
-        const value = args[++i];
+      } else if (arg === "-P" && hasValue) {
+        const value = takeValue();
         const parsedNumber = Number(value);
         if (!/^\d+$/.test(value) || !Number.isSafeInteger(parsedNumber)) {
           return {
