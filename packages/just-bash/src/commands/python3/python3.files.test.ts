@@ -210,4 +210,44 @@ EOF`);
       expect(result.exitCode).toBe(0);
     });
   });
+  describe("pathlib globbing", () => {
+    it(
+      "rglob walks subfolders and returns virtual paths",
+      { timeout: 60000 },
+      async () => {
+        const env = new Bash({ python: true });
+        await env.exec(
+          "mkdir -p /tmp/tree/a/b && touch /tmp/tree/top.pdf /tmp/tree/a/mid.pdf /tmp/tree/a/b/deep.PDF /tmp/tree/a/b/note.txt",
+        );
+        await env.exec(`cat > /tmp/rglob.py << 'EOF'
+from pathlib import Path
+print(sorted(str(p) for p in Path('/tmp/tree').rglob('*.pdf')))
+EOF`);
+        const result = await env.exec("python3 /tmp/rglob.py");
+        expect(result.stderr).toBe("");
+        expect(result.stdout).toBe(
+          "['/tmp/tree/a/mid.pdf', '/tmp/tree/top.pdf']\n",
+        );
+        expect(result.exitCode).toBe(0);
+      },
+    );
+
+    it("glob passes keyword arguments through", async () => {
+      const env = new Bash({ python: true });
+      await env.exec(
+        "mkdir -p /tmp/kw/a && touch /tmp/kw/a/x.PDF /tmp/kw/a/y.pdf",
+      );
+      await env.exec(`cat > /tmp/kw.py << 'EOF'
+from pathlib import Path
+print(sorted(str(p) for p in Path('/tmp/kw').glob('**/*.pdf', case_sensitive=False)))
+print(sorted(str(p) for p in Path('/tmp/kw').rglob('*.pdf', case_sensitive=False)))
+EOF`);
+      const result = await env.exec("python3 /tmp/kw.py");
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toBe(
+        "['/tmp/kw/a/x.PDF', '/tmp/kw/a/y.pdf']\n['/tmp/kw/a/x.PDF', '/tmp/kw/a/y.pdf']\n",
+      );
+      expect(result.exitCode).toBe(0);
+    });
+  });
 });
