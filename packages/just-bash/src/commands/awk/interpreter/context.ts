@@ -36,8 +36,8 @@ export interface AwkRuntimeContext {
   // User variables and arrays
   vars: Record<string, AwkValue>;
   arrays: Record<string, Record<string, AwkValue>>;
-  // Array aliases for function parameter passing (parameter name → original name)
-  arrayAliases: Map<string, string>;
+  // Parameter name → array name; undefined marks a scalar argument.
+  arrayAliases: Map<string, string | undefined>;
 
   // ARGC/ARGV for command line arguments
   ARGC: number;
