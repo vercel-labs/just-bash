@@ -273,7 +273,11 @@ async function handleArrayExpansionCases(
 
   // Array default/alternative values
   {
-    const arrayDefaultResult = await handleArrayDefaultValue(ctx, wordParts);
+    const arrayDefaultResult = await handleArrayDefaultValue(
+      ctx,
+      wordParts,
+      (c, p) => deps.expandPart(c, p, true),
+    );
     if (arrayDefaultResult !== null) {
       return arrayDefaultResult;
     }
