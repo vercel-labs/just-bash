@@ -5,7 +5,18 @@ import {
   createCommandContext,
   EMPTY_BYTES,
   InMemoryFs,
+  isBashParseError,
+  parse,
 } from "./index.js";
+
+const getParseError = (source: string): unknown => {
+  try {
+    parse(source);
+  } catch (error) {
+    return error;
+  }
+  throw new Error("Expected parsing to fail");
+};
 
 describe("public API source compatibility", () => {
   it("keeps standalone inputs separate from resolved command callbacks", async () => {
@@ -34,5 +45,12 @@ describe("public API source compatibility", () => {
     });
     expect("limits" in context).toBe(false);
     expect(dispatched.limits.maxOutputSize).toBeGreaterThan(0);
+  });
+
+  it("classifies expected parse failures without matching unrelated errors", () => {
+    expect(isBashParseError(getParseError("fi"))).toBe(true);
+    expect(isBashParseError(getParseError('echo "unterminated'))).toBe(true);
+    expect(isBashParseError(getParseError("echo $((1.2))"))).toBe(true);
+    expect(isBashParseError(new Error("implementation failure"))).toBe(false);
   });
 });
