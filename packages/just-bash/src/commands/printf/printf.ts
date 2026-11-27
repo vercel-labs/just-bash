@@ -1,4 +1,9 @@
 import { sprintf } from "sprintf-js";
+import {
+  decodeByteEscapes,
+  readOctalOrHexEscape,
+  readZeroOctalOrHexEscape,
+} from "../../encoding.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 import { getErrorMessage } from "../../interpreter/helpers/errors.js";
 import type {
@@ -14,123 +19,6 @@ import {
   utf8ByteLength,
 } from "./escapes.js";
 import { formatStrftime } from "./strftime.js";
-
-/**
- * Decode a byte array as UTF-8 with error recovery.
- * Valid UTF-8 sequences are decoded to their Unicode characters.
- * Invalid bytes are preserved as Latin-1 characters (byte value = char code).
- */
-function decodeUtf8WithRecovery(bytes: number[]): string {
-  let result = "";
-  let i = 0;
-
-  while (i < bytes.length) {
-    const b0 = bytes[i];
-
-    // ASCII (0xxxxxxx)
-    if (b0 < 0x80) {
-      result += String.fromCharCode(b0);
-      i++;
-      continue;
-    }
-
-    // 2-byte sequence (110xxxxx 10xxxxxx)
-    if ((b0 & 0xe0) === 0xc0) {
-      if (
-        i + 1 < bytes.length &&
-        (bytes[i + 1] & 0xc0) === 0x80 &&
-        b0 >= 0xc2 // Reject overlong sequences
-      ) {
-        const codePoint = ((b0 & 0x1f) << 6) | (bytes[i + 1] & 0x3f);
-        result += String.fromCharCode(codePoint);
-        i += 2;
-        continue;
-      }
-      // Invalid or incomplete - output as Latin-1
-      result += String.fromCharCode(b0);
-      i++;
-      continue;
-    }
-
-    // 3-byte sequence (1110xxxx 10xxxxxx 10xxxxxx)
-    if ((b0 & 0xf0) === 0xe0) {
-      if (
-        i + 2 < bytes.length &&
-        (bytes[i + 1] & 0xc0) === 0x80 &&
-        (bytes[i + 2] & 0xc0) === 0x80
-      ) {
-        // Check for overlong encoding
-        if (b0 === 0xe0 && bytes[i + 1] < 0xa0) {
-          // Overlong - output first byte as Latin-1
-          result += String.fromCharCode(b0);
-          i++;
-          continue;
-        }
-        // Check for surrogate range (U+D800-U+DFFF)
-        const codePoint =
-          ((b0 & 0x0f) << 12) |
-          ((bytes[i + 1] & 0x3f) << 6) |
-          (bytes[i + 2] & 0x3f);
-        if (codePoint >= 0xd800 && codePoint <= 0xdfff) {
-          // Invalid surrogate - output first byte as Latin-1
-          result += String.fromCharCode(b0);
-          i++;
-          continue;
-        }
-        result += String.fromCharCode(codePoint);
-        i += 3;
-        continue;
-      }
-      // Invalid or incomplete - output as Latin-1
-      result += String.fromCharCode(b0);
-      i++;
-      continue;
-    }
-
-    // 4-byte sequence (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
-    if ((b0 & 0xf8) === 0xf0 && b0 <= 0xf4) {
-      if (
-        i + 3 < bytes.length &&
-        (bytes[i + 1] & 0xc0) === 0x80 &&
-        (bytes[i + 2] & 0xc0) === 0x80 &&
-        (bytes[i + 3] & 0xc0) === 0x80
-      ) {
-        // Check for overlong encoding
-        if (b0 === 0xf0 && bytes[i + 1] < 0x90) {
-          // Overlong - output first byte as Latin-1
-          result += String.fromCharCode(b0);
-          i++;
-          continue;
-        }
-        const codePoint =
-          ((b0 & 0x07) << 18) |
-          ((bytes[i + 1] & 0x3f) << 12) |
-          ((bytes[i + 2] & 0x3f) << 6) |
-          (bytes[i + 3] & 0x3f);
-        // Check for valid range (U+10000 to U+10FFFF)
-        if (codePoint > 0x10ffff) {
-          // Invalid - output first byte as Latin-1
-          result += String.fromCharCode(b0);
-          i++;
-          continue;
-        }
-        result += String.fromCodePoint(codePoint);
-        i += 4;
-        continue;
-      }
-      // Invalid or incomplete - output as Latin-1
-      result += String.fromCharCode(b0);
-      i++;
-      continue;
-    }
-
-    // Invalid lead byte (10xxxxxx or 11111xxx) - output as Latin-1
-    result += String.fromCharCode(b0);
-    i++;
-  }
-
-  return result;
-}
 
 const printfHelp = {
   name: "printf",
@@ -1108,6 +996,17 @@ function formatFloat(spec: string, specifier: string, num: number): string {
 }
 
 /**
+ * One byte escape in a %b argument: `\0NNN` (0-3 octal digits after the 0),
+ * `\NNN` (1-3 octal digits) or `\xHH` (1-2 hex digits).
+ */
+function readBEscapeByte(
+  str: string,
+  i: number,
+): { byte: number; next: number } | null {
+  return readZeroOctalOrHexEscape(str, i) ?? readOctalOrHexEscape(str, i);
+}
+
+/**
  * Process escape sequences in %b argument
  * Similar to processEscapes but with additional features:
  * - \c stops output (discards rest of string and rest of format)
@@ -1168,29 +1067,12 @@ function processBEscapes(
           // \c stops all output - return immediately with stopped flag
           return { value: result, stopped: true };
         case "x": {
-          // \xHH - hex escape (1-2 hex digits)
-          // Collect consecutive \xHH escapes and decode as UTF-8 with error recovery
-          const bytes: number[] = [];
-          let j = i;
-          while (j + 1 < str.length && str[j] === "\\" && str[j + 1] === "x") {
-            let hex = "";
-            let k = j + 2;
-            while (k < str.length && k < j + 4 && /[0-9a-fA-F]/.test(str[k])) {
-              hex += str[k];
-              k++;
-            }
-            if (hex) {
-              bytes.push(parseInt(hex, 16));
-              j = k;
-            } else {
-              break;
-            }
-          }
-
-          if (bytes.length > 0) {
-            // Decode bytes as UTF-8 with error recovery
-            result += decodeUtf8WithRecovery(bytes);
-            i = j;
+          // \xHH - hex escape (1-2 hex digits). A run of byte escapes (hex or
+          // octal) is decoded as UTF-8 together, with invalid bytes as Latin-1.
+          const run = decodeByteEscapes(str, i, readBEscapeByte);
+          if (run.next > i) {
+            result += run.text;
+            i = run.next;
           } else {
             result += "\\x";
             i += 2;
@@ -1214,22 +1096,7 @@ function processBEscapes(
           }
           break;
         }
-        case "0": {
-          // \0NNN - octal escape (0-3 digits after the 0)
-          let octal = "";
-          let j = i + 2;
-          while (j < str.length && j < i + 5 && /[0-7]/.test(str[j])) {
-            octal += str[j];
-            j++;
-          }
-          if (octal) {
-            result += String.fromCharCode(parseInt(octal, 8));
-          } else {
-            result += "\0"; // Just \0 is NUL
-          }
-          i = j;
-          break;
-        }
+        case "0":
         case "1":
         case "2":
         case "3":
@@ -1237,15 +1104,11 @@ function processBEscapes(
         case "5":
         case "6":
         case "7": {
-          // \NNN - octal escape (1-3 digits, no leading 0)
-          let octal = "";
-          let j = i + 1;
-          while (j < str.length && j < i + 4 && /[0-7]/.test(str[j])) {
-            octal += str[j];
-            j++;
-          }
-          result += String.fromCharCode(parseInt(octal, 8));
-          i = j;
+          // \0NNN or \NNN - octal escape (\0 alone is NUL), decoded with the
+          // rest of its byte run
+          const run = decodeByteEscapes(str, i, readBEscapeByte);
+          result += run.text;
+          i = run.next;
           break;
         }
         default:
