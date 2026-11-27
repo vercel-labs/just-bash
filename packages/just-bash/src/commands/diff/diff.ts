@@ -89,6 +89,13 @@ export const diffCommand: RuntimeCommand = {
     if (files.length < 2) {
       return { stdout: "", stderr: "diff: missing operand\n", exitCode: 2 };
     }
+    if (files.length > 2) {
+      return {
+        stdout: "",
+        stderr: `diff: extra operand '${files[2]}'\ndiff: Try 'diff --help' for more information.\n`,
+        exitCode: 2,
+      };
+    }
 
     let c1: string, c2: string;
     const [f1, f2] = files;
