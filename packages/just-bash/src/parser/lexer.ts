@@ -1260,11 +1260,12 @@ export class Lexer {
           } else {
             // Check if there's non-quote content after this quote
             const nextChar = pos + 1 < len ? input[pos + 1] : "";
-            if (nextChar && !isWordBoundary(nextChar) && nextChar !== '"') {
-              // There's content after - check if it's a different quote type
-              if (nextChar === "'") {
-                // Adjacent different quote types like "a"'$foo' - need full parsing
-                // Preserve the closing double quote for parseWordParts
+            if (nextChar && !isWordBoundary(nextChar)) {
+              // There's content after - check if it's another quoted segment
+              if (nextChar === "'" || nextChar === '"') {
+                // Adjacent quoted segments like "a"'$foo' or "$x""_y" - need full parsing
+                // Preserve the closing double quote for parseWordParts, so that the text of
+                // the next segment cannot join the end of a variable name in this one
                 hasContentAfterQuote = true;
                 value += char;
                 singleQuoted = false;
@@ -1275,7 +1276,6 @@ export class Lexer {
                 value += char;
               }
             }
-            // If next char is same quote type, don't set hasContentAfterQuote - let the parser handle
           }
         } else {
           inDoubleQuote = true;
@@ -1810,7 +1810,8 @@ export class Lexer {
     // We already preserved the quotes in the main loop when hasContentAfterQuote became true,
     // but the opening quote was not preserved initially. We need to prepend it.
     if (hasContentAfterQuote && startsWithQuote) {
-      const openQuote = input[start];
+      // A locale-quoted word ($"...") skipped its $, so what was opened is a double quote
+      const openQuote = input[start] === "$" ? '"' : input[start];
       value = openQuote + value;
       quoted = false;
       singleQuoted = false;
