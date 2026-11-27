@@ -1,0 +1,51 @@
+{
+  "0ca34b018d89f111": {
+    "command": "cd /dev; echo hi >| ./stderr",
+    "files": {},
+    "stdout": "",
+    "stderr": "hi\n",
+    "exitCode": 0
+  },
+  "1dedb5e87d2c8ae4": {
+    "command": "cd /; echo hi > dev/null; wc -c < dev/null",
+    "files": {},
+    "stdout": "       0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "2062f09ddb1917dc": {
+    "command": "cd /dev; set -C; echo hi > ./null; wc -c < ./null",
+    "files": {},
+    "stdout": "       0\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "274f513a2649eb96": {
+    "command": "cd /dev; echo hi >> ./stdout",
+    "files": {},
+    "stdout": "hi\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "6926a4b67fc9df13": {
+    "command": "echo hi > //dev/stdout",
+    "files": {},
+    "stdout": "hi\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "8001ee1cfb222161": {
+    "command": "cd /dev; echo hi > stdout",
+    "files": {},
+    "stdout": "hi\n",
+    "stderr": "",
+    "exitCode": 0
+  },
+  "ec73b9e36a832991": {
+    "command": "echo hi > /dev/../dev/stderr",
+    "files": {},
+    "stdout": "",
+    "stderr": "hi\n",
+    "exitCode": 0
+  }
+}

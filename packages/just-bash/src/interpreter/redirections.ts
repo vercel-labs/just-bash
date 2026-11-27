@@ -74,8 +74,7 @@ async function checkOutputRedirectTarget(
     if (
       options.checkNoclobber &&
       ctx.state.options.noclobber &&
-      !options.isClobber &&
-      target !== "/dev/null"
+      !options.isClobber
     ) {
       return `bash: ${target}: cannot overwrite existing file\n`;
     }
@@ -247,21 +246,21 @@ async function openOutputEntry(
   if (filePath === DEV_NULL) {
     return { entry: { kind: "output", path: DEV_NULL, append } };
   }
+  if (filePath === "/dev/stdout") {
+    return { entry: { kind: "dup-out", sourceFd: 1 } };
+  }
+  if (filePath === "/dev/stderr") {
+    return { entry: { kind: "dup-out", sourceFd: 2 } };
+  }
   const error = await checkOutputRedirectTarget(ctx, filePath, target, {
     checkNoclobber: !append,
     isClobber,
   });
   if (error) return { error: makeResult("", error, 1) };
-  if (target === "/dev/full") {
+  if (filePath === "/dev/full") {
     return {
-      error: makeResult("", "bash: /dev/full: No space left on device\n", 1),
+      error: makeResult("", `bash: ${target}: No space left on device\n`, 1),
     };
-  }
-  if (target === "/dev/stdout") {
-    return { entry: { kind: "dup-out", sourceFd: 1 } };
-  }
-  if (target === "/dev/stderr") {
-    return { entry: { kind: "dup-out", sourceFd: 2 } };
   }
   try {
     if (append) await ctx.fs.appendFile(filePath, "", "binary");
