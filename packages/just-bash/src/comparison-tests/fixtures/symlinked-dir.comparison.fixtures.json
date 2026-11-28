@@ -1,0 +1,11 @@
+{
+  "51e8be960fa8f1ab": {
+    "command": "ln -s real lnk; echo new > lnk/a.txt; echo more >> lnk/a.txt; mkdir lnk/sub; touch lnk/t.txt; cp lnk/f.txt lnk/copy.txt; mv lnk/copy.txt lnk/moved.txt; rm lnk/f.txt; ls real; cat real/a.txt",
+    "files": {
+      "real/f.txt": "old\n"
+    },
+    "stdout": "a.txt\nmoved.txt\nsub\nt.txt\nnew\nmore\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
