@@ -256,7 +256,7 @@ export class InMemoryFs implements IFileSystem {
     metadata?: { mode?: number; mtime?: Date },
   ): void {
     validatePath(path, "write");
-    const normalized = normalizePath(path);
+    const normalized = this.resolveIntermediateSymlinks(path);
     this.ensureParentDirs(normalized);
 
     // Store content - convert to Uint8Array for internal storage
@@ -382,7 +382,7 @@ export class InMemoryFs implements IFileSystem {
     options?: WriteFileOptions | BufferEncoding,
   ): Promise<void> {
     validatePath(path, "append");
-    const normalized = normalizePath(path);
+    const normalized = this.resolveIntermediateSymlinks(path);
     const existing = this.data.get(normalized);
 
     if (existing && existing.type === "directory") {
@@ -691,7 +691,7 @@ export class InMemoryFs implements IFileSystem {
    */
   mkdirSync(path: string, options?: MkdirOptions): void {
     validatePath(path, "mkdir");
-    const normalized = normalizePath(path);
+    const normalized = this.resolveIntermediateSymlinks(path);
 
     if (this.data.has(normalized)) {
       const entry = this.data.get(normalized);
@@ -728,7 +728,7 @@ export class InMemoryFs implements IFileSystem {
 
   async readdirWithFileTypes(path: string): Promise<DirentEntry[]> {
     validatePath(path, "scandir");
-    let normalized = normalizePath(path);
+    let normalized = this.resolveIntermediateSymlinks(path);
     let entry = this.data.get(normalized);
 
     if (!entry) {
@@ -783,7 +783,7 @@ export class InMemoryFs implements IFileSystem {
 
   async rm(path: string, options?: RmOptions): Promise<void> {
     validatePath(path, "rm");
-    const normalized = normalizePath(path);
+    const normalized = this.resolveIntermediateSymlinks(path);
     const entry = this.data.get(normalized);
 
     if (!entry) {
@@ -810,8 +810,8 @@ export class InMemoryFs implements IFileSystem {
   async cp(src: string, dest: string, options?: CpOptions): Promise<void> {
     validatePath(src, "cp");
     validatePath(dest, "cp");
-    const srcNorm = normalizePath(src);
-    const destNorm = normalizePath(dest);
+    const srcNorm = this.resolveIntermediateSymlinks(src);
+    const destNorm = this.resolveIntermediateSymlinks(dest);
     const srcEntry = this.data.get(srcNorm);
 
     if (!srcEntry) {
@@ -860,8 +860,8 @@ export class InMemoryFs implements IFileSystem {
   async mv(src: string, dest: string): Promise<void> {
     validatePath(src, "mv");
     validatePath(dest, "mv");
-    const srcNorm = normalizePath(src);
-    const destNorm = normalizePath(dest);
+    const srcNorm = this.resolveIntermediateSymlinks(src);
+    const destNorm = this.resolveIntermediateSymlinks(dest);
     if (srcNorm === destNorm) return;
 
     const source = this.data.get(srcNorm);
@@ -905,7 +905,7 @@ export class InMemoryFs implements IFileSystem {
   // Change file/directory permissions
   async chmod(path: string, mode: number): Promise<void> {
     validatePath(path, "chmod");
-    const normalized = normalizePath(path);
+    const normalized = this.resolveIntermediateSymlinks(path);
     const entry = this.data.get(normalized);
 
     if (!entry) {
@@ -918,7 +918,7 @@ export class InMemoryFs implements IFileSystem {
   // Create a symbolic link
   async symlink(target: string, linkPath: string): Promise<void> {
     validatePath(linkPath, "symlink");
-    const normalized = normalizePath(linkPath);
+    const normalized = this.resolveIntermediateSymlinks(linkPath);
 
     if (this.data.has(normalized)) {
       throw new Error(`EEXIST: file already exists, symlink '${linkPath}'`);
@@ -937,8 +937,8 @@ export class InMemoryFs implements IFileSystem {
   async link(existingPath: string, newPath: string): Promise<void> {
     validatePath(existingPath, "link");
     validatePath(newPath, "link");
-    const existingNorm = normalizePath(existingPath);
-    const newNorm = normalizePath(newPath);
+    const existingNorm = this.resolveIntermediateSymlinks(existingPath);
+    const newNorm = this.resolveIntermediateSymlinks(newPath);
 
     const entry = this.data.get(existingNorm);
     if (!entry) {
@@ -977,7 +977,7 @@ export class InMemoryFs implements IFileSystem {
   // Read the target of a symbolic link
   async readlink(path: string): Promise<string> {
     validatePath(path, "readlink");
-    const normalized = normalizePath(path);
+    const normalized = this.resolveIntermediateSymlinks(path);
     const entry = this.data.get(normalized);
 
     if (!entry) {
